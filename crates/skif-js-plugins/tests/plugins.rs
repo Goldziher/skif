@@ -17,7 +17,7 @@ use skif_js_plugins::{
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 207] = [
+const ADR_IDS: [&str; 212] = [
     "typescript",
     "eslint",
     "prettier",
@@ -225,6 +225,11 @@ const ADR_IDS: [&str; 207] = [
     "taskr",
     "bazel",
     "knip",
+    "evalite",
+    "mikro-orm",
+    "web-test-runner",
+    "unplugin-vue-i18n",
+    "unplugin-vue-markdown",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -7200,4 +7205,206 @@ fn bazel_root_labels_from_nested_packages_count_and_output_trees_do_not() {
     let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
     assert_eq!(entries, BTreeSet::from(["scripts/x.js"]));
     assert_eq!(out.build_sources, Vec::<String>::new());
+}
+
+/// The plugins that are not enabled for `results`, of those named.
+fn disabled<'a>(results: &[(PluginId, PluginOutput)], ids: &[&'a str]) -> Vec<&'a str> {
+    ids.iter()
+        .copied()
+        .filter(|id| results.iter().all(|(enabled, _)| enabled != id))
+        .collect()
+}
+
+/// Adapted from knip's `fixtures/plugins/evalite` and `fixtures/plugins/evalite2` at commit
+/// b25639c96bfff334519a189605e609a4ed5ae801.
+#[test]
+fn evalite_eval_files_and_setup_files() {
+    let files = [
+        (
+            "evalite.config.ts",
+            "import { defineConfig } from 'evalite/config';\n\nexport default defineConfig({\n  setupFiles: ['dotenv/config', './setup.ts'],\n});\n",
+        ),
+        ("setup.ts", "export const setup = true;\n"),
+        (
+            "src/answer.eval.ts",
+            "import { evalite } from 'evalite';\nimport { answer } from './answer.ts';\n\nevalite('Answer', { data: [], task: answer, scorers: [] });\n",
+        ),
+        (
+            "src/answer.ts",
+            "export const answer = (question: string) => `Answer to ${question}`;\n",
+        ),
+    ];
+    let results = resolve(&files, &["dotenv", "evalite"]);
+    let out = output(&results, "evalite");
+    assert_eq!(out.entries, ["**/*.eval.{ts,mts}", "setup.ts"]);
+    assert_eq!(deps(out), BTreeSet::from(["dotenv"]));
+    assert!(out.config_files.iter().any(|path| path.ends_with("evalite.config.ts")));
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+
+    let without_config = resolve(&files[2..], &["evalite"]);
+    let out = output(&without_config, "evalite");
+    assert_eq!(out.entries, ["**/*.eval.{ts,mts}"]);
+    assert_eq!(deps(out), BTreeSet::new());
+
+    assert_eq!(disabled(&resolve(&files, &["dotenv"]), &["evalite"]), ["evalite"]);
+}
+
+/// The production entries of a MikroORM package, as globs relative to the workspace.
+fn mikro_orm_entries(files: &[(&str, &str)]) -> BTreeSet<String> {
+    let results = resolve(files, &["@mikro-orm/cli"]);
+    let out = output(&results, "mikro-orm");
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+    assert_eq!(out.production_entries, out.entries);
+    out.production_entries.iter().cloned().collect()
+}
+
+/// Adapted from knip's `fixtures/plugins/mikro-orm` at commit b25639c96bfff334519a189605e609a4ed5ae801: entity
+/// directories stand for every module below them, and the default migrations and seeders directories are read.
+#[test]
+fn mikro_orm_entities_migrations_and_seeders_are_production_entries() {
+    let config = (
+        "mikro-orm.config.ts",
+        "export default {\n  entities: ['./src/entities'],\n  entitiesTs: ['./src/entities-ts'],\n};\n",
+    );
+    assert_eq!(
+        mikro_orm_entries(&[config]),
+        BTreeSet::from([
+            "migrations/*.{js,ts,cjs}".to_owned(),
+            "seeders/*.{js,ts}".to_owned(),
+            "src/entities-ts/**/*.{js,cjs,mjs,ts,cts,mts}".to_owned(),
+            "src/entities/**/*.{js,cjs,mjs,ts,cts,mts}".to_owned(),
+        ])
+    );
+    assert_eq!(
+        disabled(&resolve(&[config], &["typeorm"]), &["mikro-orm"]),
+        ["mikro-orm"]
+    );
+}
+
+/// Adapted from knip's `fixtures/plugins/mikro-orm-package-section` at commit
+/// b25639c96bfff334519a189605e609a4ed5ae801: `package.json#mikro-orm` without `configPaths` names no config, and a
+/// configured migrations `path` replaces the default directory.
+#[test]
+fn mikro_orm_migrations_path_replaces_the_default_directory() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","devDependencies":{"@mikro-orm/cli":"*"},"mikro-orm":{"useTsNode":true}}"#,
+        ),
+        (
+            "mikro-orm.config.ts",
+            "export default {\n  migrations: {\n    path: './db/migrations',\n  },\n};\n",
+        ),
+    ];
+    assert_eq!(
+        mikro_orm_entries(&files),
+        BTreeSet::from(["db/migrations/*.{js,ts,cjs}".to_owned(), "seeders/*.{js,ts}".to_owned()])
+    );
+}
+
+/// Adapted from knip's `fixtures/plugins/mikro-orm-config-paths` at commit b25639c96bfff334519a189605e609a4ed5ae801,
+/// with an options object for knip's factory: `package.json#mikro-orm.configPaths` names the config, whose paths are
+/// relative to `baseDir`. A list of options objects reads each, a `migrationsList` names no migrations directory, and a
+/// seeder `glob` replaces the default one.
+#[test]
+fn mikro_orm_config_paths_base_dir_and_lists_of_options() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","mikro-orm":{"configPaths":["./config/orm.config.ts"]}}"#,
+        ),
+        (
+            "config/orm.config.ts",
+            "export default [\n  { entities: ['./src/config-paths/default'] },\n  { baseDir: 'db', entities: ['./entities/*.entity.ts'], migrations: { migrationsList: [] }, seeder: { pathTs: './seed', glob: '*.seed.ts' } },\n];\n",
+        ),
+    ];
+    let results = resolve(&files, &["@mikro-orm/core"]);
+    let out = output(&results, "mikro-orm");
+    assert!(
+        out.config_files
+            .iter()
+            .any(|path| path.ends_with("config/orm.config.ts"))
+    );
+    assert_eq!(
+        mikro_orm_entries(&files),
+        BTreeSet::from([
+            "db/entities/*.entity.ts".to_owned(),
+            "db/seed/*.seed.ts".to_owned(),
+            "migrations/*.{js,ts,cjs}".to_owned(),
+            "seeders/*.{js,ts}".to_owned(),
+            "src/config-paths/default/**/*.{js,cjs,mjs,ts,cts,mts}".to_owned(),
+        ])
+    );
+}
+
+/// A list of MikroORM options with an element the config computes by a call that cannot be followed hides entries.
+#[test]
+fn mikro_orm_options_computed_by_a_call_leave_the_entries_incomplete() {
+    let config = (
+        "mikro-orm.config.ts",
+        "import { load } from 'orm-presets';\n\nexport default [load(), { entities: ['./src/entities'] }];\n",
+    );
+    let results = resolve(&[config], &["@mikro-orm/cli"]);
+    let out = output(&results, "mikro-orm");
+    assert!(out.entries_incomplete);
+    assert_entries(&out.production_entries, &["src/entities/**/*.{js,cjs,mjs,ts,cts,mts}"]);
+}
+
+/// Adapted from knip's `fixtures/plugins/web-test-runner` at commit b25639c96bfff334519a189605e609a4ed5ae801, without
+/// the spread of a local module: the `files` of the config and of its `groups` are entries relative to the workspace,
+/// a negated one removes files, the `files` of a plugin object are no entries, and a config passed with `--config` is
+/// read too.
+#[test]
+fn web_test_runner_files_and_groups() {
+    let files = [
+        (
+            "web-test-runner.config.mjs",
+            "import { esbuildPlugin } from '@web/dev-server-esbuild';\n\nconst assets = { name: 'assets', files: ['spec/decorated/only.js'] };\n\nconst config = {\n  files: ['spec/listed.js', '!spec/skipped.js'],\n  groups: [{ name: 'integration', files: ['spec/integration-only.js'] }],\n  plugins: [esbuildPlugin({ js: true }), assets],\n};\n\nexport default config;\n",
+        ),
+        (
+            "config/runner.cjs",
+            "const { fromRollup } = require('@web/dev-server-rollup');\n\nmodule.exports = {\n  files: ['spec/cjs-listed.js'],\n  plugins: [fromRollup(() => ({ name: 'custom' }))()],\n};\n",
+        ),
+    ];
+    let scripts = [(
+        "test:custom",
+        "wtr --config config/runner.cjs --node-resolve custom-checks.js",
+    )];
+    let results = resolve_with_scripts(&files, &["@web/test-runner"], &scripts);
+    let out = output(&results, "web-test-runner");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        entries,
+        BTreeSet::from([
+            "!spec/skipped.js",
+            "spec/cjs-listed.js",
+            "spec/integration-only.js",
+            "spec/listed.js",
+        ])
+    );
+    assert!(out.config_files.iter().any(|path| path.ends_with("config/runner.cjs")));
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+    assert_eq!(out.provided_binaries, ["web-test-runner", "wtr"]);
+
+    let without = resolve_with_scripts(&files, &["@web/dev-server-esbuild"], &scripts);
+    assert_eq!(disabled(&without, &["web-test-runner"]), ["web-test-runner"]);
+}
+
+/// Adapted from knip's `fixtures/plugins/unplugin-vue-i18n` and `fixtures/plugins/unplugin-vue-markdown` at commit
+/// b25639c96bfff334519a189605e609a4ed5ae801: the plugins are enabled by their packages and add nothing of their own.
+#[test]
+fn unplugin_vue_i18n_and_markdown_are_enabled_by_their_packages() {
+    let ids = ["unplugin-vue-i18n", "unplugin-vue-markdown"];
+    let files = [("index.ts", "import Page from './page.md';\n\nexport default Page;\n")];
+    let results = resolve(&files, &["@intlify/unplugin-vue-i18n", "unplugin-vue-markdown"]);
+    for id in ids {
+        let out = output(&results, id);
+        assert_eq!(out.entries, Vec::<String>::new(), "{id}");
+        assert_eq!(deps(out), BTreeSet::new(), "{id}");
+        assert_eq!(out.config_files, Vec::<PathBuf>::new(), "{id}");
+    }
+    assert_eq!(
+        disabled(&resolve(&files, &["vue", "unplugin-vue-components"]), &ids),
+        ids
+    );
 }

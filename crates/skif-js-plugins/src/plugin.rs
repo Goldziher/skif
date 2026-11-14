@@ -12,8 +12,11 @@ use crate::files::GlobCache;
 use crate::scopes::NxProjects;
 use crate::sources::PackageSources;
 
-/// The knip commit every plugin row was last checked against.
+/// The knip commit the plugin rows were last checked against, unless a row names a later one.
 pub const KNIP_COMMIT: &str = "da07b6e9887f9a1eb08545da29755b7f9d309bca";
+
+/// The knip commit the plugin rows ported last were checked against; the other rows keep [`KNIP_COMMIT`].
+pub(crate) const PORTED_KNIP_COMMIT: &str = "b25639c96bfff334519a189605e609a4ed5ae801";
 
 /// A plugin's stable identifier, the key of `[js.plugins]` (`"vitest"`).
 pub type PluginId = &'static str;
