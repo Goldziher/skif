@@ -24,11 +24,11 @@ use crate::style::{is_stylesheet, parse_stylesheet};
 /// The version of the parse output. Raise it whenever [`ModuleInfo`] or what the parsers put in it changes, so a
 /// cache written by an older build at the same crate version is not trusted; the test
 /// `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
-pub const CACHE_SCHEMA: u32 = 10;
+pub const CACHE_SCHEMA: u32 = 11;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0xb935_a362_a4ea_acf7_9087_1ec4_0c26_79d6;
+pub const CACHE_SCHEMA_DIGEST: u128 = 0x0000_0000_0000_0000_0000_0000_0000_0000;
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.
@@ -407,7 +407,9 @@ mod tests {
                 "a.ts",
                 "import { a, type B } from './b';\nimport * as ns from 'ns';\nexport const c = a + ns.x;\n\
                  export enum E { A, B }\nexport function f(): B { return E.A as never; }\n\
-                 export default class K {}\n",
+                 export default class K {}\nexport const enum F { S = 's' }\n\
+                 export const v = ({} as Record<string, number>)[F.S] + ({} as Record<string, number>)[ns.KEY];\n\
+                 export class Brand { declare readonly __b: unique symbol; }\n",
             ),
             (
                 "b.tsx",

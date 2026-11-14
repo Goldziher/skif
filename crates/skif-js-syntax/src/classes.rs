@@ -5,24 +5,35 @@
 //! property name it reads on any object and the rule credits a member by its name. The class side records what the
 //! rule needs to leave members alone: decorators, the superclass chain as far as the module can follow it, and the
 //! members of the interfaces its `implements` clause names.
+//!
+//! An element access whose key is a constant (`x[KEY]`, `x[Flags.SKIP]`) reads the string the constant holds: the
+//! constants of the module resolve here, imported ones are recorded for the module graph to resolve.
 
 use std::collections::BTreeSet;
 
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, AssignmentTargetPropertyIdentifier,
-    AssignmentTargetPropertyProperty, BindingProperty, CallExpression, Class, ClassElement, ComputedMemberExpression,
-    Declaration, ExportDefaultDeclarationKind, Expression, JSXMemberExpression, MethodDefinitionKind,
-    PrivateFieldExpression, PrivateInExpression, Program, PropertyKey, Statement, StaticMemberExpression,
-    TSAccessibility, TSInterfaceDeclaration, TSLiteral, TSLiteralType, TSQualifiedName, TSSignature, TSType,
-    TSTypeLiteral, TSTypeName,
+    AssignmentTargetPropertyProperty, BindingPattern, BindingProperty, CallExpression, Class, ClassElement,
+    ComputedMemberExpression, Declaration, ExportDefaultDeclarationKind, Expression, IdentifierReference,
+    JSXMemberExpression, MethodDefinitionKind, ObjectPropertyKind, PrivateFieldExpression, PrivateInExpression,
+    Program, PropertyDefinition, PropertyKey, Statement, StaticMemberExpression, TSAccessibility, TSEnumDeclaration,
+    TSInterfaceDeclaration, TSLiteral, TSLiteralType, TSQualifiedName, TSSignature, TSType, TSTypeLiteral, TSTypeName,
+    TSTypeOperatorOperator, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_semantic::Scoping;
 use oxc_span::Span as OxcSpan;
 use skif_core::{HashMap, HashSet};
 
-use crate::collect::{Ctx, ImportBinding, binding_ids, import_bindings, member_removal, mentions_word};
+use crate::collect::{
+    Ctx, ImportBinding, binding_ids, enum_member_name, import_bindings, member_removal, mentions_word,
+};
 use crate::jsdoc::leading_tags;
-use crate::model::{ClassMember, ClassMemberKind, ClassShape, ExportKind, Heritage, ImportedKind, ModuleInfo};
+use crate::model::{
+    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, ImportedKeyRead, ImportedKind,
+    ModuleInfo, StringConstant,
+};
+use crate::semantic::Analysis;
 
 /// The top-level declarations of a module that a class's heritage can name.
 struct TopLevel<'p, 'a> {
@@ -249,11 +260,41 @@ struct Declared {
     kind: ClassMemberKind,
     is_static: bool,
     decorated: bool,
+    type_only: bool,
     key_span: OxcSpan,
     span: OxcSpan,
 }
 
+/// Whether the field `property` exists only for the type checker: a `declare` field, or one typed `void`, `never`,
+/// `undefined` or `unique symbol` whose value, if it has one, is `undefined`. A nominal brand
+/// (`readonly __brand!: unique symbol`) or a phantom type parameter (`declare readonly _Options: Options`) is never
+/// read at runtime, so no read can be expected of it.
+fn is_type_only(property: &PropertyDefinition<'_>) -> bool {
+    if property.declare {
+        return true;
+    }
+    let phantom_type = property
+        .type_annotation
+        .as_ref()
+        .is_some_and(|annotation| match &annotation.type_annotation {
+            TSType::TSVoidKeyword(_) | TSType::TSNeverKeyword(_) | TSType::TSUndefinedKeyword(_) => true,
+            TSType::TSTypeOperator(operator) => {
+                operator.operator == TSTypeOperatorOperator::Unique
+                    && matches!(operator.type_annotation, TSType::TSSymbolKeyword(_))
+            }
+            _ => false,
+        });
+    let no_value = property.value.as_ref().is_none_or(
+        |value| matches!(value.get_inner_expression(), Expression::Identifier(id) if id.name == "undefined"),
+    );
+    phantom_type && no_value
+}
+
 fn declared(element: &ClassElement<'_>) -> Option<Declared> {
+    let type_only = match element {
+        ClassElement::PropertyDefinition(property) => is_type_only(property),
+        _ => false,
+    };
     let (key, kind, is_static, decorated, accessibility, span) = match element {
         ClassElement::MethodDefinition(method) => {
             let kind = match method.kind {
@@ -306,6 +347,7 @@ fn declared(element: &ClassElement<'_>) -> Option<Declared> {
         kind,
         is_static,
         decorated,
+        type_only,
         key_span: oxc_span::GetSpan::span(key),
         span,
     })
@@ -338,6 +380,7 @@ fn members(ctx: &Ctx<'_>, class: &Class<'_>) -> Vec<ClassMember> {
             kind: member.kind,
             is_static: member.is_static,
             decorated: member.decorated,
+            type_only: member.type_only,
             span: ctx.span(member.key_span),
             tags: leading_tags(ctx.src, member.span.start as usize),
         });
@@ -379,14 +422,122 @@ pub(crate) fn mark(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInfo) 
 }
 
 /// Records the property names `program` reads and writes in [`ModuleInfo::property_reads`] and
-/// [`ModuleInfo::property_writes`].
-pub(crate) fn property_names(program: &Program<'_>, info: &mut ModuleInfo) {
-    let mut names = PropertyNames::default();
+/// [`ModuleInfo::property_writes`], the element accesses through an imported constant in
+/// [`ModuleInfo::imported_key_reads`], and the strings behind its exports in [`ModuleInfo::string_constants`].
+pub(crate) fn property_names(program: &Program<'_>, analysis: &Analysis<'_>, info: &mut ModuleInfo) {
+    let constants = constants(program);
+    let imports = import_bindings(program);
+    let mut names = PropertyNames {
+        scoping: analysis.scoping(),
+        constants: &constants,
+        imports: &imports,
+        reads: BTreeSet::new(),
+        writes: BTreeSet::new(),
+        imported: BTreeSet::new(),
+    };
     names.visit_program(program);
     info.add_property_reads(names.reads);
     info.property_writes.extend(names.writes);
     info.property_writes.sort();
     info.property_writes.dedup();
+    info.imported_key_reads.extend(names.imported);
+    info.imported_key_reads.sort();
+    info.imported_key_reads.dedup();
+    let exported = exported_constants(&constants, &info.exports);
+    info.string_constants.extend(exported);
+    info.string_constants.sort();
+    info.string_constants.dedup();
+}
+
+/// The strings the top-level declarations of a module bind, usable as a property key, by binding and member:
+/// `const KEY = 'k'` is `(KEY, None)`, `enum E { M = 'k' }` and `const E = { M: 'k' } as const` are `(E, Some(M))`.
+type Constants = HashMap<(String, Option<String>), String>;
+
+fn constants(program: &Program<'_>) -> Constants {
+    let mut out = Constants::default();
+    for statement in &program.body {
+        let declaration = match statement {
+            Statement::ExportDeclaration(e) => &e.declaration,
+            other => match other.as_declaration() {
+                Some(declaration) => declaration,
+                None => continue,
+            },
+        };
+        match declaration {
+            Declaration::TSEnumDeclaration(declaration) => enum_constants(declaration, &mut out),
+            Declaration::VariableDeclaration(variables) if variables.kind.is_const() => {
+                for declarator in &variables.declarations {
+                    variable_constants(declarator, &mut out);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The string members of an enum (`SKIP = '__v_skip'`); a numeric or computed member holds no property name.
+fn enum_constants(declaration: &TSEnumDeclaration<'_>, out: &mut Constants) {
+    let binding = declaration.id.name.as_str();
+    for member in &declaration.body.members {
+        let value = member.initializer.as_ref().and_then(literal_name);
+        if let (Some(name), Some(value)) = (enum_member_name(&member.id), value) {
+            out.insert((binding.to_owned(), Some(name)), value);
+        }
+    }
+}
+
+/// A `const` bound to a string, or the string properties of a `const` bound to an `as const` object, which no code
+/// can change. A plain object's properties can be reassigned, so they are no constants.
+fn variable_constants(declarator: &VariableDeclarator<'_>, out: &mut Constants) {
+    let (BindingPattern::BindingIdentifier(id), Some(init)) = (&declarator.id, &declarator.init) else {
+        return;
+    };
+    let binding = id.name.as_str();
+    if let Some(value) = literal_name(init) {
+        out.insert((binding.to_owned(), None), value);
+        return;
+    }
+    let Expression::TSAsExpression(assertion) = init.without_parentheses() else {
+        return;
+    };
+    if !assertion.type_annotation.is_const_type_reference() {
+        return;
+    }
+    let Expression::ObjectExpression(object) = assertion.expression.get_inner_expression() else {
+        return;
+    };
+    for property in &object.properties {
+        let ObjectPropertyKind::ObjectProperty(property) = property else {
+            continue;
+        };
+        if let (Some(name), Some(value)) = (key_name(&property.key), literal_name(&property.value)) {
+            out.insert((binding.to_owned(), Some(name)), value);
+        }
+    }
+}
+
+/// The constants behind the local exports of the module, under their export names.
+fn exported_constants(constants: &Constants, exports: &[Export]) -> Vec<StringConstant> {
+    if constants.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for export in exports.iter().filter(|export| export.from.is_none()) {
+        let Some(local) = export.local_name.as_deref() else {
+            continue;
+        };
+        for ((binding, member), value) in constants {
+            if binding == local {
+                out.push(StringConstant {
+                    export: export.name.clone(),
+                    member: member.clone(),
+                    value: value.clone(),
+                });
+            }
+        }
+    }
+    out
 }
 
 /// Every name read as `.name` in `text`, which is markup or code the parser does not read: `x.name`, `x?.name`,
@@ -420,17 +571,92 @@ pub(crate) fn lexical_reads(text: &str) -> Vec<String> {
     found.into_iter().collect()
 }
 
-#[derive(Default)]
-struct PropertyNames {
-    reads: BTreeSet<String>,
-    writes: BTreeSet<String>,
+/// What the key of an element access names.
+enum Key {
+    /// A property name: a literal, or a constant of the module.
+    Name(String),
+    /// A constant imported from another module, which the module graph resolves.
+    Imported(ImportedKeyRead),
 }
 
-impl PropertyNames {
+struct PropertyNames<'s> {
+    /// The scopes of the program, to tell a top-level constant from a local or parameter that shadows it.
+    scoping: &'s Scoping,
+    constants: &'s Constants,
+    imports: &'s HashMap<String, ImportBinding>,
+    reads: BTreeSet<String>,
+    writes: BTreeSet<String>,
+    imported: BTreeSet<ImportedKeyRead>,
+}
+
+impl PropertyNames<'_> {
     fn read(&mut self, name: &str) {
         if !self.reads.contains(name) {
             self.reads.insert(name.to_owned());
         }
+    }
+
+    /// The property the element access key `expression` names: a literal, a constant (`KEY`), a member of an enum or
+    /// `as const` object (`Flags.SKIP`), or one of those through a namespace import (`ns.KEY`, `ns.Flags.SKIP`).
+    fn key(&self, expression: &Expression<'_>) -> Option<Key> {
+        if let Some(name) = literal_name(expression) {
+            return Some(Key::Name(name));
+        }
+        match expression.get_inner_expression() {
+            Expression::Identifier(id) => self.constant(id, None),
+            Expression::StaticMemberExpression(member) => self.member_constant(member),
+            _ => None,
+        }
+    }
+
+    /// The constant `member` names: `Flags.SKIP`, `ns.KEY` or `ns.Flags.SKIP`.
+    fn member_constant(&self, member: &StaticMemberExpression<'_>) -> Option<Key> {
+        let property = member.property.name.as_str();
+        let inner = match member.object.get_inner_expression() {
+            Expression::Identifier(id) => return self.constant(id, Some(property)),
+            Expression::StaticMemberExpression(inner) => inner,
+            _ => return None,
+        };
+        let Expression::Identifier(id) = inner.object.get_inner_expression() else {
+            return None;
+        };
+        let binding = self.imports.get(self.top_level(id)?)?;
+        matches!(binding.kind, ImportedKind::Namespace).then(|| {
+            Key::Imported(ImportedKeyRead {
+                specifier: binding.specifier.clone(),
+                export: inner.property.name.as_str().to_owned(),
+                member: Some(property.to_owned()),
+            })
+        })
+    }
+
+    /// The name of the top-level binding `id` refers to; `None` when it refers to a local or parameter, or to
+    /// nothing the module binds.
+    fn top_level<'i>(&self, id: &'i IdentifierReference<'_>) -> Option<&'i str> {
+        let symbol = id
+            .reference_id
+            .get()
+            .and_then(|reference| self.scoping.get_reference(reference).symbol_id())?;
+        (self.scoping.symbol_scope_id(symbol) == self.scoping.root_scope_id()).then_some(id.name.as_str())
+    }
+
+    /// The constant `id`, or its `member`, holds: a constant of the module, or one imported.
+    fn constant(&self, id: &IdentifierReference<'_>, member: Option<&str>) -> Option<Key> {
+        let name = self.top_level(id)?;
+        let Some(binding) = self.imports.get(name) else {
+            let key = (name.to_owned(), member.map(str::to_owned));
+            return self.constants.get(&key).cloned().map(Key::Name);
+        };
+        let (export, member) = match &binding.kind {
+            ImportedKind::Named(export) => (export.clone(), member),
+            ImportedKind::Default => ("default".to_owned(), member),
+            ImportedKind::Namespace => (member?.to_owned(), None),
+        };
+        Some(Key::Imported(ImportedKeyRead {
+            specifier: binding.specifier.clone(),
+            export,
+            member: member.map(str::to_owned),
+        }))
     }
 }
 
@@ -445,16 +671,17 @@ fn literal_name(expression: &Expression<'_>) -> Option<String> {
     }
 }
 
-impl<'a> Visit<'a> for PropertyNames {
+impl<'a> Visit<'a> for PropertyNames<'_> {
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
         if it.operator == AssignmentOperator::Assign {
             let written = match &it.left {
                 AssignmentTarget::StaticMemberExpression(member) => {
                     Some((member.property.name.as_str().to_owned(), &member.object))
                 }
-                AssignmentTarget::ComputedMemberExpression(member) => {
-                    literal_name(&member.expression).map(|name| (name, &member.object))
-                }
+                AssignmentTarget::ComputedMemberExpression(member) => match self.key(&member.expression) {
+                    Some(Key::Name(name)) => Some((name, &member.object)),
+                    Some(Key::Imported(_)) | None => None,
+                },
                 AssignmentTarget::PrivateFieldExpression(member) => {
                     Some((format!("#{}", member.field.name.as_str()), &member.object))
                 }
@@ -476,8 +703,12 @@ impl<'a> Visit<'a> for PropertyNames {
     }
 
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
-        if let Some(name) = literal_name(&it.expression) {
-            self.read(&name);
+        match self.key(&it.expression) {
+            Some(Key::Name(name)) => self.read(&name),
+            Some(Key::Imported(read)) => {
+                self.imported.insert(read);
+            }
+            None => {}
         }
         walk::walk_computed_member_expression(self, it);
     }

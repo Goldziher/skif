@@ -1,16 +1,18 @@
 //! Which members of exported classes are used, for `unused-class-members` and `explain-usage` (ADR 0042).
 //!
-//! The rule keeps two questions apart. Which members are left alone whatever reads them (decorated, inherited from a
-//! base class outside the project, implementing an interface, public API, tagged or listed in `ignore-members`) is
-//! decided here from the declarations, by [`exemption`]. Which members are read is asked of a [`MemberUsage`]: the
-//! one implementation, [`NameReads`], credits a member when any module of the graph reads a property of its name,
-//! the approximation that needs no type information.
+//! The rule keeps two questions apart. Which members are left alone whatever reads them (decorated, type-only,
+//! inherited from a base class outside the project, implementing an interface, public API, tagged or listed in
+//! `ignore-members`) is decided here from the declarations, by [`exemption`]. Which members are read is asked of a
+//! [`MemberUsage`]: the one implementation, [`NameReads`], credits a member when any module of the graph reads a
+//! property of its name, the approximation that needs no type information.
 
 use std::collections::VecDeque;
 
 use serde::Serialize;
 use skif_core::{HashMap, HashSet};
-use skif_js_syntax::{ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, ImportKind};
+use skif_js_syntax::{
+    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, ImportKind, ImportedKeyRead,
+};
 
 use crate::analysis::JsAnalysis;
 use crate::graph::{Module, ModuleGraph, ModuleId, Target};
@@ -30,8 +32,9 @@ pub(crate) trait MemberUsage {
 }
 
 /// Member use by name: a member is used when a module of the graph reads a property of its name on any object
-/// ([`skif_js_syntax::ModuleInfo::property_reads`]), and a setter also when one assigns it. An ECMAScript private
-/// name (`#count`) can only be read inside its class, so only its own module counts.
+/// ([`skif_js_syntax::ModuleInfo::property_reads`]), also through an element access whose key is a constant imported
+/// from another module ([`skif_js_syntax::ModuleInfo::imported_key_reads`]), and a setter also when one assigns it.
+/// An ECMAScript private name (`#count`) can only be read inside its class, so only its own module counts.
 pub(crate) struct NameReads {
     reads: HashMap<String, Vec<ModuleId>>,
     writes: HashMap<String, Vec<ModuleId>>,
@@ -49,9 +52,28 @@ impl NameReads {
             for name in module.info.property_writes.iter().filter(|name| !name.starts_with('#')) {
                 writes.entry(name.clone()).or_default().push(module.id);
             }
+            for read in &module.info.imported_key_reads {
+                if let Some(name) = imported_key(graph, module, read) {
+                    reads.entry(name.to_owned()).or_default().push(module.id);
+                }
+            }
         }
         Self { reads, writes }
     }
+}
+
+/// The property name the imported constant key `read` of `module` holds: the string behind the export it names in
+/// the module that declares it, followed through re-exports. `None` when the import leaves the graph or the export
+/// holds no string.
+fn imported_key<'g>(graph: &'g ModuleGraph, module: &Module, read: &ImportedKeyRead) -> Option<&'g str> {
+    let target = module_of(module, &read.specifier)?;
+    let (declaring, export) = declared_export(graph, target, &read.export, 0, &|_: &Export| true)?;
+    declaring
+        .info
+        .string_constants
+        .iter()
+        .find(|constant| constant.export == export.name && constant.member == read.member)
+        .map(|constant| constant.value.as_str())
 }
 
 impl MemberUsage for NameReads {
@@ -97,6 +119,9 @@ pub enum MemberExemption {
     /// The class is exported from an entry file (also through re-exports), so it is public API, unless
     /// `include-entry-exports` is set.
     PublicApi,
+    /// The field exists only for the type checker and no code reads it at runtime: a `declare` field, or a nominal
+    /// brand or phantom field typed `void`, `never`, `undefined` or `unique symbol` with no value but `undefined`.
+    TypeOnlyField,
 }
 
 impl MemberExemption {
@@ -112,6 +137,7 @@ impl MemberExemption {
             Self::BaseMember => "it overrides a member of a known library base class, which the library calls",
             Self::Implements => "it implements an interface member",
             Self::PublicApi => "its class is exported from an entry file, so it is public API",
+            Self::TypeOnlyField => "it is a field that exists only for the type checker, never read at runtime",
         }
     }
 }
@@ -189,27 +215,28 @@ fn module_of(module: &Module, specifier: &str) -> Option<ModuleId> {
     })
 }
 
-/// The class export `name` of module `id`, following re-exports: the module that declares it and the export.
-fn class_export<'g>(
+/// The export `name` of module `id` that `declares` holds for, following re-exports: the module that declares it
+/// and the export.
+fn declared_export<'g>(
     graph: &'g ModuleGraph,
     id: ModuleId,
     name: &str,
     depth: usize,
+    declares: &dyn Fn(&Export) -> bool,
 ) -> Option<(&'g Module, &'g Export)> {
     if depth > MAX_DEPTH {
         return None;
     }
     let module = graph.module(id);
     if let Some(export) = module.info.exports.iter().find(|export| export.name == name) {
-        if export.class.is_some() {
-            return Some((module, export));
-        }
-        let from = export.from.as_deref()?;
+        let Some(from) = export.from.as_deref() else {
+            return declares(export).then_some((module, export));
+        };
         let source = export.imported_name.as_deref().unwrap_or(name);
         if export.kind != ExportKind::ReExport || source == "*" {
             return None;
         }
-        return class_export(graph, module_of(module, from)?, source, depth + 1);
+        return declared_export(graph, module_of(module, from)?, source, depth + 1, declares);
     }
     module
         .info
@@ -217,7 +244,12 @@ fn class_export<'g>(
         .iter()
         .filter(|export| export.kind == ExportKind::StarReExport && export.name == "*")
         .filter_map(|export| module_of(module, export.from.as_deref()?))
-        .find_map(|target| class_export(graph, target, name, depth + 1))
+        .find_map(|target| declared_export(graph, target, name, depth + 1, declares))
+}
+
+/// The class export `name` of module `id`, following re-exports: the module that declares it and the export.
+fn class_export<'g>(graph: &'g ModuleGraph, id: ModuleId, name: &str) -> Option<(&'g Module, &'g Export)> {
+    declared_export(graph, id, name, 0, &|export: &Export| export.class.is_some())
 }
 
 /// What the class `shape` of `module` inherits from outside the project.
@@ -232,7 +264,7 @@ fn inherited(graph: &ModuleGraph, module: &Module, shape: &ClassShape, depth: us
             let base = (depth < MAX_DEPTH)
                 .then(|| module_of(module, specifier))
                 .flatten()
-                .and_then(|id| class_export(graph, id, name, 0));
+                .and_then(|id| class_export(graph, id, name));
             match base {
                 Some((base_module, export)) => export.class.as_ref().map_or(Inherited::Unknown, |base| {
                     inherited(graph, base_module, base, depth + 1)
@@ -344,6 +376,9 @@ pub(crate) fn exemption(
     }
     if member.decorated {
         return Some(MemberExemption::Decorated);
+    }
+    if member.type_only {
+        return Some(MemberExemption::TypeOnlyField);
     }
     if analysis.exempts_tags(&member.tags) {
         return Some(MemberExemption::Tagged);

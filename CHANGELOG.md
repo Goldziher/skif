@@ -13,7 +13,8 @@ All notable changes to this project are documented here. The format follows
 
 - **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and
   heritage of an exported class) and `ModuleInfo` gains `property_reads` and `property_writes`, the property names a
-  module reads and assigns.
+  module reads and assigns, `string_constants`, the strings behind its exported constants, and `imported_key_reads`,
+  its element accesses through an imported constant key.
 
 - **Library hosts that call `PluginSource::inputs` of `skif-js` themselves**: it no longer gives what the `execa`, `zx`
   and `nano-spawn` plugins find in source files, and sets `WorkspaceInputs::scans_reached_sources` for a package where
@@ -111,6 +112,18 @@ All notable changes to this project are documented here. The format follows
   reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
 
 ### Fixed
+
+- `unused-class-members`: a field that exists only for the type checker is no longer reported: a `declare` field
+  (`declare protected readonly _Options: Options`) and a nominal brand or phantom field typed `void`, `never`,
+  `undefined` or `unique symbol` with no value but `undefined` (`readonly _rgbaBrand: void = undefined`,
+  `readonly __brand!: unique symbol`). A `void` field with a real initialiser is still judged, and `explain-usage`
+  names the exemption.
+
+- `unused-class-members`: an element access whose key is a constant reads the member the constant names:
+  `target[ReactiveFlags.SKIP]` with `enum ReactiveFlags { SKIP = '__v_skip' }` reads `__v_skip`, as do a string
+  `const` and a property of an `as const` object, in the same module or imported, also through a namespace import or
+  a re-export. A key held by a `let`, a plain object or a parameter still reads nothing. The parse cache schema moves
+  to 11.
 
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
