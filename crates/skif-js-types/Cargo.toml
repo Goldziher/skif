@@ -1,0 +1,40 @@
+[package]
+name = "skif-js-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Type-aware facts for skif's JS/TS analysis from the TypeScript checker of tsrs; the only tsrs boundary."
+documentation = "https://docs.rs/skif-js-types"
+keywords = ["javascript", "typescript", "type-checker", "dead-code", "skif"]
+categories = ["development-tools"]
+readme = "README.md"
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
+
+[dependencies]
+skif-core.workspace = true
+thiserror.workspace = true
+tsrs_ast.workspace = true
+tsrs_checker.workspace = true
+tsrs_compiler.workspace = true
+tsrs_core.workspace = true
+tsrs_scanner.workspace = true
+tsrs_tsoptions.workspace = true
+tsrs_vfs.workspace = true
+
+# The workspace table, except that unsafe code is denied instead of forbidden: freeing a program's arenas
+# (`free_unshared_program`) is the one unsafe call, allowed where it is made (ADR 0044).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+unnecessary_debug_formatting = "allow"
+too_many_lines = "allow"
+unnecessary_box_returns = "allow"

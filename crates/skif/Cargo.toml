@@ -25,6 +25,9 @@ manifest = ["dep:skif-rules"]
 # JavaScript and TypeScript analysis on oxc (`skif-js` and the plugin table). Off by default so a host that pins its
 # own oxc is never forced onto skif's.
 js-analysis = ["dep:skif-js"]
+# Type-aware analysis with the TypeScript checker of tsrs (`skif-js-types`, ADR 0043): slower, more accurate member
+# usage. Off by default for the same reason as `js-analysis`; a build without it reports every package untyped.
+type-aware = ["js-analysis", "skif-js/type-aware"]
 # `apply_fixes` and `FixPlan` (format-preserving JSON edits).
 fix = ["dep:skif-edit"]
 # YAML edits for `pnpm-workspace.yaml`.
