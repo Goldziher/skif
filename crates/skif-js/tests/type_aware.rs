@@ -107,6 +107,92 @@ fn typed_reads_leave_a_same_named_member_of_another_class_unused() {
     );
 }
 
+/// The forms of a default-exported class in `src/lib.ts` with members `render` and `paint`, by the name a finding
+/// gives the class.
+const DEFAULT_CLASSES: [(&str, &str); 6] = [
+    ("Lib", "export default class Lib {\n  render(): void {}\n  paint(): void {}\n}\n"),
+    ("default", "export default class {\n  render(): void {}\n  paint(): void {}\n}\n"),
+    ("Lib", "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport default Lib;\n"),
+    ("Lib", "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport { Lib as default };\n"),
+    ("Lib", "export class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport default Lib;\n"),
+    ("Lib", "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport { Lib, Lib as default };\n"),
+];
+
+/// `paint` of another class, which `src/index.ts` reads, so by name `paint` of every class counts as read.
+const OTHER: (&str, &str) = ("src/other.ts", "export class Other {\n  paint(): void {}\n}\n");
+
+/// The ways `src/index.ts` reaches the default export of `src/lib.ts`: the import, the expression it constructs, and
+/// the re-exporting module it needs.
+const DEFAULT_READERS: [(&str, &str, &str, Option<(&str, &str)>); 4] = [
+    ("a default import", "import Lib from './lib';", "Lib", None),
+    ("a namespace import", "import * as lib from './lib';", "lib.default", None),
+    (
+        "a default re-export",
+        "import Lib from './barrel';",
+        "Lib",
+        Some(("src/barrel.ts", "export { default } from './lib';\n")),
+    ),
+    (
+        "a re-export as a name",
+        "import { Lib } from './barrel';",
+        "Lib",
+        Some(("src/barrel.ts", "export { default as Lib } from './lib';\n")),
+    ),
+];
+
+#[test]
+fn a_default_exported_class_is_judged_with_types_like_a_named_one() {
+    for (label, class) in DEFAULT_CLASSES {
+        for (reader, import, constructed, barrel) in DEFAULT_READERS {
+            let index = format!(
+                "{import}\nimport {{ Other }} from './other';\n\nnew {constructed}().render();\nnew Other().paint();\n"
+            );
+            let mut files = vec![PACKAGE, TSCONFIG, OTHER, ("src/index.ts", index.as_str()), ("src/lib.ts", class)];
+            files.extend(barrel);
+            assert_eq!(
+                class_findings(&files, ""),
+                [format!("src/lib.ts: {label}.paint")],
+                "with types, `paint` is read on `Other` only: {reader} of {class:?}"
+            );
+            assert_eq!(
+                class_findings(&files, TYPES_OFF),
+                Vec::<String>::new(),
+                "by name, `paint` is read on every class: {reader} of {class:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_class_exported_under_two_names_is_reported_once_with_types() {
+    let index =
+        "import Lib, { Lib as Named } from './lib';\n\nnew Lib().render();\nexport const named = new Named();\n";
+    for &(_, class) in &DEFAULT_CLASSES[4..] {
+        let files = [PACKAGE, TSCONFIG, ("src/index.ts", index), ("src/lib.ts", class)];
+        assert_eq!(class_findings(&files, ""), ["src/lib.ts: Lib.paint"], "{class:?}");
+    }
+}
+
+#[test]
+fn explain_usage_names_the_typed_evidence_of_an_anonymous_default_class() {
+    let files = [
+        PACKAGE,
+        TSCONFIG,
+        OTHER,
+        (
+            "src/index.ts",
+            "import Lib from './lib';\nimport { Other } from './other';\n\nnew Lib().render();\nnew Other().paint();\n",
+        ),
+        ("src/lib.ts", DEFAULT_CLASSES[1].1),
+    ];
+    let read = serde_json::to_value(explain(&files, "src/lib.ts", "default.render")).unwrap();
+    assert_eq!(read["class-member"]["typed"]["read"], true);
+    assert_eq!(read["class-member"]["typed"]["declaration"], "src/lib.ts#default");
+    let unread = serde_json::to_value(explain(&files, "src/lib.ts", "default.paint")).unwrap();
+    assert_eq!(unread["class-member"]["typed"]["read"], false);
+    assert_eq!(unread["class-member"]["verdict"], "unused");
+}
+
 #[test]
 fn typed_mode_only_removes_enum_and_namespace_findings() {
     let files = [

@@ -5,7 +5,8 @@ use super::JsRule;
 use super::support::{delete_range, module_location};
 use crate::analysis::JsAnalysis;
 use crate::class_members::{
-    ClassFacts, MemberUsage, TypedMemberUsage, entry_exposed, exemption, judged_classes, judges_classes_of,
+    ClassFacts, MemberUsage, TypedMemberUsage, declaration_name, entry_exposed, exemption, judged_classes,
+    judges_classes_of,
 };
 
 /// Metadata of `unused-class-members`.
@@ -57,11 +58,7 @@ impl JsRule for UnusedClassMembers {
                     {
                         continue;
                     }
-                    let class = if export.name == "default" {
-                        export.local_name.as_deref().unwrap_or("default")
-                    } else {
-                        export.name.as_str()
-                    };
+                    let class = declaration_name(export);
                     let mut builder = diagnostic(
                         &META,
                         format!("class member `{class}.{}` is never read", member.name),

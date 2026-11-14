@@ -293,6 +293,113 @@ fn entry_exports_are_public_api_unless_include_entry_exports() {
     );
 }
 
+/// The forms of a default-exported class in `lib.ts` with members `used` and `unused`, by the name a finding gives
+/// the class.
+const DEFAULT_CLASSES: [(&str, &str); 6] = [
+    ("Lib", "export default class Lib {\n  used() {}\n  unused() {}\n}\n"),
+    ("default", "export default class {\n  used() {}\n  unused() {}\n}\n"),
+    ("Lib", "class Lib {\n  used() {}\n  unused() {}\n}\nexport default Lib;\n"),
+    ("Lib", "class Lib {\n  used() {}\n  unused() {}\n}\nexport { Lib as default };\n"),
+    ("Lib", "export class Lib {\n  used() {}\n  unused() {}\n}\nexport default Lib;\n"),
+    ("Lib", "class Lib {\n  used() {}\n  unused() {}\n}\nexport { Lib, Lib as default };\n"),
+];
+
+/// The ways `index.ts` reads `used` of the default export of `lib.ts`, with the re-exporting module each one needs.
+const DEFAULT_READERS: [(&str, &str, Option<(&str, &str)>); 4] = [
+    ("a default import", "import Lib from './lib';\nnew Lib().used();\n", None),
+    (
+        "a namespace import",
+        "import * as lib from './lib';\nnew lib.default().used();\n",
+        None,
+    ),
+    (
+        "a default re-export",
+        "import Lib from './barrel';\nnew Lib().used();\n",
+        Some(("barrel.ts", "export { default } from './lib';\n")),
+    ),
+    (
+        "a re-export as a name",
+        "import { Lib } from './barrel';\nnew Lib().used();\n",
+        Some(("barrel.ts", "export { default as Lib } from './lib';\n")),
+    ),
+];
+
+#[test]
+fn a_default_exported_class_is_judged_like_a_named_one() {
+    for (label, class) in DEFAULT_CLASSES {
+        for (reader, index, barrel) in DEFAULT_READERS {
+            let mut files = vec![PACKAGE, ("index.ts", index), ("lib.ts", class)];
+            files.extend(barrel);
+            assert_eq!(
+                found(&files),
+                [format!("lib.ts: {label}.unused")],
+                "{reader} of {class:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_class_exported_under_two_names_is_reported_once() {
+    let index = "import Lib, { Lib as Named } from './lib';\nnew Lib().used();\nconsole.log(new Named());\n";
+    for &(_, class) in &DEFAULT_CLASSES[4..] {
+        assert_eq!(
+            found(&[PACKAGE, ("index.ts", index), ("lib.ts", class)]),
+            ["lib.ts: Lib.unused"],
+            "{class:?}"
+        );
+    }
+}
+
+#[test]
+fn a_class_an_entry_exposes_under_any_name_is_public_api() {
+    let reader = ("reader.ts", "import Lib from './lib';\nnew Lib().used();\n");
+    for &(_, class) in &DEFAULT_CLASSES[4..] {
+        let index = ("index.ts", "export { Lib } from './lib';\nimport './reader';\n");
+        assert_eq!(
+            found(&[PACKAGE, index, reader, ("lib.ts", class)]),
+            none(),
+            "the entry exposes `Lib` and `reader.ts` imports `default` of {class:?}"
+        );
+    }
+    let named = ("lib.ts", "export class Lib {\n  used() {}\n  unused() {}\n}\n");
+    let defaulted = ("lib.ts", DEFAULT_CLASSES[0].1);
+    for (index, lib) in [
+        ("import { Lib } from './lib';\nexport default Lib;\n", named),
+        ("import Lib from './lib';\nexport default Lib;\n", defaulted),
+        ("import { Lib } from './lib';\nexport { Lib as default };\n", named),
+        ("export { Lib as default } from './lib';\n", named),
+        ("export { default } from './lib';\n", defaulted),
+    ] {
+        assert_eq!(found(&[PACKAGE, ("index.ts", index), lib]), none(), "{index:?}");
+    }
+}
+
+#[test]
+fn explain_usage_finds_a_default_exported_class_by_the_name_its_findings_give() {
+    let files = [
+        PACKAGE,
+        ("index.ts", DEFAULT_READERS[0].1),
+        ("lib.ts", DEFAULT_CLASSES[0].1),
+    ];
+    let unused = explain(&files, "lib.ts", "Lib.unused");
+    assert!(unused.contains("class member `Lib.unused`:"), "{unused}");
+    assert!(
+        unused.contains("=> never read: reported by `unused-class-members`"),
+        "{unused}"
+    );
+    let anonymous = [
+        PACKAGE,
+        ("index.ts", DEFAULT_READERS[0].1),
+        ("lib.ts", DEFAULT_CLASSES[1].1),
+    ];
+    let unused = explain(&anonymous, "lib.ts", "default.unused");
+    assert!(
+        unused.contains("=> never read: reported by `unused-class-members`"),
+        "{unused}"
+    );
+}
+
 #[test]
 fn members_of_a_class_hierarchy_across_modules() {
     let files = [
