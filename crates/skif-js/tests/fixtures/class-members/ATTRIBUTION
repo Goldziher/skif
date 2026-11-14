@@ -1,0 +1,3 @@
+Adapted from knip's fixtures/class-members (knip 5.88.1, commit 8c25e4b7ff5c43d348082030600b1ba8677486af, ISC,
+Copyright (c) 2022-2026 Lars Kappert). The knip configuration in package.json became `main`, and the stub of
+`@types/react` is left out: skif knows React's `Component` members without it.

@@ -12,8 +12,8 @@
 //! The rules are `unused-dependencies`, `unused-dev-dependencies`, `unlisted-dependencies`, `unresolved-imports`,
 //! `stale-mocks`, `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-subpath-imports`,
 //! `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
-//! `unused-namespace-members`, `duplicate-exports`, `unparseable-files`, `stale-js-config`, `circular-imports` and
-//! `unused-subpath-exports`; the last two are off by default.
+//! `unused-class-members`, `unused-namespace-members`, `duplicate-exports`, `unparseable-files`, `stale-js-config`,
+//! `circular-imports` and `unused-subpath-exports`; the last two are off by default.
 //!
 //! No oxc type appears in the public API.
 
@@ -21,6 +21,7 @@
 
 mod analysis;
 mod ancestors;
+mod class_members;
 mod compilers;
 mod components;
 mod config_check;
@@ -56,7 +57,11 @@ mod usage;
 pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
 pub use config_check::relative_tsconfig;
 pub use deps::{DependencyUsage, ForeignMapping, RunsIn, UnlistedBinary, UnlistedConfigDependency, UnlistedImport};
-pub use explain::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
+pub use class_members::MemberExemption;
+pub use explain::{
+    Absence, ClassMemberReport, EntryReason, ExportReport, ExportUser, Importer, MemberVerdict, ReExport, UsageReport,
+    Verdict,
+};
 #[doc(hidden)]
 pub use globs::IncompleteScopeGlobs;
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
@@ -74,9 +79,10 @@ pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
     CircularImports, DuplicateExports, JsRule, StaleJsConfig, StaleMocks, UnlistedBinaries, UnlistedDependencies,
-    UnparseableFiles, UnresolvedImports, UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports,
-    UnusedFiles, UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies,
-    UnusedSubpathExports, UnusedSubpathImports, UnusedTypes, rules,
+    UnparseableFiles, UnresolvedImports, UnusedClassMembers, UnusedDependencies, UnusedDevDependencies,
+    UnusedEnumMembers, UnusedExports, UnusedFiles, UnusedNamespaceExports, UnusedNamespaceMembers,
+    UnusedNamespaceTypes, UnusedOptionalPeerDependencies, UnusedSubpathExports, UnusedSubpathImports, UnusedTypes,
+    rules,
 };
 pub use shared_modules::SharedModules;
 /// The module cache of ADR 0029, re-exported for hosts that keep one.
