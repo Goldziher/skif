@@ -1275,8 +1275,9 @@ counterpart. These differences are deliberate:
   `typedoc --plugin` and `--theme`. A flag that skif does not know takes the next word as its value, as `minimist`
   does, and `c8` and `dotenv` follow the command they wrap.
 - `execa`, `zx`, `nano-spawn` and `pino` read the source files of the package as text before parsing those that
-  mention the library; `execa`, `zx` and `nano-spawn` leave out the files of a package below it (a workspace member),
-  whose commands are that package's. A command counts when it is literal: `execa("tsx", ["build.ts"])`, `` $`vite build` `` (the
+  mention the library; `execa`, `zx` and `nano-spawn` leave out the files of a workspace member below the package,
+  whose commands are that member's. A directory with a `package.json` that is no member (`scripts/package.json` that
+  only sets `"type": "module"`, an example project outside the workspace globs) is the package's own. A command counts when it is literal: `execa("tsx", ["build.ts"])`, `` $`vite build` `` (the
   substitutions of a template are placeholders) or `spawn("eslint", ["."])`; a computed argument is left out, and a
   literal argument that is not a plain word (`"a && b"`, an SQL statement) is one quoted word of the command. `execa`
   also reads the default export of execa 5 and earlier (`execa.sync`, `execa.command`, `execa.node`). `zx` reads `$` in

@@ -1,7 +1,7 @@
 //! Small helpers shared by the plugins: package and path classification, naming conventions and
 //! typed access to [`ConfigValue`]s.
 
-use skif_core::HashMap;
+use skif_core::HashSet;
 use std::path::{Path, PathBuf};
 
 use skif_js_syntax::{ConfigValue, OWN_SPREAD, is_declaration_file};
@@ -881,14 +881,15 @@ pub(crate) fn own_sources_containing(cx: &PluginContext<'_>, needle: &str) -> Ve
 }
 
 /// The JavaScript and TypeScript source files of the workspace's own whose text `keep` accepts, as their path
-/// relative to the workspace and their text. Declaration files are left out, and so are the files below a directory
-/// with a `package.json` of its own, such as a member of a workspace root: they belong to that package.
+/// relative to the workspace and their text. Declaration files are left out, and so are the files below the directory
+/// of another package of the run ([`PluginContext::members`]), such as a member of a workspace root: they belong to
+/// that package.
 pub(crate) fn own_sources_where(
     cx: &PluginContext<'_>,
     keep: impl Fn(&str) -> bool,
 ) -> Vec<(String, std::sync::Arc<str>)> {
-    let mut nested = HashMap::default();
-    sources_where(cx, |source| !in_nested_package(cx, source, &mut nested), keep)
+    let members: HashSet<&str> = cx.members.iter().map(String::as_str).collect();
+    sources_where(cx, |source| !in_member(&members, source), keep)
 }
 
 /// The source files of the workspace that `wanted` accepts by path and `keep` by text, with their text: through the
@@ -919,18 +920,9 @@ fn source_files(cx: &PluginContext<'_>) -> impl Iterator<Item = String> {
         .filter(|source| !is_declaration_file(source))
 }
 
-/// Whether `path`, relative to the workspace directory, lies below a directory of the workspace that holds a
-/// `package.json`. `nested` remembers the answer for each directory already looked at.
-fn in_nested_package(cx: &PluginContext<'_>, path: &str, nested: &mut HashMap<String, bool>) -> bool {
-    let Some((parent, _)) = path.rsplit_once('/') else {
-        return false;
-    };
-    if let Some(&known) = nested.get(parent) {
-        return known;
-    }
-    let answer = cx.fs.is_file(&cx.dir.join(parent).join("package.json")) || in_nested_package(cx, parent, nested);
-    nested.insert(parent.to_owned(), answer);
-    answer
+/// Whether `path`, relative to the workspace directory, lies below one of the `members` directories.
+fn in_member(members: &HashSet<&str>, path: &str) -> bool {
+    !members.is_empty() && path.match_indices('/').any(|(end, _)| members.contains(&path[..end]))
 }
 
 /// The workspace's `package.json`, parsed; `None` when it is missing or not JSON.

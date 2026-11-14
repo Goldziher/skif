@@ -23,7 +23,7 @@ use crate::scopes::{NxProjects, ScopeShared, merge, rebase, scope_dir, within_pa
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
 use crate::sources::PackageSources;
-use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
+use crate::support::{is_relative, join_lexically, join_rel, looks_like_file, path_within};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
 
@@ -182,8 +182,10 @@ fn run_in_scopes(
             || PackageSources::new(&dir),
             |package| PackageSources::within(&dir, package),
         );
+        let scope_members = members_within(ctx.members, scope);
         let scope_ctx = PluginContext {
             sources: Some(&scope_sources),
+            members: &scope_members,
             ..shared.context(ctx, &dir)
         };
         let files = list_files(ctx.fs, &dir);
@@ -206,6 +208,14 @@ fn run_in_scopes(
             merge(outputs[index].get_or_insert_with(PluginOutput::default), found);
         }
     }
+}
+
+/// The directories of `members` below `scope`, relative to it.
+fn members_within(members: &[String], scope: &str) -> Vec<String> {
+    members
+        .iter()
+        .filter_map(|member| path_within(member, scope).filter(|inside| !inside.is_empty()))
+        .collect()
 }
 
 /// How the plugin of `spec` is enabled in a scope whose context is `scope_ctx`, as far as the scope's files do not
