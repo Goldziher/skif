@@ -786,12 +786,10 @@ impl Setup {
         sequential: bool,
     ) -> Self {
         let gather: &Gather<'_> = &|_, request| {
-            sources
-                .iter()
-                .fold(WorkspaceInputs::default(), |mut all, source| {
-                    all.extend(source.inputs(request));
-                    all
-                })
+            sources.iter().fold(WorkspaceInputs::default(), |mut all, source| {
+                all.extend(source.inputs(request));
+                all
+            })
         };
         Self::build(workspace, config, fs, sequential, gather, true)
     }
@@ -821,7 +819,10 @@ impl Setup {
 
     /// Whether a package scans the source files the module graph reaches ([`PackageSetup::scans_reached_sources`]).
     pub(crate) fn scans_reached_sources(&self) -> bool {
-        self.packages.iter().flatten().any(|package| package.scans_reached_sources)
+        self.packages
+            .iter()
+            .flatten()
+            .any(|package| package.scans_reached_sources)
     }
 
     /// What the input sources find in the source files that `graph` reaches, for every package that scans them
@@ -858,12 +859,10 @@ impl Setup {
                 workspace_key: &workspace_key,
                 listing: &listing,
             };
-            let found = sources
-                .iter()
-                .fold(WorkspaceInputs::default(), |mut all, source| {
-                    all.extend(source.reached_inputs(&request, &reached));
-                    all
-                });
+            let found = sources.iter().fold(WorkspaceInputs::default(), |mut all, source| {
+                all.extend(source.reached_inputs(&request, &reached));
+                all
+            });
             (found != WorkspaceInputs::default()).then_some(found)
         })
     }
