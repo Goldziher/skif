@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use skif_js_syntax::{
-    ExportKind, ImportKind, ImportedKind, ModuleInfo, ParseOptions, Registration, RemovalKind, SyntaxError,
-    parse_module, place_file_dir,
+    ClassMemberKind, ClassShape, ExportKind, Heritage, ImportKind, ImportedKind, ModuleInfo, ParseOptions,
+    Registration, RemovalKind, SyntaxError, parse_module, place_file_dir,
 };
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
@@ -2075,4 +2075,229 @@ fn custom_element_registrations_are_recorded_on_the_export() {
             .unwrap_or_else(|| panic!("{name}: no export {export}"));
         assert_eq!(found.registrations, expected, "{name}");
     }
+}
+
+fn class_of<'i>(info: &'i ModuleInfo, export: &str) -> &'i ClassShape {
+    info.exports
+        .iter()
+        .find(|e| e.name == export)
+        .and_then(|e| e.class.as_ref())
+        .unwrap_or_else(|| panic!("no class behind export {export}"))
+}
+
+#[test]
+fn class_members_are_recorded_as_knip_lists_them() {
+    use ClassMemberKind::{Getter, Method, Property, Setter};
+    let source = "export class A {\n  constructor(public p: number) {}\n  method() {}\n  field = 1;\n  static count = 0;\n  \
+                  get size() { return 1; }\n  set size(v) {}\n  protected kept() {}\n  private hidden() {}\n  #secret = 1;\n  \
+                  'quoted'() {}\n  [Symbol.iterator]() {}\n  ['literal'] = 2;\n  accessor auto = 3;\n  static {}\n  \
+                  /** @public */\n  tagged() {}\n  @Input() decorated = '';\n  over(a: string): void;\n  over(a: any) {}\n}\n";
+    let info = parse("a.ts", source);
+    let class = class_of(&info, "A");
+    let members: Vec<(&str, ClassMemberKind, bool, bool)> = class
+        .members
+        .iter()
+        .map(|m| (m.name.as_str(), m.kind, m.is_static, m.decorated))
+        .collect();
+    assert_eq!(
+        members,
+        [
+            ("method", Method, false, false),
+            ("field", Property, false, false),
+            ("count", Property, true, false),
+            ("size", Getter, false, false),
+            ("size", Setter, false, false),
+            ("kept", Method, false, false),
+            ("#secret", Property, false, false),
+            ("quoted", Method, false, false),
+            ("literal", Property, false, false),
+            ("auto", Property, false, false),
+            ("tagged", Method, false, false),
+            ("decorated", Property, false, true),
+            ("over", Method, false, false),
+        ],
+        "the constructor and its parameter properties, `private`, computed non-literal keys and static blocks are left out"
+    );
+    let tagged = class.members.iter().find(|m| m.name == "tagged").unwrap();
+    assert_eq!(tagged.tags, ["public"]);
+    assert_eq!(slice(source, tagged.span.start, tagged.span.end), "tagged");
+    let over = class.members.iter().find(|m| m.name == "over").unwrap();
+    assert_eq!(over.removal, None, "an overloaded method is declared more than once");
+    let decorated = class.members.iter().find(|m| m.name == "decorated").unwrap();
+    assert_eq!(decorated.removal, None);
+    assert!(!class.decorated);
+}
+
+#[test]
+fn class_member_removals_take_the_line_and_skip_mentioned_names() {
+    let source = "export class A {\n  /** Gone. */\n  unused() {}\n  caller() {\n    return this.callee();\n  }\n  callee() {}\n}\n";
+    let info = parse("a.ts", source);
+    let class = class_of(&info, "A");
+    let left = |name: &str| {
+        let member = class.members.iter().find(|m| m.name == name).unwrap();
+        member
+            .removal
+            .map(|(start, end)| format!("{}{}", &source[..start as usize], &source[end as usize..]))
+    };
+    assert_eq!(
+        left("unused").as_deref(),
+        Some("export class A {\n  caller() {\n    return this.callee();\n  }\n  callee() {}\n}\n")
+    );
+    assert_eq!(left("callee"), None, "`caller` mentions it");
+}
+
+#[test]
+fn class_heritage_follows_the_module() {
+    let imported = |specifier: &str, name: &str| {
+        Some(Heritage::Imported {
+            specifier: specifier.to_owned(),
+            name: name.to_owned(),
+        })
+    };
+    let cases: Vec<(&str, &str, Option<Heritage>)> = vec![
+        ("no superclass", "export class A {}", None),
+        (
+            "a local chain that ends in a root class",
+            "class Root {}\nclass Mid extends Root {}\nexport class A extends Mid {}",
+            None,
+        ),
+        (
+            "a local chain that ends in an import",
+            "import { Base } from './base';\nclass Mid extends Base {}\nexport class A extends Mid {}",
+            imported("./base", "Base"),
+        ),
+        (
+            "a default import",
+            "import Base from 'lib';\nexport class A extends Base {}",
+            imported("lib", "default"),
+        ),
+        (
+            "a member of a namespace import",
+            "import * as React from 'react';\nexport class A extends React.Component {}",
+            imported("react", "Component"),
+        ),
+        (
+            "a member of a default import",
+            "import React from 'react';\nexport class A extends React.PureComponent {}",
+            imported("react", "PureComponent"),
+        ),
+        (
+            "a global",
+            "export class A extends HTMLElement {}",
+            Some(Heritage::Global("HTMLElement".to_owned())),
+        ),
+        (
+            "a mixin call",
+            "import { Base, Mixin } from './base';\nexport class A extends Mixin(Base) {}",
+            Some(Heritage::Opaque),
+        ),
+        (
+            "a local binding that is no class",
+            "const Base = make();\nexport class A extends Base {}",
+            Some(Heritage::Opaque),
+        ),
+    ];
+    for (name, source, expected) in cases {
+        let info = parse("a.ts", source);
+        assert_eq!(class_of(&info, "A").extends, expected, "{name}");
+    }
+}
+
+#[test]
+fn implemented_members_come_from_the_interfaces_of_the_module() {
+    let source = "interface Base { id: string }\ninterface Shape extends Base { area(): number; readonly name: string }\n\
+                  type Named = { label: string };\nexport class A implements Shape, Named {}\n\
+                  import { Remote } from './remote';\nexport class B implements Remote {}\n\
+                  interface Wide extends Remote { local(): void }\nexport class C implements Wide {}\n";
+    let info = parse("a.ts", source);
+    let a = class_of(&info, "A");
+    assert_eq!(a.implemented, ["area", "id", "label", "name"]);
+    assert!(!a.implements_unknown);
+    let b = class_of(&info, "B");
+    assert_eq!(b.implemented, Vec::<String>::new());
+    assert!(b.implements_unknown, "an imported interface has unknown members");
+    assert!(
+        class_of(&info, "C").implements_unknown,
+        "a local interface extends an imported one"
+    );
+}
+
+#[test]
+fn exported_class_forms_get_a_shape() {
+    let info = parse(
+        "a.ts",
+        "class Local { a() {} }\nexport { Local };\nclass Other { b() {} }\nexport default Other;\n",
+    );
+    assert_eq!(class_of(&info, "Local").members[0].name, "a");
+    assert_eq!(class_of(&info, "default").members[0].name, "b");
+    let anonymous = parse("b.ts", "export default class { c() {} }\n");
+    assert_eq!(class_of(&anonymous, "default").members[0].name, "c");
+    let decorated = parse("c.ts", "@Component({})\nexport class D { d() {} }\n");
+    assert!(class_of(&decorated, "D").decorated);
+    let ambient = parse("d.ts", "export declare class E { e(): void }\nexport const f = 1;\n");
+    assert!(
+        ambient.exports.iter().all(|e| e.class.is_none()),
+        "an ambient class has no shape"
+    );
+}
+
+#[test]
+fn property_reads_and_writes() {
+    let source = "a.read; a?.optional; a['computed']; a[`template`]; a[key];\n\
+                  const { destructured, renamed: alias } = a;\n\
+                  ({ assigned } = a);\n\
+                  ({ target: other } = a);\n\
+                  function f({ parameter }) {}\n\
+                  a.written = 1;\n\
+                  a['writtenComputed'] = 2;\n\
+                  a.compound += 1;\n\
+                  a.updated++;\n\
+                  a.chain.inner = 3;\n\
+                  class K { #own = 1; #other = 2; m() { this.#own = 2; return #own in this; } n() { return this.#other; } }\n\
+                  vi.spyOn(a, 'spied');\n\
+                  type T = typeof a.typed;\n\
+                  type U = K['indexed'];\n\
+                  const o = { literalKey: 1 };\n";
+    let info = parse("a.ts", source);
+    let expected_reads = [
+        "#other",
+        "#own",
+        "assigned",
+        "chain",
+        "compound",
+        "computed",
+        "destructured",
+        "indexed",
+        "optional",
+        "parameter",
+        "read",
+        "renamed",
+        "spied",
+        "spyOn",
+        "target",
+        "template",
+        "typed",
+        "updated",
+    ];
+    assert_eq!(info.property_reads, expected_reads);
+    assert_eq!(info.property_writes, ["#own", "inner", "written", "writtenComputed"]);
+}
+
+#[test]
+fn property_reads_are_not_recorded_without_member_tracking() {
+    let options = ParseOptions {
+        member_accesses: false,
+        ..ParseOptions::default()
+    };
+    let info = parse_module(Path::new("a.ts"), "a.b; a.c = 1;", &options).unwrap();
+    assert_eq!(info.property_reads, Vec::<String>::new());
+    assert_eq!(info.property_writes, Vec::<String>::new());
+}
+
+#[test]
+fn component_markup_adds_the_names_it_reads() {
+    let source = "<script setup lang=\"ts\">\nimport { store } from './store';\nstore.load();\n</script>\n\
+                  <template>\n  <p>{{ store.label }} {{ store?.count }} {{ 1.5 }}</p>\n</template>\n";
+    let info = parse("a.vue", source);
+    assert_eq!(info.property_reads, ["count", "label", "load"]);
 }

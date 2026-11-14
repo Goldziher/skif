@@ -26,6 +26,7 @@
 
 mod array_comments;
 mod cache;
+mod classes;
 mod collect;
 mod commands;
 mod comments;
@@ -78,8 +79,9 @@ pub use config::{
 pub use declaration::{DECLARATION_SUFFIXES, is_declaration_file};
 pub use error::SyntaxError;
 pub use model::{
-    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, MockCall, ModuleInfo, ParseIssue,
-    ParseOptions, Registration, Removal, RemovalKind, coalesce_ranges, is_source_query,
+    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, Import, ImportKind, ImportedKind,
+    ImportedName, Member, MockCall, ModuleInfo, ParseIssue, ParseOptions, Registration, Removal, RemovalKind,
+    coalesce_ranges, is_source_query,
 };
 pub use style::{is_stylesheet, parse_stylesheet};
 
@@ -213,6 +215,7 @@ fn parse_block_in(
         ..ModuleInfo::default()
     };
     let collected = collect::collect(&ctx, &ret.program, &mut info);
+    classes::mark(&ctx, &ret.program, &mut info);
     let mut finder = finder::Finder::new(&ctx, &mut info, &ret.program);
     finder.visit_program(&ret.program);
     let cjs_shorthand = finder.into_cjs_shorthand();
@@ -222,6 +225,7 @@ fn parse_block_in(
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
         members::track(&ret.program, &analysis, &mut info, &excluded, base);
+        classes::property_names(&ret.program, &mut info);
         if let Some(uses) = uses {
             *uses = members::uses(&ret.program, &analysis);
         }
@@ -321,6 +325,7 @@ fn parse_component(
         let mut tags = std::collections::BTreeSet::new();
         for (start, end) in blocks.markup(source) {
             tags.extend(template::scan(&source[start..end], flavor, &mut uses));
+            info.add_property_reads(classes::lexical_reads(&source[start..end]));
         }
         members::credit(&mut info, &uses);
         if flavor == template::Flavor::Vue {
@@ -342,6 +347,7 @@ fn parse_mdx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleIn
             // Code quoted in prose (`<Card/>`) is not a use; fenced code is already outside the markup.
             let text = mdx::blank_inline_code(&source[start..end]);
             template::scan(&text, template::Flavor::Astro, &mut markup);
+            info.add_property_reads(classes::lexical_reads(&text));
         }
         members::credit(&mut info, &markup);
     }
@@ -354,6 +360,9 @@ fn parse_tsrx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleI
     let mut info = parse_block(&tsrx::extract(source), 0, SourceType::tsx(), lines, options, None);
     for name in info.imports.iter_mut().flat_map(|import| &mut import.names) {
         name.escapes = true;
+    }
+    if options.member_accesses {
+        info.add_property_reads(classes::lexical_reads(source));
     }
     info
 }

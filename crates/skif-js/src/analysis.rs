@@ -866,7 +866,7 @@ impl<'a> JsAnalysis<'a> {
         self.setup.ignores_dependency(id, specifier) || listed
     }
 
-    /// Whether the enum or namespace member `name` of package `id` is on an `ignore-members` list.
+    /// Whether the enum, namespace or class member `name` of package `id` is on an `ignore-members` list.
     #[must_use]
     pub fn ignores_member(&self, id: PackageId, name: &str) -> bool {
         self.setup.ignores_member(id, name)

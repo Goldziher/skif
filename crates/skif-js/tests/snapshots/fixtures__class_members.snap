@@ -1,0 +1,16 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: "found(&diagnostics, \"unused-class-members\")"
+---
+[
+  "iterator-generator.ts: AbstractClassGen.unimplemented",
+  "members.ts: MyClass.unused",
+  "members.ts: MyComponentClass.bUnusedPublic",
+  "members.ts: MyComponentClass.bWriteOnlyPublic",
+  "members.ts: MyComponentClass.cWriteOnlyPublic",
+  "members.ts: MyComponentClass.cUnusedProp",
+  "members.ts: MyComponentClass.dUnusedMember",
+  "members.ts: MyComponentClass.eUnusedStatic",
+  "members.ts: MyComponentClass.unusedGetter",
+  "members.ts: MyComponentClass.unusedSetter"
+]

@@ -9,6 +9,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and
+  heritage of an exported class) and `ModuleInfo` gains `property_reads` and `property_writes`, the property names a
+  module reads and assigns.
+
+### Added
+
+- `unused-class-members` (a warning, unsafe fix) reports the methods, fields and accessors of used exported classes
+  that no module reads, following knip 5's `classMembers`. Without type information a member counts as read when any
+  module reads a property of its name; decorated members and classes, members a base class outside the project may
+  declare, implemented interface members, classes exposed by an entry file, tagged members and `ignore-members`
+  names are not judged ([ADR 0042](adrs/0042-unused-class-members.md)).
+- `skif explain-usage FILE#Class.member` explains one class member: the modules that read its name, the exemption
+  that applies and the verdict.
+- `ignore-members` also exempts class members.
+
+### Changed
+
+- The parse cache schema moves to version 9, so the first run after upgrading re-parses every file.
 ### Changed
 
 - **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular

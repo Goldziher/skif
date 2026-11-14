@@ -14,6 +14,9 @@ use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName,
 use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
+use crate::class_members::{
+    ClassFacts, MemberExemption, MemberUsage, NameReads, entry_exposed, exemption, judged_classes, judges_classes_of,
+};
 use crate::discover::relative;
 use crate::globs::Globs;
 use crate::graph::{Module, ModuleId, ResolvedImport, Target};
@@ -213,6 +216,44 @@ pub struct ExportReport {
     pub already_explained: bool,
 }
 
+/// Whether a member of an exported class counts as used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum MemberVerdict {
+    /// The class has no such member, or the export is no class.
+    NotAMember,
+    /// The members of the class are not judged: the file's exports are not reported (an entry file, an ignored or
+    /// fixture file, a declaration file, incomplete entries), the class is tagged, or no other module uses it.
+    NotJudged,
+    /// The member is left alone whatever reads it; see [`ClassMemberReport::exemption`].
+    Exempt,
+    /// A module reads it.
+    Used,
+    /// No module reads it: `unused-class-members` reports it.
+    Unused,
+}
+
+/// Why one member of an exported class counts as used or not (ADR 0042).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub struct ClassMemberReport {
+    /// The export the class is behind.
+    pub class: String,
+    /// The member name.
+    pub member: String,
+    /// The verdict.
+    pub verdict: MemberVerdict,
+    /// Why the member is not judged, when it is [`MemberVerdict::Exempt`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exemption: Option<MemberExemption>,
+    /// The files that read a property of the member's name (any object counts, as no type information is used),
+    /// relative to the workspace root.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub readers: Vec<String>,
+}
+
 /// The explanation [`JsAnalysis::explain_usage`] returns.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -260,6 +301,9 @@ pub struct UsageReport {
     pub chain_from_build_source: bool,
     /// The explanation of the requested export.
     pub export: Option<ExportReport>,
+    /// The explanation of the requested class member, when the export asked for is `Class.member`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub class_member: Option<ClassMemberReport>,
 }
 
 impl UsageReport {
@@ -402,8 +446,35 @@ impl UsageReport {
         if let Some(export) = &self.export {
             render_export(export, 0, &mut out);
         }
+        if let Some(member) = &self.class_member {
+            render_class_member(member, &mut out);
+        }
         out
     }
+}
+
+fn render_class_member(report: &ClassMemberReport, out: &mut String) {
+    let name = format!("{}.{}", report.class, report.member);
+    if report.verdict == MemberVerdict::NotAMember {
+        let _ = writeln!(out, "  `{name}` is not a member of an exported class");
+        return;
+    }
+    let _ = writeln!(out, "  class member `{name}`:");
+    if let Some(exemption) = report.exemption {
+        let _ = writeln!(out, "    {}", exemption.describe());
+    }
+    if report.readers.is_empty() {
+        let _ = writeln!(out, "    no module reads a property of this name");
+    } else {
+        let _ = writeln!(out, "    read by name in {}", report.readers.join(", "));
+    }
+    let verdict = match report.verdict {
+        MemberVerdict::NotJudged => "not judged: the members of this class are not reported",
+        MemberVerdict::Exempt => "not judged",
+        MemberVerdict::Used => "used",
+        _ => "never read: reported by `unused-class-members`",
+    };
+    let _ = writeln!(out, "    => {verdict}");
 }
 
 /// How a template's use of a registered component is described: the import skif adds for it has no location.
@@ -578,6 +649,21 @@ fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bo
     })
 }
 
+/// `Class.member` split at its first dot, when `name` is no export of `module` but `Class` is one with a class behind
+/// it.
+fn class_member_request<'n>(module: &Module, name: &'n str) -> Option<(&'n str, &'n str)> {
+    if module.info.exports.iter().any(|export| export.name == name) {
+        return None;
+    }
+    let (class, member) = name.split_once('.')?;
+    module
+        .info
+        .exports
+        .iter()
+        .any(|export| export.name == class && export.class.is_some())
+        .then_some((class, member))
+}
+
 /// What one explanation shares: the modules an entry reaches and the exports already explained.
 struct Walk {
     reachable: HashSet<ModuleId>,
@@ -629,6 +715,7 @@ impl JsAnalysis<'_> {
                 chain_from_entry: None,
                 chain_from_build_source: false,
                 export: None,
+                class_member: None,
             };
         };
         let mut walk = Walk {
@@ -668,8 +755,57 @@ impl JsAnalysis<'_> {
             imported_by: self.importers(module, &walk),
             chain_from_entry: chain,
             chain_from_build_source,
-            export: export.map(|name| self.explain_export(module, name, 0, &mut walk, false)),
+            export: export
+                .map(|name| class_member_request(module, name).map_or(name, |(class, _)| class))
+                .map(|name| self.explain_export(module, name, 0, &mut walk, false)),
+            class_member: export
+                .and_then(|name| class_member_request(module, name))
+                .map(|(class, member)| self.explain_class_member(module, class, member)),
         }
+    }
+
+    /// Why `member` of the class behind export `class` of `module` counts as used or not.
+    fn explain_class_member(&self, module: &Module, class: &str, member: &str) -> ClassMemberReport {
+        let mut report = ClassMemberReport {
+            class: class.to_owned(),
+            member: member.to_owned(),
+            verdict: MemberVerdict::NotAMember,
+            exemption: None,
+            readers: Vec::new(),
+        };
+        let Some(export) = module.info.exports.iter().find(|export| export.name == class) else {
+            return report;
+        };
+        let Some(declared) = export
+            .class
+            .as_ref()
+            .and_then(|shape| shape.members.iter().find(|candidate| candidate.name == member))
+        else {
+            return report;
+        };
+        let usage = NameReads::of(&self.graph);
+        report.readers = usage
+            .users(module, export, declared)
+            .into_iter()
+            .map(|id| slashed(&self.graph.module(id).path))
+            .collect();
+        let judged = judges_classes_of(self, module)
+            .then(|| judged_classes(self, module).find(|(candidate, _)| candidate.name == class))
+            .flatten();
+        let Some((_, shape)) = judged else {
+            report.verdict = MemberVerdict::NotJudged;
+            return report;
+        };
+        let facts = ClassFacts::of(self, module, export, shape, &entry_exposed(self));
+        report.exemption = exemption(self, module, shape, &facts, declared);
+        report.verdict = if report.exemption.is_some() {
+            MemberVerdict::Exempt
+        } else if report.readers.is_empty() {
+            MemberVerdict::Unused
+        } else {
+            MemberVerdict::Used
+        };
+        report
     }
 
     pub(crate) fn reachable_from_entries(&self) -> HashSet<ModuleId> {

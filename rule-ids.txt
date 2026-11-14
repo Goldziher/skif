@@ -37,6 +37,7 @@ unresolved-imports
 unsorted-dependencies
 unsynced-dependency-family
 unused-catalog-entries
+unused-class-members
 unused-dependencies
 unused-dev-dependencies
 unused-enum-members

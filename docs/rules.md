@@ -18,6 +18,7 @@
 | [`unlisted-dependencies`](#unlisted-dependencies) | js | error | none |
 | [`unparseable-files`](#unparseable-files) | js | warning | none |
 | [`unresolved-imports`](#unresolved-imports) | js | error | none |
+| [`unused-class-members`](#unused-class-members) | js | warning | unsafe |
 | [`unused-dependencies`](#unused-dependencies) | js | error | unsafe |
 | [`unused-dev-dependencies`](#unused-dev-dependencies) | js | warning | unsafe |
 | [`unused-enum-members`](#unused-enum-members) | js | warning | unsafe |
@@ -169,6 +170,14 @@ An import specifier does not resolve to a file or a package.
 - Category: js
 - Default severity: error
 - Fixable: none
+
+## unused-class-members
+
+A member of an exported class is never read.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
 
 ## unused-dependencies
 

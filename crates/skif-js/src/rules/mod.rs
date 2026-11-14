@@ -10,6 +10,7 @@ mod unlisted_binaries;
 mod unlisted_dependencies;
 mod unparseable_files;
 mod unresolved_imports;
+mod unused_class_members;
 mod unused_dependencies;
 mod unused_dev_dependencies;
 mod unused_enum_members;
@@ -34,6 +35,7 @@ pub use unlisted_binaries::UnlistedBinaries;
 pub use unlisted_dependencies::UnlistedDependencies;
 pub use unparseable_files::UnparseableFiles;
 pub use unresolved_imports::UnresolvedImports;
+pub use unused_class_members::UnusedClassMembers;
 pub use unused_dependencies::UnusedDependencies;
 pub use unused_dev_dependencies::UnusedDevDependencies;
 pub use unused_enum_members::UnusedEnumMembers;
@@ -83,6 +85,7 @@ pub fn rules() -> Vec<Box<dyn JsRule>> {
         Box::new(UnusedNamespaceExports),
         Box::new(UnusedNamespaceTypes),
         Box::new(UnusedEnumMembers),
+        Box::new(UnusedClassMembers),
         Box::new(UnusedNamespaceMembers),
         Box::new(DuplicateExports),
         Box::new(CircularImports),
