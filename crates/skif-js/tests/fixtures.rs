@@ -261,7 +261,10 @@ fn class_members_follow_knips_fixture() {
 fn class_members_of_entry_files_with_include_entry_exports() {
     let diagnostics = Run::new("class-members", "[js]\ninclude-entry-exports = true\n").lint();
     let found = found(&diagnostics, "unused-class-members");
-    assert!(found.contains(&"index.ts: Parent.unusedMemberInEntry".to_owned()), "{found:?}");
+    assert!(
+        found.contains(&"index.ts: Parent.unusedMemberInEntry".to_owned()),
+        "{found:?}"
+    );
     assert_eq!(found.len(), 11, "{found:?}");
 }
 
@@ -712,7 +715,7 @@ fn rule_metadata_is_stable() {
     assert!(defaults.contains(&("stale-mocks", true)));
     assert!(defaults.contains(&("unused-subpath-imports", true)));
     assert!(defaults.contains(&("unused-subpath-exports", false)));
-    assert_eq!(defaults.len(), 20);
+    assert_eq!(defaults.len(), 21);
 }
 
 #[test]

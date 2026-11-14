@@ -224,7 +224,10 @@ fn implemented_interface_members_are_not_judged() {
 fn tags_and_ignore_members_exempt_a_member() {
     let files = [
         PACKAGE,
-        ("index.ts", "import { Tagged } from './tagged';\nconsole.log(new Tagged());\n"),
+        (
+            "index.ts",
+            "import { Tagged } from './tagged';\nconsole.log(new Tagged());\n",
+        ),
         (
             "tagged.ts",
             "export class Tagged {\n  /** @public */\n  api() {}\n  ignoredName() {}\n  unread() {}\n}\n",
@@ -369,9 +372,15 @@ fn explain_usage_gives_the_evidence_for_a_member() {
     assert!(internal.contains("read by name in store.ts\n"), "{internal}");
     let unused = explain(&files, "store.ts", "Store.unusedMethod");
     assert!(unused.contains("no module reads a property of this name"), "{unused}");
-    assert!(unused.contains("=> never read: reported by `unused-class-members`"), "{unused}");
+    assert!(
+        unused.contains("=> never read: reported by `unused-class-members`"),
+        "{unused}"
+    );
     let missing = explain(&files, "store.ts", "Store.nothing");
-    assert!(missing.contains("`Store.nothing` is not a member of an exported class"), "{missing}");
+    assert!(
+        missing.contains("`Store.nothing` is not a member of an exported class"),
+        "{missing}"
+    );
 }
 
 #[test]

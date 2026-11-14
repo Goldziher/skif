@@ -176,7 +176,11 @@ fn module_of(module: &Module, specifier: &str) -> Option<ModuleId> {
         let import = module.info.imports.get(resolved.import)?;
         let imports_module = !matches!(
             import.kind,
-            ImportKind::SideEffect | ImportKind::Mock | ImportKind::Resolve | ImportKind::ImportMetaGlob | ImportKind::SourceGlob
+            ImportKind::SideEffect
+                | ImportKind::Mock
+                | ImportKind::Resolve
+                | ImportKind::ImportMetaGlob
+                | ImportKind::SourceGlob
         );
         match resolved.target {
             Target::Module(id) if imports_module && import.specifier == specifier => Some(id),
@@ -186,7 +190,12 @@ fn module_of(module: &Module, specifier: &str) -> Option<ModuleId> {
 }
 
 /// The class export `name` of module `id`, following re-exports: the module that declares it and the export.
-fn class_export<'g>(graph: &'g ModuleGraph, id: ModuleId, name: &str, depth: usize) -> Option<(&'g Module, &'g Export)> {
+fn class_export<'g>(
+    graph: &'g ModuleGraph,
+    id: ModuleId,
+    name: &str,
+    depth: usize,
+) -> Option<(&'g Module, &'g Export)> {
     if depth > MAX_DEPTH {
         return None;
     }
@@ -242,7 +251,13 @@ pub(crate) fn entry_exposed(analysis: &JsAnalysis<'_>) -> HashSet<(ModuleId, Str
         .modules()
         .iter()
         .filter(|module| module.is_entry && !analysis.setup.includes_entry_exports(module.owner))
-        .flat_map(|module| module.info.exports.iter().map(move |export| (module.id, export.name.clone())))
+        .flat_map(|module| {
+            module
+                .info
+                .exports
+                .iter()
+                .map(move |export| (module.id, export.name.clone()))
+        })
         .collect();
     let mut exposed = HashSet::default();
     while let Some((id, name)) = queue.pop_front() {
@@ -250,7 +265,12 @@ pub(crate) fn entry_exposed(analysis: &JsAnalysis<'_>) -> HashSet<(ModuleId, Str
             continue;
         }
         let module = graph.module(id);
-        let named: Vec<&Export> = module.info.exports.iter().filter(|export| export.name == name).collect();
+        let named: Vec<&Export> = module
+            .info
+            .exports
+            .iter()
+            .filter(|export| export.name == name)
+            .collect();
         for export in &named {
             let Some(target) = export.from.as_deref().and_then(|from| module_of(module, from)) else {
                 continue;
@@ -336,8 +356,8 @@ pub(crate) fn exemption(
         Inherited::Names(names) if names.contains(&member.name.as_str()) => return Some(MemberExemption::BaseMember),
         Inherited::Names(_) | Inherited::Nothing => {}
     }
-    let implements = !member.is_static
-        && (shape.implements_unknown || shape.implemented.binary_search(&member.name).is_ok());
+    let implements =
+        !member.is_static && (shape.implements_unknown || shape.implemented.binary_search(&member.name).is_ok());
     implements.then_some(MemberExemption::Implements)
 }
 

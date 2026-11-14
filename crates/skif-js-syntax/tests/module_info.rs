@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use skif_js_syntax::{
-    ClassMemberKind, ClassShape, ExportKind, Heritage, ImportKind, ImportedKind, ModuleInfo, ParseOptions, Registration,
-    RemovalKind, SyntaxError, parse_module, place_file_dir,
+    ClassMemberKind, ClassShape, ExportKind, Heritage, ImportKind, ImportedKind, ModuleInfo, ParseOptions,
+    Registration, RemovalKind, SyntaxError, parse_module, place_file_dir,
 };
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
@@ -2087,6 +2087,7 @@ fn class_of<'i>(info: &'i ModuleInfo, export: &str) -> &'i ClassShape {
 
 #[test]
 fn class_members_are_recorded_as_knip_lists_them() {
+    use ClassMemberKind::{Getter, Method, Property, Setter};
     let source = "export class A {\n  constructor(public p: number) {}\n  method() {}\n  field = 1;\n  static count = 0;\n  \
                   get size() { return 1; }\n  set size(v) {}\n  protected kept() {}\n  private hidden() {}\n  #secret = 1;\n  \
                   'quoted'() {}\n  [Symbol.iterator]() {}\n  ['literal'] = 2;\n  accessor auto = 3;\n  static {}\n  \
@@ -2098,7 +2099,6 @@ fn class_members_are_recorded_as_knip_lists_them() {
         .iter()
         .map(|m| (m.name.as_str(), m.kind, m.is_static, m.decorated))
         .collect();
-    use ClassMemberKind::{Getter, Method, Property, Setter};
     assert_eq!(
         members,
         [
@@ -2214,9 +2214,12 @@ fn implemented_members_come_from_the_interfaces_of_the_module() {
     assert_eq!(a.implemented, ["area", "id", "label", "name"]);
     assert!(!a.implements_unknown);
     let b = class_of(&info, "B");
-    assert!(b.implemented.is_empty());
+    assert_eq!(b.implemented, Vec::<String>::new());
     assert!(b.implements_unknown, "an imported interface has unknown members");
-    assert!(class_of(&info, "C").implements_unknown, "a local interface extends an imported one");
+    assert!(
+        class_of(&info, "C").implements_unknown,
+        "a local interface extends an imported one"
+    );
 }
 
 #[test]
@@ -2232,7 +2235,10 @@ fn exported_class_forms_get_a_shape() {
     let decorated = parse("c.ts", "@Component({})\nexport class D { d() {} }\n");
     assert!(class_of(&decorated, "D").decorated);
     let ambient = parse("d.ts", "export declare class E { e(): void }\nexport const f = 1;\n");
-    assert!(ambient.exports.iter().all(|e| e.class.is_none()), "an ambient class has no shape");
+    assert!(
+        ambient.exports.iter().all(|e| e.class.is_none()),
+        "an ambient class has no shape"
+    );
 }
 
 #[test]
@@ -2284,8 +2290,8 @@ fn property_reads_are_not_recorded_without_member_tracking() {
         ..ParseOptions::default()
     };
     let info = parse_module(Path::new("a.ts"), "a.b; a.c = 1;", &options).unwrap();
-    assert!(info.property_reads.is_empty());
-    assert!(info.property_writes.is_empty());
+    assert_eq!(info.property_reads, Vec::<String>::new());
+    assert_eq!(info.property_writes, Vec::<String>::new());
 }
 
 #[test]
