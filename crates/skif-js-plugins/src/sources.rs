@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
-use skif_core::HashMap;
+use skif_core::{HashMap, HashSet};
 
 use crate::plugin::PluginContext;
 
@@ -22,11 +22,23 @@ use crate::plugin::PluginContext;
 /// [`FileSystem`](skif_core::FileSystem) taken during one run and live as long as the longest-lived listing of the
 /// group: a listing must not outlive the run, or the state of the file system, it read, and the listings of a group
 /// share texts correctly only when all of them read through the same file system.
+///
+/// A search of the package's own sources, which leaves out the directories of the
+/// run's other packages below it, does not list those directories either, unless a search of every source listed
+/// them already.
 #[derive(Debug)]
 pub struct PackageSources {
     dir: PathBuf,
     files: OnceLock<Vec<SourceFile>>,
+    own: OnceLock<OwnFiles>,
     texts: Arc<Texts>,
+}
+
+/// The source files outside the directories of `members`, listed without walking them.
+#[derive(Debug)]
+struct OwnFiles {
+    members: Vec<String>,
+    files: Vec<SourceFile>,
 }
 
 /// A source file, relative to the package directory, and its text once read; `None` when it cannot be read. The cell
@@ -55,6 +67,18 @@ impl Texts {
     }
 }
 
+impl SourceFile {
+    fn listed(paths: Vec<String>) -> Vec<Self> {
+        paths
+            .into_iter()
+            .map(|path| Self {
+                path,
+                text: OnceLock::new(),
+            })
+            .collect()
+    }
+}
+
 impl PackageSources {
     /// An empty listing of the sources below `dir`, a package directory.
     #[must_use]
@@ -62,6 +86,7 @@ impl PackageSources {
         Self {
             dir: dir.into(),
             files: OnceLock::new(),
+            own: OnceLock::new(),
             texts: Arc::default(),
         }
     }
@@ -76,6 +101,7 @@ impl PackageSources {
         Self {
             dir: dir.into(),
             files: OnceLock::new(),
+            own: OnceLock::new(),
             texts: Arc::clone(&enclosing.texts),
         }
     }
@@ -85,40 +111,68 @@ impl PackageSources {
         cx.sources.filter(|sources| sources.dir.as_path() == cx.dir)
     }
 
-    /// The source files `wanted` accepts by path, in path order, with their text when `keep` accepts it. `list`
-    /// lists the files on first use and `read` reads a file's text on its first use, unless a listing sharing this
-    /// one's texts read it already.
+    /// The source files below none of the `members` directories (relative to the listing's directory and
+    /// `/`-separated; every file when there are none), in path order, with their text when `keep` accepts it.
+    ///
+    /// `list` lists the files below no directory of the members it is given, and is asked for every file (no members)
+    /// or for the files outside `members` on first use; the files outside `members` are taken from the listing of
+    /// every file instead when that is made already, or when an earlier search asked for the files outside other
+    /// members. `read` reads a file's text on its first use, unless a listing sharing this one's texts read it
+    /// already.
     pub(crate) fn texts(
         &self,
-        list: impl FnOnce() -> Vec<String>,
+        members: &[String],
+        list: impl Fn(&[String]) -> Vec<String>,
         read: impl Fn(&str) -> Option<Arc<str>>,
-        mut wanted: impl FnMut(&str) -> bool,
         keep: impl Fn(&str) -> bool,
     ) -> Vec<(String, Arc<str>)> {
-        let files = self.files.get_or_init(|| {
-            list()
-                .into_iter()
-                .map(|path| SourceFile {
-                    path,
-                    text: OnceLock::new(),
+        let (files, excluded) = self.files_outside(members, &list);
+        let excluded: HashSet<&str> = excluded.iter().map(String::as_str).collect();
+        let found = |file: &SourceFile| {
+            if in_member(&excluded, &file.path) {
+                return None;
+            }
+            let text = file
+                .text
+                .get_or_init(|| {
+                    self.texts
+                        .get_or_read(&self.dir.join(&file.path), || read(file.path.as_str()))
                 })
-                .collect()
-        });
-        files
-            .iter()
-            .filter(|file| wanted(file.path.as_str()))
-            .filter_map(|file| {
-                let text = file
-                    .text
-                    .get_or_init(|| {
-                        self.texts
-                            .get_or_read(&self.dir.join(&file.path), || read(file.path.as_str()))
-                    })
-                    .as_ref()?;
-                keep(text).then(|| (file.path.clone(), Arc::clone(text)))
-            })
-            .collect()
+                .as_ref()?;
+            keep(text).then(|| (file.path.clone(), Arc::clone(text)))
+        };
+        files.iter().filter_map(found).collect()
     }
+
+    /// The listed files to search for those outside `members`, and the members whose files are still to be left out
+    /// of them.
+    fn files_outside<'m>(
+        &self,
+        members: &'m [String],
+        list: &impl Fn(&[String]) -> Vec<String>,
+    ) -> (&[SourceFile], &'m [String]) {
+        let every = || self.files.get_or_init(|| SourceFile::listed(list(&[]))).as_slice();
+        if members.is_empty() {
+            return (every(), &[]);
+        }
+        if let Some(files) = self.files.get() {
+            return (files.as_slice(), members);
+        }
+        let own = self.own.get_or_init(|| OwnFiles {
+            members: members.to_vec(),
+            files: SourceFile::listed(list(members)),
+        });
+        if own.members == members {
+            (own.files.as_slice(), &[])
+        } else {
+            (every(), members)
+        }
+    }
+}
+
+/// Whether `path`, relative to a listing's directory, lies below one of the `members` directories.
+fn in_member(members: &HashSet<&str>, path: &str) -> bool {
+    !members.is_empty() && path.match_indices('/').any(|(end, _)| members.contains(&path[..end]))
 }
 
 #[cfg(test)]
@@ -130,18 +184,19 @@ mod tests {
 
     use super::*;
     use crate::files::GlobCache;
+    use crate::files::tests::ListingFs;
     use crate::support::{own_sources_where, sources_containing};
 
     fn context<'a>(
-        fs: &'a MemoryFs,
+        fs: &'a dyn skif_core::FileSystem,
         dir: &'a str,
         globs: &'a GlobCache,
         sources: Option<&'a PackageSources>,
+        members: &'a [String],
     ) -> PluginContext<'a> {
         static SCRIPTS: std::sync::LazyLock<IndexMap<String, String>> = std::sync::LazyLock::new(IndexMap::new);
         static PLUGINS: std::sync::LazyLock<IndexMap<String, skif_config::PluginConfig>> =
             std::sync::LazyLock::new(IndexMap::new);
-        static MEMBERS: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| vec!["nested".to_owned()]);
         PluginContext {
             dir: Path::new(dir),
             is_root: false,
@@ -155,7 +210,7 @@ mod tests {
             nx: None,
             globs,
             sources,
-            members: &MEMBERS,
+            members,
         }
     }
 
@@ -179,9 +234,10 @@ mod tests {
             .with_file("/a/z.js", "other()")
             .with_file("/b/w.ts", "pino()");
         let globs = GlobCache::new();
+        let members = ["nested".to_owned()];
         let listing = PackageSources::new("/a");
-        let with = context(&fs, "/a", &globs, Some(&listing));
-        let without = context(&fs, "/a", &globs, None);
+        let with = context(&fs, "/a", &globs, Some(&listing), &members);
+        let without = context(&fs, "/a", &globs, None, &members);
         assert_eq!(
             found(&sources_containing(&with, "pino")),
             [("nested/y.ts", "pino()"), ("x.ts", "pino()")]
@@ -198,7 +254,52 @@ mod tests {
             found(&own_sources_where(&with, |_| true)),
             found(&own_sources_where(&without, |_| true))
         );
-        let other = context(&fs, "/b", &globs, Some(&listing));
+        let other = context(&fs, "/b", &globs, Some(&listing), &members);
         assert_eq!(found(&sources_containing(&other, "pino")), [("w.ts", "pino()")]);
+    }
+
+    /// A search of the own sources lists no directory of a member, and one leaving out other members lists every
+    /// file and leaves theirs out; a search of every source then finds the members' files too. Searched in the other
+    /// order, the own sources are taken from the listing of every file without listing again. Both orders find the
+    /// same files.
+    #[test]
+    fn own_sources_are_listed_without_walking_the_members() {
+        let memory = || {
+            MemoryFs::new()
+                .with_file("/a/x.ts", "pino()")
+                .with_file("/a/nested/package.json", "{}")
+                .with_file("/a/nested/y.ts", "pino()")
+                .with_file("/a/nested/deep/q.ts", "pino()")
+                .with_file("/a/esm/v.mjs", "pino()")
+        };
+        let members = ["nested".to_owned()];
+        let globs = GlobCache::new();
+        let own = [("esm/v.mjs", "pino()"), ("x.ts", "pino()")];
+        let every = [
+            ("esm/v.mjs", "pino()"),
+            ("nested/deep/q.ts", "pino()"),
+            ("nested/y.ts", "pino()"),
+            ("x.ts", "pino()"),
+        ];
+
+        let fs = ListingFs::new(memory());
+        let listing = PackageSources::new("/a");
+        let cx = context(&fs, "/a", &globs, Some(&listing), &members);
+        assert_eq!(found(&own_sources_where(&cx, |_| true)), own);
+        assert_eq!(fs.listed(), ["/a", "/a/esm"].map(Path::new));
+        let others = ["esm".to_owned()];
+        let other_cx = context(&fs, "/a", &globs, Some(&listing), &others);
+        assert_eq!(found(&own_sources_where(&other_cx, |_| true)), &every[1..]);
+        assert_eq!(found(&sources_containing(&cx, "pino")), every);
+        assert_eq!(found(&own_sources_where(&cx, |_| true)), own);
+
+        let fs = ListingFs::new(memory());
+        let listing = PackageSources::new("/a");
+        let cx = context(&fs, "/a", &globs, Some(&listing), &members);
+        assert_eq!(found(&sources_containing(&cx, "pino")), every);
+        let listed = fs.listed();
+        assert_eq!(listed, ["/a", "/a/esm", "/a/nested", "/a/nested/deep"].map(Path::new));
+        assert_eq!(found(&own_sources_where(&cx, |_| true)), own);
+        assert_eq!(fs.listed(), listed, "the own sources are taken from the listing of every file");
     }
 }

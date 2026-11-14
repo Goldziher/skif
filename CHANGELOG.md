@@ -68,6 +68,11 @@ All notable changes to this project are documented here. The format follows
   bindings is applied to that class once instead of once per change. `ModuleLoader::holds_no_code` is asked once per
   importing directory and specifier, as `is_installed` already was.
 
+- **Performance**: the `execa`, `zx`, `nano-spawn` and `bun` plugins no longer walk the directories of a package's
+  members when they list its own sources, so a workspace root lists only its own directories and each member lists
+  its own, instead of the root walking every member's tree too; when a plugin of the package already listed every
+  source (`pino`), the own sources are taken from that listing. The output is unchanged.
+
 ### Fixed
 
 - **Resolve calls**: `require.resolve(x)`, `createRequire(…).resolve(x)` and `import.meta.resolve(x)` return a path
