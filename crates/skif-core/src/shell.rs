@@ -45,6 +45,20 @@ pub struct Tokens {
     /// Ranges of indices into [`segments`](Self::segments) whose commands run in a subshell `( … )`, in the order the
     /// subshells close (an inner one before the one around it). A `cd` in a subshell ends with it.
     pub subshells: Vec<Range<usize>>,
+    /// The simple commands with redirections but no words (`> "$(x)"`), which are not among the
+    /// [`segments`](Self::segments), in source order: they run nothing, but a substitution in one runs where they do.
+    pub empty_commands: Vec<EmptyCommand>,
+}
+
+/// A simple command of redirections alone, and where it lies among the [`Tokens::segments`] and [`Tokens::subshells`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmptyCommand {
+    /// Byte offset of its first redirection in the tokenized text.
+    pub start: usize,
+    /// How many of the segments come before it.
+    pub segments_before: usize,
+    /// How many of the subshells close before it.
+    pub subshells_closed: usize,
 }
 
 /// Whether `text` is a `NAME=value` assignment word.
@@ -639,5 +653,29 @@ mod tests {
         assert_eq!(tokens.subshells, [0..2, 4..5, 3..5]);
         assert_eq!(tokenize("{ cd sub; rspack; }").subshells.len(), 0);
         assert_eq!(tokenize("(cd sub && rspack").subshells, vec![0..2_usize]);
+    }
+
+    #[test]
+    fn commands_of_redirections_alone_are_empty_commands() {
+        let src = "(cd a && > \"$(x)\") && 2> y; tsc > z";
+        let tokens = tokenize(src);
+        assert_eq!(
+            tokens.empty_commands,
+            [
+                EmptyCommand {
+                    start: 9,
+                    segments_before: 1,
+                    subshells_closed: 0,
+                },
+                EmptyCommand {
+                    start: 22,
+                    segments_before: 1,
+                    subshells_closed: 1,
+                },
+            ]
+        );
+        assert_eq!(&src[9..10], ">");
+        assert_eq!(&src[22..24], "2>");
+        assert_eq!(tokens.segments.len(), 2);
     }
 }

@@ -1105,6 +1105,26 @@ fn a_substitution_runs_in_the_directory_of_its_command() {
     );
 }
 
+/// A substitution in a command of redirections alone runs where that command does, after the commands before it; one
+/// after a `pushd` can `popd` to the directory it left; and a nested one runs in the directory of its own command.
+#[test]
+fn a_substitution_runs_in_the_directory_state_of_its_command() {
+    assert_eq!(binary_dirs("cd a && > \"$(tsc)\""), [at("tsc", Some("a"))]);
+    assert_eq!(
+        binary_dirs("(cd a && > \"$(tsc)\") && echo $(vite)"),
+        [at("tsc", Some("a")), at("vite", None)]
+    );
+    assert_eq!(binary_dirs("(cd a) > \"$(tsc)\""), [at("tsc", None)]);
+    assert_eq!(
+        binary_dirs("cd sub && pushd a && echo $(popd && tsc) && popd && vite"),
+        [at("tsc", Some("sub")), at("vite", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("cd a && echo $(cd b && echo $(tsc))"),
+        [at("tsc", Some("a/b"))]
+    );
+}
+
 #[test]
 fn files_and_packages_after_cd_are_in_its_directory() {
     let info = parse("cd tools && node -r @x/hook ./build.js");
