@@ -5,6 +5,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins_in};
+use skif_workspace::Workspace;
 
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
@@ -331,6 +332,16 @@ fn dir_below(dir: &str, package_dir: &str) -> Option<String> {
     dir.strip_prefix(package_dir)?.strip_prefix('/').map(str::to_owned)
 }
 
+/// The directories of the members of `workspace` below `package_dir`, relative to it: their sources are theirs.
+fn members_below(workspace: &Workspace, package_dir: &str) -> Vec<String> {
+    workspace
+        .iter()
+        .filter(|(_, member)| !member.is_root)
+        .filter_map(|(_, member)| dir_below(&member.dir.to_string_lossy().replace('\\', "/"), package_dir))
+        .filter(|relative| !relative.is_empty())
+        .collect()
+}
+
 impl InputSource for PluginSource {
     fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
         let package = request.package;
@@ -350,6 +361,8 @@ impl InputSource for PluginSource {
         );
         let modules = ConfigModules::new(request.fs, request.workspace);
         let sources = request.listing.package_sources(request.workspace, &dir);
+        let package_dir = package.dir.to_string_lossy().replace('\\', "/");
+        let members = members_below(request.workspace, &package_dir);
         let context = PluginContext {
             dir: &dir,
             is_root: package.is_root,
@@ -363,9 +376,9 @@ impl InputSource for PluginSource {
             nx: None,
             globs: request.listing.globs(),
             sources: Some(&sources),
+            members: &members,
         };
         // The Nx projects are those the source walk reaches, listed once for every package of the run.
-        let package_dir = package.dir.to_string_lossy().replace('\\', "/");
         let projects = || -> Vec<(String, bool)> {
             request
                 .listing

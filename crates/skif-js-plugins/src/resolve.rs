@@ -1075,6 +1075,7 @@ mod tests {
             nx: None,
             globs: &GLOBS,
             sources: None,
+            members: &[],
         }
     }
 
@@ -1192,6 +1193,7 @@ mod tests {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         let configs = ConfigCache::default();
         let mut collector = Collector {
@@ -1247,6 +1249,7 @@ mod tests {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         let arguments = [
@@ -1312,6 +1315,7 @@ mod tests {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         for key in ["testIgnore", "watchExclude", "excludeFiles"] {

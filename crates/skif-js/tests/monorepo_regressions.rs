@@ -1246,6 +1246,29 @@ fn a_member_file_that_spawns_a_resolved_binary_link_runs_a_binary_of_the_member(
     );
 }
 
+/// A `package.json` that only sets the module format of `scripts/` makes no member of it: the binary a script there
+/// runs with execa is judged at the root, which does not list it.
+#[test]
+fn a_script_below_a_package_json_that_only_sets_the_type_runs_a_binary_of_the_root() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/release.mjs","devDependencies":{{"execa":"9.0.0"}}"#
+    ));
+    let files = [
+        ("package.json", root.as_str()),
+        ("scripts/package.json", r#"{"type":"module"}"#),
+        (
+            "scripts/release.mjs",
+            "import { execa } from 'execa';\nawait execa('changeset', ['publish']);\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["scripts/release.mjs: changeset"],
+        "{diagnostics:#?}"
+    );
+}
+
 /// A binary that a script, a workflow step or a source file runs after `cd` into another workspace package that does
 /// not provide it is reported at the command, naming the package it runs in. A script of that package, which a package
 /// manager run there runs, is no binary.

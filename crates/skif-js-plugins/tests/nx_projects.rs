@@ -57,6 +57,7 @@ fn context<'a>(
         nx: None,
         globs: &GLOBS,
         sources: None,
+        members: &[],
     }
 }
 
