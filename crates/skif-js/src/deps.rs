@@ -571,7 +571,7 @@ fn read_installed(
 }
 
 /// Whether package `name` is installed in a `node_modules` directory from the directory of `file` up to `root`.
-fn is_installed(fs: &dyn FileSystem, file: &Path, root: &Path, name: &str) -> bool {
+fn package_installed(fs: &dyn FileSystem, file: &Path, root: &Path, name: &str) -> bool {
     file.parent()
         .is_some_and(|start| read_installed(fs, start, root, name, &mut HashMap::default()).is_some())
 }
@@ -1487,7 +1487,7 @@ impl DependencyUsage {
                     }
                     if kind == Some(ImportKind::Url)
                         && !self.known_package(name)
-                        && !is_installed(fs, &module.abs, &workspace.root, name)
+                        && !package_installed(fs, &module.abs, &workspace.root, name)
                     {
                         // A stylesheet `url()` of a package that no manifest lists and that is not installed goes
                         // through a bundler alias skif cannot see (`@assets/…`, Nuxt's `~static/…`) or names a
