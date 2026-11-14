@@ -170,3 +170,8 @@ blake3 = "907c476e12ee9a9395cbcdc22eb8fb9f8f148410ad8cb151dc442a1fd6a0a079"
 number = 34
 status = "accepted"
 blake3 = "acb0569e28760875dbec8584a0b60d98dd4b8dc57ec36e01d263a2ca51e30e2c"
+
+[adrs."adrs/0035-plugin-entries-in-build-output.md"]
+number = 35
+status = "accepted"
+blake3 = "f6f79daa800649aa9371da3c604a92d647b7de09384ecb34555876f7c393c051"

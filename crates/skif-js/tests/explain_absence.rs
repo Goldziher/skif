@@ -497,6 +497,15 @@ fn a_plugin_entry_into_nothing_leaves_the_package_judged() {
     assert_eq!(absence(&files, "", "orphan.ts"), "unused-file");
 }
 
+/// A plugin entry in build output that is no code file (a compiled binary a workflow runs) needs no source behind it:
+/// it contributes no entry and leaves the package's entries known.
+#[test]
+fn a_plugin_entry_to_a_built_binary_leaves_the_package_judged() {
+    let files = bundling("'lib', 'release', 'tool'");
+    let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (*path, text.as_str())).collect();
+    assert_eq!(absence(&files, "", "orphan.ts"), "unused-file");
+}
+
 /// An `export *` forwards every export without declaring it: the walk follows the forwarded name through the
 /// re-exporting module's users instead of calling it no export of that module, and the importer list says the module
 /// is re-exported as a whole.

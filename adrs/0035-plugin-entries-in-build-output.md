@@ -56,7 +56,8 @@ leaves no package judged while an entry it cannot follow hides what it reaches.
 * Each such entry is a reason of its own, unlike `unmapped-published`, which one mapped published path clears: every
   bundle entry is a separate root of the module graph.
 * A plugin entry into nothing outside build output is no entry and leaves the package judged, as a published path into
-  nothing does.
+  nothing does. So is one without a code extension (a compiled binary a workflow runs, `build/tool/target/release/tool`):
+  unlike a published `bin` file, a plugin entry with no extension names no module.
 * This adds `unmapped-entry` to the causes [ADR 0016](0016-config-evaluation-and-incomplete-entries.md) and
   [ADR 0022](0022-reporting-and-output-formats.md) list for `incomplete-packages`.
 
