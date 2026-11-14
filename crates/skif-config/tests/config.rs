@@ -316,6 +316,7 @@ fn full_fixture_sections() {
     let js = &config.js;
     assert!(js.enabled && js.production && js.include_entry_exports && js.include_fixtures);
     assert!(js.use_public_hoisting);
+    assert!(!js.type_aware);
     assert!(js.isolate_workspaces && js.strict);
     assert_eq!(js.entry, ["src/index.ts"]);
     assert_eq!(js.project, ["src/**/*.ts"]);
@@ -324,6 +325,7 @@ fn full_fixture_sections() {
     assert_eq!(js.ignore_binaries, ["tsc"]);
     assert_eq!(js.workspaces["packages/app"].entry, ["src/main.tsx"]);
     assert_eq!(js.workspaces["packages/app"].ignore_binaries, ["vite"]);
+    assert_eq!(js.workspaces["packages/app"].type_aware, Some(true));
     assert_eq!(
         js.compilers["html"],
         JsCompiler::matching([r#"<script[^>]+src="([^"]+)""#])
@@ -369,6 +371,7 @@ fn defaults_are_sensible() {
     assert_eq!(Config::from_toml_str("").unwrap(), config);
     assert!(config.js.enabled && !config.js.production && !config.js.include_fixtures);
     assert!(!config.js.use_public_hoisting);
+    assert!(config.js.type_aware, "type-aware analysis is on by default");
     assert!(!config.js.isolate_workspaces && !config.js.strict);
     assert_eq!(config.catalog.mode, CatalogMode::Off);
     assert_eq!(config.catalog.min_packages, 2);
@@ -521,6 +524,26 @@ fn cli_overrides_win_over_file_and_defaults() {
     assert!(!config.lint.fail_on_warnings);
     assert!(!config.js.production);
     assert!(!config.js.enabled);
+}
+
+#[test]
+fn no_type_aware_wins_over_the_file_and_every_workspace() {
+    let mut config = Config::from_toml_str(
+        "[js]\ntype-aware = true\n\n[js.workspaces.\"a\"]\ntype-aware = true\n\n[js.workspaces.\"b\"]\nentry = [\"x.ts\"]\n",
+    )
+    .unwrap();
+    config.apply(&ConfigOverrides::default().with_no_type_aware(true)).unwrap();
+    assert!(!config.js.type_aware);
+    assert_eq!(config.js.workspaces["a"].type_aware, Some(false));
+    assert_eq!(config.js.workspaces["b"].type_aware, None, "an unset workspace inherits the top level");
+}
+
+#[test]
+fn without_no_type_aware_the_file_decides() {
+    let mut config = Config::from_toml_str("[js]\ntype-aware = false\n\n[js.workspaces.\"a\"]\ntype-aware = true\n").unwrap();
+    config.apply(&ConfigOverrides::default().with_no_type_aware(false)).unwrap();
+    assert!(!config.js.type_aware);
+    assert_eq!(config.js.workspaces["a"].type_aware, Some(true));
 }
 
 #[test]
@@ -764,6 +787,7 @@ use-tsconfig-files = true
 
 [js.workspaces."."]
 include-entry-exports = true
+type-aware = false
 
 [js.workspaces."packages/web"]
 ignore-unresolved = ["virtual:*"]
@@ -787,6 +811,7 @@ vite = { config = ["vite.web.config.ts"] }
     };
     assert!(kinds.type_alias && kinds.enumeration && !kinds.function && !kinds.variable);
     assert_eq!(js.workspaces["."].include_entry_exports, Some(true));
+    assert_eq!(js.workspaces["."].type_aware, Some(false));
     let web = &js.workspaces["packages/web"];
     assert_eq!(web.ignore_unresolved, ["virtual:*"]);
     assert_eq!(web.ignore_members, ["Internal*"]);
@@ -797,6 +822,7 @@ vite = { config = ["vite.web.config.ts"] }
     assert_eq!(web.paths["@/*"], ["./src/*", "./generated/*"]);
     assert!(matches!(web.plugins["vite"], PluginConfig::Options(_)));
     assert_eq!(web.include_entry_exports, None);
+    assert_eq!(web.type_aware, None);
 }
 
 #[test]
@@ -855,6 +881,7 @@ fn root_only_js_keys_are_rejected_in_an_override() {
         "use-public-hoisting = true",
         "isolate-workspaces = true",
         "strict = true",
+        "type-aware = false",
     ] {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");

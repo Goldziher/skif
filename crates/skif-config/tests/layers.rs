@@ -641,6 +641,11 @@ fn root_scoped_keys_in_an_override_are_scope_errors_with_a_position() {
             4,
         ),
         (
+            "[[overrides]]\npackages = [\"a\"]\n[overrides.js]\ntype-aware = false\n",
+            "overrides[0].js.type-aware",
+            4,
+        ),
+        (
             "[[overrides]]\npackages = [\"a\"]\n[overrides.rules]\nx = { level = \"warn\", mode = \"a\" }\n",
             "overrides[0].rules.x.mode",
             4,
@@ -826,6 +831,18 @@ fn origins_record_the_file_line_and_operation() {
     let second = origins.last("version-groups[1]").unwrap();
     assert_eq!((second.source, second.op), (0, Op::Prepend));
     assert_eq!(origins.get("catalog.mode"), []);
+}
+
+#[test]
+fn type_aware_is_layered_with_an_origin() {
+    let resolved = two(
+        "[js]\ntype-aware = false\n[js.workspaces.\"w\"]\ntype-aware = false\n",
+        "[js]\ntype-aware = true\n",
+    );
+    assert!(resolved.config.js.type_aware);
+    assert_eq!(resolved.config.js.workspaces["w"].type_aware, Some(false));
+    let origin = resolved.origins.last("js.type-aware").unwrap();
+    assert_eq!((origin.source, origin.line, origin.op), (1, 2, Op::Set));
 }
 
 #[test]

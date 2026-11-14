@@ -600,6 +600,14 @@ impl Config {
         if overrides.no_js {
             self.js.enabled = false;
         }
+        if overrides.no_type_aware {
+            self.js.type_aware = false;
+            for workspace in self.js.workspaces.values_mut() {
+                if workspace.type_aware.is_some() {
+                    workspace.type_aware = Some(false);
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -2096,6 +2104,12 @@ pub struct Js {
     /// `shamefully-hoist` (from `pnpm-workspace.yaml`, or the root `.npmrc` before pnpm 11), and `rules_js`'s
     /// `public_hoist_packages`. Off by default, as in knip; strict mode ignores it.
     pub use_public_hoisting: bool,
+    /// Resolve member reads with the TypeScript type checker, so a read through a typed receiver (`this.x`, a
+    /// parameter, a variable of a class type) credits the member it reaches rather than every member of that name.
+    /// Slower, more accurate member findings; on by default. A package without usable types (no `tsconfig.json`,
+    /// plain JavaScript, uninstalled dependencies) keeps the name-based analysis, and the report says which. Off
+    /// (`type-aware = false`, `skif --no-type-aware`) runs no type checker at all.
+    pub type_aware: bool,
     /// How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the
     /// git index and re-lists from disk every directory modified since the index was written (faster, blind to an
     /// untracked file older than the last write of the index). `git` falls back to the walk when the workspace is not
@@ -2239,6 +2253,13 @@ impl Js {
         self
     }
 
+    /// Resolves member reads with the TypeScript type checker (`type-aware`), or keeps the name-based analysis.
+    #[must_use]
+    pub const fn with_type_aware(mut self, enabled: bool) -> Self {
+        self.type_aware = enabled;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -2271,6 +2292,7 @@ impl Default for Js {
             use_tsconfig_files: false,
             include_fixtures: false,
             use_public_hoisting: false,
+            type_aware: true,
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),
             workspaces: IndexMap::new(),
@@ -2473,6 +2495,9 @@ pub struct JsWorkspace {
     /// Report unused exports of entry files of this workspace; unset inherits `[js] include-entry-exports`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_entry_exports: Option<bool>,
+    /// Resolve member reads of this workspace with the TypeScript type checker; unset inherits `[js] type-aware`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_aware: Option<bool>,
     /// Exports used in their own file that are not reported in this workspace; unset inherits `[js]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_exports_used_in_file: Option<IgnoreExportsUsedInFile>,

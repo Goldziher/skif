@@ -25,6 +25,8 @@ pub struct ConfigOverrides {
     pub production: Option<bool>,
     /// Turns the JS analysis off (`--no-js`).
     pub no_js: bool,
+    /// Turns the type-aware analysis off at the top level and in every workspace (`--no-type-aware`).
+    pub no_type_aware: bool,
     /// Use this file (and what it extends) instead of discovering configuration files (`--config`).
     pub config_file: Option<PathBuf>,
     /// Read no configuration file at all: the defaults plus these overrides (`--no-config`).
@@ -78,6 +80,14 @@ impl ConfigOverrides {
     #[must_use]
     pub const fn with_no_js(mut self, no_js: bool) -> Self {
         self.no_js = no_js;
+        self
+    }
+
+    /// Turns the type-aware analysis off when `no_type_aware` is set, overriding `[js] type-aware` and every
+    /// `[js.workspaces."<dir>"] type-aware`.
+    #[must_use]
+    pub const fn with_no_type_aware(mut self, no_type_aware: bool) -> Self {
+        self.no_type_aware = no_type_aware;
         self
     }
 
