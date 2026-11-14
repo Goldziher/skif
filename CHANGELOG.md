@@ -16,7 +16,8 @@ All notable changes to this project are documented here. The format follows
   module reads and assigns. `ImportedName` gains `passed_to`, the call that receives the namespace of an `import()` a
   function returns.
   heritage of an exported class) and `declaration_start` (the offset of the name of the class, enum or namespace
-  declaration it stands for, which the type-aware analysis keys declarations by), and `ModuleInfo` gains
+  declaration it stands for, or the offset past the body of an anonymous default class, which the type-aware analysis
+  keys declarations by), and `ModuleInfo` gains
   `property_reads` and `property_writes`, the property names a module reads and assigns, `string_constants`, the
   strings behind its exported constants, and `imported_key_reads`, its element accesses through an imported constant
   key.
@@ -206,6 +207,12 @@ All notable changes to this project are documented here. The format follows
   `const` and a property of an `as const` object, in the same module or imported, also through a namespace import or
   a re-export. A key held by a `let`, a plain object or a parameter still reads nothing
   ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
+- `unused-class-members`: a default-exported class is judged like a named one. With types, an anonymous
+  `export default class {}` is asked of the checker like a named class, so a member read only on another class is
+  reported (`default.paint`) instead of credited by name. A class exported under two names (`export class C` beside
+  `export default C`, or `export { C, C as default }`) is reported once instead of once per export, and is public API
+  when an entry file exposes either name, also through `export default C` of an imported `C`.
+  `skif explain-usage FILE#Foo.member` finds the member of `export default class Foo` by the name the finding gives.
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 - A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after

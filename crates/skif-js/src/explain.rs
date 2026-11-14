@@ -17,8 +17,8 @@ use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
 use crate::class_members::{
-    ClassFacts, MemberExemption, MemberUsage, TypedMemberUsage, entry_exposed, exemption, judged_classes,
-    judges_classes_of,
+    ClassFacts, MemberExemption, MemberUsage, TypedMemberUsage, declaration_name, entry_exposed, exemption,
+    judged_classes, judges_classes_of, same_class,
 };
 use crate::discover::relative;
 use crate::globs::Globs;
@@ -801,25 +801,24 @@ fn class_member_request<'n>(module: &Module, name: &'n str) -> Option<(&'n str, 
         return None;
     }
     let (class, member) = name.split_once('.')?;
-    module
-        .info
-        .exports
+    declaration_export(module, class)
+        .filter(|export| export.class.is_some() || matches!(export.kind, ExportKind::Enum | ExportKind::Namespace))
+        .map(|_| (class, member))
+}
+
+/// The export of `module` that a report names `class`: the export of that name, else a default export whose class
+/// the report names so (`Foo` of `export default class Foo`).
+fn declaration_export<'m>(module: &'m Module, class: &str) -> Option<&'m Export> {
+    let exports = &module.info.exports;
+    exports
         .iter()
-        .any(|export| {
-            export.name == class
-                && (export.class.is_some() || matches!(export.kind, ExportKind::Enum | ExportKind::Namespace))
-        })
-        .then_some((class, member))
+        .find(|export| export.name == class)
+        .or_else(|| exports.iter().find(|export| declaration_name(export) == class))
 }
 
 /// The declaration behind `export` of `module` as a report names it: `file#Name`.
 fn declaration_label(module: &Module, export: &Export) -> String {
-    let name = if export.name == "default" {
-        export.local_name.as_deref().unwrap_or("default")
-    } else {
-        export.name.as_str()
-    };
-    format!("{}#{name}", slashed(&module.path))
+    format!("{}#{}", slashed(&module.path), declaration_name(export))
 }
 
 /// What one explanation shares: the modules an entry reaches and the exports already explained.
@@ -914,7 +913,11 @@ impl JsAnalysis<'_> {
             chain_from_entry: chain,
             chain_from_build_source,
             export: export
-                .map(|name| class_member_request(module, name).map_or(name, |(class, _)| class))
+                .map(|name| {
+                    class_member_request(module, name)
+                        .and_then(|(class, _)| declaration_export(module, class))
+                        .map_or(name, |declared| declared.name.as_str())
+                })
                 .map(|name| self.explain_export(module, name, 0, &mut walk, false)),
             class_member: export
                 .and_then(|name| class_member_request(module, name))
@@ -935,7 +938,7 @@ impl JsAnalysis<'_> {
             typed: None,
             untyped_because: None,
         };
-        let Some(export) = module.info.exports.iter().find(|export| export.name == class) else {
+        let Some(export) = declaration_export(module, class) else {
             return report;
         };
         match export.kind {
@@ -973,7 +976,7 @@ impl JsAnalysis<'_> {
                 .collect(),
         );
         let judged = judges_classes_of(self, module)
-            .then(|| judged_classes(self, module).find(|(candidate, _)| candidate.name == export.name))
+            .then(|| judged_classes(self, module).find(|(candidate, _)| same_class(candidate, export)))
             .flatten();
         let Some((_, shape)) = judged else {
             report.verdict = MemberVerdict::NotJudged;
