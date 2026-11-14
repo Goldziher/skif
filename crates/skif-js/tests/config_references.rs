@@ -540,3 +540,88 @@ fn a_member_of_an_imported_shared_config_keeps_its_packages_with_its_package() {
     );
     assert_eq!(found(&diagnostics, "unused-dependencies"), none());
 }
+
+/// A workspace whose app's Vitest config calls the factory of a shared config package, which adds a coverage block
+/// naming the `v8` provider only when `condition` holds, and whose app lists `app_dependencies` besides `vitest` and
+/// the shared config package.
+fn gated_coverage_workspace(condition: &str, app_dependencies: &str) -> Vec<(String, String)> {
+    let imports = if condition.contains("existsSync") {
+        "import { existsSync } from 'node:fs';\n"
+    } else {
+        ""
+    };
+    vec![
+        (
+            "package.json".to_owned(),
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#.to_owned(),
+        ),
+        (
+            "packages/app/package.json".to_owned(),
+            format!(
+                r#"{{"name":"@x/app","private":true,"type":"module","main":"src/index.ts","scripts":{{"test":"vitest run"}},"devDependencies":{{{app_dependencies}"@x/vitest-config":"workspace:*","vitest":"3.0.0"}}}}"#
+            ),
+        ),
+        (
+            "packages/app/vitest.config.ts".to_owned(),
+            "import { createVitestConfig } from '@x/vitest-config';\nexport default createVitestConfig();\n".to_owned(),
+        ),
+        ("packages/app/src/index.ts".to_owned(), "export const a = 1;\n".to_owned()),
+        (
+            "packages/vitest-config/package.json".to_owned(),
+            r#"{"name":"@x/vitest-config","private":true,"type":"module","main":"index.js","dependencies":{"vitest":"3.0.0"}}"#
+                .to_owned(),
+        ),
+        (
+            "packages/vitest-config/index.js".to_owned(),
+            format!(
+                "{imports}import {{ defineConfig }} from 'vitest/config';\n\
+                 export const createVitestConfig = (options = {{}}) =>\n\
+                   defineConfig({{\n\
+                     test: {{\n\
+                       globals: true,\n\
+                       environment: 'node',\n\
+                       ...({condition}\n\
+                         ? {{ coverage: {{ enabled: true, provider: 'v8', reporter: ['text'] }} }}\n\
+                         : {{}}),\n\
+                       ...options,\n\
+                     }},\n\
+                   }});\n"
+            ),
+        ),
+    ]
+}
+
+fn lint_owned(files: &[(String, String)]) -> Vec<Diagnostic> {
+    let borrowed: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+    lint(&borrowed)
+}
+
+/// A coverage provider a shared config names only when an environment variable turns coverage on is an optional
+/// reference (ADR 0036): the app calling the factory without listing it has no unlisted dependency, and an app that
+/// lists it uses it.
+#[test]
+fn a_package_named_only_on_an_environment_gated_branch_is_optional() {
+    let condition = "process.env.COVERAGE_ENABLED === 'true'";
+    let unlisted = lint_owned(&gated_coverage_workspace(condition, ""));
+    assert_eq!(found(&unlisted, "unlisted-dependencies"), none());
+    let listed = lint_owned(&gated_coverage_workspace(
+        condition,
+        r#""@vitest/coverage-v8":"3.0.0","idle-kit":"1.0.0","#,
+    ));
+    assert_eq!(found(&listed, "unlisted-dependencies"), none());
+    assert_eq!(
+        found(&listed, "unused-dependencies"),
+        ["packages/app/package.json: idle-kit"]
+    );
+}
+
+/// A coverage provider named on one branch of a condition that does not read the environment stays a required
+/// reference: the app calling the factory without listing it has it unlisted at its config.
+#[test]
+fn a_package_named_on_a_branch_of_another_unknown_condition_stays_required() {
+    let diagnostics = lint_owned(&gated_coverage_workspace("existsSync('.coverage')", ""));
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["packages/app/vitest.config.ts: @vitest/coverage-v8"]
+    );
+}

@@ -938,8 +938,14 @@ workspace names a package this way: a config file an installed config extends in
 `eslint`; knip credits it as a plain dependency, which it reports where no manifest lists `eslint`, but skif does not,
 since a package that only enables ESLint may get it from the root. A package that a command in a config names (`node --require x`
 in a hook), one a plugin assumes without reading a config, and an optional reference (Vite's `optimizeDeps.include`,
-an `eslint-plugin-import` resolver) is only a use and never reported. A config that imports the package it names is
-reported once, for the import.
+an `eslint-plugin-import` resolver) is only a use and never reported. So is a package a config names only on a branch
+the environment chooses: one whose test reads `process.env` or `import.meta.env`, directly or through a top-level
+constant, and that the config cannot decide. A shared Vitest config that spreads `coverage: { provider: 'v8' }` only
+when `process.env.COVERAGE_ENABLED === 'true'` makes `@vitest/coverage-v8` a use of each package that lists it, and
+unlisted in none. skif reads such a config with every test on the environment taken as true, then as false, and a
+package named in both readings, or under a test that reads something else (`existsSync('.coverage')`), is reported
+as before ([ADR 0036](https://github.com/Goldziher/skif/blob/main/adrs/0036-packages-named-on-an-environment-gated-branch.md)).
+A config that imports the package it names is reported once, for the import.
 
 A `tsconfig` compiler option (`types`, `jsxImportSource`, `plugins`, `importHelpers`) applies to each package that
 reads the config, so a shared base config is satisfied when its owner or the package extending it lists the package;
