@@ -2193,17 +2193,24 @@ impl Sharing<'_> {
         self.reach_of(links_of, symbol, origin).into_places()
     }
 
-    /// [`Self::reached`], past [`MAX_PLACES`] places the class of bindings linked to `symbol` ([`Self::class_of`]).
+    /// [`Self::reached`], past [`MAX_PLACES`] places the class of bindings linked to `symbol` ([`Self::class_of`]). A
+    /// change is not followed back through the link it came by: there it changes the objects it came from as they
+    /// were changed, which through a [`Join::Within`] link would stand for a change of all they hold (a new key of what
+    /// `make()` returns reaching all a function returning `make().grow` returns, and from it all `make` returns). A
+    /// change that one found there covers, but for the link that one came by, has the covering one followed back too.
     fn reach_of(&self, links_of: &HashMap<SymbolId, Vec<usize>>, symbol: SymbolId, origin: &Write) -> Reach {
         let mut seen = vec![(symbol, origin.clone())];
+        // For each place of `seen`, the link it was reached by and the side of it the change is not followed to.
+        let mut back: Vec<Option<(usize, usize)>> = vec![None];
         let mut by_symbol: HashMap<SymbolId, Vec<usize>> = HashMap::default();
         by_symbol.entry(symbol).or_default().push(0);
-        let mut queue = seen.clone();
-        while let Some((at, write)) = queue.pop() {
+        let mut queue = vec![0];
+        while let Some(place) = queue.pop() {
+            let (at, write) = seen[place].clone();
             for &index in links_of.get(&at).map_or(&[][..], Vec::as_slice) {
                 let link = &self.links[index];
-                for (from, to) in [(&link.a, &link.b), (&link.b, &link.a)] {
-                    if from.symbol != at {
+                for (side, (from, to)) in [(&link.a, &link.b), (&link.b, &link.a)].into_iter().enumerate() {
+                    if from.symbol != at || back[place] == Some((index, side)) {
                         continue;
                     }
                     let Some(mut next) = through(from, to, link.join, &write) else {
@@ -2212,8 +2219,15 @@ impl Sharing<'_> {
                     if next.keys.len() > MAX_KEYS {
                         next = Write::contents(next.keys[..MAX_KEYS].to_vec());
                     }
+                    let came = Some((index, 1 - side));
                     let known = by_symbol.entry(to.symbol).or_default();
-                    if known.iter().any(|&at| seen[at].1.covers(&next)) {
+                    let covering = known.iter().copied().filter(|&other| seen[other].1.covers(&next));
+                    if covering.clone().any(|other| back[other].is_none() || back[other] == came) {
+                        continue;
+                    }
+                    if let Some(other) = covering.clone().next() {
+                        back[other] = None;
+                        queue.push(other);
                         continue;
                     }
                     if seen.len() >= MAX_PLACES {
@@ -2222,8 +2236,9 @@ impl Sharing<'_> {
                             .map_or_else(|| Reach::Places(vec![(symbol, Write::default())]), Reach::InFull);
                     }
                     known.push(seen.len());
-                    seen.push((to.symbol, next.clone()));
-                    queue.push((to.symbol, next));
+                    queue.push(seen.len());
+                    seen.push((to.symbol, next));
+                    back.push(came);
                 }
             }
         }
