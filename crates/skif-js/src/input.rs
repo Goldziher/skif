@@ -275,10 +275,13 @@ impl WorkspaceListing {
     /// reads with the listings of the run's other packages ([`PackageSources::within`]): the sources of a member are
     /// also sources of the root package, and a file the plugins of one read (such as `pino`, which also searches the
     /// members' sources from the root package) is not read again for the other's, unless both read it at the same
-    /// time on different threads. The listing must not outlive the run.
+    /// time on different threads. The listing reads the texts on the calling thread with `sequential` and must not
+    /// outlive the run.
     #[must_use]
     pub fn package_sources(&self, workspace: &Workspace, dir: &Path) -> PackageSources {
-        let shared = skif_core::get_or_compute(&self.sources, || PackageSources::new(&workspace.root));
+        let shared = skif_core::get_or_compute(&self.sources, || {
+            PackageSources::new(&workspace.root).sequential(self.sequential)
+        });
         PackageSources::within(dir, shared)
     }
 
