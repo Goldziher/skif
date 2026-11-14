@@ -154,6 +154,9 @@ source file is copied, apart from the data noted below.
 - The plugin table is declarative data with optional resolvers, keyed by knip's plugin names. `aws-cdk`,
   `browser-extension`, `azure-pipelines`, `sapper` and `taskr` are skif's own: knip has no plugin of these names at
   the pinned commit.
+- `unused-class-members` re-implements the `classMembers` issue type of knip 5.88.1 (commit
+  `8c25e4b7ff5c43d348082030600b1ba8677486af`), which knip 6 removed; the `class-members` fixture of that commit is
+  adapted in `crates/skif-js/tests/fixtures/class-members`.
 - Rule ids, severities and configuration (`skif.toml`) are skif's own.
 
 ### License Compatibility

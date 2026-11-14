@@ -705,10 +705,26 @@ read of `x` anywhere else is, whether `x` is a local declaration or an import bi
 value, not in a type position. Only `true` exempts a re-exported import binding: it has no kind of its own. An export
 initialised from a used binding (`export const b = a`) is not referenced itself. skif does not tell type aliases from
 interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
-their own file always count as used. **`ignore-members`** lists enum and namespace member names never reported by
-`unused-enum-members` and `unused-namespace-members`. A member is also exempt when its own JSDoc carries a tag that
-exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `production`, or an `ignore-tags` name).
+their own file always count as used. **`ignore-members`** lists enum, namespace and class member names never reported
+by `unused-enum-members`, `unused-namespace-members` and `unused-class-members`, as knip's `ignoreMembers` does. A
+member is also exempt when its own JSDoc carries a tag that exempts an export (`@public`, `@beta`, `@alpha`, `@alias`,
+`@internal` with `production`, or an `ignore-tags` name).
 **`include-entry-exports`** may be set per workspace.
+
+**`unused-class-members`** (a warning) reports the methods, fields and accessors of a used exported class that no
+module reads, like knip 5's `classMembers` (knip 6 dropped the issue type). skif has no type information, so a member
+counts as read when any module of the graph reads a property of its name on any object: `x.name`, `x?.name`,
+`x['name']`, a destructured key, `this.name`, `super.name`, a string literal type or call argument
+(`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. A field that is only assigned
+(`x.name = 1`) is unused, a setter is used when it is assigned. The constructor, `private` members and members with a
+computed key (`[Symbol.iterator]`) are not judged, and nor are a decorated member, every member of a decorated class
+(`@Component()`), members of an interface the class implements (all of its instance members when the interface is
+not declared in the same file), the members a known library base class declares (React's `render` and lifecycle
+methods), every member of a class whose superclass chain leaves the project for another class (`extends HTMLElement`,
+a mixin call, a class of an installed package), and the classes an entry file exports, which are public API unless
+`include-entry-exports` is set. `skif explain-usage FILE#Class.member` shows the files that read the name, or why the
+member is not judged
+([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md)).
 
 **`ignore-files`** lists globs of files that `unused-files` never reports, at the top level (relative to the workspace
 root) and per workspace (relative to its directory), like knip's `ignoreFiles`. Unlike `ignore`, every other rule still
@@ -1105,7 +1121,7 @@ when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifie
 `testDir` an entry.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or
 unlisted packages, and their files are not reported by `unused-files` nor their exports by `unused-exports`,
-`unused-types`, the namespace rules and `unused-enum-members`. **`include-fixtures = true`** reports those files and
+`unused-types`, the namespace rules, `unused-enum-members` and `unused-class-members`. **`include-fixtures = true`** reports those files and
 exports like any other. A fixture file is still read when an entry reaches it, but one that nothing reaches is not, so a
 dependency only an unreached fixture imports stays unused. Other directories of test data (`api-fixtures`,
 `__testfixtures__`) and other test file names (`*_spec.*`) go on `ignore` and `entry`. In a package whose `exports` contain a wildcard (`"./*": "./src/*.ts"`) the
