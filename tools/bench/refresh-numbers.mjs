@@ -8,7 +8,8 @@
 // input does not hold every number the blocks show: a tool that was not timed, a corpus repository without a knip row,
 // a tool error that corpus.toml does not declare, an invalid ADR 0001 check, a stale baseline. A knip failure that
 // corpus.toml declares and the run matched is published as `fails: <reason>`, without a ratio, and left out of the
-// claims.
+// claims; one it declares `timed` (knip printed its whole report first) is published with its time and ratio and the
+// reason beside them. A target whose runs corpus.toml caps names its own run counts.
 // Usage: node tools/bench/refresh-numbers.mjs [--bench] [--parity] [--summary FILE] [--baseline FILE]
 
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -18,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
-export const SUMMARY_SCHEMA = 5;
+export const SUMMARY_SCHEMA = 6;
 const SKIF = "skif";
 const SKIF_MANIFEST = "skif --no-js";
 const SHERIF = "sherif";
@@ -69,8 +70,39 @@ const CHECK_LABELS = { pass: "pass", fail: "FAIL", invalid: "invalid", "not-meas
 /** `text` as a Markdown table cell: on one line, with `|` escaped. */
 const cell = (text) => text.split(/\s+/).filter(Boolean).join(" ").replaceAll("|", "\\|");
 
+/** Whether the row's tool failed as corpus.toml declares and has no time to publish (its failure is not `timed`). */
+const failed = (row) => row.failure != null && !row.failure.timed;
+
+/** Whether the row's tool exited with an error corpus.toml declares after printing its whole report (`timed`). */
+const erroredAfterReport = (row) => row.failure?.timed === true;
+
 /** The cell of a row whose tool failed as corpus.toml declares, in place of its times. */
 const fails = (row) => `fails: ${cell(row.failure.reason)}`;
+
+const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+const runCounts = ({ runs, warmup }) => `${plural(runs, "run")} after ${plural(warmup, "warmup run")}`;
+
+/**
+ * The targets whose run counts corpus.toml caps below the run's, grouped by those counts:
+ * `[{ runs, warmup, names }]`, in the order of the summary.
+ */
+function cappedTargets(summary) {
+  const groups = new Map();
+  for (const target of summary.targets) {
+    if (target.runs === summary.runs && target.warmup === summary.warmup) continue;
+    const key = `${target.runs}/${target.warmup}`;
+    if (!groups.has(key)) groups.set(key, { runs: target.runs, warmup: target.warmup, names: [] });
+    groups.get(key).names.push(targetName(target));
+  }
+  return [...groups.values()];
+}
+
+/** The capped targets' run counts (`counts` of a group) after the run's own: ` (5 runs after 1 warmup run on a)`. */
+function cappedText(summary, counts) {
+  const capped = cappedTargets(summary);
+  if (capped.length === 0) return "";
+  return ` (${capped.map((group) => `${counts(group)} on ${names(group.names)}`).join("; ")})`;
+}
 
 /** The runner of a workflow run with its image, before the machine; empty outside GitHub Actions. */
 function runnerText(github) {
@@ -139,7 +171,7 @@ export function summaryProblems(summary) {
     for (const row of target.results.filter((r) => r.error_runs > 0 && r.failure == null)) {
       const cause = row.error_output == null ? "" : ` (${row.error_output})`;
       problems.push(
-        `${target.target}: ${row.tool} exited with an error in ${row.error_runs} of ${summary.runs} runs${cause}, ` +
+        `${target.target}: ${row.tool} exited with an error in ${row.error_runs} of ${target.runs} runs${cause}, ` +
           "so its time may be that of a partial run",
       );
     }
@@ -169,7 +201,7 @@ export function provenance(summary) {
   const attempt = github?.run_attempt == null ? "" : `, attempt ${github.run_attempt}`;
   const run = github?.run_url == null ? "" : ` ([workflow run${attempt}](${github.run_url}))`;
   return (
-    `Medians of ${summary.runs} runs after ${summary.warmup} warmup runs (${summary.hyperfine}), ` +
+    `Medians of ${runCounts(summary)}${cappedText(summary, runCounts)} (${summary.hyperfine}), ` +
     `${summary.skif} at \`${summary.source_rev}\`${rustc}${harness} against ${tools}, measured on ` +
     `${date(summary.measured_at)} on ${runnerText(github)}${summary.machine_text}, load average ` +
     `${load(summary.load_before)} before and ${load(summary.load_after)} after the run${run}.`
@@ -182,9 +214,12 @@ export function benchDetail(summary) {
   for (const target of summary.targets) {
     lines.push(`**${target.target}**`, "");
     if (target.installed_with != null) lines.push(`Installed with \`${target.installed_with}\`.`, "");
+    if (target.runs !== summary.runs || target.warmup !== summary.warmup) {
+      lines.push(`${runCounts(target)}, as corpus.toml caps them here.`, "");
+    }
     lines.push("| Tool | Mean (ms) | Median (ms) | vs skif |", "| --- | ---: | ---: | ---: |");
     for (const row of target.results) {
-      if (row.failure != null) {
+      if (failed(row)) {
         lines.push(`| ${row.tool} | ${fails(row)} | - | - |`);
         continue;
       }
@@ -193,6 +228,10 @@ export function benchDetail(summary) {
       lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);
     }
     lines.push("");
+    for (const row of target.results.filter(erroredAfterReport)) {
+      const reason = row.failure.reason;
+      lines.push(`${row.tool} exits with an error after its report here, as corpus.toml declares: ${reason}.`, "");
+    }
   }
   if (summary.adr_0001_checks.length > 0) {
     lines.push("| ADR 0001 target | Check | Result |", "| --- | --- | --- |");
@@ -208,6 +247,8 @@ const find = (target, tool) => target.results.find((row) => row.tool === tool);
 const median = (target, tool) => find(target, tool)?.median_ms;
 const repoName = (target) => target.target.replace(/^corpus: (\S+).*$/, "$1");
 const generatedName = (target) => `Generated, ${target.packages} packages`;
+/** A target as the compact tables name it: a corpus repository by its name, a generated workspace by its size. */
+const targetName = (target) => (target.kind === "corpus" ? repoName(target) : target.target);
 
 /** The compact tables of the benchmarks page: medians, and knip's over skif's or why knip fails. */
 export function benchSummary(summary) {
@@ -218,9 +259,19 @@ export function benchSummary(summary) {
   for (const target of corpus) {
     const skif = median(target, SKIF);
     const knip = find(target, KNIP);
-    const [time, ratio] =
-      knip.failure == null ? [duration(knip.median_ms), `${(knip.median_ms / skif).toFixed(0)}x`] : [fails(knip), "-"];
+    const [time, ratio] = failed(knip)
+      ? [fails(knip), "-"]
+      : [duration(knip.median_ms), `${(knip.median_ms / skif).toFixed(0)}x`];
     lines.push(`| ${repoName(target)} | ${duration(skif)} | ${time} | ${ratio} |`);
+  }
+  const afterReport = corpus.filter((target) => erroredAfterReport(find(target, KNIP)));
+  if (afterReport.length > 0) {
+    const why = afterReport.map((target) => `${repoName(target)} (${find(target, KNIP).failure.reason})`);
+    lines.push(
+      "",
+      `knip exits with an error after its report on ${names(why)}; its time there is that of a run without the ` +
+        "entries of the configurations it could not load.",
+    );
   }
   lines.push("", "**Manifest and policy checks** (`skif --no-js`)", "");
   lines.push("| Target | skif --no-js | sherif | syncpack |", "| --- | ---: | ---: | ---: |");
@@ -269,12 +320,17 @@ export function benchClaims(summary) {
   const corpus = summary.targets.filter((target) => target.kind === "corpus");
   const generated = summary.targets.filter((target) => target.kind === "generated");
   const lines = [];
-  const completed = corpus.filter((target) => find(target, KNIP).failure == null);
+  const completed = corpus.filter((target) => !failed(find(target, KNIP)));
   if (completed.length > 0) {
-    const failed = corpus.filter((target) => find(target, KNIP).failure != null).map(repoName);
-    const where = failed.length === 0 ? "" : ` where knip completes; it fails on ${names(failed)}`;
+    const failures = corpus.filter((target) => failed(find(target, KNIP))).map(repoName);
+    const where = failures.length === 0 ? "" : ` where knip completes; it fails on ${names(failures)}`;
+    const afterReport = completed.filter((target) => erroredAfterReport(find(target, KNIP))).map(repoName);
+    const errors =
+      afterReport.length === 0 ? "" : ` (on ${names(afterReport)} it exits with an error after its report)`;
     const ratios = completed.map((target) => median(target, KNIP) / median(target, SKIF));
-    lines.push(`- ${speedClaim("knip", ratios)} for dead-code analysis, on ${repositories(completed.length)}${where}.`);
+    lines.push(
+      `- ${speedClaim("knip", ratios)} for dead-code analysis, on ${repositories(completed.length)}${where}${errors}.`,
+    );
   }
   const manifest = [...corpus, ...generated];
   const sizes = generated.map((target) => target.packages);
@@ -291,7 +347,8 @@ export function benchClaims(summary) {
   const environment = RUNNER_ENVIRONMENTS[summary.machine.github?.runner_environment] ?? "GitHub Actions";
   lines.push(
     "",
-    `${summary.skif} against ${toolVersions(summary)}: medians of ${summary.runs} runs on a ${environment} runner, ` +
+    `${summary.skif} against ${toolVersions(summary)}: medians of ${summary.runs} runs` +
+      `${cappedText(summary, (group) => `${group.runs}`)} on a ${environment} runner, ` +
       `measured on ${date(summary.measured_at)}.`,
   );
   return lines.join("\n");
