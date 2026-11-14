@@ -99,6 +99,9 @@ pub const GLOBAL_BINARY: &str = "global-binary";
 pub const SHELL_BUILTIN: &str = "shell-builtin";
 pub const DATA_URI: &str = "data-uri";
 pub const REPLACED_KNIP_CONFIG: &str = "replaced-knip-config";
+pub const AMBIENT_MODULE: &str = "ambient-module";
+pub const OWN_TSCONFIG_PATHS: &str = "own-tsconfig-paths";
+pub const PATHS_BEFORE_PACKAGES: &str = "paths-before-packages";
 
 /// The file that makes a checkout a Rush repository (`RUSH_JSON` in `crates/skif-js/src/deps.rs`).
 const RUSH_JSON: &str = "rush.json";
@@ -217,7 +220,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 27] = [
+pub const KNIP_DEVIATIONS: [Deviation; 30] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -321,6 +324,18 @@ pub const KNIP_DEVIATIONS: [Deviation; 27] = [
     Deviation {
         id: DATA_URI,
         reason: "knip reports a `data:` specifier (`import x from 'data:text/javascript,...'`) as an unlisted dependency; it names an inline module, no package, and skif never takes it for one",
+    },
+    Deviation {
+        id: AMBIENT_MODULE,
+        reason: "knip reports these imports as unlisted dependencies, and a script file of the checkout declares the module with `declare module 'name' { … }` (the specifier, its package, or a pattern with one `*` that matches it, as skif matches them); skif counts an import of a declared module for no manifest (ADR 0019). The harness reads every code file of the checkout that holds `declare module` with skif's parser, while skif reads those of the program, so a declaration outside it counts here too",
+    },
+    Deviation {
+        id: OWN_TSCONFIG_PATHS,
+        reason: "knip reports these imports as unlisted dependencies, and the `paths` of the importing file's own TypeScript configuration (the nearest `tsconfig.json` or `jsconfig.json` at or above it, with its `extends` and `baseUrl`) map the specifier to a file of the checkout outside `node_modules`; skif resolves the import to that workspace source and counts it for no manifest (ADR 0019). The mirror of `foreign-tsconfig-paths`",
+    },
+    Deviation {
+        id: PATHS_BEFORE_PACKAGES,
+        reason: "one tool reports a dependency as unused (knip) or a file as unused (skif) where a file of the workspace imports the dependency's package by a specifier that the `paths` of the importer's TypeScript configuration map to that file, which exists: TypeScript, and knip with it, resolves the import through `paths` before it looks for the package (ADR 0038), so the import uses the file and not the dependency. The harness finds such imports in the files whose configuration sets `paths` and that the workspace manifest lists the package of",
     },
     Deviation {
         id: REPLACED_KNIP_CONFIG,
@@ -1082,7 +1097,12 @@ fn parent_dir(path: &str) -> &str {
 /// requires, re-exports, dynamic imports and resolve calls (`require.resolve`, `import.meta.resolve`); globs,
 /// test-runner mocks and specifiers with a query are left out.
 fn relative_targets<'m>(path: &str, module: &'m ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(&'m Import, String)> {
-    let dir = parent_dir(path);
+    module_targets(path, module, &Resolver::relative(is_file))
+}
+
+/// The imports of the parsed file `path` that `resolver` resolves to a file of the checkout, with that file: its
+/// imports, requires, re-exports, dynamic imports and resolve calls; globs and test-runner mocks are left out.
+fn module_targets<'m>(path: &str, module: &'m ModuleInfo, resolver: &Resolver<'_>) -> Vec<(&'m Import, String)> {
     module
         .imports
         .iter()
@@ -1090,9 +1110,9 @@ fn relative_targets<'m>(path: &str, module: &'m ModuleInfo, is_file: &FileProbe<
             !matches!(
                 import.kind,
                 ImportKind::ImportMetaGlob | ImportKind::SourceGlob | ImportKind::Mock
-            ) && is_relative_specifier(&import.specifier)
+            )
         })
-        .filter_map(|import| resolve_relative(dir, &import.specifier, is_file).map(|target| (import, target)))
+        .filter_map(|import| resolver.resolve(path, &import.specifier).map(|target| (import, target)))
         .collect()
 }
 
@@ -1112,13 +1132,335 @@ fn relative_imports(path: &str, source: &str, is_file: &FileProbe<'_>) -> Vec<St
         .collect()
 }
 
-/// The exports of other files that the parsed file `path` imports by relative specifier, as `(file, export)`: a named
-/// import or re-export by its name, a default import as `default`, a namespace by the members read through it, and a
-/// namespace used as a whole, `export * from`, `import()` and `require` of the module as [`WHOLE_MODULE`]. A
-/// side-effect import and a resolve call (`require.resolve`, `import.meta.resolve`) use no export.
-fn imported_exports(path: &str, module: &ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(String, String)> {
+/// A file's source by its path relative to the checkout; `None` when it cannot be read.
+type SourceReader<'a> = dyn Fn(&str) -> Option<String> + 'a;
+
+/// A [`SourceReader`] that reads nothing.
+fn no_source(_: &str) -> Option<String> {
+    None
+}
+
+/// How many `extends` links of a TypeScript configuration are followed (`MAX_EXTENDS` in
+/// `crates/skif-js/src/tsconfig_paths.rs`).
+const MAX_EXTENDS: usize = 8;
+
+/// The placeholder TypeScript 5.5 replaces with the directory of the configuration that is being resolved.
+const CONFIG_DIR: &str = "${configDir}";
+
+/// The configuration files whose `paths` apply to the files below them, as skif's resolver reads them: the nearest
+/// `tsconfig.json` or `jsconfig.json` at or above a file, a `tsconfig.json` first.
+const PATHS_CONFIGS: [&str; 2] = ["tsconfig.json", "jsconfig.json"];
+
+/// The `paths` of a TypeScript configuration: each pattern with its targets, relative to the checkout.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct PathMap {
+    patterns: Vec<(String, Vec<String>)>,
+}
+
+impl PathMap {
+    /// The targets of the pattern TypeScript picks for `specifier`, each `*` replaced by what the pattern's `*`
+    /// matched: a pattern without `*` that equals it, else the matching pattern with the longest start. Empty when no
+    /// pattern matches.
+    fn targets(&self, specifier: &str) -> Vec<String> {
+        let mut best: Option<(usize, &str, &[String])> = None;
+        for (pattern, targets) in &self.patterns {
+            let matched = match pattern.split_once('*') {
+                None => (pattern == specifier).then_some((usize::MAX, "")),
+                Some((prefix, suffix)) => (specifier.len() >= prefix.len() + suffix.len()
+                    && specifier.starts_with(prefix)
+                    && specifier.ends_with(suffix))
+                .then(|| (prefix.len(), &specifier[prefix.len()..specifier.len() - suffix.len()])),
+            };
+            if let Some((rank, captured)) = matched
+                && best.is_none_or(|(known, _, _)| rank > known)
+            {
+                best = Some((rank, captured, targets.as_slice()));
+            }
+        }
+        best.map_or_else(Vec::new, |(_, captured, targets)| {
+            targets
+                .iter()
+                .map(|target| target.replacen('*', captured, 1))
+                .collect()
+        })
+    }
+
+    /// The literal start of each pattern: the text an import that the pattern matches begins with.
+    fn prefixes(&self) -> impl Iterator<Item = &str> {
+        self.patterns
+            .iter()
+            .map(|(pattern, _)| pattern.split('*').next().unwrap_or(pattern))
+    }
+}
+
+/// The `baseUrl` and `paths` a TypeScript configuration sets itself or through the configurations it extends, relative
+/// to the checkout: `paths` with the directory of the configuration that sets it, which its targets are relative to
+/// when no `baseUrl` is set.
+#[derive(Debug, Default)]
+struct PathOptions {
+    base_url: Option<String>,
+    paths: Option<(String, Vec<(String, Vec<String>)>)>,
+}
+
+/// `value`, a path of the configuration in `dir`, relative to the checkout: below `dir`, or for a value that starts
+/// with `${configDir}` below `config_dir`, the directory of the configuration that is being resolved.
+fn config_path(dir: &str, config_dir: &str, value: &str) -> Option<String> {
+    match value.strip_prefix(CONFIG_DIR) {
+        Some(rest) => join_relative(config_dir, rest.trim_start_matches('/')),
+        None => join_relative(dir, value),
+    }
+}
+
+/// The configuration file an `extends` entry of a configuration in `dir` names: a relative path (with `.json` added,
+/// or a directory's `tsconfig.json`), or a package's file below the nearest `node_modules` at or above `dir`.
+fn extended_config(dir: &str, entry: &str, is_file: &FileProbe<'_>) -> Option<String> {
+    let candidates = |path: String| {
+        let json = if is_json_file(&path) {
+            path.clone()
+        } else {
+            format!("{path}.json")
+        };
+        let nested = format!("{path}/tsconfig.json");
+        [path, json, nested]
+    };
+    if entry.starts_with("./") || entry.starts_with("../") || entry.starts_with('/') {
+        return candidates(join_relative(dir, entry)?)
+            .into_iter()
+            .find(|candidate| is_file(candidate));
+    }
+    let mut above = dir;
+    loop {
+        let found = candidates(joined(above, &format!("node_modules/{entry}")))
+            .into_iter()
+            .find(|candidate| is_file(candidate));
+        if found.is_some() || above.is_empty() {
+            return found;
+        }
+        above = parent_dir(above);
+    }
+}
+
+/// What the configuration file `config` sets of `baseUrl` and `paths`, itself or through the configurations it
+/// `extends` (a later entry of an `extends` list over an earlier one, the configuration itself over all of them), up
+/// to [`MAX_EXTENDS`] links; `config_dir` is the directory of the configuration being resolved. Nothing for a file that
+/// cannot be read or is not JSON with comments.
+fn path_options(
+    config: &str,
+    config_dir: &str,
+    (read, is_file): (&SourceReader<'_>, &FileProbe<'_>),
+    depth: usize,
+) -> PathOptions {
+    let Some(value) = read(config).and_then(|text| serde_json::from_str::<Value>(&strip_jsonc(&text)).ok()) else {
+        return PathOptions::default();
+    };
+    let dir = parent_dir(config);
+    let mut options = PathOptions::default();
+    let mut extends = Vec::new();
+    if let Some(entries) = value.get("extends") {
+        collect_strings(entries, &mut extends);
+    }
+    if depth < MAX_EXTENDS {
+        for entry in &extends {
+            if let Some(file) = extended_config(dir, entry, is_file) {
+                let inherited = path_options(&file, config_dir, (read, is_file), depth + 1);
+                options.base_url = inherited.base_url.or(options.base_url);
+                options.paths = inherited.paths.or(options.paths);
+            }
+        }
+    }
+    let compiler = value.get("compilerOptions");
+    if let Some(base_url) = compiler
+        .and_then(|compiler| compiler.get("baseUrl"))
+        .and_then(Value::as_str)
+        .and_then(|base_url| config_path(dir, config_dir, base_url))
+    {
+        options.base_url = Some(base_url);
+    }
+    if let Some(paths) = compiler
+        .and_then(|compiler| compiler.get("paths"))
+        .and_then(Value::as_object)
+    {
+        let entries = paths
+            .iter()
+            .map(|(pattern, targets)| {
+                let mut found = Vec::new();
+                collect_strings(targets, &mut found);
+                (pattern.clone(), found)
+            })
+            .collect();
+        options.paths = Some((dir.to_owned(), entries));
+    }
+    options
+}
+
+/// The `paths` of the configuration file `config` ([`path_options`]) with their targets relative to the checkout:
+/// below its `baseUrl` when one is set, else below the directory of the configuration that sets `paths`. `None`
+/// without `paths`.
+fn path_map(config: &str, read: &SourceReader<'_>, is_file: &FileProbe<'_>) -> Option<PathMap> {
+    let config_dir = parent_dir(config);
+    let options = path_options(config, config_dir, (read, is_file), 0);
+    let (paths_dir, entries) = options.paths?;
+    let base = options.base_url.unwrap_or(paths_dir);
+    let patterns = entries
+        .into_iter()
+        .map(|(pattern, targets)| {
+            let targets = targets
+                .iter()
+                .filter_map(|target| config_path(&base, config_dir, target))
+                .collect();
+            (pattern, targets)
+        })
+        .collect();
+    Some(PathMap { patterns })
+}
+
+/// Resolves the module specifiers of a file to files of the checkout, as skif's resolver does in the cases the harness
+/// models: a relative specifier ([`resolve_relative`]), and, built with [`Resolver::new`], a bare one that the `paths`
+/// of the importing file's TypeScript configuration map to a file outside `node_modules` ([`Resolver::paths_target`])
+/// or that names a workspace package, mapped to the source of what its manifest publishes
+/// ([`Resolver::workspace_target`]).
+struct Resolver<'a> {
+    is_file: &'a FileProbe<'a>,
+    read: &'a SourceReader<'a>,
+    layout: Option<&'a Layout<'a>>,
+    /// The directory of each workspace package (the root and the members) by the `name` of its manifest.
+    packages: BTreeMap<String, String>,
+    /// The `paths` that apply to the files of each directory ([`Resolver::paths_of`]), read once.
+    configs: RefCell<BTreeMap<String, Option<Rc<PathMap>>>>,
+}
+
+impl<'a> Resolver<'a> {
+    /// A resolver of relative specifiers only.
+    fn relative(is_file: &'a FileProbe<'a>) -> Self {
+        Self {
+            is_file,
+            read: &no_source,
+            layout: None,
+            packages: BTreeMap::new(),
+            configs: RefCell::default(),
+        }
+    }
+
+    /// A resolver of relative specifiers, tsconfig `paths` and workspace packages in the checkout `layout` describes,
+    /// whose files `read` gives.
+    fn new(layout: &'a Layout<'a>, read: &'a SourceReader<'a>) -> Self {
+        let packages = std::iter::once(String::new())
+            .chain(layout.members.iter().cloned())
+            .filter_map(|dir| {
+                let name = (layout.manifest)(&dir)?.get("name")?.as_str()?.to_owned();
+                Some((name, dir))
+            })
+            .collect();
+        Self {
+            is_file: layout.is_file,
+            read,
+            layout: Some(layout),
+            packages,
+            configs: RefCell::default(),
+        }
+    }
+
+    /// The file `specifier` names in the file `importer`; `None` for one the resolver does not model or that names no
+    /// file of the checkout.
+    fn resolve(&self, importer: &str, specifier: &str) -> Option<String> {
+        if is_relative_specifier(specifier) {
+            return resolve_relative(parent_dir(importer), specifier, self.is_file);
+        }
+        if self.layout.is_none() || specifier.contains('?') || bare_package(specifier).is_none() {
+            return None;
+        }
+        self.paths_target(importer, specifier)
+            .or_else(|| self.workspace_target(specifier))
+    }
+
+    /// The `paths` that apply to the files of `dir`: those of the nearest of [`PATHS_CONFIGS`] at or above it
+    /// ([`path_map`]); `None` when that configuration sets none.
+    fn paths_of(&self, dir: &str) -> Option<Rc<PathMap>> {
+        if let Some(known) = self.configs.borrow().get(dir) {
+            return known.clone();
+        }
+        let config = PATHS_CONFIGS
+            .iter()
+            .map(|name| joined(dir, name))
+            .find(|path| (self.is_file)(path));
+        let found = match config {
+            Some(config) => path_map(&config, self.read, self.is_file).map(Rc::new),
+            None if dir.is_empty() => None,
+            None => self.paths_of(parent_dir(dir)),
+        };
+        self.configs.borrow_mut().insert(dir.to_owned(), found.clone());
+        found
+    }
+
+    /// The file outside `node_modules` that the `paths` of the configuration of `importer` map `specifier` to: the
+    /// first target of the pattern TypeScript picks ([`PathMap::targets`]) that names a file, with an extension, a
+    /// TypeScript twin or an `index` file as a relative specifier does.
+    fn paths_target(&self, importer: &str, specifier: &str) -> Option<String> {
+        let map = self.paths_of(parent_dir(importer))?;
+        map.targets(specifier)
+            .iter()
+            .find_map(|target| resolve_relative("", target, self.is_file))
+            .filter(|file| !file.split('/').any(|part| part == "node_modules"))
+    }
+
+    /// The source file of the workspace package `specifier` names (`name` or `name/subpath`): the source behind the
+    /// `exports` entry of the subpath (for the package itself also `main`, `module` and the other published fields),
+    /// mapped as skif maps a published path ([`Layout::source_of`]), else the subpath itself or its `src` twin (the
+    /// package's `src/index` or `index` for no subpath).
+    fn workspace_target(&self, specifier: &str) -> Option<String> {
+        let layout = self.layout?;
+        let name = bare_package(specifier)?;
+        let dir = self.packages.get(name)?;
+        let subpath = specifier[name.len()..].trim_start_matches('/');
+        let manifest = (layout.manifest)(dir)?;
+        let key = if subpath.is_empty() {
+            ".".to_owned()
+        } else {
+            format!("./{subpath}")
+        };
+        let mut targets = Vec::new();
+        match manifest.get("exports") {
+            Some(Value::Object(map)) if map.keys().any(|condition| condition.starts_with('.')) => {
+                if let Some(value) = map.get(&key) {
+                    collect_strings(value, &mut targets);
+                }
+            }
+            Some(exports) if subpath.is_empty() => collect_strings(exports, &mut targets),
+            _ => {}
+        }
+        if subpath.is_empty() {
+            targets.extend(
+                PUBLISHED_FIELDS
+                    .iter()
+                    .filter_map(|field| manifest.get(*field).and_then(Value::as_str))
+                    .map(str::to_owned),
+            );
+        }
+        let local = if subpath.is_empty() {
+            ["./src/index".to_owned(), "./index".to_owned()]
+        } else {
+            [format!("./{subpath}"), format!("./src/{subpath}")]
+        };
+        targets
+            .iter()
+            .filter(|target| !target.contains('*'))
+            .find_map(|target| layout.source_of(dir, target))
+            .map(|source| joined(dir, &source))
+            .or_else(|| {
+                local
+                    .iter()
+                    .find_map(|path| resolve_relative(dir, path, self.is_file))
+            })
+    }
+}
+
+/// The exports of other files that the parsed file `path` imports by a specifier `resolver` resolves, as `(file,
+/// export)`: a named import or re-export by its name, a default import as `default`, a namespace by the members read
+/// through it, and a namespace used as a whole, `export * from`, `import()` and `require` of the module as
+/// [`WHOLE_MODULE`]. A side-effect import and a resolve call (`require.resolve`, `import.meta.resolve`) use no export.
+fn imported_exports(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) -> Vec<(String, String)> {
     let mut found = Vec::new();
-    for (import, target) in relative_targets(path, module, is_file) {
+    for (import, target) in module_targets(path, module, resolver) {
         if import.names.is_empty() {
             if matches!(import.kind, ImportKind::Dynamic | ImportKind::Require) {
                 found.push((target, WHOLE_MODULE.to_owned()));
@@ -1143,59 +1485,90 @@ fn imported_exports(path: &str, module: &ModuleInfo, is_file: &FileProbe<'_>) ->
 
 /// Where the export `name` (or, for [`WHOLE_MODULE`], every export) of the parsed file `path` comes from when the file
 /// re-exports it, as `(file, export)`: the source of `export { name } from` (and of `import { x } from`; `export { x }`)
-/// under the name taken from it, and the source of an `export * from` for a name the file does not export itself.
-fn reexported(path: &str, module: &ModuleInfo, name: &str, is_file: &FileProbe<'_>) -> Vec<(String, String)> {
+/// under the name taken from it, and the source of an `export * from` for a name the file does not export itself; the
+/// source is the file `resolver` resolves the specifier to.
+fn reexported(path: &str, module: &ModuleInfo, name: &str, resolver: &Resolver<'_>) -> Vec<(String, String)> {
     let declares = |wanted: &str| module.exports.iter().any(|export| export.name == wanted);
     module
         .exports
         .iter()
         .filter_map(|export| {
-            let specifier = export.from.as_deref().filter(|from| is_relative_specifier(from))?;
+            let specifier = export.from.as_deref()?;
             let followed = if export.kind == ExportKind::StarReExport && export.name == WHOLE_MODULE {
                 (name == WHOLE_MODULE || !declares(name)).then(|| name.to_owned())
             } else {
                 (name == WHOLE_MODULE || export.name == name)
                     .then(|| export.imported_name.clone().unwrap_or_else(|| export.name.clone()))
             };
-            followed.and_then(|followed| {
-                resolve_relative(parent_dir(path), specifier, is_file).map(|target| (target, followed))
-            })
+            followed.and_then(|followed| resolver.resolve(path, specifier).map(|target| (target, followed)))
         })
         .collect()
 }
 
-/// `<file>|<export>` (`<file>|*` for [`WHOLE_MODULE`]) for every export that one of the files only one tool lists as
-/// unused (`unused` but not `other_unused`) imports by relative specifier ([`imported_exports`]), and for the exports
-/// those re-export from other files, followed through every file in between ([`reexported`]): what that tool would
-/// have credited had it analysed the file. `read` gives a file's source; a file it cannot read or parse imports
-/// nothing and re-exports nothing.
-fn unused_file_credits(
-    unused: &BTreeSet<String>,
-    other_unused: &BTreeSet<String>,
-    is_file: &FileProbe<'_>,
-    read: &dyn Fn(&str) -> Option<String>,
+/// `<file>|<export>` (`<file>|*` for [`WHOLE_MODULE`]) for every `(file, export)` of `seeds` and for the exports those
+/// re-export from other files, followed through every file in between ([`reexported`]). `read` gives a file's source;
+/// a file it cannot read or parse re-exports nothing.
+fn follow_reexports(
+    seeds: Vec<(String, String)>,
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
 ) -> BTreeSet<String> {
     let options = ParseOptions {
         in_file_references: false,
-        member_accesses: true,
+        member_accesses: false,
     };
-    let parse = |file: &str| read(file).and_then(|source| parse_module(Path::new(file), &source, &options).ok());
-    let mut pending: Vec<(String, String)> = unused
-        .difference(other_unused)
-        .filter_map(|file| parse(file).map(|module| imported_exports(file, &module, is_file)))
-        .flatten()
-        .collect();
+    let mut pending = seeds;
     let mut modules: BTreeMap<String, Option<ModuleInfo>> = BTreeMap::new();
     let mut credits = BTreeSet::new();
     while let Some((file, name)) = pending.pop() {
         if !credits.insert(format!("{file}|{name}")) {
             continue;
         }
-        if let Some(module) = modules.entry(file.clone()).or_insert_with(|| parse(&file)) {
-            pending.extend(reexported(&file, module, &name, is_file));
+        let module = modules.entry(file.clone()).or_insert_with(|| {
+            read(&file).and_then(|source| parse_module(Path::new(&file), &source, &options).ok())
+        });
+        if let Some(module) = module {
+            pending.extend(reexported(&file, module, &name, resolver));
         }
     }
     credits
+}
+
+/// `<file>|<export>` for every export the `importers` import ([`imported_exports`]), followed through re-exports
+/// ([`follow_reexports`]). A file `read` cannot read or parse imports nothing.
+fn import_credits<'f>(
+    importers: impl IntoIterator<Item = &'f str>,
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let seeds = importers
+        .into_iter()
+        .filter_map(|file| {
+            read(file)
+                .and_then(|source| parse_module(Path::new(file), &source, &options).ok())
+                .map(|module| imported_exports(file, &module, resolver))
+        })
+        .flatten()
+        .collect();
+    follow_reexports(seeds, resolver, read)
+}
+
+/// `<file>|<export>` (`<file>|*` for [`WHOLE_MODULE`]) for every export that one of the files only one tool lists as
+/// unused (`unused` but not `other_unused`) imports by a specifier `resolver` resolves (a relative one, through the
+/// importer's tsconfig `paths`, or a workspace package), and for the exports those re-export from other files,
+/// followed through every file in between ([`import_credits`]): what that tool would have credited had it analysed the
+/// file. `read` gives a file's source; a file it cannot read or parse imports nothing and re-exports nothing.
+fn unused_file_credits(
+    unused: &BTreeSet<String>,
+    other_unused: &BTreeSet<String>,
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    import_credits(unused.difference(other_unused).map(String::as_str), resolver, read)
 }
 
 /// Whether a finding names an export of its file (or, for duplicates, one of its names) that `credits` (from
@@ -1571,6 +1944,14 @@ struct Classifier<'a> {
     bazel_credits: &'a BTreeSet<String>,
     /// The `<file>|<export>` keys only knip reports whose export a used export's signature names (`signature_types`).
     signature_types: &'a BTreeSet<String>,
+    /// The `unlisted` keys only knip reports whose import a `declare module` of the checkout declares
+    /// (`ambient_module_keys`).
+    ambient_modules: &'a BTreeSet<String>,
+    /// The `unlisted` keys only knip reports whose import the importer's own tsconfig `paths` map (`own_paths_keys`).
+    own_paths: &'a BTreeSet<String>,
+    /// `<manifest>|<package>` and the files of the imports tsconfig `paths` map before the package
+    /// (`paths_before_packages`).
+    paths_before_packages: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     /// knip ran with the harness's empty configuration instead of the repository's own.
@@ -1607,6 +1988,9 @@ impl Classifier<'_> {
                     imported_by_unused_file(self.skif_unused_credits, category, key)
                         .then_some(IMPORTED_BY_SKIF_UNUSED_FILE)
                 })
+                .or_else(|| {
+                    (category == "files" && self.paths_before_packages.contains(key)).then_some(PATHS_BEFORE_PACKAGES)
+                })
                 .or_else(config_error);
         }
         (category == "files")
@@ -1630,6 +2014,10 @@ impl Classifier<'_> {
             .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
             .or_else(|| {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
+            })
+            .or_else(|| {
+                (IMPORTED_CATEGORIES.contains(&category) && self.paths_before_packages.contains(key))
+                    .then_some(PATHS_BEFORE_PACKAGES)
             })
             .or_else(|| {
                 (IMPORTED_CATEGORIES.contains(&category) && self.bazel_credits.contains(key))
@@ -1660,13 +2048,20 @@ impl Classifier<'_> {
         (IGNORED_BINARIES.contains(&binary) || is_machine_binary(binary)).then_some(GLOBAL_BINARY)
     }
 
-    /// The deviation an unlisted dependency only knip reports (`<file>|<name>`) is: a `data:` specifier.
+    /// The deviation an unlisted dependency only knip reports (`<file>|<name>`) is: a `data:` specifier, an import a
+    /// `declare module` declares, or one the importer's own tsconfig `paths` map.
     fn unlisted_deviation(&self, category: &str, key: &str) -> Option<&'static str> {
         if category != "unlisted" {
             return None;
         }
         let (_, name) = key.split_once('|')?;
-        name.starts_with("data:").then_some(DATA_URI)
+        if name.starts_with("data:") {
+            return Some(DATA_URI);
+        }
+        if self.ambient_modules.contains(key) {
+            return Some(AMBIENT_MODULE);
+        }
+        self.own_paths.contains(key).then_some(OWN_TSCONFIG_PATHS)
     }
 
     /// Whether an unused file only knip reports is a knip configuration file at the root of one of knip's workspaces,
@@ -1772,24 +2167,34 @@ fn bare_package(specifier: &str) -> Option<&str> {
 /// dynamic imports and resolve calls (`require.resolve`, `import.meta.resolve`), which use the package they name;
 /// globs and test-runner mocks are not imports of a package. Empty for a file it cannot parse.
 fn imported_packages(path: &str, source: &str) -> BTreeSet<String> {
+    bare_specifiers(path, source)
+        .iter()
+        .filter_map(|specifier| bare_package(specifier))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The bare specifiers of a source file ([`bare_package`]), in source order, as skif's parser reads its imports,
+/// requires, re-exports, dynamic imports and resolve calls; globs and test-runner mocks are left out. Empty for a file
+/// it cannot parse.
+fn bare_specifiers(path: &str, source: &str) -> Vec<String> {
     let options = ParseOptions {
         in_file_references: false,
         member_accesses: false,
     };
     let Ok(module) = parse_module(Path::new(path), source, &options) else {
-        return BTreeSet::new();
+        return Vec::new();
     };
     module
         .imports
-        .iter()
+        .into_iter()
         .filter(|import| {
             !matches!(
                 import.kind,
                 ImportKind::ImportMetaGlob | ImportKind::SourceGlob | ImportKind::Mock
-            )
+            ) && bare_package(&import.specifier).is_some()
         })
-        .filter_map(|import| bare_package(&import.specifier))
-        .map(str::to_owned)
+        .map(|import| import.specifier)
         .collect()
 }
 
@@ -1820,6 +2225,177 @@ fn unused_file_imports(
         );
     }
     keys
+}
+
+/// Whether the file name of `path` has one of [`CODE_EXTENSIONS`].
+fn has_code_extension(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.rsplit_once('.')
+        .is_some_and(|(_, extension)| CODE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
+}
+
+/// The code files of a checkout ([`CODE_EXTENSIONS`]) by path relative to it with `/` separators, sorted: in every
+/// directory but those of [`SKIPPED_DIRECTORIES`] (at any depth) and Bazel's `bazel-*` output trees in the root,
+/// hidden directories included, never through a symbolic link. The harness scans them for the imports and
+/// declarations elsewhere in the checkout that explain a finding.
+fn code_files(root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = vec![String::new()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(root.join(&dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let (Ok(name), Ok(kind)) = (entry.file_name().into_string(), entry.file_type()) else {
+                continue;
+            };
+            let path = joined(&dir, &name);
+            if kind.is_dir() {
+                let skipped =
+                    SKIPPED_DIRECTORIES.contains(&name.as_str()) || (dir.is_empty() && name.starts_with("bazel-"));
+                if !skipped {
+                    pending.push(path);
+                }
+            } else if kind.is_file() && has_code_extension(&name) {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The modules the script files among `files` declare with `declare module 'name' { … }` (`ambient_modules` of skif's
+/// parser): skif collects them from every file of the program and from the declaration files nothing imports; the
+/// harness reads every file that holds `declare module`.
+fn ambient_modules(files: &[String], read: &SourceReader<'_>) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    files
+        .iter()
+        .filter_map(|file| {
+            read(file)
+                .filter(|source| source.contains("declare module"))
+                .and_then(|source| parse_module(Path::new(file), &source, &options).ok())
+        })
+        .flat_map(|module| module.ambient_modules)
+        .collect()
+}
+
+/// Whether the modules in `declared` ([`ambient_modules`]) declare the module `specifier` imports, as skif judges it
+/// (`declares_module` in `crates/skif-js/src/analysis.rs`): the specifier itself, the package it names, or a pattern
+/// with one `*` and a literal start that matches it.
+fn declares_module(declared: &BTreeSet<String>, specifier: &str) -> bool {
+    declared.contains(specifier)
+        || bare_package(specifier).is_some_and(|package| declared.contains(package))
+        || declared.iter().any(|module| {
+            module.split_once('*').is_some_and(|(prefix, suffix)| {
+                !prefix.is_empty()
+                    && !suffix.contains('*')
+                    && specifier.len() >= prefix.len() + suffix.len()
+                    && specifier.starts_with(prefix)
+                    && specifier.ends_with(suffix)
+            })
+        })
+}
+
+/// The specifiers by which the file of an unlisted-dependency key (`<file>|<name>`) imports `name`: those of its
+/// [`bare_specifiers`] that equal it or name the same package. The name itself when the file cannot be read or holds
+/// none.
+fn unlisted_specifiers(key: &str, read: &SourceReader<'_>) -> Vec<String> {
+    let Some((path, name)) = key.split_once('|') else {
+        return Vec::new();
+    };
+    let package = bare_package(name);
+    let found: Vec<String> = read(path)
+        .map(|source| bare_specifiers(path, &source))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|specifier| specifier == name || (package.is_some() && bare_package(specifier) == package))
+        .collect();
+    if found.is_empty() {
+        vec![name.to_owned()]
+    } else {
+        found
+    }
+}
+
+/// The keys of `unlisted` (`<file>|<name>`) whose import of the package a `declare module` among `files` declares
+/// ([`ambient_modules`], [`declares_module`]): skif counts such an import for no manifest (ADR 0019). The files are
+/// read only when `unlisted` holds a key.
+fn ambient_module_keys(unlisted: &BTreeSet<String>, files: &[String], read: &SourceReader<'_>) -> BTreeSet<String> {
+    if unlisted.is_empty() {
+        return BTreeSet::new();
+    }
+    let declared = ambient_modules(files, read);
+    if declared.is_empty() {
+        return BTreeSet::new();
+    }
+    unlisted
+        .iter()
+        .filter(|key| {
+            unlisted_specifiers(key, read)
+                .iter()
+                .any(|specifier| declares_module(&declared, specifier))
+        })
+        .cloned()
+        .collect()
+}
+
+/// The keys of `unlisted` (`<file>|<name>`) whose import of the package the `paths` of the importing file's own
+/// TypeScript configuration map to a file of the checkout outside `node_modules` ([`Resolver::paths_target`]): skif
+/// resolves such an import to the workspace source and counts it for no manifest (ADR 0019).
+fn own_paths_keys(unlisted: &BTreeSet<String>, resolver: &Resolver<'_>, read: &SourceReader<'_>) -> BTreeSet<String> {
+    unlisted
+        .iter()
+        .filter(|key| {
+            let path = key_path(key);
+            unlisted_specifiers(key, read)
+                .iter()
+                .any(|specifier| resolver.paths_target(path, specifier).is_some())
+        })
+        .cloned()
+        .collect()
+}
+
+/// `<manifest>|<package>` for each dependency that a file of `files` imports by a specifier the `paths` of its
+/// TypeScript configuration map to a file of the checkout ([`Resolver::paths_target`]), where `<manifest>` is the
+/// `package.json` of the file's workspace and lists the package, and that file: TypeScript resolves such an import
+/// through `paths` before it looks for the package (ADR 0038), so the import uses the mapped file and not the
+/// dependency. Only files whose configuration sets `paths` and whose text holds the literal start of one of its
+/// patterns are parsed.
+fn paths_before_packages(
+    files: &[String],
+    resolver: &Resolver<'_>,
+    layout: &Layout<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    for file in files {
+        let Some(map) = resolver.paths_of(parent_dir(file)) else {
+            continue;
+        };
+        let Some(source) = read(file) else { continue };
+        if !map.prefixes().any(|prefix| source.contains(prefix)) {
+            continue;
+        }
+        let workspace = owner_dir(file, &|dir: &str| layout.is_workspace(dir));
+        for specifier in bare_specifiers(file, &source) {
+            let Some(package) = bare_package(&specifier) else {
+                continue;
+            };
+            if !layout.lists(&workspace, package) {
+                continue;
+            }
+            if let Some(target) = resolver.paths_target(file, &specifier) {
+                found.insert(format!("{}|{package}", joined(&workspace, "package.json")));
+                found.insert(target);
+            }
+        }
+    }
+    found
 }
 
 /// The exported names each file has findings for in [`EXPORT_LABELS`], by file.
@@ -2365,6 +2941,15 @@ fn category_set() -> CategorySet {
     }
 }
 
+/// The findings of `own` in `category` that `other` does not report.
+fn one_sided(own: &Keys, other: &Keys, category: &str) -> BTreeSet<String> {
+    let none = BTreeSet::new();
+    let theirs = other.get(category).unwrap_or(&none);
+    own.get(category)
+        .map(|keys| keys.difference(theirs).cloned().collect())
+        .unwrap_or_default()
+}
+
 /// The unused files of one side of the comparison (its `files` findings).
 fn unused_files(keys: &Keys) -> &BTreeSet<String> {
     static NONE: BTreeSet<String> = BTreeSet::new();
@@ -2508,6 +3093,9 @@ struct Facts {
     skif_unused_credits: BTreeSet<String>,
     bazel_credits: BTreeSet<String>,
     signature_types: BTreeSet<String>,
+    ambient_modules: BTreeSet<String>,
+    own_paths: BTreeSet<String>,
+    paths_before_packages: BTreeSet<String>,
 }
 
 impl Facts {
@@ -2518,6 +3106,9 @@ impl Facts {
         let read_source = |file: &str| fs::read_to_string(root.join(file)).ok();
         let workspace_of = |file: &str| owner_dir(file, &|dir: &str| layout.is_workspace(dir));
         let (knip_unused, skif_unused) = (unused_files(knip), unused_files(skif));
+        let resolver = Resolver::new(layout, &read_source);
+        let files = code_files(root);
+        let knip_unlisted = one_sided(knip, skif, "unlisted");
         Self {
             not_judged: not_judged_dirs(skif_doc),
             skif_root_packages: skif_root_packages(skif_doc),
@@ -2528,13 +3119,16 @@ impl Facts {
             knip_unused_imports: unused_file_imports(knip_unused, skif_unused, &read_source, &workspace_of),
             skif_unused_imports: unused_file_imports(skif_unused, knip_unused, &read_source, &workspace_of),
             published_reach: published_reach(knip_unused, skif_unused, layout, &read_source),
-            knip_unused_credits: unused_file_credits(knip_unused, skif_unused, layout.is_file, &read_source),
-            skif_unused_credits: unused_file_credits(skif_unused, knip_unused, layout.is_file, &read_source),
+            knip_unused_credits: unused_file_credits(knip_unused, skif_unused, &resolver, &read_source),
+            skif_unused_credits: unused_file_credits(skif_unused, knip_unused, &resolver, &read_source),
             bazel_credits: with_peer_credits(
                 bazel_credits(&read_build_files(root, &is_project), layout.is_file, &read_source),
                 layout.manifest,
             ),
             signature_types: signature_types(skif, knip, &read_source),
+            ambient_modules: ambient_module_keys(&knip_unlisted, &files, &read_source),
+            own_paths: own_paths_keys(&knip_unlisted, &resolver, &read_source),
+            paths_before_packages: paths_before_packages(&files, &resolver, layout, &read_source),
         }
     }
 
@@ -2564,6 +3158,9 @@ impl Facts {
             skif_unused_credits: &self.skif_unused_credits,
             bazel_credits: &self.bazel_credits,
             signature_types: &self.signature_types,
+            ambient_modules: &self.ambient_modules,
+            own_paths: &self.own_paths,
+            paths_before_packages: &self.paths_before_packages,
             rush_root,
             replaced_knip_config: !options.repo_knip_config,
             layout,
@@ -3901,6 +4498,9 @@ mod tests {
             skif_unused_credits: &NO_KEYS,
             bazel_credits: &NO_KEYS,
             signature_types: &NO_KEYS,
+            ambient_modules: &NO_KEYS,
+            own_paths: &NO_KEYS,
+            paths_before_packages: &NO_KEYS,
             rush_root: false,
             replaced_knip_config: false,
             layout,
@@ -5118,7 +5718,7 @@ vi.mock("mocked-package");
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
         let unused = strings(&["packages/a/src/dead.ts", "packages/a/src/both.ts"]);
         let both = strings(&["packages/a/src/both.ts"]);
-        let credits = unused_file_credits(&unused, &both, &is_file, &read);
+        let credits = unused_file_credits(&unused, &both, &Resolver::relative(&is_file), &read);
         assert_eq!(
             credits,
             strings(&[
@@ -5136,7 +5736,7 @@ vi.mock("mocked-package");
             "a side-effect import uses nothing, an `export *` forwards only names the barrel does not export itself, \
              and a file both tools call unused credits nothing"
         );
-        assert!(unused_file_credits(&unused, &unused, &is_file, &read).is_empty());
+        assert!(unused_file_credits(&unused, &unused, &Resolver::relative(&is_file), &read).is_empty());
 
         let manifest = |dir: &str| (dir.is_empty() || dir == "packages/a").then(|| Rc::new(json!({ "name": "a" })));
         let layout = Layout::new(strings(&["packages/a"]), &manifest, &is_file);
@@ -5179,6 +5779,258 @@ vi.mock("mocked-package");
         ] {
             assert_eq!(classifier.classify(Side::Tool, category, key), None, "{category} {key}");
         }
+    }
+
+    fn no_manifest(_: &str) -> Option<Rc<Value>> {
+        None
+    }
+
+    #[test]
+    fn tsconfig_paths_map_a_specifier_through_the_pattern_typescript_picks() {
+        let sources = BTreeMap::from([
+            (
+                "tsconfig.base.json",
+                r#"{ "compilerOptions": { "baseUrl": ".", "paths": {
+                    "@app/*": ["packages/app/src/*"],
+                    "@app/special": ["packages/app/special.ts"],
+                    "vendor/*": ["node_modules/vendor/*"] } } }"#,
+            ),
+            (
+                "packages/app/tsconfig.json",
+                "{ \"extends\": \"../../tsconfig.base.json\", // the shared paths\n \"include\": [\"src\"] }",
+            ),
+            (
+                "packages/web/tsconfig.json",
+                r#"{ "compilerOptions": { "paths": { "@/*": ["${configDir}/src/*", "./fallback/*"] } } }"#,
+            ),
+            ("packages/web/lib/tsconfig.json", r#"{ "compilerOptions": { "strict": true } }"#),
+            ("packages/app/src/util.ts", ""),
+            ("packages/app/src/deep/index.ts", ""),
+            ("packages/app/special.ts", ""),
+            ("node_modules/vendor/x.js", ""),
+            ("packages/web/fallback/only.ts", ""),
+            ("packages/web/src/lib/api.ts", ""),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        for (importer, specifier, expected) in [
+            ("packages/app/src/a.ts", "@app/util", Some("packages/app/src/util.ts")),
+            ("packages/app/src/a.ts", "@app/deep", Some("packages/app/src/deep/index.ts")),
+            ("packages/app/src/a.ts", "@app/special", Some("packages/app/special.ts")),
+            ("packages/app/src/a.ts", "@app/missing", None),
+            ("packages/app/src/a.ts", "vendor/x", None),
+            ("packages/web/src/a.ts", "@/lib/api", Some("packages/web/src/lib/api.ts")),
+            ("packages/web/src/a.ts", "@/only", Some("packages/web/fallback/only.ts")),
+            ("packages/web/lib/a.ts", "@/lib/api", None),
+            ("other/a.ts", "@app/util", None),
+        ] {
+            assert_eq!(
+                resolver.paths_target(importer, specifier).as_deref(),
+                expected,
+                "{importer} {specifier}: an exact pattern wins, a target in node_modules or one the nearest config does \
+                 not map is none"
+            );
+        }
+        assert_eq!(
+            Resolver::relative(&is_file).resolve("packages/app/src/a.ts", "@app/util"),
+            None,
+            "a resolver of relative specifiers reads no paths"
+        );
+    }
+
+    #[test]
+    fn unlisted_imports_a_declare_module_or_the_importer_s_own_tsconfig_paths_explain_split_off() {
+        let sources = BTreeMap::from([
+            (
+                "src/typings/vscode.d.ts",
+                "declare module 'vscode' {\n  export const x: number;\n}\n",
+            ),
+            (
+                "src/typings/icons.d.ts",
+                "declare module 'icons/*' {\n  const value: string;\n  export default value;\n}\n",
+            ),
+            (
+                "src/augment.ts",
+                "import 'react';\ndeclare module 'react' {\n  interface Extra {}\n}\nexport {};\n",
+            ),
+            (
+                "src/a.ts",
+                "import * as vscode from 'vscode';\nimport home from 'icons/home';\nimport React from 'react';\n\
+                 import { api } from '@/lib/api';\nimport z from 'zod';\nconsole.log(vscode, home, React, api, z);\n",
+            ),
+            ("tsconfig.json", r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#),
+            ("src/lib/api.ts", "export const api = 1;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let unlisted = strings(&[
+            "src/a.ts|vscode",
+            "src/a.ts|icons",
+            "src/a.ts|react",
+            "src/a.ts|@/lib",
+            "src/a.ts|zod",
+        ]);
+        let ambient = ambient_module_keys(&unlisted, &files, &read);
+        assert_eq!(
+            ambient,
+            strings(&["src/a.ts|icons", "src/a.ts|vscode"]),
+            "a pattern declares the subpaths it matches, and an augmentation in a module file declares nothing"
+        );
+        assert!(ambient_module_keys(&BTreeSet::new(), &files, &read).is_empty());
+        let own = own_paths_keys(&unlisted, &resolver, &read);
+        assert_eq!(own, strings(&["src/a.ts|@/lib"]));
+
+        let classifier = Classifier {
+            ambient_modules: &ambient,
+            own_paths: &own,
+            ..bare(&layout)
+        };
+        for (side, key, expected) in [
+            (Side::Tool, "src/a.ts|vscode", Some(AMBIENT_MODULE)),
+            (Side::Tool, "src/a.ts|icons", Some(AMBIENT_MODULE)),
+            (Side::Tool, "src/a.ts|@/lib", Some(OWN_TSCONFIG_PATHS)),
+            (Side::Tool, "src/a.ts|react", None),
+            (Side::Tool, "src/a.ts|zod", None),
+            (Side::Skif, "src/a.ts|vscode", None),
+        ] {
+            assert_eq!(classifier.classify(side, "unlisted", key), expected, "{side:?} {key}");
+        }
+    }
+
+    #[test]
+    fn dependencies_and_files_of_imports_tsconfig_paths_map_before_the_package_split_off() {
+        let sources = BTreeMap::from([
+            (
+                "packages/app/tsconfig.json",
+                r#"{ "compilerOptions": { "paths": { "@acme/ui": ["../ui/src/index.ts"], "@acme/ui/*": ["../ui/src/*"] } } }"#,
+            ),
+            (
+                "packages/app/src/main.ts",
+                "import { Button } from '@acme/ui';\nimport { cn } from '@acme/ui/cn';\nimport z from 'zod';\n\
+                 console.log(Button, cn, z);\n",
+            ),
+            ("packages/ui/src/index.ts", "export const Button = 1;\n"),
+            ("packages/ui/src/cn.ts", "export const cn = 1;\n"),
+            (
+                "packages/other/src/main.ts",
+                "import { Button } from '@acme/ui';\nconsole.log(Button);\n",
+            ),
+        ]);
+        let manifests: BTreeMap<&str, Rc<Value>> = [
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            (
+                "packages/app",
+                json!({ "name": "app", "dependencies": { "@acme/ui": "workspace:*", "zod": "3.0.0" } }),
+            ),
+            ("packages/other", json!({ "name": "other", "dependencies": { "@acme/ui": "workspace:*" } })),
+            ("packages/ui", json!({ "name": "@acme/ui" })),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir, Rc::new(manifest)))
+        .collect();
+        let manifest = |dir: &str| manifests.get(dir).cloned();
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(
+            strings(&["packages/app", "packages/other", "packages/ui"]),
+            &manifest,
+            &is_file,
+        );
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let found = paths_before_packages(&files, &resolver, &layout, &read);
+        assert_eq!(
+            found,
+            strings(&[
+                "packages/app/package.json|@acme/ui",
+                "packages/ui/src/cn.ts",
+                "packages/ui/src/index.ts",
+            ]),
+            "a workspace without a configuration that maps the package keeps it, and a mapping to no file is none"
+        );
+        let classifier = Classifier {
+            paths_before_packages: &found,
+            ..bare(&layout)
+        };
+        for (side, category, key, expected) in [
+            (
+                Side::Tool,
+                "dependencies",
+                "packages/app/package.json|@acme/ui",
+                Some(PATHS_BEFORE_PACKAGES),
+            ),
+            (Side::Skif, "files", "packages/ui/src/cn.ts", Some(PATHS_BEFORE_PACKAGES)),
+            (Side::Tool, "dependencies", "packages/app/package.json|zod", None),
+            (Side::Tool, "dependencies", "packages/other/package.json|@acme/ui", None),
+            (Side::Tool, "files", "packages/ui/src/cn.ts", None),
+            (Side::Skif, "dependencies", "packages/app/package.json|@acme/ui", None),
+        ] {
+            assert_eq!(
+                classifier.classify(side, category, key),
+                expected,
+                "{side:?} {category} {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn exports_files_only_knip_lists_unused_import_through_tsconfig_paths_and_workspace_packages_split_off() {
+        let sources = BTreeMap::from([
+            (
+                "apps/web/tsconfig.json",
+                r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#,
+            ),
+            (
+                "apps/web/src/components/login.tsx",
+                "import { login } from '@/lib/api';\nimport { Button } from '@acme/ui';\nimport { cn } from '@acme/ui/cn';\n\
+                 console.log(login, Button, cn);\n",
+            ),
+            (
+                "apps/web/src/lib/api.ts",
+                "export const login = 1;\nexport const logout = 2;\n",
+            ),
+            ("packages/ui/src/index.ts", "export * from './button';\n"),
+            ("packages/ui/src/button.ts", "export const Button = 1;\nexport const Link = 2;\n"),
+            ("packages/ui/src/cn.ts", "export const cn = 1;\n"),
+        ]);
+        let manifests: BTreeMap<&str, Rc<Value>> = [
+            ("", json!({ "name": "root", "workspaces": ["apps/*", "packages/*"] })),
+            ("apps/web", json!({ "name": "web" })),
+            (
+                "packages/ui",
+                json!({ "name": "@acme/ui", "exports": { ".": "./dist/index.js", "./cn": "./dist/cn.js" } }),
+            ),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir, Rc::new(manifest)))
+        .collect();
+        let manifest = |dir: &str| manifests.get(dir).cloned();
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(strings(&["apps/web", "packages/ui"]), &manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let unused = strings(&["apps/web/src/components/login.tsx"]);
+        let credits = unused_file_credits(&unused, &BTreeSet::new(), &resolver, &read);
+        for credited in [
+            "apps/web/src/lib/api.ts|login",
+            "packages/ui/src/index.ts|Button",
+            "packages/ui/src/button.ts|Button",
+            "packages/ui/src/cn.ts|cn",
+        ] {
+            assert!(credits.contains(credited), "{credited} in {credits:?}");
+        }
+        for uncredited in ["apps/web/src/lib/api.ts|logout", "packages/ui/src/button.ts|Link"] {
+            assert!(!credits.contains(uncredited), "{uncredited} in {credits:?}");
+        }
+        assert!(
+            unused_file_credits(&unused, &BTreeSet::new(), &Resolver::relative(&is_file), &read).is_empty(),
+            "without paths and workspace packages the file imports nothing by relative path"
+        );
     }
 
     #[test]
