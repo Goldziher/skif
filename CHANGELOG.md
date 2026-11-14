@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
+  the flags' values: the value is no longer read as the command, so the binary and the file it runs are found.
+
 ## [0.5.0] - 2026-11-14
 
 ### Breaking changes

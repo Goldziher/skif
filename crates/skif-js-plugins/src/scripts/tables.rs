@@ -1052,7 +1052,16 @@ pub(super) static WRAPPERS: &[Wrapper] = &[
     Wrapper {
         names: &["retry-cli", "retry"],
         subcommand: None,
-        value_flags: &["retries", "delay", "min-timeout", "max-timeout"],
+        value_flags: &[
+            "retries",
+            "n",
+            "factor",
+            "f",
+            "min-timeout",
+            "t",
+            "max-timeout",
+            "delay",
+        ],
         assignments: false,
     },
     Wrapper {
