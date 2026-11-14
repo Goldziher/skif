@@ -1390,11 +1390,17 @@ fn an_accessor_or_iterator_that_changes_nothing_the_object_holds_leaves_the_impo
     }
 }
 
-/// A config module that declares `box`, an object holding `mode` and `list` with `member` beside them, runs
-/// `statements` and exports `box` with a `name` of its own.
+/// A config module that declares `box`, an object holding `member` and then `mode` and `list`, runs `statements` and
+/// exports `box` with a `name` of its own. The member comes first, as the evaluator reads a key written before one it
+/// cannot name (`[Symbol.iterator]`) as unknown, which that one may replace.
 fn box_config(member: &str, statements: &str) -> ConfigValue {
+    let member = if member.is_empty() {
+        String::new()
+    } else {
+        format!("{member}, ")
+    };
     let config = format!(
-        "const box = {{ mode: 'development', list: ['a'], {member} }};\n{statements}\n\
+        "const box = {{ {member}mode: 'development', list: ['a'] }};\n{statements}\n\
          export default {{ box, name: 'app' }};"
     );
     eval(&files(&[("/ws/app/config.ts", &*Box::leak(config.into_boxed_str()))]))
