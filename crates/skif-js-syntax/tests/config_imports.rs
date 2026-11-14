@@ -1779,6 +1779,68 @@ fn a_write_through_a_binding_taking_this_changes_the_imported_values() {
     }
 }
 
+/// The function-form Vite config whose callback takes `parameters` and returns the build `input` and the plugins
+/// `plugins`, next to the plugin factory `resolveFromApp` written `factory`, imported from `../tools/plugins` or
+/// declared in the config.
+fn pages_config(parameters: &str, input: &str, plugins: &str, factory: &str, imported: bool) -> ConfigValue {
+    let (import, local) = if imported {
+        ("import { resolveFromApp } from '../tools/plugins';\n".to_owned(), String::new())
+    } else {
+        (String::new(), format!("const resolveFromApp = {factory};\n"))
+    };
+    let config = format!(
+        "import path from 'node:path';\nimport {{ sep }} from 'node:path';\nimport {{ defineConfig }} from 'vite';\n\
+         import register from 'vite-plugin-register';\n{import}{local}const PAGES = ['admin', 'console'];\n\
+         export default defineConfig(({parameters}) => ({{\n\
+         build: {{ rolldownOptions: {{ input: {input} }} }},\n    plugins: {plugins},\n}}));"
+    );
+    let plugins_module = format!("import {{ sep }} from 'node:path';\nexport const resolveFromApp = {factory};");
+    let loader = files(&[
+        ("/ws/app/config.ts", &*Box::leak(config.into_boxed_str())),
+        ("/ws/tools/plugins.ts", &*Box::leak(plugins_module.into_boxed_str())),
+    ]);
+    eval(&loader)
+}
+
+/// The callback a `define…` helper of an installed package is given takes what the tool passes, nothing of the config,
+/// so a change a plugin factory makes of what it is given does not reach the other keys the callback returns: the
+/// input it computes from a list stays known, whatever the callback's parameters, the input, the factory and where the
+/// factory is declared (#235). A call that may change the list itself still leaves the input unknown.
+#[test]
+fn a_change_in_a_plugin_factory_does_not_reach_the_input_of_a_function_form_config() {
+    let computed = "Object.fromEntries(PAGES.map((page) => [page, path.resolve(__dirname, `${page}.html`)]))";
+    let literal = "{ admin: path.resolve(__dirname, 'admin.html'), console: path.resolve(__dirname, 'console.html') }";
+    let branching = "(appDir) => {\n    const appPrefix = appDir.endsWith(sep) ? appDir : appDir + sep;\n    \
+                     return { name: 'resolve-from-app', prefix: appPrefix };\n}";
+    let fresh = "(appDir) => ({ name: 'r' })";
+    let joined = "(appDir) => {\n    const appPrefix = appDir + '/';\n    \
+                  return { name: 'resolve-from-app', prefix: appPrefix };\n}";
+    let plugins = "[resolveFromApp(__dirname)]";
+    let pages = obj(vec![("admin", s("./admin.html")), ("console", s("./console.html"))]);
+    let input = ["build", "rolldownOptions", "input"];
+    for (parameters, given, factory, imported) in [
+        ("env", computed, branching, true),
+        ("env", computed, branching, false),
+        ("", computed, branching, true),
+        ("env", literal, branching, true),
+        ("env", computed, fresh, true),
+        ("env", computed, joined, true),
+    ] {
+        let value = pages_config(parameters, given, plugins, factory, imported);
+        assert_eq!(
+            read_at(&value, &input),
+            &pages,
+            "({parameters}) {given} {factory} imported: {imported}: {value:?}"
+        );
+    }
+    let changed = pages_config("env", computed, "[register(PAGES)]", branching, true);
+    assert_eq!(
+        read_at(&changed, &["build", "rolldownOptions", "input", "admin"]),
+        &ConfigValue::Unknown,
+        "{changed:?}"
+    );
+}
+
 /// `count` modules that each import every other one, read and write a shared object and call each other's functions:
 /// a dense cycle of imports.
 fn clique(count: usize) -> Files {
