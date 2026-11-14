@@ -1,7 +1,7 @@
 //! Finds files matching config globs without walking the whole workspace: only directories that can
 //! still lead to a match are listed.
 
-use skif_core::HashMap;
+use skif_core::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, PoisonError, RwLock};
 
@@ -125,10 +125,19 @@ fn could_contain(pattern: &Pattern, parts: &[String]) -> bool {
     parts.len() < pattern.segments.len()
 }
 
-/// What a walk looks for: the files matching `patterns` (every file without), at most `max_depth` directories down.
+/// What a walk looks for: the files matching `patterns` (every file without), at most `max_depth` directories down
+/// and below none of the `pruned` directories (relative to the walk's directory, `/`-separated).
 struct Search<'a> {
     patterns: Option<&'a [Arc<Pattern>]>,
     max_depth: usize,
+    pruned: &'a HashSet<&'a str>,
+}
+
+impl Search<'_> {
+    /// Whether the directory with these path parts is one the walk leaves out.
+    fn prunes(&self, parts: &[String]) -> bool {
+        !self.pruned.is_empty() && self.pruned.contains(parts.join("/").as_str())
+    }
 }
 
 /// The names of the directories a walk is in, then the entry it looks at: each level's buffer is reused for the next
@@ -176,6 +185,7 @@ fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Parts, search: &Search<'_>,
         } else if entry.is_dir
             && parts.len < search.max_depth
             && !SKIPPED_DIRS.contains(&name)
+            && !search.prunes(parts.as_slice())
             && search
                 .patterns
                 .is_none_or(|patterns| patterns.iter().any(|p| could_contain(p, parts.as_slice())))
@@ -208,12 +218,38 @@ pub(crate) fn find_files_within(
     globs: &[String],
     max_depth: usize,
 ) -> Vec<String> {
+    find(fs, cache, dir, globs, max_depth, &HashSet::default())
+}
+
+/// Like [`find_files`], leaving out every file below one of the `pruned` directories, given relative to `dir` and
+/// `/`-separated, without listing them: what [`find_files`] finds less the paths that start with one of them and a
+/// `/`.
+pub(crate) fn find_files_outside(
+    fs: &dyn FileSystem,
+    cache: &GlobCache,
+    dir: &Path,
+    globs: &[String],
+    pruned: &[String],
+) -> Vec<String> {
+    let pruned: HashSet<&str> = pruned.iter().map(String::as_str).collect();
+    find(fs, cache, dir, globs, MAX_DEPTH, &pruned)
+}
+
+fn find(
+    fs: &dyn FileSystem,
+    cache: &GlobCache,
+    dir: &Path,
+    globs: &[String],
+    max_depth: usize,
+    pruned: &HashSet<&str>,
+) -> Vec<String> {
     let patterns = patterns(cache, globs);
     let mut out = Vec::new();
     if !patterns.is_empty() {
         let search = Search {
             patterns: Some(patterns.as_slice()),
             max_depth,
+            pruned,
         };
         walk(fs, dir, &mut Parts::default(), &search, &mut out);
     }
@@ -226,9 +262,11 @@ pub(crate) fn find_files_within(
 /// which [`matching`] then searches for the globs of each plugin.
 pub(crate) fn list_files(fs: &dyn FileSystem, dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
+    let pruned = HashSet::default();
     let search = Search {
         patterns: None,
         max_depth: MAX_DEPTH,
+        pruned: &pruned,
     };
     walk(fs, dir, &mut Parts::default(), &search, &mut out);
     out.sort();
@@ -286,7 +324,7 @@ impl<'a> Listing<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use skif_core::MemoryFs;
 
     use super::*;
@@ -374,6 +412,85 @@ mod tests {
         assert_eq!(
             list_files(&fs, Path::new("/ws")),
             ["a/bbbbbbbb/c.ts", "a/d.ts", "e.ts", "ff/g/h.ts"]
+        );
+    }
+
+    /// A file system that records the directories listed.
+    pub(crate) struct ListingFs {
+        inner: MemoryFs,
+        listed: std::sync::Mutex<Vec<std::path::PathBuf>>,
+    }
+
+    impl ListingFs {
+        pub(crate) fn new(inner: MemoryFs) -> Self {
+            Self {
+                inner,
+                listed: std::sync::Mutex::default(),
+            }
+        }
+
+        /// The directories listed so far, sorted, each as often as it was listed.
+        pub(crate) fn listed(&self) -> Vec<std::path::PathBuf> {
+            let mut listed = self.listed.lock().unwrap().clone();
+            listed.sort();
+            listed
+        }
+    }
+
+    impl FileSystem for ListingFs {
+        fn read_to_string(&self, path: &Path) -> std::io::Result<Arc<str>> {
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> std::io::Result<Vec<skif_core::DirEntry>> {
+            self.listed.lock().unwrap().push(path.to_path_buf());
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path)
+        }
+    }
+
+    /// A pruned directory is left out with everything below it and never listed, at the top and further down, while
+    /// a sibling whose name it starts with, a file named like it and a directory named like it elsewhere are kept.
+    #[test]
+    fn a_walk_outside_pruned_directories_does_not_list_them() {
+        let fs = ListingFs::new(fs_with(&[
+            "a.ts",
+            "lib/a.ts",
+            "lib/deep/b.ts",
+            "lib-extra/c.ts",
+            "packages/one/d.ts",
+            "packages/one/test/fixtures/e.ts",
+            "packages/two/f.ts",
+            "packages/one.ts",
+            "src/lib/g.ts",
+        ]));
+        let globs = ["**/*.ts".to_owned()];
+        let pruned = ["lib".to_owned(), "packages/one".to_owned()];
+        let found = find_files_outside(&fs, &GlobCache::new(), Path::new("/ws"), &globs, &pruned);
+        assert_eq!(
+            found,
+            ["a.ts", "lib-extra/c.ts", "packages/one.ts", "packages/two/f.ts", "src/lib/g.ts"]
+        );
+        assert_eq!(
+            fs.listed(),
+            ["/ws", "/ws/lib-extra", "/ws/packages", "/ws/packages/two", "/ws/src", "/ws/src/lib"].map(Path::new)
+        );
+        let everything = find_files(&fs, &GlobCache::new(), Path::new("/ws"), &globs);
+        let outside: Vec<&String> = everything
+            .iter()
+            .filter(|file| !file.starts_with("lib/") && !file.starts_with("packages/one/"))
+            .collect();
+        assert_eq!(outside, found.iter().collect::<Vec<_>>());
+        assert_eq!(
+            find_files_outside(&fs, &GlobCache::new(), Path::new("/ws"), &globs, &[]),
+            everything
         );
     }
 
