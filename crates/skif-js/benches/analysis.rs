@@ -2,7 +2,9 @@
 //!
 //! Each package has `files` modules chained by imports from an `index.ts` entry, an external dependency, an unused
 //! dependency and one unused export per module, so every rule has something to find. The `config_references` group
-//! has every package extend one base `tsconfig` that names packages, below a long `.gitignore`.
+//! has every package extend one base `tsconfig` that names packages, below a long `.gitignore`. The `fixture_tree`
+//! group has a root that lists `execa`, which every member inherits, and a large tree of test fixtures below each
+//! member that call it, which nothing imports.
 
 #![allow(clippy::expect_used)]
 
@@ -150,5 +152,54 @@ fn bench_config_references(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_analysis, bench_config_references);
+const FIXTURES_PER_PACKAGE: usize = 200;
+
+fn fixture_tree_fs(packages: usize) -> MemoryFs {
+    let mut fs = MemoryFs::new().with_file(
+        format!("{ROOT}/package.json"),
+        "{\"name\": \"root\", \"private\": true, \"workspaces\": [\"packages/*\"], \
+         \"devDependencies\": {\"execa\": \"^9.0.0\"}}",
+    );
+    for package in 0..packages {
+        let dir = format!("{ROOT}/packages/p{package}");
+        fs.insert(
+            format!("{dir}/package.json"),
+            format!("{{\"name\": \"@bench/p{package}\", \"private\": true, \"main\": \"src/index.ts\"}}"),
+        );
+        fs.insert(
+            format!("{dir}/src/index.ts"),
+            "import { execa } from \"execa\";\n\nexport const build = () => execa(\"tsc\", [\"-b\"]);\n",
+        );
+        for fixture in 0..FIXTURES_PER_PACKAGE {
+            fs.insert(
+                format!("{dir}/test/fixtures/case-{fixture}/input.ts"),
+                format!("import {{ execa }} from \"execa\";\n\nawait execa(\"fixture-tool-{fixture}\", [\"x\"]);\n"),
+            );
+        }
+    }
+    fs
+}
+
+fn bench_fixture_tree(c: &mut Criterion) {
+    let config = Config::default();
+    let mut group = c.benchmark_group("fixture_tree");
+    for packages in [20, 100] {
+        let fs = fixture_tree_fs(packages);
+        let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &fs).expect("workspace discovers");
+        let provider =
+            JsProvider::new(Arc::new(fs)).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+        let registry = Registry::new(vec![Box::new(provider)]).expect("the JS provider registers");
+        group.throughput(Throughput::Elements((packages * (FIXTURES_PER_PACKAGE + 1)) as u64));
+        group.sample_size(10);
+        group.bench_function(BenchmarkId::new("files", packages * (FIXTURES_PER_PACKAGE + 1)), |b| {
+            b.iter(|| {
+                run_unsorted(&registry, black_box(&workspace), &config, &RunOptions::default())
+                    .expect("the JS run succeeds")
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_analysis, bench_config_references, bench_fixture_tree);
 criterion_main!(benches);
