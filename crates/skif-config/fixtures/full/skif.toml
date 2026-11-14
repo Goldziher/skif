@@ -85,6 +85,7 @@ strict = true
 include-entry-exports = true
 include-fixtures = true
 use-public-hoisting = true
+type-aware = false
 
 [js.compilers]
 html = { imports = ['<script[^>]+src="([^"]+)"'] }
@@ -93,6 +94,7 @@ page = { as = "mdx" }
 [js.workspaces."packages/app"]
 entry = ["src/main.tsx"]
 ignore-binaries = ["vite"]
+type-aware = true
 
 [js.plugins]
 vitest = true
