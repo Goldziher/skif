@@ -31,6 +31,7 @@ crates=(
   skif-report
   skif-js-syntax
   skif-js-plugins
+  skif-js-types
   skif-migrate
   skif-rules
   skif-js
