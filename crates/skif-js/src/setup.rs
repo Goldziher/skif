@@ -17,6 +17,7 @@ use crate::ancestors;
 use crate::compilers::Compilers;
 use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
+use crate::discover::relative;
 use crate::globs::{EntryRegexes, GlobCache, Globs, IncompleteScopeGlobs, Names};
 use crate::graph::ModuleGraph;
 use crate::input::{
@@ -442,6 +443,9 @@ pub(crate) struct PackageSetup {
     pub extensions: Vec<String>,
     /// Custom element libraries of the enabled plugins, whose registered classes are used.
     pub custom_elements: Vec<CustomElementLibrary>,
+    /// An input source finds more in the package's source files that the module graph reaches
+    /// ([`WorkspaceInputs::scans_reached_sources`]): the graph keeps their texts for [`Setup::reached_inputs`].
+    pub scans_reached_sources: bool,
 }
 
 impl PackageSetup {
@@ -530,6 +534,11 @@ pub(crate) struct Setup {
     pub gitignore: bool,
     /// `[js.compilers]`: how the files of the extensions skif has no reader for are read.
     pub compilers: Arc<Compilers>,
+    /// What the input sources gave for each package before the module graph was built, by package, for
+    /// [`Setup::with_reached`]; empty when no package scans reached sources.
+    inputs: Vec<Option<WorkspaceInputs>>,
+    /// The dependencies listed above the workspace root, as the input sources were given them.
+    ancestor_dependencies: Vec<String>,
 }
 
 /// The TypeScript configuration of the package in `dir`: `root_tsconfig` (`[js] tsconfig`) for the root package,
@@ -764,13 +773,109 @@ pub(crate) struct UnusedExportsOptions {
     pub include_tags: Vec<String>,
 }
 
+/// What the input sources give for a package, asked with its request.
+type Gather<'g> = dyn Fn(PackageId, &InputRequest<'_>) -> WorkspaceInputs + Sync + 'g;
+
 impl Setup {
+    /// The settings of every package, with what the input sources give for it before the module graph is built.
     pub(crate) fn new(
         workspace: &Workspace,
         config: &Config,
         fs: &Arc<dyn FileSystem>,
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
+    ) -> Self {
+        let gather: &Gather<'_> = &|_, request| {
+            sources.iter().fold(WorkspaceInputs::default(), |mut all, source| {
+                all.extend(source.inputs(request));
+                all
+            })
+        };
+        Self::build(workspace, config, fs, sequential, gather, true)
+    }
+
+    /// This setup again with `reached` added to what the input sources gave for each package before the module graph
+    /// was built: what they found in the source files the graph reaches ([`Self::reached_inputs`]), by package.
+    pub(crate) fn with_reached(
+        self,
+        workspace: &Workspace,
+        config: &Config,
+        fs: &Arc<dyn FileSystem>,
+        sequential: bool,
+        reached: &[Option<WorkspaceInputs>],
+    ) -> Self {
+        let base = self.inputs;
+        let gather: &Gather<'_> = &|id, _| {
+            let mut inputs = base.get(id.index()).cloned().flatten().unwrap_or_default();
+            if let Some(Some(found)) = reached.get(id.index()) {
+                inputs.extend(found.clone());
+            }
+            inputs
+        };
+        let mut setup = Self::build(workspace, config, fs, sequential, gather, false);
+        setup.inputs = base;
+        setup
+    }
+
+    /// Whether a package scans the source files the module graph reaches ([`PackageSetup::scans_reached_sources`]).
+    pub(crate) fn scans_reached_sources(&self) -> bool {
+        self.packages
+            .iter()
+            .flatten()
+            .any(|package| package.scans_reached_sources)
+    }
+
+    /// What the input sources find in the source files that `graph` reaches, for every package that scans them
+    /// ([`PackageSetup::scans_reached_sources`]), by package; `None` for the others and where they find nothing. The
+    /// texts are those the graph kept ([`ModuleGraph::kept_texts`]): no file is read again.
+    pub(crate) fn reached_inputs(
+        &self,
+        workspace: &Workspace,
+        fs: &dyn FileSystem,
+        sources: &[Arc<dyn InputSource>],
+        graph: &ModuleGraph,
+        sequential: bool,
+    ) -> Vec<Option<WorkspaceInputs>> {
+        let texts: Vec<(&Path, &Arc<str>)> = graph
+            .kept_texts()
+            .iter()
+            .map(|(id, text)| (graph.module(*id).abs.as_path(), text))
+            .collect();
+        let listing = WorkspaceListing::new(self.gitignore, sequential);
+        let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
+        map_ordered(&members, sequential, |&(id, package)| {
+            let setup = self.package(id).filter(|setup| setup.scans_reached_sources)?;
+            let mut reached: Vec<(String, Arc<str>)> = texts
+                .iter()
+                .filter_map(|(abs, text)| Some((relative(abs, &setup.dir)?, Arc::clone(text))))
+                .collect();
+            reached.sort_by(|a, b| a.0.cmp(&b.0));
+            let workspace_key = self.workspace_keys.key_dir(package);
+            let request = InputRequest {
+                workspace,
+                package,
+                fs,
+                ancestor_dependencies: &self.ancestor_dependencies,
+                workspace_key: &workspace_key,
+                listing: &listing,
+            };
+            let found = sources.iter().fold(WorkspaceInputs::default(), |mut all, source| {
+                all.extend(source.reached_inputs(&request, &reached));
+                all
+            });
+            (found != WorkspaceInputs::default()).then_some(found)
+        })
+    }
+
+    /// The settings of every package, with `gather` giving what the input sources give for it; the setup keeps
+    /// those inputs for [`Self::with_reached`] with `keep_inputs` when a package scans reached sources.
+    fn build(
+        workspace: &Workspace,
+        config: &Config,
+        fs: &Arc<dyn FileSystem>,
+        sequential: bool,
+        gather: &Gather<'_>,
+        keep_inputs: bool,
     ) -> Self {
         let js = &config.js;
         let production = js.production_mode();
@@ -822,9 +927,9 @@ impl Setup {
         let listing = WorkspaceListing::new(!js.no_gitignore, sequential);
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         let globs = GlobCache::default();
-        let mut packages: Vec<Option<PackageSetup>> = map_ordered(&members, sequential, |&(id, package)| {
+        let built = map_ordered(&members, sequential, |&(id, package)| {
             if workspace.is_ignored(id) || js_ignored.contains(&id) {
-                return None;
+                return (None, None);
             }
             let dir_name = package.dir.to_string_lossy().replace('\\', "/");
             let abs_dir = workspace.root.join(&package.dir);
@@ -841,7 +946,6 @@ impl Setup {
                 &dir_name,
                 package.is_root,
             );
-            let mut plugin = WorkspaceInputs::default();
             let workspace_key = workspace_keys.key_dir(package);
             let table_key = workspace_keys.package_key(&js.workspaces, package).cloned();
             let request = InputRequest {
@@ -852,9 +956,8 @@ impl Setup {
                 workspace_key: &workspace_key,
                 listing: &listing,
             };
-            for source in sources {
-                plugin.extend(source.inputs(&request));
-            }
+            let mut plugin = gather(id, &request);
+            let kept = keep_inputs.then(|| plugin.clone());
             // Entry regular expressions are test entries, which production mode does not use.
             let entry_regex = if production {
                 None
@@ -971,7 +1074,7 @@ impl Setup {
                     .iter()
                     .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
             );
-            Some(PackageSetup {
+            let setup = PackageSetup {
                 id,
                 dir: abs_dir,
                 table_key,
@@ -1023,8 +1126,17 @@ impl Setup {
                 module_dirs: plugin.module_dirs,
                 extensions: plugin.extensions,
                 custom_elements: plugin.custom_elements,
-            })
+                scans_reached_sources: plugin.scans_reached_sources,
+            };
+            (Some(setup), kept)
         });
+        let (mut packages, inputs): (Vec<Option<PackageSetup>>, Vec<Option<WorkspaceInputs>>) =
+            built.into_iter().unzip();
+        let inputs = if packages.iter().flatten().any(|package| package.scans_reached_sources) {
+            inputs
+        } else {
+            Vec::new()
+        };
         forward_workspace_binaries(&mut packages, workspace);
         relocate_script_commands(&mut packages, workspace);
         Self {
@@ -1054,6 +1166,8 @@ impl Setup {
             use_public_hoisting: js.use_public_hoisting,
             gitignore: !js.no_gitignore,
             compilers,
+            inputs,
+            ancestor_dependencies,
         }
     }
 

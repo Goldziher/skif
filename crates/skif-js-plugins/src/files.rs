@@ -235,6 +235,15 @@ pub(crate) fn find_files_outside(
     find(fs, cache, dir, globs, MAX_DEPTH, &pruned)
 }
 
+/// Whether the walk of [`find_files`] reaches the file `path`, relative to the directory it starts in and
+/// `/`-separated: it lies no deeper than the walk looks and below no directory it skips.
+pub(crate) fn is_walked(path: &str) -> bool {
+    path.split('/').count() <= MAX_DEPTH
+        && path
+            .rsplit_once('/')
+            .is_none_or(|(dirs, _)| dirs.split('/').all(|dir| !SKIPPED_DIRS.contains(&dir)))
+}
+
 fn find(
     fs: &dyn FileSystem,
     cache: &GlobCache,
