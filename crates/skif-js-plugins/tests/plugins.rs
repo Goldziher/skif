@@ -17,7 +17,7 @@ use skif_js_plugins::{
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 207] = [
+const ADR_IDS: [&str; 208] = [
     "typescript",
     "eslint",
     "prettier",
@@ -225,6 +225,7 @@ const ADR_IDS: [&str; 207] = [
     "taskr",
     "bazel",
     "knip",
+    "heft",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3403,6 +3404,236 @@ fn knip_config_in_package_json_is_a_config() {
     let results = resolve(&[manifest], &["knip"]);
     let out = output(&results, "knip");
     assert!(out.config_files.iter().any(|f| f.ends_with("package.json")));
+}
+
+/// The flags `(optional, type_only, reader_may_list)` of the reference to `name`.
+fn dep_flags(out: &PluginOutput, name: &str) -> Option<(bool, bool, bool)> {
+    out.referenced_dependencies
+        .iter()
+        .find(|d| d.name == name)
+        .map(|d| (d.optional, d.type_only, d.reader_may_list))
+}
+
+/// A project's `config/heft.json` names the package it extends and the plugin package of every task and lifecycle
+/// plugin; a relative `extends` is a further config, and `@rushstack/heft-sass-plugin` loads `sass`, which it credits
+/// without requiring it.
+#[test]
+fn heft_config_names_extended_and_plugin_packages() {
+    let results = resolve(
+        &[
+            (
+                "config/heft.json",
+                r#"/** Heft's config. */
+                {
+                  "$schema": "https://developer.microsoft.com/json-schemas/heft/v0/heft.schema.json",
+                  "extends": "@acme/heft-base/config/heft.json",
+                  // A lifecycle plugin.
+                  "heftPlugins": [{ "pluginPackage": "@acme/heft-metrics-plugin" }],
+                  "phasesByName": {
+                    "build": {
+                      "tasksByName": {
+                        "sass": { "taskPlugin": { "pluginPackage": "@rushstack/heft-sass-plugin" } },
+                        "typescript": { "taskPlugin": { "pluginPackage": "@rushstack/heft-typescript-plugin" } },
+                      },
+                    },
+                  },
+                }"#,
+            ),
+            ("config/typescript.json", r#"{"extends":"./typescript-base.json"}"#),
+            (
+                "config/typescript-base.json",
+                r#"{"extends":"@acme/heft-base/config/typescript.json"}"#,
+            ),
+        ],
+        &["@rushstack/heft"],
+    );
+    let out = output(&results, "heft");
+    assert_deps(
+        out,
+        &[
+            "@acme/heft-base",
+            "@acme/heft-metrics-plugin",
+            "@rushstack/heft-sass-plugin",
+            "@rushstack/heft-typescript-plugin",
+            "sass",
+        ],
+    );
+    assert_eq!(
+        dep_flags(out, "@rushstack/heft-sass-plugin"),
+        Some((false, false, false))
+    );
+    assert_eq!(dep_flags(out, "sass"), Some((true, false, false)));
+    assert!(
+        out.config_files
+            .iter()
+            .any(|f| f.ends_with("config/typescript-base.json"))
+    );
+    assert!(out.provided_binaries.contains(&"heft".to_owned()));
+    assert!(
+        !resolve(&[("config/heft.json", "{}")], &["react"])
+            .iter()
+            .any(|(id, _)| *id == "heft")
+    );
+}
+
+/// A project's `config/rig.json` names the rig package, which it needs, and the profile (`default` unless
+/// `rigProfile` names one): the installed rig's profile configs that the project does not have itself count as the
+/// project's, its `tsconfig*.json` files read by `typescript`.
+#[test]
+fn heft_rig_json_credits_the_rig_and_reads_its_profile() {
+    let profile = "node_modules/@acme/web-rig/profiles/library";
+    let files: Vec<(String, &str)> = vec![
+        (
+            "config/rig.json".to_owned(),
+            r#"{
+              // The rig of this project.
+              "rigPackageName": "@acme/web-rig",
+              "rigProfile": "library"
+            }"#,
+        ),
+        ("config/typescript.json".to_owned(), "{}"),
+        (
+            format!("{profile}/config/heft.json"),
+            r#"{"phasesByName":{"test":{"tasksByName":{"jest":{"taskPlugin":{"pluginPackage":"@rushstack/heft-jest-plugin"}}}}}}"#,
+        ),
+        (
+            format!("{profile}/config/typescript.json"),
+            r#"{"extends":"@acme/shadowed/config/typescript.json"}"#,
+        ),
+        (
+            format!("{profile}/tsconfig-base.json"),
+            r#"{"compilerOptions":{"types":["jest"]}}"#,
+        ),
+        (
+            "node_modules/@acme/web-rig/profiles/default/config/heft.json".to_owned(),
+            r#"{"extends":"@acme/default-profile/config/heft.json"}"#,
+        ),
+    ];
+    let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), *text)).collect();
+    // `config/rig.json` enables the plugin without a dependency on Heft.
+    let results = resolve(&files, &[]);
+    let out = output(&results, "heft");
+    assert_deps(out, &["@acme/web-rig", "@rushstack/heft-jest-plugin", "jest"]);
+    // The project's own `config/typescript.json` wins over the rig's, and only the named profile is read.
+    assert_absent(out, &["@acme/shadowed", "@acme/default-profile"]);
+    assert_eq!(dep_flags(out, "@acme/web-rig"), Some((false, false, false)));
+    for read in ["config/heft.json", "tsconfig-base.json"] {
+        let path = format!("{profile}/{read}");
+        assert!(
+            out.config_files.iter().any(|f| f.ends_with(&path)),
+            "{path}: {:?}",
+            out.config_files
+        );
+    }
+
+    // Without `rigProfile` the profile is `default`.
+    let default = resolve(
+        &[
+            ("config/rig.json", r#"{"rigPackageName":"@acme/web-rig"}"#),
+            (
+                "node_modules/@acme/web-rig/profiles/default/config/heft.json",
+                r#"{"extends":"@acme/default-profile/config/heft.json"}"#,
+            ),
+        ],
+        &[],
+    );
+    assert_deps(output(&default, "heft"), &["@acme/web-rig", "@acme/default-profile"]);
+}
+
+/// A profile that is not one directory name (`../x`) reads nothing of the rig, which the project still needs.
+#[test]
+fn heft_rig_json_with_a_path_as_profile_reads_no_profile() {
+    let results = resolve(
+        &[
+            (
+                "config/rig.json",
+                r#"{"rigPackageName":"rig","rigProfile":"../../escape"}"#,
+            ),
+            (
+                "node_modules/escape/config/heft.json",
+                r#"{"extends":"@acme/outside/heft.json"}"#,
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "heft");
+    assert_deps(out, &["rig"]);
+    assert_absent(out, &["@acme/outside"]);
+}
+
+/// In a rig package its own profiles are its configs: `extends` and plugin packages of `profiles/*/config/*.json`
+/// credit its dependencies, and so does Heft itself, which the rig provides to its projects. The compiler options of
+/// a profile `tsconfig` and of what it extends apply to the projects that extend it, so the packages they name are only
+/// credits for the rig.
+#[test]
+fn heft_rig_profiles_are_the_rigs_own_configs() {
+    let results = resolve(
+        &[
+            (
+                "profiles/default/config/heft.json",
+                r#"{
+                  "extends": "@rushstack/heft-node-rig/profiles/default/config/heft.json",
+                  "phasesByName": {"build": {"tasksByName": {"lint": {"taskPlugin": {"pluginPackage": "@rushstack/heft-lint-plugin"}}}}}
+                }"#,
+            ),
+            (
+                "profiles/default/config/jest.config.json",
+                r#"{"extends":"@rushstack/heft-node-rig/profiles/default/config/jest.config.json"}"#,
+            ),
+            (
+                "profiles/default/tsconfig-base.json",
+                r#"{
+                  "extends": ["../../node_modules/@acme/tsconfig-base/tsconfig.json", "./shared/base.json"],
+                  "compilerOptions": {
+                    "importHelpers": true,
+                    "types": ["webpack-env"],
+                    "outDir": "../../../../lib",
+                    "rootDir": "../../../../src",
+                    "paths": {"@app/*": ["../../../../src/*"]}
+                  }
+                }"#,
+            ),
+            (
+                "profiles/default/shared/base.json",
+                r#"{"compilerOptions":{"types":["jest"],"baseUrl":"."}}"#,
+            ),
+        ],
+        &["@rushstack/heft"],
+    );
+    let out = output(&results, "heft");
+    assert_deps(
+        out,
+        &[
+            "@rushstack/heft",
+            "@rushstack/heft-node-rig",
+            "@rushstack/heft-lint-plugin",
+            "@acme/tsconfig-base",
+        ],
+    );
+    assert_eq!(dep_flags(out, "@rushstack/heft"), Some((true, false, false)));
+    assert_eq!(dep_flags(out, "@acme/tsconfig-base"), Some((false, false, false)));
+    assert_eq!(dep_flags(out, "tslib"), Some((true, false, false)));
+    assert_eq!(dep_flags(out, "webpack-env"), Some((true, true, false)));
+    // What a profile `tsconfig` extends is shared as well.
+    assert_eq!(dep_flags(out, "jest"), Some((true, true, false)));
+    assert!(out.module_dirs.is_empty(), "{:?}", out.module_dirs);
+    assert!(
+        out.config_files
+            .iter()
+            .any(|f| f.ends_with("profiles/default/tsconfig-base.json"))
+    );
+    assert!(out.build_dirs.is_empty(), "{:?}", out.build_dirs);
+    assert!(out.aliases.is_empty(), "{:?}", out.aliases);
+
+    // A project's own `tsconfig.json` still makes `tslib` a required reference.
+    let project = resolve(
+        &[("tsconfig.json", r#"{"compilerOptions":{"importHelpers":true}}"#)],
+        &["typescript"],
+    );
+    assert_eq!(
+        dep_flags(output(&project, "typescript"), "tslib"),
+        Some((false, false, true))
+    );
 }
 
 #[test]

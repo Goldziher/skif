@@ -218,6 +218,17 @@ pub enum PluginInput {
         /// The file or glob, relative to the workspace directory.
         path: String,
     },
+    /// A config file the package ships for the packages that extend it, such as a `tsconfig` of a Heft rig profile
+    /// (ADR 0037), read by `plugin` as a [`PluginInput::LinkedConfig`] is, with what it extends. Its compiler options
+    /// apply to the packages extending it, so the packages they name ([`PluginInput::CompilerDependency`]) are only
+    /// credits for this package, never unlisted here, and its aliases, module directories, output directories and
+    /// conditions are left out.
+    SharedConfig {
+        /// The plugin that reads the file.
+        plugin: PluginId,
+        /// The file or glob, relative to the workspace directory.
+        path: String,
+    },
     /// A specifier pattern the tool resolves at build time (`@generated/*`, `#imports`): it is no dependency, so it is
     /// never listed as unlisted, unused or unresolved.
     VirtualModule(String),

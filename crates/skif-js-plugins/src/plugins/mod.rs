@@ -53,6 +53,7 @@ pub mod github_action;
 pub mod github_actions;
 pub mod graphql_codegen;
 pub mod hardhat;
+pub mod heft;
 pub mod husky;
 pub mod i18next_parser;
 pub mod jasmine;
