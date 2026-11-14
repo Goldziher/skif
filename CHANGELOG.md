@@ -9,6 +9,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
+  and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and
+  warmup runs below the run's (the four large repositories run 5 times after 1 warmup run, so the job fits its time
+  limit), and `bench-knip-config = "parity"`, which times knip with the knip comparison's configuration instead of the
+  repository's own and skif with the same `entry` files (n8n's own knip configuration checks dependencies only). A
+  `bench-knip-failure` with `timed = true` declares an error knip exits with after printing its whole report (next-js's
+  root Jest config, two n8n Vite configs): that run is timed and compared, and published with the reason. The summary
+  records each target's run counts (`summary.json` schema 6), the published tables name a capped target's counts, and
+  the workflow frees disk space for the installs before it builds
+  ([ADR 0041](adrs/0041-benchmarks-on-large-repositories.md)).
+
 ## [0.5.0] - 2026-11-14
 
 ### Breaking changes
