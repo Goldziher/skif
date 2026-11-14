@@ -1183,7 +1183,12 @@ mod tests {
         assert!(value.get("x").is_some(), "{value:?}");
         let other = cache.load(Path::new("/ws/other.json"), "{\"z\": 1}", Some(&loader));
         assert_eq!(other.imported, []);
-        assert!(other.parsed.as_ref().is_some_and(|parsed| parsed.value.get("z").is_some()));
+        assert!(
+            other
+                .parsed
+                .as_ref()
+                .is_some_and(|parsed| parsed.value.get("z").is_some())
+        );
     }
 
     /// The dependency set and its sorted order answer exact names and prefixes as a scan of the context's own and

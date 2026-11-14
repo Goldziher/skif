@@ -565,7 +565,12 @@ fn variant_providers(source: &str) -> Vec<Option<String>> {
         .environment_variants
         .iter()
         .map(|variant| variant.get("test").and_then(|test| test.get("coverage")))
-        .map(|coverage| coverage.and_then(|c| c.get("provider")).and_then(ConfigValue::as_str).map(str::to_owned))
+        .map(|coverage| {
+            coverage
+                .and_then(|c| c.get("provider"))
+                .and_then(ConfigValue::as_str)
+                .map(str::to_owned)
+        })
         .collect();
     providers.sort();
     providers
