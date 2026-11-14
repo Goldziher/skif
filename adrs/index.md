@@ -43,5 +43,6 @@ old one.
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
 | 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
 | 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |
+| 0038 | [`paths` Before Packages: TypeScript's Order for Mappings Named Like a Dependency](0038-paths-before-packages.md) | accepted |
 | 0037 | [Heft and Rig Packages: Profiles as Configs of the Rig and of the Projects That Name It](0037-heft-and-rig-packages.md) | accepted |
 | 0036 | [Packages Named on an Environment-Gated Branch](0036-packages-named-on-an-environment-gated-branch.md) | accepted |

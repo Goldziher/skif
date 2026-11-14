@@ -1548,10 +1548,13 @@ impl DependencyUsage {
                     {
                         self.push_unlisted_binary(module.owner, bin, &module.path);
                     }
-                } else if let Some(import) = module.info.imports.get(resolved.import) {
-                    // A path alias can stand in for a package the manifest lists: the alias serves development,
-                    // the listed dependency is what consumers install. A bare builtin name (`events`, `buffer`) uses
-                    // a listed package of that name, the polyfill a bundler resolves it to for the browser; a
+                } else if let Some(import) = module.info.imports.get(resolved.import)
+                    && !matches!(resolved.target, Target::Module(_))
+                {
+                    // An alias that leads into the sources of the project is a local import, as it is for TypeScript
+                    // (ADR 0038): it uses no listed package of the name the specifier starts with. One that found
+                    // no file can still stand in for the listed package. A bare builtin name (`events`, `buffer`)
+                    // uses a listed package of that name, the polyfill a bundler resolves it to for the browser; a
                     // `node:` specifier names no package.
                     self.reference_listed(module.owner, &import.specifier);
                 }

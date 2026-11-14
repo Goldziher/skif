@@ -315,6 +315,14 @@ counted, as it maps every specifier, and neither is a pattern whose targets are 
 into `node_modules`, or to missing files). An import of a workspace package, of a package a manifest lists or of an
 installed package keeps the advice to add it to `package.json`.
 
+A `paths` mapping named like a dependency (`src/*` to `./src/*` beside a workspace package `src`, `lib/*` to
+`./src/lib/*` beside an installed `lib`) resolves in skif as TypeScript resolves it: the mapping comes before
+installed packages and workspace members, also for the `paths` of `[js.workspaces.<dir>.paths]`, and an import it
+leads into the package's own sources uses no listed dependency. With the `paths` of `knip.json`, knip tries the
+package first and reports the local file by `unused-files`; with tsconfig `paths` it reaches the local file but
+counts the listed dependency as used. skif reports that dependency by `unused-dependencies` instead
+([ADR 0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
+
 Both tools report a package that a tool config names and no manifest lists (a `tsconfig` `extends`, an Oxlint or
 ESLint plugin, a Prisma generator) at the config. knip reads some of them as files to resolve, so one with an unscoped
 name that it cannot find is reported as unresolved or not at all; skif reports each as unlisted, with the detail
