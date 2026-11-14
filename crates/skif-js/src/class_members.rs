@@ -511,7 +511,11 @@ pub(crate) fn same_class(a: &Export, b: &Export) -> bool {
 
 /// The exports of `module` that stand for the class behind `export`, in source order.
 fn exports_of_class<'m>(module: &'m Module, export: &'m Export) -> impl Iterator<Item = &'m Export> {
-    module.info.exports.iter().filter(move |other| same_class(other, export))
+    module
+        .info
+        .exports
+        .iter()
+        .filter(move |other| same_class(other, export))
 }
 
 /// The classes of `module` whose members are judged, each once, by its first export: classes behind an export that

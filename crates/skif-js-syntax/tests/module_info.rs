@@ -2241,17 +2241,43 @@ fn exported_class_forms_get_a_shape() {
     );
 }
 
+type KeyOf = fn(&str) -> u32;
+
 #[test]
 fn every_export_of_a_class_is_keyed_by_its_declaration() {
     let named = |source: &str| u32::try_from(source.find("Foo").unwrap()).unwrap();
     let past_body = |source: &str| u32::try_from(source.rfind('}').unwrap() + 1).unwrap();
-    let cases: [(&str, &str, fn(&str) -> u32); 6] = [
-        ("export default class Foo", "export default class Foo { a() {} }\n", named),
-        ("export default Foo", "class Foo { a() {} }\nexport default Foo;\n", named),
-        ("export { Foo as default }", "class Foo { a() {} }\nexport { Foo as default };\n", named),
-        ("export class beside export default", "export class Foo { a() {} }\nexport default Foo;\n", named),
-        ("export { Foo, Foo as default }", "class Foo { a() {} }\nexport { Foo, Foo as default };\n", named),
-        ("export default class {}", "export default class { a() {} }\n", past_body),
+    let cases: [(&str, &str, KeyOf); 6] = [
+        (
+            "export default class Foo",
+            "export default class Foo { a() {} }\n",
+            named,
+        ),
+        (
+            "export default Foo",
+            "class Foo { a() {} }\nexport default Foo;\n",
+            named,
+        ),
+        (
+            "export { Foo as default }",
+            "class Foo { a() {} }\nexport { Foo as default };\n",
+            named,
+        ),
+        (
+            "export class beside export default",
+            "export class Foo { a() {} }\nexport default Foo;\n",
+            named,
+        ),
+        (
+            "export { Foo, Foo as default }",
+            "class Foo { a() {} }\nexport { Foo, Foo as default };\n",
+            named,
+        ),
+        (
+            "export default class {}",
+            "export default class { a() {} }\n",
+            past_body,
+        ),
     ];
     for (form, source, key) in cases {
         let info = parse("a.ts", source);
