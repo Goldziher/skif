@@ -157,6 +157,7 @@ fn a_package_that_ships_its_own_types_does_not_use_its_types_package() {
             "node_modules/eslint/package.json",
             r#"{"name":"eslint","version":"9.0.0","types":"lib/types/index.d.ts"}"#,
         ),
+        ("node_modules/eslint/lib/types/index.d.ts", "export namespace Linter {}\n"),
         (
             "node_modules/react-is/package.json",
             r#"{"name":"react-is","version":"19.0.0","main":"index.js"}"#,
@@ -171,4 +172,64 @@ fn a_package_that_ships_its_own_types_does_not_use_its_types_package() {
         found(&diagnostics, "unused-dev-dependencies"),
         ["package.json: @types/eslint"]
     );
+}
+
+#[test]
+fn only_a_types_file_the_installed_package_holds_replaces_its_types_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"typed":"1.0.0","@types/typed":"1.0.0","blank":"1.0.0","@types/blank":"1.0.0","nulled":"1.0.0","@types/nulled":"1.0.0","missing":"1.0.0","@types/missing":"1.0.0"}}"#,
+        ),
+        (
+            "node_modules/typed/package.json",
+            r#"{"name":"typed","version":"1.0.0","types":"index"}"#,
+        ),
+        ("node_modules/typed/index.d.ts", "export declare const a: number;\n"),
+        (
+            "node_modules/blank/package.json",
+            r#"{"name":"blank","version":"1.0.0","types":""}"#,
+        ),
+        (
+            "node_modules/nulled/package.json",
+            r#"{"name":"nulled","version":"1.0.0","types":null}"#,
+        ),
+        (
+            "node_modules/missing/package.json",
+            r#"{"name":"missing","version":"1.0.0","types":"dist/index.d.ts"}"#,
+        ),
+        (
+            "src/index.ts",
+            "import { a } from 'typed';\nimport { b } from 'blank';\nimport { c } from 'nulled';\n\
+             import { d } from 'missing';\nexport const sum = a + b + c + d;\n",
+        ),
+    ]);
+    // An empty or null `types` declares nothing, and a `types` file the package lacks is not read: those packages
+    // keep their `@types` package used.
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["package.json: @types/typed"]
+    );
+}
+
+#[test]
+fn a_subpath_import_of_a_typed_package_uses_its_types_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"kit":"1.0.0","@types/kit":"1.0.0"}}"#,
+        ),
+        (
+            "node_modules/kit/package.json",
+            r#"{"name":"kit","version":"1.0.0","types":"index.d.ts"}"#,
+        ),
+        ("node_modules/kit/index.d.ts", "export declare const root: number;\n"),
+        (
+            "src/index.ts",
+            "import { root } from 'kit';\nimport { helper } from 'kit/helpers';\n\
+             export const value = helper(root);\n",
+        ),
+    ]);
+    // The types of `kit` cover `kit` itself, not `kit/helpers`, which `@types/kit/helpers.d.ts` may declare.
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
 }
