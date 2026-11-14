@@ -374,6 +374,15 @@ pub trait Plugin: Send + Sync {
         Vec::new()
     }
 
+    /// Whether the plugin finds everything it finds in the package's own source files (the commands of `execa` calls):
+    /// it has no config, conventions or globs, and [`resolve_workspace`](Self::resolve_workspace) reads only the
+    /// sources [`PluginContext::sources`] lists. A host that builds a module graph can run such a plugin on the
+    /// sources the graph reaches instead of every source of the package ([`PluginPass`](crate::PluginPass)). The
+    /// default is `false`.
+    fn scans_reached_sources(&self) -> bool {
+        false
+    }
+
     /// What the plugin knows by convention when it is enabled but no config file exists, such as Vite's
     /// `index.html`. The default returns nothing.
     fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {

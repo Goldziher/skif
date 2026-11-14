@@ -910,10 +910,22 @@ fn sources_where(
 /// The JavaScript and TypeScript files below the workspace directory and none of the `pruned` directories,
 /// declaration files left out.
 fn source_files(cx: &PluginContext<'_>, pruned: &[String]) -> Vec<String> {
-    let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
+    let patterns = [format!("**/*.{{{}}}", SOURCE_EXTENSIONS.join(","))];
     let mut files = crate::files::find_files_outside(cx.fs, cx.globs, cx.dir, &patterns, pruned);
     files.retain(|source| !is_declaration_file(source));
     files
+}
+
+/// The extensions of the source files the plugins search.
+const SOURCE_EXTENSIONS: [&str; 8] = ["ts", "mts", "cts", "tsx", "js", "mjs", "cjs", "jsx"];
+
+/// Whether `path`, relative to a package directory and `/`-separated, is a file that [`source_files`] lists: a
+/// JavaScript or TypeScript file that is no declaration file, which the walk reaches.
+pub(crate) fn is_source_file(path: &str) -> bool {
+    path.rsplit_once('.')
+        .is_some_and(|(_, extension)| SOURCE_EXTENSIONS.contains(&extension))
+        && !is_declaration_file(path)
+        && crate::files::is_walked(path)
 }
 
 /// The workspace's `package.json`, parsed; `None` when it is missing or not JSON.

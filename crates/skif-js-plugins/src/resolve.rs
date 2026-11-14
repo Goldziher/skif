@@ -70,7 +70,7 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
 pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> Vec<(PluginId, PluginOutput)> {
     let detection = Detection::new(ctx);
     let nx_enabled = is_nx_enabled(ctx, &detection);
-    resolve_detected(ctx, projects, &detection, nx_enabled)
+    resolve_detected(ctx, projects, &detection, nx_enabled, PluginPass::All)
 }
 
 /// [`resolve_plugins_with`] the projects [`NxProjects::from_dirs`] lists for `path` and `projects`, with the
@@ -82,6 +82,38 @@ pub fn resolve_plugins_in(
     path: &str,
     projects: impl FnOnce() -> Vec<(String, bool)>,
 ) -> Vec<(PluginId, PluginOutput)> {
+    resolve_pass_in(ctx, path, projects, PluginPass::All)
+}
+
+/// Which part of the plugins' work a resolver does. A host that builds a module graph resolves a package's plugins in
+/// two passes: [`PluginPass::WithoutReachedScans`] before the graph, and [`PluginPass::ReachedScans`] once the graph
+/// tells which of the package's source files it reaches, so the plugins that only search source files
+/// ([`Plugin::scans_reached_sources`]) read those alone, as knip reads only the files of its graph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum PluginPass {
+    /// All of it, in one pass: every enabled plugin, those that scan source files searching every source of the
+    /// package.
+    #[default]
+    All,
+    /// Everything but the source scans of the plugins that [`Plugin::scans_reached_sources`]: those plugins are
+    /// listed with what their config and `[js.plugins]` globs give, as if the package had no source file.
+    WithoutReachedScans,
+    /// Only the source scans of the enabled plugins that [`Plugin::scans_reached_sources`], over the sources that
+    /// [`PluginContext::sources`] lists, which should be a [`PackageSources::reached`] listing of the context's
+    /// directory. These plugins find nothing in the Nx projects of a package ([`resolve_plugins_with`]): they have no
+    /// config and no globs, so they run there only for a tool's Nx executor, which none of them has.
+    ReachedScans,
+}
+
+/// [`resolve_plugins_in`] for one [`PluginPass`] of the work.
+#[must_use]
+pub fn resolve_pass_in(
+    ctx: &PluginContext<'_>,
+    path: &str,
+    projects: impl FnOnce() -> Vec<(String, bool)>,
+    pass: PluginPass,
+) -> Vec<(PluginId, PluginOutput)> {
     let detection = Detection::new(ctx);
     let nx_enabled = is_nx_enabled(ctx, &detection);
     let projects = if nx_enabled {
@@ -89,7 +121,7 @@ pub fn resolve_plugins_in(
     } else {
         NxProjects::default()
     };
-    resolve_detected(ctx, &projects, &detection, nx_enabled)
+    resolve_detected(ctx, &projects, &detection, nx_enabled, pass)
 }
 
 fn is_nx_enabled(ctx: &PluginContext<'_>, detection: &Detection<'_>) -> bool {
@@ -101,11 +133,18 @@ fn resolve_detected(
     projects: &NxProjects,
     detection: &Detection<'_>,
     nx_enabled: bool,
+    pass: PluginPass,
 ) -> Vec<(PluginId, PluginOutput)> {
     let package_sources = PackageSources::new(ctx.dir);
     let ctx = &PluginContext {
         nx: if nx_enabled { Some(projects) } else { ctx.nx },
         sources: Some(PackageSources::of(ctx).unwrap_or(&package_sources)),
+        ..*ctx
+    };
+    // The plugins whose scans wait for the reached sources search none in the first pass.
+    let no_sources = PackageSources::reached(ctx.dir, std::iter::empty());
+    let unscanned = PluginContext {
+        sources: Some(&no_sources),
         ..*ctx
     };
     let project_files: Vec<String> = projects.dirs.iter().map(|dir| join_rel(dir, "project.json")).collect();
@@ -116,15 +155,27 @@ fn resolve_detected(
         .map(|&plugin| {
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
+            let scans = plugin.scans_reached_sources();
+            if pass == PluginPass::ReachedScans && !scans {
+                return None;
+            }
             let extra: &[String] = if spec.id == nx::ID { &project_files } else { &[] };
-            is_enabled(spec, setting, ctx, detection).then(|| {
-                // Only a plugin with a `package.json` key reads the manifest.
-                let manifest = spec.package_json_key.and_then(|_| detection.manifest(ctx));
-                run_plugin(plugin, setting, ctx, manifest, extra, None, &configs)
+            is_enabled(spec, setting, ctx, detection).then(|| match pass {
+                PluginPass::ReachedScans => run_workspace(plugin, setting, ctx, &configs),
+                PluginPass::WithoutReachedScans if scans => {
+                    run_plugin(plugin, setting, &unscanned, None, extra, None, &configs)
+                }
+                _ => {
+                    // Only a plugin with a `package.json` key reads the manifest.
+                    let manifest = spec.package_json_key.and_then(|_| detection.manifest(ctx));
+                    run_plugin(plugin, setting, ctx, manifest, extra, None, &configs)
+                }
             })
         })
         .collect();
-    run_in_scopes(ctx, &projects.scopes, plugins, &mut outputs, &configs);
+    if pass != PluginPass::ReachedScans {
+        run_in_scopes(ctx, &projects.scopes, plugins, pass, &mut outputs, &configs);
+    }
     plugins
         .iter()
         .zip(outputs)
@@ -153,6 +204,7 @@ fn run_in_scopes(
     ctx: &PluginContext<'_>,
     scopes: &[String],
     plugins: &[&'static dyn Plugin],
+    pass: PluginPass,
     outputs: &mut [Option<PluginOutput>],
     configs: &ConfigCache,
 ) {
@@ -168,6 +220,8 @@ fn run_in_scopes(
         .iter()
         .enumerate()
         .filter(|(_, plugin)| plugin.spec().id != nx::ID)
+        // A split pass leaves the source scans to the reached sources of the package.
+        .filter(|(_, plugin)| pass == PluginPass::All || !plugin.scans_reached_sources())
         .filter_map(|(index, plugin)| {
             let spec = plugin.spec();
             scope_enablement(spec, template.plugins.get(spec.id), &template, &detection)
@@ -882,6 +936,30 @@ fn run_plugin(
     let inputs = plugin.resolve_workspace(ctx);
     collector.absorb(spec.id, inputs, (&ctx.dir.join("package.json"), None), 0);
     drain(&mut collector, plugin, &mut visited);
+    collector.out
+}
+
+/// What `plugin` finds in the workspace besides its config files ([`Plugin::resolve_workspace`]) alone: the source
+/// scan of [`PluginPass::ReachedScans`], whose config and globs the first pass gave already.
+fn run_workspace(
+    plugin: &dyn Plugin,
+    setting: Option<&PluginConfig>,
+    ctx: &PluginContext<'_>,
+    configs: &ConfigCache,
+) -> PluginOutput {
+    let mut collector = Collector {
+        ctx,
+        configs,
+        script_ctx: OnceCell::new(),
+        out: PluginOutput::default(),
+        queue: VecDeque::new(),
+        confine_to_package: false,
+        imported: Vec::new(),
+        entries_configured: matches!(setting, Some(PluginConfig::Options(options)) if !options.entry.is_empty()),
+    };
+    let inputs = plugin.resolve_workspace(ctx);
+    collector.absorb(plugin.spec().id, inputs, (&ctx.dir.join("package.json"), None), 0);
+    drain(&mut collector, plugin, &mut BTreeSet::new());
     collector.out
 }
 

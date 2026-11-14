@@ -11,8 +11,8 @@ use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
 use skif_js_plugins::{
-    DepRef, GlobCache, IncompleteCause, PackageSources, PluginContext, PluginId, PluginOutput, resolve_plugins,
-    resolve_plugins_in,
+    DepRef, GlobCache, IncompleteCause, PackageSources, PluginContext, PluginId, PluginOutput, PluginPass,
+    resolve_pass_in, resolve_plugins, resolve_plugins_in,
 };
 
 const DIR: &str = "/ws";
@@ -4577,6 +4577,66 @@ fn an_nx_project_takes_the_source_texts_its_package_read() {
     assert!(production.contains(&"apps/a/src/main.ts".to_owned()), "{production:?}");
     let script = Path::new(DIR).join("apps/a/scripts/build.ts");
     assert_eq!(fs.reads.lock().unwrap().get(&script), Some(&1));
+}
+
+/// Split in two passes, the plugins that scan source files search none before the graph is built, and then only the
+/// reached files they are handed: `execa` runs `changeset` in the reached release script and nothing of the fixture
+/// that calls `execa("eslint")`, and neither pass reads a source file. The other plugins run in the first pass alone.
+#[test]
+fn the_source_scans_of_a_split_pass_search_only_the_reached_files() {
+    let release = r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#;
+    let files = [
+        ("scripts/release.ts", release),
+        (
+            "test/fixtures/run.ts",
+            r#"import { execa } from "execa"; await execa("eslint", ["."]);"#,
+        ),
+    ];
+    let fs = CountingReads {
+        inner: fs_with(&files),
+        reads: std::sync::Mutex::default(),
+    };
+    let dependencies: Vec<String> = ["execa", "vitest"].map(str::to_owned).to_vec();
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let globs = GlobCache::new();
+    let ctx = PluginContext {
+        dir: Path::new(DIR),
+        is_root: true,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+        modules: None,
+        nx: None,
+        globs: &globs,
+        sources: None,
+        members: &[],
+    };
+
+    let first = resolve_pass_in(&ctx, "", Vec::new, PluginPass::WithoutReachedScans);
+    assert_eq!(output(&first, "execa"), &PluginOutput::default());
+    assert!(!output(&first, "vitest").entries.is_empty(), "{first:?}");
+
+    let reached = PackageSources::reached(
+        DIR,
+        [("scripts/release.ts".to_owned(), std::sync::Arc::<str>::from(release))],
+    );
+    let reached_ctx = PluginContext {
+        sources: Some(&reached),
+        ..ctx
+    };
+    let second = resolve_pass_in(&reached_ctx, "", Vec::new, PluginPass::ReachedScans);
+    let enabled: Vec<&str> = second.iter().map(|(id, _)| *id).collect();
+    assert_eq!(enabled, ["execa"]);
+    assert_eq!(output(&second, "execa").referenced_binaries, ["changeset"]);
+
+    let reads = fs.reads.lock().unwrap();
+    for (path, _) in &files {
+        assert_eq!(reads.get(&Path::new(DIR).join(path)), None, "{path}: {reads:?}");
+    }
 }
 
 #[test]
