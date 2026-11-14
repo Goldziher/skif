@@ -34,7 +34,8 @@ applies.
     that something else makes an entry (a `main` or `bin` of `package.json`, an `entry` glob) stays one.
   - A root `BUILD` file can name the files of a workspace member below it that has no `BUILD` file of its own
     (`srcs = ["packages/foo/src/x.ts"]`): they are entries or build sources of that member. One in a project of its
-    own below the root (a nested root) is an entry of that root under `skif -r`.
+    own below the root (a nested root) is an entry or build source of that root under `skif -r`, so the unused
+    exports of a build source there are reported as they are in a member.
   - The files of `js_test` count only outside `--production`.
 - **Output trees.** The `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<workspace>` links at the top of the
   Bazel repository are never read. An import that reaches a file there, directly or through `rootDirs`, is generated

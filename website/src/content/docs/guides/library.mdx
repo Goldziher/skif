@@ -113,7 +113,9 @@ for (target, linter) in discovery.targets.iter().zip(&linters) {
 A root can lie inside another (a standalone `build/package.json` below the repository root). A file of the inner
 root that only the outer root imports is unused as far as the inner root alone can tell. `skif -r` therefore lints
 the enclosing roots first and passes the files their reports list in `Report::other_project_files` (absolute), made
-relative to the inner root, to `RunOptions::with_extra_entries` of the inner root's run.
+relative to the inner root, to `RunOptions::with_extra_entries` of the inner root's run. The files their reports
+list in `Report::other_project_build_sources` (a Bazel `srcs` naming a file of the inner root) go to
+`RunOptions::with_extra_build_sources` the same way: they are used, but unlike entries their exports are judged.
 Once every root is linted it goes the other way: `Report::ancestor_dependency_uses` of the inner root lists the
 dependencies its code uses that only a manifest above it lists (that manifest's directory and the name), and the
 CLI drops the matching `unused-dependencies` and `unused-dev-dependencies` findings of the root that owns the manifest

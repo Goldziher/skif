@@ -17,6 +17,13 @@ All notable changes to this project are documented here. The format follows
 - **Consumers of `explain-usage --format json`, `explain-usage --dependency` and `--trace-dependency --format json`**:
   a `require.resolve("x")`, `createRequire(…).resolve("x")` or `import.meta.resolve("x")` is listed with the import
   kind `resolve` instead of `require` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Library hosts that lint nested roots themselves**: the files of other projects that a plugin names as build
+  sources (a Bazel `srcs`) moved from `Report::other_project_files` to the new
+  `Report::other_project_build_sources`. Pass those below the root, made relative to the nested root that owns them,
+  to `RunOptions::with_extra_build_sources` of its run, and credit those outside it as the files of
+  `other_project_files` are; a host that reads only `other_project_files` no longer makes them used
+  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  [#226](https://github.com/Goldziher/skif/issues/226)).
 
 ### Added
 
@@ -30,6 +37,12 @@ All notable changes to this project are documented here. The format follows
 - **Public API** ([#206](https://github.com/Goldziher/skif/issues/206)): `PackageSources::within` of `skif-js-plugins`
   makes a listing of a package's sources that shares the texts it reads with another listing, and
   `WorkspaceListing::package_sources` of `skif-js` makes one that shares them with the run's other packages.
+
+- **Public API** ([#226](https://github.com/Goldziher/skif/issues/226)): the build sources a multi-root host hands a
+  nested root. `skif-core`: `Report::other_project_build_sources` and `Report::with_other_project_build_sources`.
+  `skif-lint`: `Emitter::report_other_project_build_source`, `Emitter::take_other_project_build_sources`,
+  `LintContext::extra_build_sources` and `RunOptions::with_extra_build_sources`. `skif`:
+  `RunOptions::with_extra_build_sources`.
 
 ### Changed
 
@@ -60,6 +73,14 @@ All notable changes to this project are documented here. The format follows
   is, and the call is found behind a TypeScript assertion (`(require as NodeRequire).resolve(x)`). `skif-js-syntax`
   reports the call as `ImportKind::Resolve`, and the analysis cache is invalidated. knip reports nothing for these exports, so the
   findings are skif's alone ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Nested roots under `-r`**: a file of a nested root that an enclosing root's plugin names as a build source (a
+  Bazel `srcs` of the outer `BUILD` file) is a build source of the nested root instead of an entry, so its unused
+  exports are reported there, as they are for a build source of a workspace member; a file the enclosing root also
+  imports or names as an entry stays an entry. A package of the nested root that such a build source belongs to is no
+  longer taken as one another root imports, so `unused-subpath-exports` now judges its `exports` unless an enclosing
+  root imports or runs one of its files
+  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  [#226](https://github.com/Goldziher/skif/issues/226)).
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).

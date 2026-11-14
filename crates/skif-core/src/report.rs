@@ -46,10 +46,19 @@ pub struct Report {
     /// `package.json`, such as a nested root) and are imported, run by a script or named as an entry by a plugin; a
     /// multi-root host hands them to the root that owns them as extra entries, made relative to it (see
     /// `RunOptions::with_extra_entries` of the `skif` crate). Those outside the workspace root are every file there
-    /// the analysed code reaches, directly or through other such files, or that a plugin names; a multi-root host
-    /// counts them as used by the root that owns them. Not rendered.
+    /// the analysed code reaches, directly or through other such files, or that a plugin names as an entry; a
+    /// multi-root host counts them as used by the root that owns them. Not rendered.
     #[serde(skip)]
     pub other_project_files: Vec<PathBuf>,
+    /// Files of other projects that a plugin names as build sources (a Bazel `srcs` of a root `BUILD` file), absolute
+    /// and sorted: files to build from, which are used and whose imports are followed but which are no entries. The
+    /// run does not judge them. A multi-root host hands those below the workspace root to the root that owns them as
+    /// extra build sources, made relative to it (see `RunOptions::with_extra_build_sources` of the `skif` crate), so
+    /// that root judges their exports; those outside it count as used by the root that owns them, as
+    /// `other_project_files` do. A file can be in both lists (the analysed code imports it and a plugin builds from
+    /// it); the root that owns it then takes it as an entry, whose exports are public. Not rendered.
+    #[serde(skip)]
+    pub other_project_build_sources: Vec<PathBuf>,
     /// Dependencies that the analysed code uses through a `package.json` of another project (Node.js resolves them
     /// from that project's `node_modules`): the absolute directory of that manifest and the dependency name, sorted.
     /// Those the code below the root uses come from a manifest above the root that lists them when this root does not;
@@ -118,6 +127,13 @@ impl ConfigJudgement {
     }
 }
 
+/// `items` sorted and without duplicates.
+fn sorted_unique<T: Ord>(mut items: Vec<T>) -> Vec<T> {
+    items.sort();
+    items.dedup();
+    items
+}
+
 impl Report {
     /// Sorts `diagnostics` deterministically and computes the summary; `packages` is the number of packages checked.
     #[must_use]
@@ -135,6 +151,7 @@ impl Report {
             summary,
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
+            other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
         }
@@ -150,29 +167,30 @@ impl Report {
 
     /// Sets the files of other projects the analysed code uses, absolute, sorted and without duplicates.
     #[must_use]
-    pub fn with_other_project_files(mut self, mut files: Vec<PathBuf>) -> Self {
-        files.sort();
-        files.dedup();
-        self.other_project_files = files;
+    pub fn with_other_project_files(mut self, files: Vec<PathBuf>) -> Self {
+        self.other_project_files = sorted_unique(files);
+        self
+    }
+
+    /// Sets the files of other projects that plugins name as build sources, absolute, sorted and without duplicates.
+    #[must_use]
+    pub fn with_other_project_build_sources(mut self, files: Vec<PathBuf>) -> Self {
+        self.other_project_build_sources = sorted_unique(files);
         self
     }
 
     /// Sets the dependencies the analysed code uses through manifests outside the workspace root, sorted and without
     /// duplicates.
     #[must_use]
-    pub fn with_ancestor_dependency_uses(mut self, mut uses: Vec<(PathBuf, String)>) -> Self {
-        uses.sort();
-        uses.dedup();
-        self.ancestor_dependency_uses = uses;
+    pub fn with_ancestor_dependency_uses(mut self, uses: Vec<(PathBuf, String)>) -> Self {
+        self.ancestor_dependency_uses = sorted_unique(uses);
         self
     }
 
     /// Sets the configuration entries `stale-js-config` judged, sorted and without duplicates.
     #[must_use]
-    pub fn with_config_judgements(mut self, mut judgements: Vec<ConfigJudgement>) -> Self {
-        judgements.sort();
-        judgements.dedup();
-        self.config_judgements = judgements;
+    pub fn with_config_judgements(mut self, judgements: Vec<ConfigJudgement>) -> Self {
+        self.config_judgements = sorted_unique(judgements);
         self
     }
 
@@ -507,6 +525,20 @@ mod tests {
             }
         );
         assert_eq!(report.other_project_files, [PathBuf::from("/ws/build/x.ts")]);
+    }
+
+    #[test]
+    fn other_project_build_sources_are_sorted_without_duplicates() {
+        let report = Report::new(Vec::new(), 1).with_other_project_build_sources(vec![
+            PathBuf::from("/ws/tools/b.ts"),
+            PathBuf::from("/ws/tools/a.ts"),
+            PathBuf::from("/ws/tools/b.ts"),
+        ]);
+        assert_eq!(
+            report.other_project_build_sources,
+            [PathBuf::from("/ws/tools/a.ts"), PathBuf::from("/ws/tools/b.ts")]
+        );
+        assert_eq!(report.other_project_files, Vec::<PathBuf>::new());
     }
 
     #[test]
