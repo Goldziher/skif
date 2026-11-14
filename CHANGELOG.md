@@ -74,6 +74,9 @@ All notable changes to this project are documented here. The format follows
 - **`unlisted-binaries`, `unused-files`**: a computed argument of such a call ends its command, instead of being left
   out while the literals after it stay: `spawn("node", [script, "out.js"])` no longer runs a file `out.js`. The
   analysis cache is invalidated ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`, `unused-files`**: a short flag group whose letters all take a value reads as those flags, the
+  last taking the next word, as Node.js reads `node -pe "require('./package.json').version"`: the code is no file
+  and loads no package ([#97](https://github.com/Goldziher/skif/issues/97)).
 - **`unlisted-binaries`**: a command substitution runs in the directory of the command that holds it, after a `cd` or
   a workflow step's `working-directory`, instead of where the text starts: `SUITE=$(pnpm exec tsx x.ts)` in a step
   with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root
