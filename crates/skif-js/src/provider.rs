@@ -128,6 +128,7 @@ impl RuleProvider for JsProvider {
             return Ok(());
         }
         let parser = self.modules.as_ref().map(|modules| modules.parser(&cx.workspace.root));
+        let types = active.iter().any(|rule| rule.reads_types());
         let mut analysis = JsAnalysis::build_cached(
             cx.workspace,
             cx.config,
@@ -139,12 +140,17 @@ impl RuleProvider for JsProvider {
                 modules: parser.as_ref(),
                 extra_entries: cx.extra_entries,
                 extra_build_sources: cx.extra_build_sources,
+                types,
+                cancel: out.cancel_flag(),
             },
         );
         analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
         analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
         for package in analysis.incomplete_packages() {
             out.report_incomplete_package(package);
+        }
+        if let Some(summary) = analysis.type_summary.take() {
+            out.report_type_aware(summary);
         }
         for file in analysis.other_project_files() {
             out.report_other_project_file(file);

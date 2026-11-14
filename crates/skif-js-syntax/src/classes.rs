@@ -374,6 +374,7 @@ pub(crate) fn mark(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInfo) 
         };
         if let Some(class) = class.filter(|class| !class.declare) {
             export.class = Some(top.shape(ctx, class));
+            export.declaration_start = class.id.as_ref().map(|id| ctx.off(id.span.start));
         }
     }
 }

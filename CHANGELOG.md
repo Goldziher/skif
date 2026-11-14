@@ -12,8 +12,10 @@ All notable changes to this project are documented here. The format follows
 ### Breaking changes
 
 - **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and
-  heritage of an exported class) and `ModuleInfo` gains `property_reads` and `property_writes`, the property names a
-  module reads and assigns.
+  heritage of an exported class) and `declaration_start` (the offset of the name of the class, enum or namespace
+  declaration it stands for, which the type-aware analysis keys declarations by), and `ModuleInfo` gains
+  `property_reads` and `property_writes`, the property names a module reads and assigns. The module cache schema moves
+  to 11, so a persisted cache is parsed again.
 
 - **Library hosts that call `PluginSource::inputs` of `skif-js` themselves**: it no longer gives what the `execa`, `zx`
   and `nano-spawn` plugins find in source files, and sets `WorkspaceInputs::scans_reached_sources` for a package where
@@ -40,6 +42,15 @@ All notable changes to this project are documented here. The format follows
   or untyped. `type-aware` is a reserved top-level key of the JSON document, so `render_json_with` rejects an extra
   member of that name. The library exposes it as `Report::type_aware` (`TypeAwareSummary`, `TypeAwarePackage`,
   `TypeAwareState`).
+- **Type-aware member findings**: with `type-aware` on, `unused-class-members` takes member uses from the TypeScript
+  checker in every file it covers, so `a.dispose()` on a typed receiver no longer keeps every `dispose` of the project
+  alive; reads through `any`, an unresolved module or a file the checker does not cover (Vue, Svelte and Astro
+  templates, files in no program) are still credited by name. `unused-enum-members` and `unused-namespace-members` add
+  typed reads (an alias, `this`) and typed whole uses to the syntactic ones, so their findings with types are a subset
+  of those without. `skif explain-usage` names the typed read, the declaration it reaches and the reads credited by
+  name, as text and as the `typed` and `untyped-because` fields of the JSON `class-member`, and now explains
+  `FILE#Enum.member` and `FILE#Namespace.member` too (`of`: `enum` or `namespace`). `SKIF_TIMINGS` prints a
+  `js types <root>: programs X ms, queries Y ms` line ([ADR 0045](adrs/0045-typed-member-semantics.md)).
 - **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
   from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
   `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production

@@ -5,7 +5,7 @@ use super::JsRule;
 use super::support::{delete_range, module_location};
 use crate::analysis::JsAnalysis;
 use crate::class_members::{
-    ClassFacts, MemberUsage, NameReads, entry_exposed, exemption, judged_classes, judges_classes_of,
+    ClassFacts, MemberUsage, TypedMemberUsage, entry_exposed, exemption, judged_classes, judges_classes_of,
 };
 
 /// Metadata of `unused-class-members`.
@@ -20,13 +20,18 @@ pub static META: RuleMeta = RuleMeta::new(
 /// Reports members of used exported classes that no module reads (ADR 0042).
 ///
 /// The class must be used by another module; an unused class is reported by `unused-exports`. A member is used when
-/// the member-usage source says so; the declarations decide which members are not judged at all
+/// the member-usage source says so (the type checker where it covered the declaring file, reads by name elsewhere,
+/// ADR 0045); the declarations decide which members are not judged at all
 /// ([`crate::class_members::MemberExemption`]). The fix deletes the member ([`skif_js_syntax::ClassMember::removal`]).
 pub struct UnusedClassMembers;
 
 impl JsRule for UnusedClassMembers {
     fn meta(&self) -> &'static RuleMeta {
         &META
+    }
+
+    fn reads_types(&self) -> bool {
+        true
     }
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
@@ -40,7 +45,7 @@ impl JsRule for UnusedClassMembers {
         if judged.is_empty() {
             return;
         }
-        let usage = NameReads::of(&analysis.graph);
+        let usage = TypedMemberUsage::of(analysis);
         let exposed = entry_exposed(analysis);
         for module in judged {
             for (export, shape) in judged_classes(analysis, module) {

@@ -119,10 +119,13 @@ under [Parity with knip](#parity-with-knip).
    `node` process.
 7. knip's plugins load configuration files such as `vite.config.ts` with jiti, and knip exits `2` when one fails to
    load.
-8. knip 5 resolved each read with TypeScript's language service. skif has no type checker, so a read of a property
-   of the member's name on any object counts, and it leaves alone the members of decorated classes, of classes that
-   extend an unknown class and of interfaces declared elsewhere, where knip judged them by their references
-   ([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md)).
+8. knip 5 resolved each read with TypeScript's language service. skif resolves reads with the TypeScript checker of
+   tsrs where a package has a `tsconfig.json` (`type-aware`, on by default); without types, and for every read the
+   checker cannot settle, a read of a property of the member's name on any object counts. It leaves alone the members
+   of decorated classes, of classes that extend an unknown class and of interfaces declared elsewhere, where knip
+   judged them by their references
+   ([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md),
+   [ADR 0045](https://github.com/Goldziher/skif/blob/main/adrs/0045-typed-member-semantics.md)).
 
 ### Fixing, adoption and configuration
 
