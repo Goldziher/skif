@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use serde::Serialize;
 use skif_core::{HashMap, HashSet};
 use skif_js_syntax::{
-    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, ImportKind, ImportedKeyRead,
+    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, ImportKind, ImportedKeyRead, ImportedKind,
 };
 
 use crate::analysis::JsAnalysis;
@@ -336,8 +336,9 @@ fn inherited(graph: &ModuleGraph, module: &Module, shape: &ClassShape, depth: us
     }
 }
 
-/// The exports that entry files expose, as `(module, export name)`, following re-exports to the modules that declare
-/// them; entry files whose package sets `include-entry-exports` expose nothing.
+/// The exports that entry files expose, as `(module, export name)`, following re-exports, and `export default` of an
+/// import binding, to the modules that declare them; entry files whose package sets `include-entry-exports` expose
+/// nothing.
 pub(crate) fn entry_exposed(analysis: &JsAnalysis<'_>) -> HashSet<(ModuleId, String)> {
     let graph = &analysis.graph;
     let mut queue: VecDeque<(ModuleId, String)> = graph
@@ -365,6 +366,10 @@ pub(crate) fn entry_exposed(analysis: &JsAnalysis<'_>) -> HashSet<(ModuleId, Str
             .filter(|export| export.name == name)
             .collect();
         for export in &named {
+            if let Some(imported) = default_of_import(module, export) {
+                queue.push_back(imported);
+                continue;
+            }
             let Some(target) = export.from.as_deref().and_then(|from| module_of(module, from)) else {
                 continue;
             };
@@ -399,6 +404,24 @@ pub(crate) fn entry_exposed(analysis: &JsAnalysis<'_>) -> HashSet<(ModuleId, Str
     exposed
 }
 
+/// The module and export that `export default x` of `module` hands on when `x` is an import binding
+/// (`import { Foo } from './foo'; export default Foo`), as `export { Foo as default } from './foo'` would.
+fn default_of_import(module: &Module, export: &Export) -> Option<(ModuleId, String)> {
+    if export.kind != ExportKind::Default || export.from.is_some() {
+        return None;
+    }
+    let local = export.local_name.as_deref()?;
+    module.info.imports.iter().find_map(|import| {
+        let name = import.names.iter().find(|name| name.local.as_deref() == Some(local))?;
+        let source = match &name.kind {
+            ImportedKind::Default => "default".to_owned(),
+            ImportedKind::Named(source) => source.clone(),
+            ImportedKind::Namespace => return None,
+        };
+        Some((module_of(module, &import.specifier)?, source))
+    })
+}
+
 /// The facts about one exported class that every member's judgement shares.
 pub(crate) struct ClassFacts {
     inherited: Inherited,
@@ -406,7 +429,8 @@ pub(crate) struct ClassFacts {
 }
 
 impl ClassFacts {
-    /// The facts of the class `shape` behind `export` of `module`; `exposed` is [`entry_exposed`].
+    /// The facts of the class `shape` behind `export` of `module`; `exposed` is [`entry_exposed`]. The class is public
+    /// API when an entry file exposes any export of it.
     pub(crate) fn of(
         analysis: &JsAnalysis<'_>,
         module: &Module,
@@ -416,7 +440,8 @@ impl ClassFacts {
     ) -> Self {
         Self {
             inherited: inherited(&analysis.graph, module, shape, 0),
-            public_api: exposed.contains(&(module.id, export.name.clone())),
+            public_api: exports_of_class(module, export)
+                .any(|other| exposed.contains(&(module.id, other.name.clone()))),
         }
     }
 }
@@ -463,15 +488,51 @@ pub(crate) fn judges_classes_of(analysis: &JsAnalysis<'_>, module: &Module) -> b
         && !skif_js_syntax::is_declaration_file(&module.path.to_string_lossy().replace('\\', "/"))
 }
 
-/// The exports of `module` whose class members are judged: classes behind an export that another module uses and
-/// that is not tagged to exempt it.
+/// The name a report gives the class, enum or namespace behind `export`: the export's name, or for a default export
+/// the name of its declaration (`Foo` of `export default class Foo` and `export default Foo`), `default` when it has
+/// none.
+pub(crate) fn declaration_name(export: &Export) -> &str {
+    if export.name == "default" {
+        export.local_name.as_deref().unwrap_or("default")
+    } else {
+        export.name.as_str()
+    }
+}
+
+/// Whether the exports `a` and `b` stand for the same class declaration: `export class C` beside `export default C`,
+/// or `export { C, C as default }`.
+pub(crate) fn same_class(a: &Export, b: &Export) -> bool {
+    std::ptr::eq(a, b)
+        || (a.class.is_some()
+            && b.class.is_some()
+            && a.declaration_start.is_some()
+            && a.declaration_start == b.declaration_start)
+}
+
+/// The exports of `module` that stand for the class behind `export`, in source order.
+fn exports_of_class<'m>(module: &'m Module, export: &'m Export) -> impl Iterator<Item = &'m Export> {
+    module
+        .info
+        .exports
+        .iter()
+        .filter(move |other| same_class(other, export))
+}
+
+/// The classes of `module` whose members are judged, each once, by its first export: classes behind an export that
+/// another module uses, none of whose exports is tagged to exempt it. The exports of one class judge it together, so
+/// a default export is judged like a named one and a class exported under two names is reported once.
 pub(crate) fn judged_classes<'m>(
     analysis: &JsAnalysis<'_>,
     module: &'m Module,
 ) -> impl Iterator<Item = (&'m Export, &'m ClassShape)> {
     module.info.exports.iter().filter_map(move |export| {
         let shape = export.class.as_ref()?;
-        let judged = !analysis.is_tagged_public(export) && analysis.exports.is_used(module.id, &export.name);
+        let first = exports_of_class(module, export)
+            .next()
+            .is_some_and(|first| std::ptr::eq(first, export));
+        let judged = first
+            && !exports_of_class(module, export).any(|other| analysis.is_tagged_public(other))
+            && exports_of_class(module, export).any(|other| analysis.exports.is_used(module.id, &other.name));
         judged.then_some((export, shape))
     })
 }

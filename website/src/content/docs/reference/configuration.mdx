@@ -744,7 +744,11 @@ decorated member, every member of a decorated class (`@Component()`), members of
 (all of its instance members when the interface is not declared in the same file), the members a known library base
 class declares (React's `render` and lifecycle methods), every member of a class whose superclass chain leaves the
 project for another class (`extends HTMLElement`, a mixin call, a class of an installed package), and the classes an
-entry file exports, which are public API unless `include-entry-exports` is set. `skif explain-usage FILE#Class.member`
+entry file exports, which are public API unless `include-entry-exports` is set. A default-exported class is judged like
+a named one, through a default import, `ns.default` or a re-export as `default`; a class exported under several names
+(`export class C` beside `export default C`) is judged and reported once, and is public API when an entry file exposes
+any of them, also through `export default` of an import. A finding names a default-exported class by its declaration
+(`Foo` of `export default class Foo`), or `default` when it is anonymous. `skif explain-usage FILE#Class.member`
 shows the typed read that reaches the member and the files that read its name (with types, those the checker did not
 cover or could not settle), or why the member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an
 enum or namespace member the same way
