@@ -190,6 +190,7 @@ pub(crate) fn import(name: &str, specifier: &str, first: bool) -> Import {
             accessed_members: Vec::new(),
             nested_members: std::collections::BTreeMap::new(),
             escapes: true,
+            passed_to: None,
         }]
     } else {
         Vec::new()

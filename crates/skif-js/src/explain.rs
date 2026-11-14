@@ -740,7 +740,10 @@ fn describe_name(name: &ImportedName) -> String {
     match &name.kind {
         ImportedKind::Default => "default".to_owned(),
         ImportedKind::Named(export) => export.clone(),
-        ImportedKind::Namespace if name.escapes => "the namespace, used as a whole".to_owned(),
+        ImportedKind::Namespace if name.escapes => match &name.passed_to {
+            Some(call) => format!("the namespace, used as a whole, returned from a callback passed to {call}"),
+            None => "the namespace, used as a whole".to_owned(),
+        },
         ImportedKind::Namespace if name.accessed_members.is_empty() => "the namespace, no member read".to_owned(),
         ImportedKind::Namespace => format!("the namespace, members {}", name.accessed_members.join(", ")),
     }

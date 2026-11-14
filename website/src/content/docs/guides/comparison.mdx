@@ -305,6 +305,13 @@ reads member `a` only, as `ns.a` does
 knip counts such a spy as a use of every export, so skif reports the exports that nothing else reads and knip does
 not.
 
+A lazy-component loader that returns an `import()` (`lazy(() => import("./Page"))` of `react` or `preact/compat`,
+`React.lazy`, `next/dynamic`, and `@loadable/component` without `resolveComponent`) uses the default export only, in
+both tools, and `.then((m) => m.Page)` inside it uses `Page`. A function returning an `import()` passed to any other
+call (`wrapLazy(() => import("./Page"))`) keeps the whole module used in skif, since that call may read any export,
+and `skif explain-usage` names the call; knip counts it as a use of `default` and reports the named exports
+([ADR 0048](https://github.com/Goldziher/skif/blob/main/adrs/0048-dynamic-imports-returned-to-a-call.md)).
+
 A use of a module object as a whole (a namespace passed around, spread, indexed with a computed key or named in
 `typeof ns`, and `require("./m")` or `import("./m")`) reaches the values of the module only. In skif it uses every value
 export and none of the module's interfaces and type aliases: those stay used when they are read by name (`ns.Type`) or

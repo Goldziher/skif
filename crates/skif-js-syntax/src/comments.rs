@@ -168,6 +168,7 @@ fn type_name(kind: ImportedKind, local: Option<&str>, escapes: bool) -> Imported
         accessed_members: Vec::new(),
         nested_members: BTreeMap::new(),
         escapes,
+        passed_to: None,
     }
 }
 
