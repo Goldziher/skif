@@ -108,7 +108,7 @@ impl PackageSources {
             .collect();
         files.sort_by(|a, b| a.0.cmp(&b.0));
         files.dedup_by(|a, b| a.0 == b.0);
-        let listed = files
+        let listed: Vec<SourceFile> = files
             .into_iter()
             .map(|(path, text)| SourceFile {
                 path,
