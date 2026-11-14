@@ -7249,7 +7249,7 @@ fn evalite_eval_files_and_setup_files() {
     assert_eq!(disabled(&resolve(&files, &["dotenv"]), &["evalite"]), ["evalite"]);
 }
 
-/// The production entries of a MikroORM package, as globs relative to the workspace.
+/// The production entries of a `MikroORM` package, as globs relative to the workspace.
 fn mikro_orm_entries(files: &[(&str, &str)]) -> BTreeSet<String> {
     let results = resolve(files, &["@mikro-orm/cli"]);
     let out = output(&results, "mikro-orm");
@@ -7337,7 +7337,7 @@ fn mikro_orm_config_paths_base_dir_and_lists_of_options() {
     );
 }
 
-/// A list of MikroORM options with an element the config computes by a call that cannot be followed hides entries.
+/// A list of `MikroORM` options with an element the config computes by a call that cannot be followed hides entries.
 #[test]
 fn mikro_orm_options_computed_by_a_call_leave_the_entries_incomplete() {
     let config = (

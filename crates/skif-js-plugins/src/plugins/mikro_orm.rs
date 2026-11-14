@@ -1,4 +1,4 @@
-//! MikroORM: the entities, migrations and seeders of `mikro-orm.config.*` are production entries, and the
+//! `MikroORM`: the entities, migrations and seeders of `mikro-orm.config.*` are production entries, and the
 //! `configPaths` of `package.json#mikro-orm` are further configs.
 //!
 //! A config may be one options object, a list of them, or a function the CLI calls with the context name; a function
@@ -29,11 +29,11 @@ static SPEC: PluginSpec = PluginSpec {
     ..PluginSpec::DEFAULT
 };
 
-/// The files MikroORM loads from a migrations directory. The negation `!(*.d)` cannot be expressed as a glob and reads
+/// The files `MikroORM` loads from a migrations directory. The negation `!(*.d)` cannot be expressed as a glob and reads
 /// as `*` ([`extglob_to_braces`]), so declaration files match too.
 const MIGRATIONS_GLOB: &str = "!(*.d).{js,ts,cjs}";
 
-/// The files MikroORM loads from a seeders directory.
+/// The files `MikroORM` loads from a seeders directory.
 const SEEDERS_GLOB: &str = "!(*.d).{js,ts}";
 
 /// The files of an entity directory.
