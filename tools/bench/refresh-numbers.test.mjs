@@ -316,7 +316,10 @@ test("a target with capped runs names its run counts, and its errors count out o
     benchDetail(capped),
     /\*\*corpus: next-js \(pnpm\)\*\*\n\nInstalled with `pnpm 12\.9\.1`\.\n\n5 runs after 1 warmup run, as corpus\.toml caps them here\.\n\n\| Tool \|/,
   );
-  assert.doesNotMatch(benchDetail(capped), /\*\*corpus: babel \(yarn\)\*\*\n\nInstalled with `yarn 4\.10\.3`\.\n\n\d+ runs/);
+  assert.doesNotMatch(
+    benchDetail(capped),
+    /\*\*corpus: babel \(yarn\)\*\*\n\nInstalled with `yarn 4\.10\.3`\.\n\n\d+ runs/,
+  );
   assert.match(benchClaims(capped), /: medians of 15 runs \(5 on next-js\) on a GitHub-hosted runner, measured on /);
   const undeclared = withNextJs();
   const knip = undeclared.targets[2].results[4];
