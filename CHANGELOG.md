@@ -79,6 +79,16 @@ All notable changes to this project are documented here. The format follows
 - **Public API** ([#229](https://github.com/Goldziher/skif/issues/229)): `ExtractedConfig::environment_variants` of
   `skif-js-syntax`, the exported value evaluated again with every test on the environment the evaluation leaves
   undecided taken as true, then as false; empty when there is none.
+- **Public API**: the `skif-js-types` crate, the type-aware facts from the TypeScript checker of tsrs
+  ([ADR 0043](adrs/0043-type-aware-analysis-on-tsrs.md)). `analyze` builds one program per `tsconfig.json` or
+  `jsconfig.json` that holds a judged file, found as TypeScript finds it (solution configs followed through their
+  references, `[js] tsconfig` for the root package), and answers which members of the asked classes, enums and
+  namespaces typed reads reach, directly, through a base class or through an implemented interface
+  ([ADR 0045](adrs/0045-typed-member-semantics.md)); which declarations are used as a whole; which reads it could not
+  settle; and the coverage of every package with the reason it is not fully typed. A panic inside the checker leaves
+  that program's packages untyped (`checker-failed`), and every program's memory is freed before `analyze` returns.
+  The `plain-ptrs` feature builds tsrs without its fixed address reservation
+  ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
 - `ATTRIBUTIONS.md` has a "tsrs (and TypeScript)" section with the full NOTICE and the Apache-2.0 licence of tsrs, the
   TypeScript checker behind type-aware analysis, and ships in every crate, binary archive and npm package; the
   release checks fail when it is missing ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
