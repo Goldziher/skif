@@ -31,6 +31,10 @@ impl Plugin for Execa {
         false
     }
 
+    fn scans_reached_sources(&self) -> bool {
+        true
+    }
+
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
         for (source, text) in own_sources_containing(cx, "execa") {
