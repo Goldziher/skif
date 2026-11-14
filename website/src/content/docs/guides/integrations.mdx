@@ -7,7 +7,7 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0.4
+- uses: Goldziher/skif@v0.5
   with:
     fail-on-warnings: true
 ```
@@ -50,7 +50,7 @@ attestation made by any other workflow does not pass. Outputs are `version` and 
 Code scanning with SARIF:
 
 ```yaml
-- uses: Goldziher/skif@v0.4
+- uses: Goldziher/skif@v0.5
   with:
     args: --format sarif --output skif.sarif
 - uses: github/codeql-action/upload-sarif@v4
@@ -114,7 +114,7 @@ commit never runs a package manager, and it is refused when `CI` is set.
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/skif
-    rev: v0.4.0 # use the latest release tag
+    rev: v0.5.0 # use the latest release tag
     hooks:
       - id: skif       # skif --no-js
       - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
@@ -136,7 +136,7 @@ Add skif as a managed source in `poly.toml`:
 [[hooks.sources]]
 id = "skif"
 git = "https://github.com/Goldziher/skif.git"
-revision = "v0.4.0" # use the latest release tag
+revision = "v0.5.0" # use the latest release tag
 hooks = ["skif"]
 ```
 
