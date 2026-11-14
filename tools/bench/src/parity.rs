@@ -1193,10 +1193,7 @@ impl PathMap {
             }
         }
         best.map_or_else(Vec::new, |(_, captured, targets)| {
-            targets
-                .iter()
-                .map(|target| target.replacen('*', captured, 1))
-                .collect()
+            targets.iter().map(|target| target.replacen('*', captured, 1)).collect()
         })
     }
 
@@ -1461,11 +1458,7 @@ impl<'a> Resolver<'a> {
             .filter(|target| !target.contains('*'))
             .find_map(|target| layout.source_of(dir, target))
             .map(|source| joined(dir, &source))
-            .or_else(|| {
-                local
-                    .iter()
-                    .find_map(|path| resolve_relative(dir, path, self.is_file))
-            })
+            .or_else(|| local.iter().find_map(|path| resolve_relative(dir, path, self.is_file)))
     }
 }
 
@@ -1539,9 +1532,9 @@ fn follow_reexports(
         if !credits.insert(format!("{file}|{name}")) {
             continue;
         }
-        let module = modules.entry(file.clone()).or_insert_with(|| {
-            read(&file).and_then(|source| parse_module(Path::new(&file), &source, &options).ok())
-        });
+        let module = modules
+            .entry(file.clone())
+            .or_insert_with(|| read(&file).and_then(|source| parse_module(Path::new(&file), &source, &options).ok()));
         if let Some(module) = module {
             pending.extend(reexported(&file, module, &name, resolver));
         }
@@ -2313,9 +2306,7 @@ impl Classifier<'_> {
             .or_else(|| {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
             })
-            .or_else(|| {
-                (category == "enumMembers" && self.whole_enum_members.contains(key)).then_some(WHOLE_ENUM_USE)
-            })
+            .or_else(|| (category == "enumMembers" && self.whole_enum_members.contains(key)).then_some(WHOLE_ENUM_USE))
             .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
             .or_else(config_error)
     }
@@ -2639,11 +2630,7 @@ fn unlisted_specifiers(key: &str, read: &SourceReader<'_>) -> Vec<String> {
         .into_iter()
         .filter(|specifier| specifier == name || (package.is_some() && bare_package(specifier) == package))
         .collect();
-    if found.is_empty() {
-        vec![name.to_owned()]
-    } else {
-        found
-    }
+    if found.is_empty() { vec![name.to_owned()] } else { found }
 }
 
 /// The keys of `unlisted` (`<file>|<name>`) whose import of the package a `declare module` among `files` declares
@@ -2959,10 +2946,7 @@ fn starlark_tokens(source: &str) -> Vec<StarlarkToken> {
             }
             name if name.is_alphabetic() || name == '_' => {
                 let start = at;
-                while chars
-                    .get(at)
-                    .is_some_and(|next| next.is_alphanumeric() || *next == '_')
-                {
+                while chars.get(at).is_some_and(|next| next.is_alphanumeric() || *next == '_') {
                     at += 1;
                 }
                 found.push(StarlarkToken::Name(chars[start..at].iter().collect()));
@@ -3003,7 +2987,8 @@ fn rule_literals(source: &str) -> Vec<(String, String, String)> {
             StarlarkToken::Punct(bracket @ ('(' | '[' | '{')) => {
                 if open.is_empty() && *bracket == '(' {
                     let called = at.checked_sub(1).and_then(|before| tokens.get(before));
-                    let method = at.checked_sub(2).and_then(|before| tokens.get(before)) == Some(&StarlarkToken::Punct('.'));
+                    let method =
+                        at.checked_sub(2).and_then(|before| tokens.get(before)) == Some(&StarlarkToken::Punct('.'));
                     rule = match called {
                         Some(StarlarkToken::Name(name)) if !method => Some(name.clone()),
                         _ => None,
@@ -5274,7 +5259,11 @@ mod tests {
             ("binaries", "package.json|eslint", None),
             ("unlisted", "src/a.ts|docker", None),
         ] {
-            assert_eq!(classifier.classify(Side::Tool, category, key), expected, "{category} {key}");
+            assert_eq!(
+                classifier.classify(Side::Tool, category, key),
+                expected,
+                "{category} {key}"
+            );
         }
         assert_eq!(
             classifier.classify(Side::Skif, "binaries", "package.json|docker"),
@@ -6475,7 +6464,10 @@ vi.mock("mocked-package");
                 "packages/web/tsconfig.json",
                 r#"{ "compilerOptions": { "paths": { "@/*": ["${configDir}/src/*", "./fallback/*"] } } }"#,
             ),
-            ("packages/web/lib/tsconfig.json", r#"{ "compilerOptions": { "strict": true } }"#),
+            (
+                "packages/web/lib/tsconfig.json",
+                r#"{ "compilerOptions": { "strict": true } }"#,
+            ),
             ("packages/app/src/util.ts", ""),
             ("packages/app/src/deep/index.ts", ""),
             ("packages/app/special.ts", ""),
@@ -6489,11 +6481,19 @@ vi.mock("mocked-package");
         let resolver = Resolver::new(&layout, &read);
         for (importer, specifier, expected) in [
             ("packages/app/src/a.ts", "@app/util", Some("packages/app/src/util.ts")),
-            ("packages/app/src/a.ts", "@app/deep", Some("packages/app/src/deep/index.ts")),
+            (
+                "packages/app/src/a.ts",
+                "@app/deep",
+                Some("packages/app/src/deep/index.ts"),
+            ),
             ("packages/app/src/a.ts", "@app/special", Some("packages/app/special.ts")),
             ("packages/app/src/a.ts", "@app/missing", None),
             ("packages/app/src/a.ts", "vendor/x", None),
-            ("packages/web/src/a.ts", "@/lib/api", Some("packages/web/src/lib/api.ts")),
+            (
+                "packages/web/src/a.ts",
+                "@/lib/api",
+                Some("packages/web/src/lib/api.ts"),
+            ),
             ("packages/web/src/a.ts", "@/only", Some("packages/web/fallback/only.ts")),
             ("packages/web/lib/a.ts", "@/lib/api", None),
             ("other/a.ts", "@app/util", None),
@@ -6532,7 +6532,10 @@ vi.mock("mocked-package");
                 "import * as vscode from 'vscode';\nimport home from 'icons/home';\nimport React from 'react';\n\
                  import { api } from '@/lib/api';\nimport z from 'zod';\nconsole.log(vscode, home, React, api, z);\n",
             ),
-            ("tsconfig.json", r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#),
+            (
+                "tsconfig.json",
+                r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#,
+            ),
             ("src/lib/api.ts", "export const api = 1;\n"),
         ]);
         let is_file = |file: &str| sources.contains_key(file);
@@ -6639,9 +6642,19 @@ vi.mock("mocked-package");
                 "packages/app/package.json|@acme/ui",
                 Some(PATHS_BEFORE_PACKAGES),
             ),
-            (Side::Tool, "files", "packages/app/src/ui/cn.ts", Some(PATHS_BEFORE_PACKAGES)),
+            (
+                Side::Tool,
+                "files",
+                "packages/app/src/ui/cn.ts",
+                Some(PATHS_BEFORE_PACKAGES),
+            ),
             (Side::Skif, "dependencies", "packages/app/package.json|zod", None),
-            (Side::Skif, "dependencies", "packages/app/package.json|@acme/theme", None),
+            (
+                Side::Skif,
+                "dependencies",
+                "packages/app/package.json|@acme/theme",
+                None,
+            ),
             (Side::Skif, "dependencies", "packages/other/package.json|@acme/ui", None),
             (Side::Skif, "files", "packages/app/src/ui/cn.ts", None),
             (Side::Tool, "dependencies", "packages/app/package.json|@acme/ui", None),
@@ -6671,7 +6684,10 @@ vi.mock("mocked-package");
                 "export const login = 1;\nexport const logout = 2;\n",
             ),
             ("packages/ui/src/index.ts", "export * from './button';\n"),
-            ("packages/ui/src/button.ts", "export const Button = 1;\nexport const Link = 2;\n"),
+            (
+                "packages/ui/src/button.ts",
+                "export const Button = 1;\nexport const Link = 2;\n",
+            ),
             ("packages/ui/src/cn.ts", "export const cn = 1;\n"),
         ]);
         let manifests: BTreeMap<&str, Rc<Value>> = [
@@ -6772,7 +6788,11 @@ vi.mock("mocked-package");
             (Side::Skif, "enumMembers", "src/enums.ts|A"),
             (Side::Tool, "exports", "src/enums.ts|A"),
         ] {
-            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+            assert_eq!(
+                classifier.classify(side, category, key),
+                None,
+                "{side:?} {category} {key}"
+            );
         }
     }
 
@@ -6789,7 +6809,10 @@ vi.mock("mocked-package");
     fn exports_a_published_source_or_a_nested_root_s_default_entry_re_exports_split_off() {
         let manifest = manifests_of(&[
             ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
-            ("packages/ai", json!({ "name": "@n8n/ai", "exports": { ".": "./dist/index.js" } })),
+            (
+                "packages/ai",
+                json!({ "name": "@n8n/ai", "exports": { ".": "./dist/index.js" } }),
+            ),
             ("e2e/registry", json!({ "name": "registry-setup", "private": true })),
         ]);
         let sources = BTreeMap::from([
@@ -6829,7 +6852,10 @@ vi.mock("mocked-package");
             ["e2e/registry/index.js"],
             "a workspace's default entry is knip's entry as well"
         );
-        assert_eq!(entry_modules(&BTreeSet::new(), &files, &layout, &roots), (Vec::new(), Vec::new()));
+        assert_eq!(
+            entry_modules(&BTreeSet::new(), &files, &layout, &roots),
+            (Vec::new(), Vec::new())
+        );
         let published_reexports = entry_reexports(published, &resolver, &read);
         let root_entry_reexports = entry_reexports(defaults, &resolver, &read);
         let classifier = Classifier {
@@ -6839,15 +6865,27 @@ vi.mock("mocked-package");
             ..bare(&layout)
         };
         for (category, key, expected) in [
-            ("exports", "packages/ai/src/gen-ai/attributes.ts|a", Some(PUBLISHED_SOURCE)),
-            ("types", "packages/ai/src/node-catalog/get.ts|get", Some(PUBLISHED_SOURCE)),
+            (
+                "exports",
+                "packages/ai/src/gen-ai/attributes.ts|a",
+                Some(PUBLISHED_SOURCE),
+            ),
+            (
+                "types",
+                "packages/ai/src/node-catalog/get.ts|get",
+                Some(PUBLISHED_SOURCE),
+            ),
             ("exports", "packages/ai/src/node-catalog/get.ts|other", None),
             ("exports", "packages/ai/src/unused.ts|lonely", None),
             ("enumMembers", "packages/ai/src/gen-ai/attributes.ts|a", None),
             ("exports", "e2e/registry/registry.js|start", Some(NON_MEMBER_PROJECT)),
             ("exports", "e2e/registry/other.js|stop", None),
         ] {
-            assert_eq!(classifier.classify(Side::Tool, category, key), expected, "{category} {key}");
+            assert_eq!(
+                classifier.classify(Side::Tool, category, key),
+                expected,
+                "{category} {key}"
+            );
         }
     }
 
@@ -6876,8 +6914,18 @@ vi.mock("mocked-package");
         }
         let classifier = bare(&layout);
         for (side, category, key, expected) in [
-            (Side::Tool, "types", "packages/next/cache.d.ts|Cache", Some(PUBLISHED_FILE)),
-            (Side::Tool, "exports", "packages/next/navigation.js|redirect", Some(PUBLISHED_FILE)),
+            (
+                Side::Tool,
+                "types",
+                "packages/next/cache.d.ts|Cache",
+                Some(PUBLISHED_FILE),
+            ),
+            (
+                Side::Tool,
+                "exports",
+                "packages/next/navigation.js|redirect",
+                Some(PUBLISHED_FILE),
+            ),
             (Side::Tool, "files", "packages/next/cache.js", Some(PUBLISHED_FILE)),
             (Side::Tool, "files", "packages/next/cache.d.ts", Some(DECLARATION_FILE)),
             (Side::Tool, "enumMembers", "packages/next/cache.js|X", None),
@@ -6916,15 +6964,25 @@ vi.mock("mocked-package");
         );
         assert!(named("ts_project", "data").is_empty(), "a select is a nested call");
         assert_eq!(named("js_binary", "entry_point"), ["run.mts"]);
-        assert!(literals.iter().all(|(called, _, _)| called != "load" && called != "format"));
+        assert!(
+            literals
+                .iter()
+                .all(|(called, _, _)| called != "load" && called != "format")
+        );
 
         let rules_js = "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n";
         let sources = BTreeMap::from([
             ("MODULE.bazel", rules_js),
             ("adev/pipeline/BUILD.bazel", build),
-            ("adev/pipeline/index.mts", "import { util } from './lib/util.mts';\nconsole.log(util);\n"),
+            (
+                "adev/pipeline/index.mts",
+                "import { util } from './lib/util.mts';\nconsole.log(util);\n",
+            ),
             ("adev/pipeline/helpers/format.mts", "export const format = 1;\n"),
-            ("adev/pipeline/lib/util.mts", "export { deep } from './deep.mts';\nexport const util = 1;\n"),
+            (
+                "adev/pipeline/lib/util.mts",
+                "export { deep } from './deep.mts';\nexport const util = 1;\n",
+            ),
             ("adev/pipeline/lib/deep.mts", "export const deep = 1;\n"),
             ("adev/pipeline/run.mts", "console.log(1);\n"),
             ("adev/pipeline/data.json", "{}"),
@@ -6985,14 +7043,20 @@ vi.mock("mocked-package");
             ("files", "adev/pipeline/globbed/a.mts", None),
             ("exports", "adev/pipeline/index.mts|x", None),
         ] {
-            assert_eq!(classifier.classify(Side::Tool, category, key), expected, "{category} {key}");
+            assert_eq!(
+                classifier.classify(Side::Tool, category, key),
+                expected,
+                "{category} {key}"
+            );
         }
     }
 
     #[test]
     fn the_sources_a_published_node_bin_stub_loads_are_published_sources() {
         assert_eq!(
-            stub_specifiers("#!/usr/bin/env node\nrequire('../lib-commonjs/start.js');\nimport(\"./x\");\nrequire('fs');\n"),
+            stub_specifiers(
+                "#!/usr/bin/env node\nrequire('../lib-commonjs/start.js');\nimport(\"./x\");\nrequire('fs');\n"
+            ),
             ["../lib-commonjs/start.js", "./x"]
         );
         let manifest = manifests_of(&[
@@ -7017,7 +7081,10 @@ vi.mock("mocked-package");
         let is_file = |file: &str| sources.contains_key(file);
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
         let layout = Layout::new(strings(&["apps/client", "apps/plain"]), &manifest, &is_file);
-        assert_eq!(bin_stub_sources(&layout, "apps/client", &read), ["apps/client/src/start.ts"]);
+        assert_eq!(
+            bin_stub_sources(&layout, "apps/client", &read),
+            ["apps/client/src/start.ts"]
+        );
         assert!(
             bin_stub_sources(&layout, "apps/plain", &read).is_empty(),
             "a shell stub is no node stub"
@@ -7038,7 +7105,10 @@ vi.mock("mocked-package");
     fn exports_only_skif_reports_whose_users_skif_does_not_read_split_off_on_skif_side() {
         let manifest = manifests_of(&[
             ("", json!({ "name": "root" })),
-            (".github/scripts", json!({ "name": "scripts", "type": "module", "private": true })),
+            (
+                ".github/scripts",
+                json!({ "name": "scripts", "type": "module", "private": true }),
+            ),
         ]);
         let sources = BTreeMap::from([
             (
@@ -7066,7 +7136,10 @@ vi.mock("mocked-package");
         let resolver = Resolver::new(&layout, &read);
         let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
         let (non_member, skipped) = outside_credits(&files, &layout, &resolver, &read);
-        assert!(non_member.contains("scripts/preview/labels.mjs|PREFIX"), "{non_member:?}");
+        assert!(
+            non_member.contains("scripts/preview/labels.mjs|PREFIX"),
+            "{non_member:?}"
+        );
         assert!(skipped.contains("scripts/ssh.mjs|alias"), "{skipped:?}");
         assert!(!skipped.contains("scripts/preview/labels.mjs|PREFIX"), "{skipped:?}");
         let classifier = Classifier {
@@ -7075,7 +7148,12 @@ vi.mock("mocked-package");
             ..bare(&layout)
         };
         for (side, category, key, expected) in [
-            (Side::Skif, "exports", "scripts/preview/labels.mjs|PREFIX", Some(NON_MEMBER_PROJECT)),
+            (
+                Side::Skif,
+                "exports",
+                "scripts/preview/labels.mjs|PREFIX",
+                Some(NON_MEMBER_PROJECT),
+            ),
             (Side::Skif, "exports", "scripts/ssh.mjs|alias", Some(SKIPPED_DIRECTORY)),
             (Side::Skif, "exports", "scripts/preview/labels.mjs|other", None),
             (Side::Skif, "exports", "scripts/ssh.mjs|kept", None),
@@ -7120,8 +7198,18 @@ vi.mock("mocked-package");
         };
         for (side, category, key, expected) in [
             (Side::Tool, "binaries", "package.json|husky", Some(UNINSTALLED_PROJECT)),
-            (Side::Tool, "devDependencies", "package.json|oxfmt", Some(UNINSTALLED_PROJECT)),
-            (Side::Skif, "unlisted", "package.json|ultracite", Some(UNINSTALLED_PROJECT)),
+            (
+                Side::Tool,
+                "devDependencies",
+                "package.json|oxfmt",
+                Some(UNINSTALLED_PROJECT),
+            ),
+            (
+                Side::Skif,
+                "unlisted",
+                "package.json|ultracite",
+                Some(UNINSTALLED_PROJECT),
+            ),
             (Side::Tool, "devDependencies", "examples/basic/package.json|turbo", None),
             (Side::Tool, "exports", "src/a.ts|x", None),
         ] {

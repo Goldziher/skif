@@ -2348,6 +2348,7 @@ dependencies = [
  "serde_json",
  "skif",
  "skif-js",
+ "skif-js-plugins",
  "skif-js-syntax",
  "skif-workspace",
  "toml",
