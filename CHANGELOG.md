@@ -9,6 +9,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Comparison harness**: the knip comparison sets apart more known deviations, decided from the checkout's files,
+  manifests, TypeScript configurations and an import scan with skif's parser
+  ([ADR 0040](adrs/0040-more-known-deviations-of-the-knip-comparison.md), amending
+  [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)): `rush-provided-command`, `shell-builtin`,
+  `global-binary` (read from skif's own binary tables), `data-uri`, `ambient-module`, `own-tsconfig-paths`,
+  `replaced-knip-config`, `whole-enum-use` (ADR 0018 stands: a whole use credits every member, and enum-member recall
+  is read with these set apart), `published-file`, `paths-before-packages` and `uninstalled-project` (the
+  turborepo-examples root the corpus install leaves out).
+
+### Changed
+
+- **Comparison harness**: `published-source` covers the sources a published `node` `bin` stub loads and the files a
+  published source re-exports; `non-member-project` covers a nested root's default-entry re-exports and, with
+  `skipped-directory`, exports only skif reports whose importers lie in a project or directory skif does not read;
+  `bazel-build-file` covers the files `rules_js` rules name in `srcs`, `data` and `entry_point` and what they reach;
+  `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
+  only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
+  needs re-recording for the new categories.
+
 ## [0.5.0] - 2026-11-14
 
 ### Breaking changes
