@@ -6,7 +6,7 @@
 mod common;
 
 use common::{Expected, TSCONFIG, Workspace, assert_case, assert_facts, package, query, run, typed};
-use skif_js_types::{DeclKind, TypePackage, TypeQuery};
+use skif_js_types::{DeclKind, DeclQuery, TypePackage, TypeQuery};
 
 const WIDGETS: &str = "\
 export class Widget {
@@ -411,4 +411,71 @@ fn an_interface_implemented_through_a_namespace_import_credits_the_class() {
             ..Expected::default()
         },
     );
+}
+
+const BRUSH: &str = "\
+export default class {
+  render(): void {}
+  paint(): void {}
+}
+";
+
+#[test]
+fn an_anonymous_default_class_is_keyed_past_its_closing_brace() {
+    for (case, main, reads, whole) in [
+        (
+            "a default import",
+            "import Brush from './brush';\n\nnew Brush().paint();\n",
+            vec![(0, vec!["paint"])],
+            vec![],
+        ),
+        (
+            "a namespace import",
+            "import * as brushes from './brush';\n\nnew brushes.default().paint();\n",
+            vec![(0, vec!["paint"])],
+            vec![],
+        ),
+        (
+            "a default re-export",
+            "import { Brush } from './reexport';\n\nnew Brush().paint();\n",
+            vec![(0, vec!["paint"])],
+            vec![],
+        ),
+        (
+            "a whole use",
+            "import Brush from './brush';\n\nexport function keep(_value: unknown): void {}\n\nkeep(Brush);\n",
+            vec![],
+            vec![0],
+        ),
+    ] {
+        let workspace = Workspace::new(&[
+            ("tsconfig.json", TSCONFIG),
+            ("src/brush.ts", BRUSH),
+            ("src/reexport.ts", "export { default as Brush } from './brush';\n"),
+            ("src/main.ts", main),
+        ]);
+        let end = BRUSH.rfind('}').unwrap() + 1;
+        let query = query(vec![DeclQuery {
+            file: common::abs("src/brush.ts"),
+            name_start: u32::try_from(end).unwrap(),
+            kind: DeclKind::Class,
+            members: vec!["render".to_owned(), "paint".to_owned()],
+        }]);
+        let facts = run(
+            &workspace,
+            &[package("", "app", &["src/brush.ts", "src/main.ts", "src/reexport.ts"])],
+            &query,
+        );
+        assert_case(
+            case,
+            &facts,
+            &Expected {
+                reads,
+                whole,
+                covered: vec!["src/brush.ts", "src/main.ts", "src/reexport.ts"],
+                coverage: vec![typed("", "app")],
+                ..Expected::default()
+            },
+        );
+    }
 }

@@ -17,7 +17,8 @@ pub struct TypeQuery {
 pub struct DeclQuery {
     /// The absolute path of the file declaring it.
     pub file: PathBuf,
-    /// The UTF-8 byte offset of the declaration's name in the file text, as oxc spans count.
+    /// The UTF-8 byte offset of the declaration's name in the file text, as oxc spans count; for an anonymous
+    /// `export default class {}`, which has no name, the offset just past its closing brace.
     pub name_start: u32,
     /// What it declares.
     pub kind: DeclKind,

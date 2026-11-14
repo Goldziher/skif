@@ -103,7 +103,7 @@ impl TypeState {
 
     /// Why the members behind `export` of `module` are judged by name, or `None` when they are judged with types:
     /// the reason types are off, `file-untyped` when the checker did not cover the file, or `not-asked` for a
-    /// declaration the checker was not asked about (an anonymous default class, one with no judged member).
+    /// declaration the checker was not asked about (one with no judged member).
     pub(crate) fn untyped_because(&self, module: &Module, export: &Export) -> Option<&'static str> {
         match self {
             Self::Off(reason) => Some(reason.label()),
@@ -292,7 +292,7 @@ mod asked {
     pub(super) type DeclKeys = HashMap<(ModuleId, u32), DeclId>;
 
     /// Adds the declaration at `name_start` of `module` with `members` to `query`, merging the members of a
-    /// declaration two exports stand for (`export { C }` beside `export default C`).
+    /// declaration two exports stand for (`export { E, E as F }` of one enum).
     fn add(
         query: &mut TypeQuery,
         keys: &mut DeclKeys,

@@ -9,7 +9,7 @@ use crate::vfs::tsrs_path;
 use crate::{DeclId, DeclKind, TypeQuery};
 
 /// A declaration named as oxc names it: its file as tsrs names files and the UTF-8 byte offset of its name in skif's
-/// text of the file.
+/// text of the file (past the closing brace of an anonymous default class, [`crate::DeclQuery::name_start`]).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct DeclKey {
     pub(crate) file: String,
