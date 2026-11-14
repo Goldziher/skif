@@ -159,6 +159,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- In production mode a plain `entry` pattern of the config no longer cancels a plugin's production entry for the same
+  file: with `entry = ["src/mastra/index.ts"]` in a Mastra package, or a plain pattern naming an `entry` of
+  `tsup.config.ts`, the file stays a production entry and what only it imports is no longer reported as unused, as in
+  knip. A `!` pattern of the config still removes it ([#236](https://github.com/Goldziher/skif/issues/236)).
 - The `paths` of `[js.workspaces.<dir>.paths]` come before the `paths` and `baseUrl` of the workspace's
   `jsconfig.json` or `tsconfig.json`, which the `typescript` plugin reads as lookup directories and aliases (a
   `jsconfig.json` enables it by itself): when both map `*` to the same directories in a different order, the import
