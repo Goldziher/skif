@@ -21,7 +21,7 @@ use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::hoisting::PublicHoisting;
 use crate::input::ConfigDependency;
 use crate::lockfile;
-use crate::resolve::is_installed;
+use crate::resolve::{is_installed, join_normalized};
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir, placed_dir};
 use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
@@ -410,8 +410,9 @@ pub(crate) struct Installed {
     /// The `version` of its manifest; `None` when it has none, and for a package known only from the lockfile, whose
     /// packages are read without one.
     pub(crate) version: Option<String>,
-    /// Its manifest declares its own types (`types` or `typings`), so TypeScript reads those and not its `@types`
-    /// package. `false` for a package known only from the lockfile.
+    /// Its manifest declares its own types (a non-empty `types` or `typings`), so TypeScript reads those and not its
+    /// `@types` package. For an installed package the file must exist too ([`has_types_file`]). `false` for a package
+    /// known only from the lockfile.
     pub(crate) typed: bool,
 }
 
@@ -661,9 +662,28 @@ fn version_of(manifest: &Value) -> Option<String> {
     manifest.get("version").and_then(Value::as_str).map(str::to_owned)
 }
 
-/// Whether a manifest declares the package's own types.
+/// The file of the package's own types a manifest declares: a non-empty `types` or `typings` string.
+fn declared_types(manifest: &Value) -> Option<&str> {
+    ["types", "typings"].iter().find_map(|field| {
+        manifest
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|path| !path.trim().is_empty())
+    })
+}
+
+/// Whether a manifest declares the package's own types ([`declared_types`]).
 fn declares_types(manifest: &Value) -> bool {
-    ["types", "typings"].iter().any(|field| manifest.get(field).is_some())
+    declared_types(manifest).is_some()
+}
+
+/// Whether the installed package at `dir` holds the types file `path` its manifest declares, as TypeScript finds it:
+/// the file itself, the file with `.d.ts` added, or the `index.d.ts` of a directory.
+fn has_types_file(fs: &dyn FileSystem, dir: &Path, path: &str) -> bool {
+    let file = join_normalized(dir, path);
+    let mut with_extension = file.clone().into_os_string();
+    with_extension.push(".d.ts");
+    fs.is_file(&file) || fs.is_file(Path::new(&with_extension)) || fs.is_file(&file.join("index.d.ts"))
 }
 
 fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> Option<Arc<Installed>> {
@@ -678,7 +698,7 @@ fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> O
         peers: peers_of(&value),
         optional_peers: optional_peers_of(&value),
         version: version_of(&value),
-        typed: declares_types(&value),
+        typed: declared_types(&value).is_some_and(|path| has_types_file(fs, dir, path)),
     }))
 }
 
@@ -1609,7 +1629,11 @@ impl DependencyUsage {
 
     fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite<'_>) {
         let find = |usage: &Self, name: &str| usage.find_listed_for(site, name);
-        if self.is_satisfied(workspace, site.owner, name, site.type_only, find) {
+        let subpath = site
+            .specifier
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.starts_with('/'));
+        if self.is_satisfied(workspace, site.owner, name, (site.type_only, subpath), find) {
             return;
         }
         self.unlisted.push(UnlistedImport {
@@ -1626,13 +1650,15 @@ impl DependencyUsage {
     /// Whether package `name` that package `owner` uses needs no manifest entry, recording every use it finds: a
     /// runtime module, the package itself, a package that `find` finds listed (for `type_only` uses also its
     /// `DefinitelyTyped` package), one that is provided ([`Self::is_provided`]) or a workspace member a private
-    /// package uses unlisted.
+    /// package uses unlisted. The `@types` package is used too unless the package declares its own types
+    /// ([`Self::ships_types`]) and the use names the package itself: those types may not cover a `subpath` use
+    /// (`pkg/sub`), which `@types/pkg/sub.d.ts` may declare.
     fn is_satisfied(
         &mut self,
         workspace: &Workspace,
         owner: PackageId,
         name: &str,
-        type_only: bool,
+        (type_only, subpath): (bool, bool),
         find: impl Fn(&Self, &str) -> Option<Listed>,
     ) -> bool {
         if RUNTIME_PACKAGES.contains(&name) {
@@ -1646,7 +1672,7 @@ impl DependencyUsage {
         }
         let listed = find(self, name);
         let types = types_package(name)
-            .filter(|_| !listed.is_some_and(|found| self.ships_types(found, name)))
+            .filter(|_| subpath || !listed.is_some_and(|found| self.ships_types(found, name)))
             .and_then(|types| find(self, &types).map(|found| (found, types)));
         if let Some((found, types)) = &types {
             self.reference(*found, types);
@@ -1763,7 +1789,7 @@ impl DependencyUsage {
     ) {
         let name = dependency.name.as_str();
         let judge = |usage: &mut Self, scope: PackageId| {
-            usage.is_satisfied(workspace, scope, name, dependency.type_only, |usage, name| {
+            usage.is_satisfied(workspace, scope, name, (dependency.type_only, false), |usage, name| {
                 usage.find_listed(scope, name)
             })
         };
