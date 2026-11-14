@@ -5,7 +5,7 @@
 //! references the tool implies. The plugin table of `skif-js-plugins` implements this trait.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use skif_core::{FileSystem, Span};
 pub use skif_core::{IncompleteCause, IncompleteEntries, IncompleteScope};
@@ -190,6 +190,9 @@ pub struct WorkspaceInputs {
     /// Where the entries the source could not read can lie, when `entries_incomplete` is set: only files there are
     /// left unjudged by `unused-files` (ADR 0016).
     pub incomplete_scope: IncompleteScope,
+    /// Whether the source finds more in the package's source files that the module graph reaches: the analysis
+    /// keeps the texts of those files as it builds the graph and asks [`InputSource::reached_inputs`] for them.
+    pub scans_reached_sources: bool,
 }
 
 impl WorkspaceInputs {
@@ -227,6 +230,7 @@ impl WorkspaceInputs {
         }
         self.entries_incomplete |= other.entries_incomplete;
         self.incomplete_reasons.extend(other.incomplete_reasons);
+        self.scans_reached_sources |= other.scans_reached_sources;
     }
 }
 
@@ -328,6 +332,17 @@ impl std::fmt::Debug for InputRequest<'_> {
 pub trait InputSource: Send + Sync {
     /// The inputs for `request.package`; an empty value when the tool is not used there.
     fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs;
+
+    /// What the source finds in `reached`, the source files below the directory of `request.package` that the
+    /// module graph reaches, besides what [`inputs`](Self::inputs) gives: each a path relative to the package
+    /// directory, `/`-separated, with its text, in path order. The files of the packages below it are among them.
+    ///
+    /// The analysis asks for a package whose inputs set [`WorkspaceInputs::scans_reached_sources`] once the graph is
+    /// built, and asks again with the files a larger graph reaches while what the sources find adds to the graph
+    /// (the files a command they find runs are entries). The default finds nothing.
+    fn reached_inputs(&self, _request: &InputRequest<'_>, _reached: &[(String, Arc<str>)]) -> WorkspaceInputs {
+        WorkspaceInputs::default()
+    }
 }
 
 const _: () = {

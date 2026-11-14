@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use skif_core::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -151,6 +152,8 @@ pub struct ModuleGraph {
     modules: Vec<Module>,
     index: HashMap<PathBuf, ModuleId>,
     imported_by: Vec<Vec<ModuleId>>,
+    /// The texts of the modules whose package scans the sources the graph reaches, as read while building it.
+    texts: Vec<(ModuleId, Arc<str>)>,
 }
 
 impl ModuleGraph {
@@ -180,6 +183,19 @@ impl ModuleGraph {
     pub fn imported_by(&self, id: ModuleId) -> &[ModuleId] {
         self.imported_by.get(id.index()).map_or(&[], Vec::as_slice)
     }
+
+    /// The texts the graph kept of the modules below a package that scans the source files the graph reaches
+    /// ([`PackageSetup::scans_reached_sources`](crate::setup::PackageSetup::scans_reached_sources)), by the package
+    /// that owns the module or the one whose directory holds it, as read while building the graph, in discovery
+    /// order. A file that could not be read has none.
+    pub(crate) fn kept_texts(&self) -> &[(ModuleId, Arc<str>)] {
+        &self.texts
+    }
+
+    /// Lets go of the [`kept_texts`](Self::kept_texts) once they have been searched.
+    pub(crate) fn release_texts(&mut self) {
+        self.texts = Vec::new();
+    }
 }
 
 /// What the parallel step learns about one file.
@@ -187,6 +203,8 @@ impl ModuleGraph {
 struct Parsed {
     info: ModuleInfo,
     error: Option<String>,
+    /// The file's text, when the graph keeps it ([`ModuleGraph::kept_texts`]).
+    text: Option<Arc<str>>,
     imports: Vec<RawImport>,
     /// The components a generated `components.d.ts` registers, by name.
     components: Vec<(String, Registered)>,
@@ -236,6 +254,9 @@ pub(crate) struct Inputs<'a> {
     pub sequential: bool,
     /// How this run parses through the cache of parse results, when there is one.
     pub modules: Option<&'a ModuleParser<'a>>,
+    /// Texts an earlier graph of the run kept ([`ModuleGraph::kept_texts`]), by absolute path: a file among them is
+    /// not read again.
+    pub known_texts: &'a HashMap<PathBuf, Arc<str>>,
 }
 
 fn normalize(path: &str) -> String {
@@ -370,17 +391,21 @@ fn parse_source(modules: Option<&ModuleParser<'_>>, path: &Path, source: &str) -
     parsed
 }
 
-fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
-    let failed = |message: String| Parsed {
-        error: Some(message),
-        ..Parsed::default()
-    };
-    let source = match READ_TIME.time(|| inputs.fs.read_to_string(path)) {
+/// What the graph learns about the file `path`, with its text when `keep_text`.
+fn process(path: &Path, keep_text: bool, inputs: &Inputs<'_>) -> Parsed {
+    let known = inputs.known_texts.get(path).cloned();
+    let source = match known.map_or_else(|| READ_TIME.time(|| inputs.fs.read_to_string(path)), Ok) {
         Ok(source) => source,
         // A file the git index still lists but that was deleted from disk is no module, not a read error.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Parsed::default(),
-        Err(error) => return failed(error.to_string()),
+        Err(error) => {
+            return Parsed {
+                error: Some(error.to_string()),
+                ..Parsed::default()
+            };
+        }
     };
+    let text = keep_text.then(|| Arc::clone(&source));
     // A file `[js.compilers]` maps onto a reader is read as a file of that reader's extension, and resolves from
     // where it is; one read by patterns has only the imports they capture.
     let compiler = inputs.setup.compilers.of(path);
@@ -399,7 +424,13 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
     };
     let mut info = match parsed {
         Ok(info) => info,
-        Err(error) => return failed(error.to_string()),
+        Err(error) => {
+            return Parsed {
+                error: Some(error.to_string()),
+                text,
+                ..Parsed::default()
+            };
+        }
     };
     let error = info.fatal.then(|| {
         info.parse_diagnostics
@@ -497,6 +528,7 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
     Parsed {
         info,
         error,
+        text,
         imports,
         components,
         registrations,
@@ -666,6 +698,18 @@ impl<'a> Builder<'a> {
             owner,
             root_dir: root_dir.clone(),
         })
+    }
+
+    /// Whether the graph keeps the text of `module` ([`ModuleGraph::kept_texts`]): the package that owns it, or the one
+    /// whose directory holds it, scans the source files the graph reaches.
+    fn keeps_text(&self, module: &Module) -> bool {
+        let scans = |id: PackageId| {
+            self.inputs
+                .setup
+                .package(id)
+                .is_some_and(|package| package.scans_reached_sources)
+        };
+        scans(module.owner) || scans(self.located_owner(&module.abs))
     }
 
     /// The id of `abs`, creating an unparsed module on first sight. The flag is true for a new module.
@@ -859,12 +903,18 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[P
             frontier.push(id);
         }
     }
+    let mut texts = Vec::new();
     while !frontier.is_empty() {
-        let paths: Vec<&Path> = frontier
+        let files: Vec<(&Path, bool)> = frontier
             .iter()
-            .map(|id| builder.modules[id.index()].abs.as_path())
+            .map(|id| {
+                let module = &builder.modules[id.index()];
+                (module.abs.as_path(), builder.keeps_text(module))
+            })
             .collect();
-        let parsed: Vec<Parsed> = map_ordered(&paths, inputs.sequential, |path| process(path, inputs));
+        let parsed: Vec<Parsed> = map_ordered(&files, inputs.sequential, |&(path, keep_text)| {
+            process(path, keep_text, inputs)
+        });
         let mut next = Vec::new();
         for (id, mut parsed) in frontier.iter().zip(parsed) {
             if !parsed.components.is_empty() && builder.links_by_tag(*id) {
@@ -887,6 +937,9 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[P
                     }
                 })
                 .collect();
+            if let Some(text) = parsed.text {
+                texts.push((*id, text));
+            }
             let module = &mut builder.modules[id.index()];
             module.info = parsed.info;
             module.parse_error = parsed.error;
@@ -904,6 +957,7 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[P
         imported_by: importers(&builder.modules),
         modules: builder.modules,
         index: builder.index,
+        texts,
     }
 }
 

@@ -1,10 +1,11 @@
 //! The input source that feeds the plugin table of `skif-js-plugins` to the module graph.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
-use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins_in};
+use skif_js_plugins::{PackageSources, PluginContext, PluginId, PluginOutput, PluginPass, registry, resolve_pass_in};
 use skif_workspace::Workspace;
 
 use crate::config_check::relative_tsconfig;
@@ -302,6 +303,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
             })
             .collect(),
         incomplete_scope,
+        scans_reached_sources: false,
     }
 }
 
@@ -342,8 +344,15 @@ fn members_below(workspace: &Workspace, package_dir: &str) -> Vec<String> {
         .collect()
 }
 
-impl InputSource for PluginSource {
-    fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
+impl PluginSource {
+    /// Resolves the plugins of `request.package` for `pass`, with `sources` as the package's listing of sources, or
+    /// the run's shared listing when there is none.
+    fn resolve(
+        &self,
+        request: &InputRequest<'_>,
+        sources: Option<&PackageSources>,
+        pass: PluginPass,
+    ) -> Vec<(PluginId, PluginOutput)> {
         let package = request.package;
         let dependencies: Vec<String> = package
             .dependencies
@@ -360,7 +369,14 @@ impl InputSource for PluginSource {
             package.is_root,
         );
         let modules = ConfigModules::new(request.fs, request.workspace);
-        let sources = request.listing.package_sources(request.workspace, &dir);
+        let shared;
+        let sources = match sources {
+            Some(sources) => sources,
+            None => {
+                shared = request.listing.package_sources(request.workspace, &dir);
+                &shared
+            }
+        };
         let package_dir = package.dir.to_string_lossy().replace('\\', "/");
         let members = members_below(request.workspace, &package_dir);
         let context = PluginContext {
@@ -375,7 +391,7 @@ impl InputSource for PluginSource {
             modules: Some(&modules),
             nx: None,
             globs: request.listing.globs(),
-            sources: Some(&sources),
+            sources: Some(sources),
             members: &members,
         };
         // The Nx projects are those the source walk reaches, listed once for every package of the run.
@@ -389,13 +405,39 @@ impl InputSource for PluginSource {
                 })
                 .collect()
         };
-        resolve_plugins_in(&context, &package_dir, projects).into_iter().fold(
-            WorkspaceInputs::default(),
-            |mut all, (_, output)| {
-                all.extend(inputs(output));
-                all
-            },
-        )
+        resolve_pass_in(&context, &package_dir, projects, pass)
+    }
+}
+
+/// The inputs of every plugin of `resolved` together.
+fn all_inputs(resolved: Vec<(PluginId, PluginOutput)>) -> WorkspaceInputs {
+    resolved
+        .into_iter()
+        .fold(WorkspaceInputs::default(), |mut all, (_, output)| {
+            all.extend(inputs(output));
+            all
+        })
+}
+
+impl InputSource for PluginSource {
+    /// The inputs of every enabled plugin but the source scans of those that search only source files
+    /// ([`Plugin::scans_reached_sources`](skif_js_plugins::Plugin::scans_reached_sources)), which
+    /// [`reached_inputs`](InputSource::reached_inputs) runs on the files the module graph reaches.
+    fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
+        let resolved = self.resolve(request, None, PluginPass::WithoutReachedScans);
+        let scans = resolved
+            .iter()
+            .any(|(id, _)| registry::plugin(id).is_some_and(|plugin| plugin.scans_reached_sources()));
+        WorkspaceInputs {
+            scans_reached_sources: scans,
+            ..all_inputs(resolved)
+        }
+    }
+
+    fn reached_inputs(&self, request: &InputRequest<'_>, reached: &[(String, Arc<str>)]) -> WorkspaceInputs {
+        let dir = request.workspace.root.join(Path::new(&request.package.dir));
+        let sources = PackageSources::reached(dir, reached.iter().cloned());
+        all_inputs(self.resolve(request, Some(&sources), PluginPass::ReachedScans))
     }
 }
 

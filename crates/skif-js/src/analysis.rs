@@ -16,12 +16,12 @@ use skif_workspace::{IndexCache, IndexedFs, PackageId, TrackedFiles, Workspace, 
 use crate::config_hints::{ConfigHint, HintInputs, config_hints};
 use crate::deps::{DependencyUsage, ForeignMapping};
 use crate::discover::{Candidate, discover_with, relative, take_file_links};
-use crate::entries::{Disk, entry_files};
+use crate::entries::{Disk, EntryFiles, entry_files};
 use crate::explain::EntryReason;
 use crate::fixture::in_fixture_directory;
 use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
-use crate::input::InputSource;
+use crate::input::{InputSource, WorkspaceInputs};
 use crate::resolve::{ModuleResolver, is_installed};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::shared_modules::ModuleParser;
@@ -241,6 +241,29 @@ fn mark_foreign_paths(resolver: &ModuleResolver, graph: &ModuleGraph, dependenci
 
 /// Directories [`on_disk`] does not enter unless the pattern names them: installed packages and git internals are
 /// never what a project pattern means, and walking them would make the check as slow as a dependency install.
+/// How many times the source files the graph reaches are searched at most. Each search after the first follows a
+/// graph that reaches more files than the one before, which a chain of scripts running one another needs, one search
+/// per link; a longer chain leaves the files of its last links unsearched.
+const MAX_REACHED_ROUNDS: usize = 16;
+
+/// Whether what the input sources find in the reached source files, `next` against `previous` (both by package),
+/// can change the module graph: anything but the packages and binaries it names (an entry a command runs) may.
+fn grows_graph(previous: &[Option<WorkspaceInputs>], next: &[Option<WorkspaceInputs>]) -> bool {
+    let files = |inputs: Option<&Option<WorkspaceInputs>>| {
+        inputs.cloned().flatten().map_or_default(|inputs| WorkspaceInputs {
+            ignore_dependencies: Vec::new(),
+            ignore_binaries: Vec::new(),
+            dependencies: Vec::new(),
+            relocated_dependencies: Vec::new(),
+            config_dependencies: Vec::new(),
+            binaries: Vec::new(),
+            run_binaries: Vec::new(),
+            ..inputs
+        })
+    };
+    (0..previous.len().max(next.len())).any(|index| files(previous.get(index)) != files(next.get(index)))
+}
+
 const UNWALKED_DIRS: [&str; 2] = ["node_modules", ".git"];
 
 /// Whether a file on disk below `base`, gitignored or not and of any extension, matches `pattern` (relative to
@@ -596,21 +619,80 @@ impl<'a> JsAnalysis<'a> {
             });
         }
         let links = take_file_links(fs.as_ref(), &workspace.root, &mut candidates);
-        let found = timing::phase(phase("entries"), || {
-            let published = Disk {
-                fs: disk.as_ref(),
-                gitignore: !config.js.no_gitignore,
+        let entries_of = |setup: &Setup| {
+            timing::phase(phase("entries"), || {
+                let published = Disk {
+                    fs: disk.as_ref(),
+                    gitignore: !config.js.no_gitignore,
+                };
+                entry_files(
+                    fs.as_ref(),
+                    workspace,
+                    setup,
+                    &candidates,
+                    (extra_entries, extra_build_sources, sequential),
+                    published,
+                )
+            })
+        };
+        let resolver_of = |setup: &Setup| {
+            timing::phase(phase("resolver"), || {
+                ModuleResolver::new(Arc::clone(fs), workspace, setup)
+            })
+        };
+        let graph_of =
+            |setup: &Setup, resolver: &ModuleResolver, found: &EntryFiles, known: &HashMap<PathBuf, Arc<str>>| {
+                let inputs = Inputs {
+                    fs: fs.as_ref(),
+                    resolver,
+                    root: &workspace.root,
+                    candidates: &candidates,
+                    links: &links,
+                    setup,
+                    sequential,
+                    modules,
+                    known_texts: known,
+                };
+                timing::phase(phase("graph (read, parse, resolve)"), || {
+                    graph::build(&inputs, &found.files, &found.build_sources)
+                })
             };
-            entry_files(
-                fs.as_ref(),
-                workspace,
-                &setup,
-                &candidates,
-                (extra_entries, extra_build_sources, sequential),
-                published,
-            )
-        });
+        let mut found = entries_of(&setup);
         setup.mark_entries_incomplete(&found.unknown);
+        let mut resolver = resolver_of(&setup);
+        let mut graph = graph_of(&setup, &resolver, &found, &HashMap::default());
+        // The plugins that search source files read those the graph reaches, as knip does. The commands they find
+        // can run files that become entries, which the graph is built again to reach; it reaches more files each
+        // time, so the search stops once a graph reaches no new file or what it finds adds no file to the graph.
+        let mut reached: Vec<Option<WorkspaceInputs>> = vec![None; workspace.iter().count()];
+        for _ in 0..MAX_REACHED_ROUNDS {
+            if !setup.scans_reached_sources() {
+                break;
+            }
+            let found_now = timing::phase(phase("reached sources"), || {
+                setup.reached_inputs(workspace, fs.as_ref(), sources, &graph, sequential)
+            });
+            if found_now == reached {
+                break;
+            }
+            let grows = grows_graph(&reached, &found_now);
+            setup = setup.with_reached(workspace, config, fs, sequential, &found_now);
+            reached = found_now;
+            if !grows {
+                setup.mark_entries_incomplete(&found.unknown);
+                break;
+            }
+            found = entries_of(&setup);
+            setup.mark_entries_incomplete(&found.unknown);
+            resolver = resolver_of(&setup);
+            let known: HashMap<PathBuf, Arc<str>> = graph
+                .kept_texts()
+                .iter()
+                .map(|(id, text)| (graph.module(*id).abs.clone(), Arc::clone(text)))
+                .collect();
+            graph = graph_of(&setup, &resolver, &found, &known);
+        }
+        graph.release_texts();
         let entries = found.files;
         let other_root_entries = found.other_root_entries;
         let other_root_build_sources = found.other_root_build_sources;
@@ -627,22 +709,6 @@ impl<'a> JsAnalysis<'a> {
                 disk: disk.as_ref(),
             })
         };
-        let resolver = timing::phase(phase("resolver"), || {
-            ModuleResolver::new(Arc::clone(fs), workspace, &setup)
-        });
-        let inputs = Inputs {
-            fs: fs.as_ref(),
-            resolver: &resolver,
-            root: &workspace.root,
-            candidates: &candidates,
-            links: &links,
-            setup: &setup,
-            sequential,
-            modules,
-        };
-        let graph = timing::phase(phase("graph (read, parse, resolve)"), || {
-            graph::build(&inputs, &entries, &found.build_sources)
-        });
         graph::report_timings(&workspace.root);
         setup.widen_incomplete_scopes(&graph);
         let exports = timing::phase(phase("exports"), || {
