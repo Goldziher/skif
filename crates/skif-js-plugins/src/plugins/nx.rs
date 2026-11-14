@@ -4,7 +4,7 @@
 use std::cell::OnceCell;
 use std::path::PathBuf;
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, shell_word};
 
 use crate::config_load::load_config;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginId, PluginInput, PluginSpec};
@@ -541,17 +541,5 @@ fn replace_token(text: &str, token: &str, value: &str) -> String {
         text.replace(&format!("{token}/"), "").replace(token, ".")
     } else {
         text.replace(token, value)
-    }
-}
-
-/// `word` quoted for a shell when it holds anything but path characters.
-fn shell_word(word: &str) -> String {
-    if word
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '@' | '+'))
-    {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', "'\\''"))
     }
 }

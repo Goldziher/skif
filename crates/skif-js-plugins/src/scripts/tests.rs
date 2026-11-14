@@ -225,6 +225,10 @@ fn table() {
         files("node --env-file=.env server.js", &[], &["server.js"]),
         files("node --experimental-strip-types src/a.ts", &[], &["src/a.ts"]),
         files("node -e \"console.log(1)\"", &[], &[]),
+        // A group of value flags takes the next word as the value of its last letter: `-pe` prints the code it runs.
+        deps("node -pe \"require('./package.json').version\"", &[], &[], &[]),
+        deps("node -ep \"require('./package.json').version\"", &[], &[], &[]),
+        deps("node -rts-node/register app.js", &[], &["app.js"], &["ts-node"]),
         files("node --import node:module ./a.mjs", &[], &["./a.mjs"]),
         // Runners.
         deps(
@@ -1077,6 +1081,48 @@ fn commands_after_cd_run_in_its_directory() {
     );
     assert_eq!(binary_dirs("cd .. && cd sub && tsc"), [at("tsc", Some("../sub"))]);
     assert_eq!(binary_dirs("cd sub/.. && tsc"), [at("tsc", None)]);
+}
+
+/// A substitution runs in the directory of the command that holds it: after the `cd` before that command, before any
+/// `cd` after it, and inside a subshell in the subshell's directory.
+#[test]
+fn a_substitution_runs_in_the_directory_of_its_command() {
+    assert_eq!(
+        binary_dirs("cd sub\nSUITE=$(pnpm exec tsx resolve.ts)"),
+        [at("tsx", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("echo $(vite) && cd sub && echo $(tsc) && cd .. && echo `eslint`"),
+        [at("eslint", None), at("tsc", Some("sub")), at("vite", None)]
+    );
+    assert_eq!(
+        binary_dirs("cd sub && echo $(cd deep && rspack) && tsup"),
+        [at("rspack", Some("sub/deep")), at("tsup", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("(cd sub && echo $(vite)) && echo $(tsc)"),
+        [at("tsc", None), at("vite", Some("sub"))]
+    );
+}
+
+/// A substitution in a command of redirections alone runs where that command does, after the commands before it; one
+/// after a `pushd` can `popd` to the directory it left; and a nested one runs in the directory of its own command.
+#[test]
+fn a_substitution_runs_in_the_directory_state_of_its_command() {
+    assert_eq!(binary_dirs("cd a && > \"$(tsc)\""), [at("tsc", Some("a"))]);
+    assert_eq!(
+        binary_dirs("(cd a && > \"$(tsc)\") && echo $(vite)"),
+        [at("tsc", Some("a")), at("vite", None)]
+    );
+    assert_eq!(binary_dirs("(cd a) > \"$(tsc)\""), [at("tsc", None)]);
+    assert_eq!(
+        binary_dirs("cd sub && pushd a && echo $(popd && tsc) && popd && vite"),
+        [at("tsc", Some("sub")), at("vite", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("cd a && echo $(cd b && echo $(tsc))"),
+        [at("tsc", Some("a/b"))]
+    );
 }
 
 #[test]

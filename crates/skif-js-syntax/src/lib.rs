@@ -71,8 +71,8 @@ pub use config::{
     ConfigValue, ExtractedConfig, FILE_DIR, ImportedCall, ModuleLoader, OWN_SPREAD, TEMPLATE_SUBSTITUTION,
     UNKNOWN_SPREAD, command_in_call_dir, command_line_call, extract_command_calls, extract_config,
     extract_config_object, extract_config_object_with, extract_constructor_options, extract_imported_calls,
-    extract_method_calls, extract_property_calls, extract_property_values, file_call_options, literal_command,
-    place_file_dir,
+    extract_method_calls, extract_property_calls, extract_property_values, file_call_options, is_plain_word,
+    literal_command, place_file_dir, shell_quote, shell_word,
 };
 pub use declaration::{DECLARATION_SUFFIXES, is_declaration_file};
 pub use error::SyntaxError;

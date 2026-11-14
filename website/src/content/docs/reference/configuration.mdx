@@ -832,7 +832,9 @@ own or the `defaults.run` of its job or workflow, is read as a `cd` before the s
 `cd $GITHUB_WORKSPACE/sub` and a `working-directory` of `${{ github.workspace }}/sub` are followed. A script that a
 package manager runs in another directory (`cd web && npm run build`) is the script of the package there, so the caller's script of that name is not followed.
 A `cd` in a subshell
-(`(cd "$TMP" && tar xf a.tgz) && npm run build`) ends with it. A directory that is not a static relative path
+(`(cd "$TMP" && tar xf a.tgz) && npm run build`) ends with it. A command substitution runs in the directory of the
+command that holds it (`cd sub && SUITE=$(pnpm exec tsx resolve.ts)` runs `tsx` in `sub`), a command of redirections
+alone included (`cd sub && > "$(tsx x.ts)"`). A directory that is not a static relative path
 (`cd $DIR`, `cd /tmp`, `cd -`, `cd "$(dirname "$0")"`) is not followed: a binary run by name there is judged where the
 script starts, but a package manager run there (`npm run build`, `bun run build`, `pnpm exec rspack`) works on the
 package of that directory, as with `--filter`, so its scripts are not followed and its binaries are not judged. A
@@ -1295,14 +1297,16 @@ counterpart. These differences are deliberate:
   `typedoc --plugin` and `--theme`. A flag that skif does not know takes the next word as its value, as `minimist`
   does, and `c8` and `dotenv` follow the command they wrap.
 - `execa`, `zx`, `nano-spawn` and `pino` read the source files of the package as text before parsing those that
-  mention the library. A command counts when it is literal: `execa("tsx", ["build.ts"])`, `` $`vite build` `` (the
-  substitutions of a template are placeholders) or `spawn("eslint", ["."])`; a computed argument is left out, and a
-  call with a literal argument that is not a plain word (`"a && b"`) is skipped. `execa` also reads the default export
-  of execa 5 and earlier (`execa.sync`, `execa.command`, `execa.node`). `zx` reads `$` in files that start with
-  `#!/usr/bin/env zx` and, unlike knip, also where `$` is imported from `zx`, in files that import `zx/globals` and
-  under a shebang such as `#!/usr/bin/env -S npx zx`. In a file that switches zx to PowerShell (`usePwsh()`,
-  `usePowerShell()` or `$.shell = 'pwsh'`), a cmdlet named `Verb-Noun` (`New-Item`) or a default PowerShell alias
-  (`gci`, `ni`) is no binary.
+  mention the library; `execa`, `zx` and `nano-spawn` leave out the files of a workspace member below the package,
+  whose commands are that member's. A directory with a `package.json` that is no member (`scripts/package.json` that
+  only sets `"type": "module"`, an example project outside the workspace globs) is the package's own. A command counts when it is literal: `execa("tsx", ["build.ts"])`, `` $`vite build` `` (the
+  substitutions of a template are placeholders) or `spawn("eslint", ["."])`; a computed argument ends the command (`spawn("node", [script, "out.js"])` runs no `out.js`), and a
+  literal argument that is not a plain word (`"a && b"`, an SQL statement) is one quoted word of the command. `execa`
+  also reads the default export of execa 5 and earlier (`execa.sync`, `execa.command`, `execa.node`). `zx` reads `$` in
+  files that start with `#!/usr/bin/env zx` and, unlike knip, also where `$` is imported from `zx`, in files that
+  import `zx/globals` and under a shebang such as `#!/usr/bin/env -S npx zx`. In a file that switches zx to PowerShell
+  (`usePwsh()`, `usePowerShell()` or `$.shell = 'pwsh'`), a cmdlet named `Verb-Noun` (`New-Item`) or a default
+  PowerShell alias (`gci`, `ni`) is no binary.
 - `bun` is enabled by `bun.lock`, `bun.lockb` or `bunfig.toml` in the package, a `bun test` script, or `@types/bun`
   or `bun-types` in the package or a package above it. Its test entries are the files `bun test` finds:
   `*.test.*`, `*_test.*`, `*.spec.*` and `*_spec.*` with any of the `js`, `jsx`, `ts`, `tsx`, `mjs`, `cjs`, `mts` and
