@@ -63,7 +63,7 @@ function machine() {
 
 function summary() {
   return {
-    schema: 5,
+    schema: 6,
     skif: "skif 0.3.0",
     source_rev: "0123456789ab",
     harness_rev: "0123456789ab",
@@ -94,6 +94,8 @@ function summary() {
         kind: "generated",
         packages: 500,
         files: null,
+        warmup: 3,
+        runs: 15,
         results: [row("skif --no-js", 27), row("sherif", 59), row("syncpack lint", 156)],
       },
       {
@@ -102,6 +104,8 @@ function summary() {
         packages: null,
         files: null,
         installed_with: "yarn 4.10.3",
+        warmup: 3,
+        runs: 15,
         results: [
           row("skif", 884),
           row("skif --no-js", 9.4),
@@ -160,7 +164,9 @@ function withT3({ errorRuns, failure, check }) {
     packages: null,
     files: null,
     installed_with: "pnpm 10.19.0",
-    declared_knip_failure: { matches: "Cannot find module 'metro-cache'", reason: METRO_REASON },
+    declared_knip_failure: { matches: "Cannot find module 'metro-cache'", reason: METRO_REASON, timed: false },
+    warmup: 3,
+    runs: 15,
     results: [
       row("skif", 33),
       row("skif --no-js", 4),
@@ -181,7 +187,7 @@ function withT3({ errorRuns, failure, check }) {
 test("a knip failure corpus.toml declares and the run matched is published as failing, without a ratio", () => {
   const matched = withT3({
     errorRuns: 15,
-    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    failure: { reason: METRO_REASON, error: METRO_ERROR, timed: false },
     check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
   });
   assert.deepEqual(summaryProblems(matched), []);
@@ -233,6 +239,104 @@ test("a declared knip failure that did not happen is refused through its invalid
   assert.deepEqual(summaryProblems(declaredButClean), [
     `corpus: create-t3-turbo (pnpm): the ADR 0001 check is invalid: ${clean}`,
   ]);
+});
+
+const JEST_ERROR = "ERROR: Error loading jest.config.js (Cannot find module './dist/build/jest/jest')";
+const JEST_REASON = "its root Jest config requires the built next/jest";
+
+/**
+ * The summary with a next-js target timed in 5 runs after 1 warmup run, on which knip exited with an error after its
+ * report in every run, as corpus.toml declares (`timed`), and whose check passed.
+ */
+function withNextJs() {
+  const result = summary();
+  result.targets.push({
+    target: "corpus: next-js (pnpm)",
+    kind: "corpus",
+    packages: null,
+    files: null,
+    installed_with: "pnpm 12.9.1",
+    declared_knip_failure: { matches: "Error loading jest.config.js", reason: JEST_REASON, timed: true },
+    warmup: 1,
+    runs: 5,
+    results: [
+      row("skif", 6000),
+      row("skif --no-js", 40),
+      row("sherif", 90),
+      row("syncpack lint", 900),
+      row("knip --reporter json", 30000, {
+        relative_to_skif: 5,
+        error_runs: 5,
+        error_output: JEST_ERROR,
+        failure: { reason: JEST_REASON, error: JEST_ERROR, timed: true },
+      }),
+    ],
+  });
+  result.adr_0001_checks.push({ target: "corpus: next-js (pnpm)", description: "d", status: "pass" });
+  return result;
+}
+
+test("a knip error declared as after the report is published with its time, its ratio and the reason", () => {
+  const timed = withNextJs();
+  assert.deepEqual(summaryProblems(timed), []);
+  const compact = benchSummary(timed);
+  assert.ok(compact.includes("| next-js | 6.0 s | 30.0 s | 5x |\n"), compact);
+  assert.ok(
+    compact.includes(
+      `\n\nknip exits with an error after its report on next-js (${JEST_REASON}); its time there is that of a run ` +
+        "without the entries of the configurations it could not load.\n",
+    ),
+    compact,
+  );
+  const detail = benchDetail(timed);
+  assert.ok(detail.includes("| knip --reporter json | 30000 | 30000 | 5.0x |\n"), detail);
+  assert.ok(
+    detail.includes(
+      `\n\nknip --reporter json exits with an error after its report here, as corpus.toml declares: ${JEST_REASON}.\n`,
+    ),
+    detail,
+  );
+  assert.ok(!detail.includes("fails:"), detail);
+  assert.equal(
+    benchClaims(timed).split("\n")[0],
+    "- **5.0–8.1x faster than knip** for dead-code analysis, on 2 pinned public repositories (on next-js it exits " +
+      "with an error after its report).",
+  );
+});
+
+test("a target with capped runs names its run counts, and its errors count out of its own runs", () => {
+  const capped = withNextJs();
+  assert.ok(
+    provenance(capped).startsWith(
+      "Medians of 15 runs after 3 warmup runs (5 runs after 1 warmup run on next-js) (hyperfine 1.20.0), ",
+    ),
+    provenance(capped),
+  );
+  assert.match(
+    benchDetail(capped),
+    /\*\*corpus: next-js \(pnpm\)\*\*\n\nInstalled with `pnpm 12\.9\.1`\.\n\n5 runs after 1 warmup run, as corpus\.toml caps them here\.\n\n\| Tool \|/,
+  );
+  assert.doesNotMatch(benchDetail(capped), /\*\*corpus: babel \(yarn\)\*\*\n\nInstalled with `yarn 4\.10\.3`\.\n\n\d+ runs/);
+  assert.match(benchClaims(capped), /: medians of 15 runs \(5 on next-js\) on a GitHub-hosted runner, measured on /);
+  const undeclared = withNextJs();
+  const knip = undeclared.targets[2].results[4];
+  knip.failure = null;
+  undeclared.adr_0001_checks[1].status = "invalid";
+  assert.deepEqual(summaryProblems(undeclared), [
+    `corpus: next-js (pnpm): knip --reporter json exited with an error in 5 of 5 runs (${JEST_ERROR}), ` +
+      "so its time may be that of a partial run",
+    "corpus: next-js (pnpm): the ADR 0001 check is invalid: d",
+  ]);
+  const grouped = withNextJs();
+  grouped.targets.push({ ...structuredClone(grouped.targets[2]), target: "corpus: n8n (pnpm)" });
+  grouped.targets.push({ ...structuredClone(grouped.targets[2]), target: "corpus: vscode (pnpm)", runs: 3 });
+  assert.ok(
+    provenance(grouped).startsWith(
+      "Medians of 15 runs after 3 warmup runs (5 runs after 1 warmup run on next-js and n8n; 3 runs after 1 warmup " +
+        "run on vscode) (hyperfine 1.20.0), ",
+    ),
+    provenance(grouped),
+  );
 });
 
 test("a summary measured outside a GitHub Actions job is refused", () => {
@@ -309,8 +413,8 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "sherif was not timed on any target: npm is not installed",
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
-  assert.deepEqual(summaryProblems({ ...summary(), schema: 4 }), [
-    "summary schema 4 is not 5; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+  assert.deepEqual(summaryProblems({ ...summary(), schema: 5 }), [
+    "summary schema 5 is not 6; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
   ]);
   assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
     "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",
@@ -356,7 +460,7 @@ test("the claims give each tool's ratio range over the targets it was timed on, 
 test("the claims leave out a knip that fails and give the median ratio from three targets on", () => {
   const matched = withT3({
     errorRuns: 15,
-    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    failure: { reason: METRO_REASON, error: METRO_ERROR, timed: false },
     check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
   });
   const lines = benchClaims(matched).split("\n");
@@ -376,7 +480,7 @@ test("the claims leave out a knip that fails and give the median ratio from thre
 test("the claims leave knip out when it fails on every repository", () => {
   const matched = withT3({
     errorRuns: 15,
-    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    failure: { reason: METRO_REASON, error: METRO_ERROR, timed: false },
     check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
   });
   matched.targets = matched.targets.filter((target) => target.target !== "corpus: babel (yarn)");
@@ -540,7 +644,7 @@ test("a summary with a matched knip failure is written into every speed block", 
   const root = scriptTree(t);
   const matched = withT3({
     errorRuns: 15,
-    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    failure: { reason: METRO_REASON, error: METRO_ERROR, timed: false },
     check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
   });
   const file = join(root, "matched.json");

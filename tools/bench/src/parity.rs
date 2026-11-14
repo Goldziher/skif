@@ -3582,12 +3582,8 @@ fn install_and_run_skif(
     if recursive {
         command.arg("--recursive");
     }
-    if !repo.entry.is_empty() {
-        command.arg("--config").arg(write_config(
-            scratch,
-            "skif-entry.toml",
-            &skif_entry_config(&repo.entry),
-        )?);
+    if let Some(config) = write_skif_entry_config(&repo.entry, scratch)? {
+        command.arg("--config").arg(config);
     }
     let run = capture(&mut command, scratch, "skif-parity", options.timeout)?;
     if run.timed_out {
@@ -3643,8 +3639,7 @@ fn run_knip(
         .env("CI", "1")
         .env("DOTENV_CONFIG_QUIET", "true");
     if !options.repo_knip_config {
-        let config = write_config(scratch, "knip-config.json", &knip_config(&repo.entry))?;
-        command.arg("--config").arg(config);
+        command.arg("--config").arg(write_knip_config(&repo.entry, scratch)?);
     }
     let run = capture(&mut command, scratch, "knip", options.timeout)?;
     let members = workspace_members(root);
@@ -4041,6 +4036,27 @@ fn skif_entry_config(entry: &[String]) -> String {
     format!("[js.workspaces.\".\"]\nentry = {}\n", json!(root_entry(entry)))
 }
 
+/// Writes the knip configuration of the comparison ([`knip_config`]) with the corpus-level `entry` files into the
+/// scratch directory and returns its absolute path.
+///
+/// # Errors
+/// Fails when the file cannot be written.
+pub fn write_knip_config(entry: &[String], scratch: &Path) -> Result<PathBuf> {
+    write_config(scratch, "knip-config.json", &knip_config(entry))
+}
+
+/// Writes the skif configuration that adds the corpus-level `entry` files ([`skif_entry_config`]) into the scratch
+/// directory and returns its absolute path; `None`, writing nothing, when there are none.
+///
+/// # Errors
+/// Fails when the file cannot be written.
+pub fn write_skif_entry_config(entry: &[String], scratch: &Path) -> Result<Option<PathBuf>> {
+    if entry.is_empty() {
+        return Ok(None);
+    }
+    write_config(scratch, "skif-entry.toml", &skif_entry_config(entry)).map(Some)
+}
+
 /// Writes a configuration file into the scratch directory and returns its absolute path.
 fn write_config(scratch: &Path, name: &str, contents: &str) -> Result<PathBuf> {
     fs::create_dir_all(scratch).with_context(|| format!("creating {}", scratch.display()))?;
@@ -4269,6 +4285,9 @@ mod tests {
             entry: Vec::new(),
             bench_knip_args: Vec::new(),
             bench_knip_failure: None,
+            bench_knip_config: None,
+            bench_max_runs: None,
+            bench_max_warmup: None,
             knip_invalid: None,
             knip_root: None,
             build_command: Vec::new(),

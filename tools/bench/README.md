@@ -24,14 +24,15 @@ installs them there once with `npm ci --ignore-scripts` and times the executable
 so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be installed (no `npm`, a failed
 install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
 `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks),
-`summary.json` (schema 5: skif version, the commit of the skif source it was built from with a `-dirty` flag
+`summary.json` (schema 6: skif version, the commit of the skif source it was built from with a `-dirty` flag
 (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record and the one line
 `machine_text` that `summary.md` and the published tables print, the toolchain, the load average before and after the
 run, hyperfine version, each comparison tool's `--version`, the corpus repositories of an `--only` run, every target
-with mean, stddev, median, min and max in ms and the number of runs that exited with an error, and for an installed
+with its warmup and measured runs and, per tool, mean, stddev, median, min and max in ms and the number of runs that
+exited with an error, and for an installed
 corpus repository `installed_with`, the package manager and the `--version` it reports in the checkout (where corepack
 resolves the repository's `packageManager`) or the repository's `install-command`, its `declared_knip_failure` and, on a
-knip row that failed that way, `failure` (the reason and the error line), the skipped tools and the checks, each `pass`,
+knip row that failed that way, `failure` (the reason, the error line and `timed`), the skipped tools and the checks, each `pass`,
 `fail`, `invalid` or `not-measured`), and one raw hyperfine export per target under `raw/`. The machine record holds the
 operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the architecture,
 the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process may use and the
@@ -54,10 +55,24 @@ published tables, and its check is `not-measured` with the reason. Its times sta
 compared with nothing. A declared failure that did not happen, because knip ran without an error or failed with an error
 that does not hold `matches`, makes the check `invalid` and names the declaration as stale, so a changed failure is
 noticed and the declaration updated or removed; an error no declaration covers is `invalid`. Loading `corpus.toml` fails
-when `matches` or `reason` is empty or the repository is not in the bench suite. A corpus repository's `bench-knip-args`
-in `corpus.toml` are passed to knip, so it reads the files skif reads (npm-cli sets `--no-gitignore`), and skif runs
-with `--recursive` where the repository sets `recursive` (babel), as `parity` runs it. hyperfine 1.x and 2.x exports are
-both read.
+when `matches` or `reason` is empty or the repository is not in the bench suite. A declaration with `timed = true` is
+an error knip exits with after printing its whole report, because a tool configuration of the repository does not load
+and knip goes without the entries it names (next-js's root `jest.config.js`, which requires the unbuilt `next/jest`;
+two n8n Vite configurations): a run that matches it keeps its times and its ratio to skif, its check is `pass` or `FAIL`
+as for a clean run with the reason beside it, and `summary.md` and the published tables give its time with the reason.
+Such a time is that of a run without those entries. A corpus
+repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif reads (npm-cli sets
+`--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive` (babel, vscode, next-js), as
+`parity` runs it. A repository that sets `bench-knip-config = "parity"` (angular, vscode, n8n, next-js) times knip with
+the configuration of the knip comparison instead of its own (`--config` to a file in `<generated-dir>/configs/<name>`
+that is empty apart from the repository's `entry` files) and skif with a `--config` that adds the same `entry` files,
+so both read what `parity` compares: n8n's own `knip.ts` checks dependencies only, and vscode's workbench is reached
+only from the entries its bundler script names. A bench repository that sets `entry` has to set it. `bench-max-runs`
+and `bench-max-warmup` cap hyperfine's measured and warmup runs on a repository below a higher `--runs` and `--warmup`;
+the four large repositories run 5 times after 1 warmup run, since knip takes tens of seconds on each. `summary.md` and
+the published tables name the run counts of a capped target, and an error count is out of the target's own runs.
+`bench-knip-config`, `bench-max-runs` and `bench-max-warmup` are rejected outside the bench suite, and so is an unknown
+configuration or a cap of 0 runs. hyperfine 1.x and 2.x exports are both read.
 
 ## Targets (ADR 0001)
 
@@ -503,7 +518,8 @@ artifact, refreshes the speed tables of the benchmarks page (`website/src/conten
 speed claims (`bench:claims`) of the comparison guide, with `refresh-numbers.mjs --bench`,
 then puts the summary into `tools/bench/results` for a commit made locally. The claims give, for each tool, the range of
 the ratios of its median to skif's over the targets it was timed on without a failure, with the median ratio from three
-targets on, each rounded down to one decimal; a knip that fails as declared is left out and named. The first line of the
+targets on, each rounded down to one decimal; a knip that fails as declared is left out and named, and one that exits
+with a declared error after its report is counted and named. The first line of the
 speed tables names the skif version, source commit and the `rustc` that built it, the comparison tool versions, the
 harness commit when it differs, the runner image and the machine, its load, the date and the workflow run attempt.
 `refresh-numbers.mjs` writes nothing and exits non-zero when a comparison tool was not timed, a corpus repository has no
@@ -518,13 +534,16 @@ blocks as they are while `tools/bench/results` holds no imported summary.
 
 GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
 two runs of the same image may land on different CPU models (the summary names the one it got). The tables show
-medians, which one slow run does not move, over 15 runs after 3 warmup runs; compare runs on the same runner image and
+medians, which one slow run does not move, over 15 runs after 3 warmup runs (5 runs after 1 warmup run on the
+repositories whose `bench-max-runs` and `bench-max-warmup` cap them); compare runs on the same runner image and
 CPU model, and read the ratios against knip, sherif and syncpack, which share the machine and its noise, rather than
 the absolute times. `mise run bench` stays for local measurement while developing; its numbers are not published.
 
 A summary in which a tool exited with an error is not published, unless the error is a knip failure `corpus.toml`
 declares and the run matched, which is published as `fails: <reason>` without a ratio: knip exits with 2 when some of
-the repository's tool configurations do not load, and its time is then that of a partial analysis. The run's log and
+the repository's tool configurations do not load, and its time is then that of a partial analysis. A declared failure
+with `timed = true` is published with its time, its ratio and the reason, since knip printed its whole report before
+the error. The run's log and
 `error_output` name the cause, which is fixed or declared in `corpus.toml` before measuring again. On npm-cli knip runs
 with `--no-gitignore` (the repository's `bench-knip-args` in `corpus.toml`): npm's deny-all `.gitignore` otherwise hides
 the workspaces from knip, which then analyses only the root package.
@@ -648,10 +667,11 @@ in-process part.
   passes it); a repository whose install fails is timed without knip. Installing changes the timings of every tool,
   not only knip's (skif, sherif and syncpack then run on a tree with `node_modules`), so compare only runs made the
   same way. Where knip fails even installed, for reasons that are the repository's own, the repository declares it
-  with `bench-knip-failure` and knip's row is published as failing.
+  with `bench-knip-failure` and knip's row is published as failing, or, with `timed = true` where knip prints its
+  whole report first, with its time and the reason.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
-- The skif command line is `skif . --format json --no-install [--no-js] [--recursive]`; the working directory is the
-  target.
+- The skif command line is `skif . --format json --no-install [--no-js] [--recursive] [--config <entry files>]`; the
+  working directory is the target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
   mean over many `--runs`.
 - The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each
