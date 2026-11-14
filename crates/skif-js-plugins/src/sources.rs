@@ -95,6 +95,32 @@ impl PackageSources {
         }
     }
 
+    /// A listing of the sources below `dir` that holds only `files`, paths relative to `dir` and `/`-separated with
+    /// their text, such as the files below `dir` that a module graph reaches and read already: a search lists and
+    /// reads nothing. Of `files`, those a listing of every source would hold are kept (JavaScript and TypeScript
+    /// files, declaration files left out, below no `node_modules` and no deeper than the listing looks), in path
+    /// order; a search of the package's own sources leaves out the files of the members it is given, as any listing.
+    #[must_use]
+    pub fn reached(dir: impl Into<PathBuf>, files: impl IntoIterator<Item = (String, Arc<str>)>) -> Self {
+        let mut files: Vec<(String, Arc<str>)> = files
+            .into_iter()
+            .filter(|(path, _)| crate::support::is_source_file(path))
+            .collect();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        files.dedup_by(|a, b| a.0 == b.0);
+        let listed: Vec<SourceFile> = files
+            .into_iter()
+            .map(|(path, text)| SourceFile {
+                path,
+                text: OnceLock::from(Some(text)),
+            })
+            .collect();
+        Self {
+            files: OnceLock::from(listed),
+            ..Self::new(dir)
+        }
+    }
+
     /// This listing, reading the texts a search wants one after the other on the calling thread with `sequential`
     /// instead of side by side on the current rayon pool, as do the listings made [`within`](Self::within) it.
     #[must_use]
@@ -322,6 +348,50 @@ mod tests {
             listed,
             "the own sources are taken from the listing of every file"
         );
+    }
+
+    /// A listing of reached files searches only them, with the texts it was given, and lists and reads nothing: the
+    /// fixture on disk is not found. It keeps the files a listing of every source holds (no declaration file,
+    /// stylesheet, installed file or file deeper than the walk looks), in path order, and a search of the own sources
+    /// leaves out a member's files.
+    #[test]
+    fn a_reached_listing_searches_only_the_files_it_holds() {
+        let fs = ListingFs::new(MemoryFs::new().with_file("/a/test/fixtures/x.ts", "execa('x')"));
+        let globs = GlobCache::new();
+        let members = ["nested".to_owned()];
+        let file = |path: &str, text: &str| (path.to_owned(), Arc::<str>::from(text));
+        let listing = PackageSources::reached(
+            "/a",
+            [
+                file("src/run.ts", "execa('a')"),
+                file("nested/y.ts", "execa('b')"),
+                file("types.d.ts", "execa('c')"),
+                file("node_modules/p/index.js", "execa('d')"),
+                file("styles.css", "execa('e')"),
+                file("a/b/c/d/e/f/g/h/i.ts", "execa('f')"),
+                file("a/b/c/d/e/f/g/h.ts", "execa('g')"),
+                file("main.mjs", "other()"),
+                file("src/run.ts", "execa('a')"),
+            ],
+        );
+        let cx = context(&fs, "/a", &globs, Some(&listing), &members);
+        assert_eq!(
+            found(&sources_containing(&cx, "execa")),
+            [
+                ("a/b/c/d/e/f/g/h.ts", "execa('g')"),
+                ("nested/y.ts", "execa('b')"),
+                ("src/run.ts", "execa('a')")
+            ]
+        );
+        assert_eq!(
+            found(&own_sources_where(&cx, |_| true)),
+            [
+                ("a/b/c/d/e/f/g/h.ts", "execa('g')"),
+                ("main.mjs", "other()"),
+                ("src/run.ts", "execa('a')")
+            ]
+        );
+        assert!(fs.listed().is_empty(), "{:?}", fs.listed());
     }
 
     /// Texts read side by side come in path order, as those read one after the other on the calling thread do.

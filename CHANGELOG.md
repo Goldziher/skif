@@ -9,6 +9,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **Library hosts that call `PluginSource::inputs` of `skif-js` themselves**: it no longer gives what the `execa`, `zx`
+  and `nano-spawn` plugins find in source files, and sets `WorkspaceInputs::scans_reached_sources` for a package where
+  one of them is enabled; `InputSource::reached_inputs` gives it for the source files the host hands it. A
+  `skif-js-plugins` host that resolves plugins itself keeps the single pass of `resolve_plugins_in`, or splits it with
+  `resolve_pass_in`, `PluginPass` and `PackageSources::reached`
+  ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
+  [#233](https://github.com/Goldziher/skif/issues/233)).
+
+### Changed
+
+- **Performance** ([#233](https://github.com/Goldziher/skif/issues/233)): the `execa`, `zx` and `nano-spawn` plugins
+  read the commands of the source files the module graph reaches, as knip does, from the texts the graph already
+  read, instead of every source file of each package that lists or inherits the library. A member that inherits a
+  root's `execa` no longer reads its test fixtures, which on a large monorepo took most of the JS setup. A file such a
+  command runs (`execa("node", ["scripts/next.mjs"])`) is an entry as before, and the graph is built again to reach it
+  ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md)).
+- **`unlisted-binaries`, `unused-dependencies`**: a command in a source file nothing imports or runs, such as a test
+  fixture's `execa("x")`, runs no binary, so it is no longer reported unlisted and no longer credits the package that
+  provides it ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
+  [#233](https://github.com/Goldziher/skif/issues/233)).
 ### Changed
 
 - **JS**, result-changing: `paths` named like a dependency resolve as TypeScript resolves them, a deliberate
