@@ -4908,6 +4908,28 @@ fn execa_and_nano_spawn_quote_an_argument_that_is_not_a_plain_word() {
     assert!(nano_spawn.entries.is_empty(), "{:?}", nano_spawn.entries);
 }
 
+/// A computed argument ends the command of an execa or nano-spawn call: a literal after it is no file the program
+/// runs.
+#[test]
+fn execa_and_nano_spawn_leave_out_the_arguments_from_a_computed_one_on() {
+    let files = [
+        (
+            "scripts/release.ts",
+            r#"import { execa } from "execa";
+            await execa("node", [scriptPath, "out/app.js"]);
+            await execa("node", ["scripts/build.js", target, "out/lib.js"]);"#,
+        ),
+        (
+            "scripts/check.js",
+            r#"import spawn from "nano-spawn"; await spawn("node", [script, "tools/gen.js"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn"]);
+    assert_eq!(output(&results, "execa").entries, ["scripts/build.js"]);
+    let nano_spawn = output(&results, "nano-spawn");
+    assert!(nano_spawn.entries.is_empty(), "{:?}", nano_spawn.entries);
+}
+
 #[test]
 fn azure_pipelines_script_steps_and_templates() {
     let results = resolve(
