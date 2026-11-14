@@ -1953,15 +1953,16 @@ pub(crate) fn imported_calls_in(
 }
 
 /// The command line of a `(file, [arguments])` call such as `spawn('eslint', ['.'])`: the file and its literal
-/// arguments, a computed argument left out. A literal argument that is not a plain word (SQL, a sentence, `a && b`) is
-/// single-quoted, as the call hands it to the program as one word without a shell. `None` when the file is not a plain
-/// word.
+/// arguments up to the first computed one, which ends it, as a literal after it may be the value of a flag the computed
+/// one is or take the place of a file it names (`spawn('node', [script, 'My App'])` runs no `My App`). A literal
+/// argument that is not a plain word (SQL, a sentence, `a && b`) is single-quoted, as the call hands it to the program
+/// as one word without a shell. `None` when the file is not a plain word.
 #[must_use]
 pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
     let file = arguments.first()?.as_str().filter(|file| is_plain_word(file))?;
     let mut words = vec![file.to_owned()];
     if let Some(ConfigValue::Array(items)) = arguments.get(1) {
-        words.extend(items.iter().filter_map(ConfigValue::as_str).map(|word| {
+        words.extend(items.iter().map_while(ConfigValue::as_str).map(|word| {
             if is_plain_word(word) {
                 word.to_owned()
             } else {
