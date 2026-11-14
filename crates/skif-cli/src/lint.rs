@@ -150,6 +150,12 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
         })
 }
 
+/// The base overrides of a long-running process (the language server, `skif mcp`, `--watch`): it analyses without
+/// types until repeated typed analyses are shown to free their memory (ADR 0043).
+pub(crate) fn server_overrides() -> ConfigOverrides {
+    ConfigOverrides::default().with_no_type_aware(true)
+}
+
 pub fn overrides(args: &LintArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_rules(args.rules.iter().cloned())
@@ -159,6 +165,7 @@ pub fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_fail_on_warnings(args.fail_on_warnings.then_some(true))
         .with_production((args.production || args.strict).then_some(true))
         .with_no_js(args.no_js)
+        .with_no_type_aware(args.no_type_aware || args.watch)
         .with_config_file(args.config.as_ref().map(|file| absolute_file(file)))
         .with_no_config(args.no_config)
 }
@@ -1114,6 +1121,18 @@ mod tests {
         stdout_tty: true,
         github_actions: false,
     };
+
+    #[test]
+    fn no_type_aware_reaches_the_config_overrides() {
+        assert!(!overrides(&lint_args(&[])).no_type_aware, "types are on by default");
+        assert!(overrides(&lint_args(&["--no-type-aware"])).no_type_aware);
+    }
+
+    #[test]
+    fn watch_and_servers_analyse_without_types() {
+        assert!(overrides(&lint_args(&["--watch"])).no_type_aware);
+        assert!(server_overrides().no_type_aware);
+    }
 
     #[test]
     fn only_the_primary_human_rendering_is_coloured() {

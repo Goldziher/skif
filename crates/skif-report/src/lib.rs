@@ -17,6 +17,7 @@ mod path;
 mod sarif;
 mod style;
 mod text;
+mod type_aware;
 
 use std::io::{self, Write};
 

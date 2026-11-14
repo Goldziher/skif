@@ -455,6 +455,7 @@ tsconfig = "tsconfig.app.json"
 use-tsconfig-files = false
 include-fixtures = false
 use-public-hoisting = false
+type-aware = true
 discovery = "auto"
 
 [js.cycles]
@@ -468,6 +469,7 @@ ignore-dependencies = ["rimraf"]
 entry = ["src/main.tsx"]
 ignore-unresolved = ["virtual:*"]
 include-entry-exports = true
+type-aware = false
 paths = { "@/*" = ["./src/*"] }
 
 [js.workspaces."packages/web".plugins]
@@ -486,7 +488,7 @@ page = { as = "mdx" }
 tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
 workspace; `*` stops at `/`, so `packages/*` does not select `packages/a/nested`, and when several glob keys select a
 directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
-`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`,
+`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `type-aware`, `paths` and `plugins`,
 plus `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` and `extend-ignore-unresolved`, which
 append to the list the table inherits through `extends`. A plugin entry is
 `true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
@@ -919,6 +921,22 @@ which implies it) ignores it, since every package there uses only its own manife
 counted: they make every installed package resolvable everywhere, so counting them would amount to turning
 `unlisted-dependencies` off. Binaries are not affected: a hoisted package's binary is still credited only to a
 package that lists it.
+
+**`type-aware`** (default `true`; per workspace too, where unset inherits the top level) resolves member reads with
+the TypeScript type checker: slower, more accurate member findings; on by default. A read through a typed receiver
+(`this.x`, a parameter or variable of a class type) then counts for the member it reaches instead of every member of
+that name. Each file is checked with the program of its nearest `tsconfig.json` (or `jsconfig.json`). A package
+without usable types (no `tsconfig.json`, plain JavaScript, a `tsconfig.json` that does not parse, dependencies not
+installed) keeps the name-based analysis for the files concerned and loses no finding; the report names it and the
+reason (see [output formats](../cli/#output-formats)). `type-aware = false`, or `skif --no-type-aware`, which also
+overrides every `[js.workspaces]` table, runs no type checker at all and is faster and less accurate for member
+findings. The language server, `skif mcp` and `--watch` run without types
+([ADR 0043](https://github.com/Goldziher/skif/blob/main/adrs/0043-type-aware-analysis-on-tsrs.md)).
+
+```toml
+[js.workspaces."packages/legacy"]
+type-aware = false
+```
 
 `discovery` chooses how source files are found. `auto` (the default) and `walk` walk the directories, which finds
 every untracked file. `git` lists the files from the git index when the analysed root is in a git work tree and checks
