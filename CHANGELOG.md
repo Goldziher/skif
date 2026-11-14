@@ -9,6 +9,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
+  from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
+  `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production
+  entries, from `mikro-orm.config.*` and the configs `package.json#mikro-orm.configPaths` names; the `files` of
+  `web-test-runner.config.*` and of its `groups` are entries, and so are the test files a script passes to `wtr` or
+  `web-test-runner`; the two Vue plugins are enabled by their packages. The table holds 212 plugins
+  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
+
+### Fixed
+
+- A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
+  the flags' values: the value is no longer read as the command, so the binary and the file it runs are found.
 ### Breaking changes
 
 - **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and

@@ -45,7 +45,7 @@ fi
 
 # The knip section records the commit the JS analysis follows and the licence holder (ADR 0033).
 knip_section="$(sed -n '/^## knip$/,$p' ATTRIBUTIONS.md)"
-for needle in "da07b6e9887f9a1eb08545da29755b7f9d309bca" "Copyright (c) 2022-2026 Lars Kappert" "ISC License"; do
+for needle in "b25639c96bfff334519a189605e609a4ed5ae801" "Copyright (c) 2022-2026 Lars Kappert" "ISC License"; do
   if ! grep -qF "$needle" <<<"$knip_section"; then
     echo "::error file=ATTRIBUTIONS.md::the knip section is missing '${needle}'"
     failures=$((failures + 1))

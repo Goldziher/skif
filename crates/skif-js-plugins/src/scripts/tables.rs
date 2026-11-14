@@ -718,6 +718,8 @@ pub(super) enum Files {
     First,
     /// Every positional argument with a JavaScript or TypeScript extension.
     ScriptExt,
+    /// Every argument with a JavaScript or TypeScript extension, positional or after `--` (`wtr -- a.test.js`).
+    ScriptExtThroughSeparator,
     /// Every positional argument, where a directory stands for the files the test runner reads in it.
     All,
     /// No positional argument names a file (`glob -c "cmd" "src/**/*.ts"` takes patterns).
@@ -978,6 +980,16 @@ pub(super) static RUNNERS: &[Runner] = &[
         subcommands: &[],
         files: Files::ScriptExt,
     },
+    // Web Test Runner reads the test files after `--` too.
+    Runner {
+        names: &["web-test-runner", "wtr"],
+        value_flags: &["config"],
+        dep_flags: &[],
+        file_flags: &["files"],
+        exec_flags: &[],
+        subcommands: &[],
+        files: Files::ScriptExtThroughSeparator,
+    },
     // `glob -c <command> <pattern>…` runs the command once with the matching files; the patterns are not files.
     Runner {
         names: &["glob"],
@@ -1052,7 +1064,16 @@ pub(super) static WRAPPERS: &[Wrapper] = &[
     Wrapper {
         names: &["retry-cli", "retry"],
         subcommand: None,
-        value_flags: &["retries", "delay", "min-timeout", "max-timeout"],
+        value_flags: &[
+            "retries",
+            "n",
+            "factor",
+            "f",
+            "min-timeout",
+            "t",
+            "max-timeout",
+            "delay",
+        ],
         assignments: false,
     },
     Wrapper {
