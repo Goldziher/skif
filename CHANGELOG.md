@@ -12,6 +12,9 @@ All notable changes to this project are documented here. The format follows
 ### Breaking changes
 
 - **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and
+  heritage of an exported class) and `ModuleInfo` gains `property_reads` and `property_writes`, the property names a
+  module reads and assigns. `ImportedName` gains `passed_to`, the call that receives the namespace of an `import()` a
+  function returns.
   heritage of an exported class) and `declaration_start` (the offset of the name of the class, enum or namespace
   declaration it stands for, which the type-aware analysis keys declarations by), and `ModuleInfo` gains
   `property_reads` and `property_writes`, the property names a module reads and assigns, `string_constants`, the
@@ -110,7 +113,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- The parse cache schema moves to version 12, so the first run after upgrading re-parses every file.
+- The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
 
 - **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
   and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and
@@ -159,6 +162,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-exports`: an `import()` that a lazy-component loader returns (`lazy(() => import("./Page"))` of `react` or
+  `preact/compat`, `React.lazy`, `next/dynamic`, and `@loadable/component` without `resolveComponent`) uses the
+  default export only, so the module's named exports that nothing else reads are reported, as knip reports them.
+  Returned to any other call, it still uses the whole module, and `skif explain-usage` names the call
+  ([ADR 0048](adrs/0048-dynamic-imports-returned-to-a-call.md), [#237](https://github.com/Goldziher/skif/issues/237)).
 - A config method or function value that changes and returns the value a call gives it, such as a Storybook
   `viteFinal`, `webpackFinal` or `rsbuildFinal` hook that spreads the bundler config, no longer leaves the whole config
   partly unknown, so the package is no longer incomplete (`unknown-spread`) and `unused-files` and the

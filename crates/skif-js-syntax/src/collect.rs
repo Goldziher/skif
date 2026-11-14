@@ -678,6 +678,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                         accessed_members: Vec::new(),
                         nested_members: BTreeMap::new(),
                         escapes: false,
+                        passed_to: None,
                     }],
                     call: None,
                     span,
@@ -726,6 +727,7 @@ pub(crate) fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<
                 accessed_members: Vec::new(),
                 nested_members: BTreeMap::new(),
                 escapes: false,
+                passed_to: None,
             });
         }
     }
@@ -757,6 +759,7 @@ pub(crate) fn ambient_reexport(ctx: &Ctx<'_>, statement: &Statement<'_>) -> Opti
         accessed_members: Vec::new(),
         nested_members: BTreeMap::new(),
         escapes: false,
+        passed_to: None,
     };
     let (source, names, span) = match statement {
         Statement::ExportAllDeclaration(e) => (&e.source, vec![type_name(ImportedKind::Namespace)], e.span),
@@ -858,6 +861,7 @@ fn collect_named_export(
                 accessed_members: Vec::new(),
                 nested_members: BTreeMap::new(),
                 escapes: false,
+                passed_to: None,
             });
         } else if let Some(binding) = scope.imports.get(&local) {
             let name_span = module_export_span(&s.local);
