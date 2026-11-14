@@ -86,14 +86,14 @@ struct Scope<'d> {
 }
 
 /// What an imported local binding refers to, to recognise `import x from "m"; export { x }` as a re-export.
-struct ImportBinding {
-    specifier: String,
-    kind: ImportedKind,
+pub(crate) struct ImportBinding {
+    pub(crate) specifier: String,
+    pub(crate) kind: ImportedKind,
     is_type: bool,
 }
 
 /// Every binding the top-level import declarations introduce, by local name.
-fn import_bindings(program: &Program<'_>) -> HashMap<String, ImportBinding> {
+pub(crate) fn import_bindings(program: &Program<'_>) -> HashMap<String, ImportBinding> {
     let mut bindings = HashMap::default();
     for stmt in &program.body {
         let Statement::ImportDeclaration(d) = stmt else {
@@ -306,7 +306,7 @@ fn namespace_members(ctx: &Ctx<'_>, body: &TSNamespaceDeclarationBody<'_>) -> Ve
 }
 
 /// Whether `text` holds `name` as a whole identifier, not inside a longer one.
-fn mentions_word(text: &str, name: &str) -> bool {
+pub(crate) fn mentions_word(text: &str, name: &str) -> bool {
     let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
     !name.is_empty()
         && text.match_indices(name).any(|(at, _)| {
@@ -321,7 +321,7 @@ fn mentions_word(text: &str, name: &str) -> bool {
 /// together with a comment after it on that line and the comment lines directly above it, which describe it. A member
 /// sharing its line loses only itself, its comma and the blanks after it; `None` when a comment sits right before or
 /// after it, which would be left describing a neighbour.
-fn member_removal(ctx: &Ctx<'_>, span: OxcSpan, comma: bool) -> Option<(u32, u32)> {
+pub(crate) fn member_removal(ctx: &Ctx<'_>, span: OxcSpan, comma: bool) -> Option<(u32, u32)> {
     let src = ctx.src;
     let bytes = src.as_bytes();
     let blank = |b: u8| b == b' ' || b == b'\t';
@@ -552,6 +552,7 @@ fn export_from_declared(ctx: &Ctx<'_>, d: Declared, tags: Vec<String>, removal: 
         used_whole_in_file: false,
         alias_of: d.alias_of,
         registrations: Vec::new(),
+        class: None,
     }
 }
 
@@ -575,6 +576,7 @@ impl Export {
             used_whole_in_file: false,
             alias_of: None,
             registrations: Vec::new(),
+            class: None,
         }
     }
 }
