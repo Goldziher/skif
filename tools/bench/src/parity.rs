@@ -102,6 +102,7 @@ pub const REPLACED_KNIP_CONFIG: &str = "replaced-knip-config";
 pub const AMBIENT_MODULE: &str = "ambient-module";
 pub const OWN_TSCONFIG_PATHS: &str = "own-tsconfig-paths";
 pub const PATHS_BEFORE_PACKAGES: &str = "paths-before-packages";
+pub const WHOLE_ENUM_USE: &str = "whole-enum-use";
 
 /// The file that makes a checkout a Rush repository (`RUSH_JSON` in `crates/skif-js/src/deps.rs`).
 const RUSH_JSON: &str = "rush.json";
@@ -220,7 +221,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 30] = [
+pub const KNIP_DEVIATIONS: [Deviation; 31] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -336,6 +337,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 30] = [
     Deviation {
         id: PATHS_BEFORE_PACKAGES,
         reason: "one tool reports a dependency as unused (knip) or a file as unused (skif) where a file of the workspace imports the dependency's package by a specifier that the `paths` of the importer's TypeScript configuration map to that file, which exists: TypeScript, and knip with it, resolves the import through `paths` before it looks for the package (ADR 0038), so the import uses the file and not the dependency. The harness finds such imports in the files whose configuration sets `paths` and that the workspace manifest lists the package of",
+    },
+    Deviation {
+        id: WHOLE_ENUM_USE,
+        reason: "knip reports these members of an enum as unused, and skif's parser finds the enum used as a whole value, which ADR 0018 counts as a use of every member: in its own file (`Object.keys(E)`, `E[key]`, `typeof E`, passed, stored or spread), or in any code file of the checkout through a named import that is used so (passed, put in an object literal, given to a decorator), a namespace import whose member `ns.E` is used so or that is used as a whole itself, `import()` or `require`, directly or through the `export … from` and `export *` re-exports of the files in between, resolved as the import scan of `imported-by-knip-unused-file` resolves them. knip reports the members anyway. The harness scans only the files that name the enum",
     },
     Deviation {
         id: REPLACED_KNIP_CONFIG,
@@ -1952,6 +1957,8 @@ struct Classifier<'a> {
     /// `<manifest>|<package>` and the files of the imports tsconfig `paths` map before the package
     /// (`paths_before_packages`).
     paths_before_packages: &'a BTreeSet<String>,
+    /// The `enumMembers` keys only knip reports whose enum is used as a whole (`whole_enum_members`).
+    whole_enum_members: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     /// knip ran with the harness's empty configuration instead of the repository's own.
@@ -2028,6 +2035,9 @@ impl Classifier<'_> {
             })
             .or_else(|| {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
+            })
+            .or_else(|| {
+                (category == "enumMembers" && self.whole_enum_members.contains(key)).then_some(WHOLE_ENUM_USE)
             })
             .or_else(config_error)
     }
@@ -2460,6 +2470,119 @@ fn signature_types(skif: &Keys, knip: &Keys, read: &dyn Fn(&str) -> Option<Strin
         }
     }
     found
+}
+
+/// The `(file, export)` pairs that the parsed file `path` uses as a whole value through the imports `resolver`
+/// resolves, as skif credits every member of such a use (`ExportUsage` in `crates/skif-js/src/usage.rs`): a named or
+/// default import that escapes (passed, stored, put in an object literal, given to a decorator), a member of a
+/// namespace import read in a way that is not a read of its own members (`{ E: ns.E }`, `typeof ns.E`), and as
+/// [`WHOLE_MODULE`] a namespace used as a whole, `import()` and `require`. A re-export uses nothing itself.
+fn whole_uses(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    for (import, target) in module_targets(path, module, resolver) {
+        if matches!(import.kind, ImportKind::ExportFrom) {
+            continue;
+        }
+        if import.names.is_empty() {
+            if matches!(import.kind, ImportKind::Dynamic | ImportKind::Require) {
+                found.push((target, WHOLE_MODULE.to_owned()));
+            }
+            continue;
+        }
+        for name in &import.names {
+            match &name.kind {
+                ImportedKind::Named(export) if name.escapes => found.push((target.clone(), export.clone())),
+                ImportedKind::Default if name.escapes => found.push((target.clone(), "default".to_owned())),
+                ImportedKind::Namespace if name.local.is_some() && !name.escapes => found.extend(
+                    name.accessed_members
+                        .iter()
+                        .filter(|member| !name.nested_members.contains_key(*member))
+                        .map(|member| (target.clone(), member.clone())),
+                ),
+                ImportedKind::Namespace => found.push((target.clone(), WHOLE_MODULE.to_owned())),
+                ImportedKind::Named(_) | ImportedKind::Default => {}
+            }
+        }
+    }
+    found
+}
+
+/// The enum exports of a file: the name, the member names, and whether the file uses the enum as a whole itself
+/// (`used_whole_in_file`).
+type FileEnums = Vec<(String, Vec<String>, bool)>;
+
+/// The keys of `members` (`<file>|<member>`, enum members only knip reports) whose enum skif's parser finds used as a
+/// whole value, which ADR 0018 counts as a use of every member: in its own file (`used_whole_in_file`), or by a file of
+/// `files` ([`whole_uses`]), directly or through the re-exports of the files in between ([`follow_reexports`]). Only
+/// the files whose text names one of the enums are parsed for their imports; `read` gives a file's source.
+fn whole_enum_members(
+    members: &BTreeSet<String>,
+    files: &[String],
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let mut enums: BTreeMap<&str, FileEnums> = BTreeMap::new();
+    for key in members {
+        let path = key_path(key);
+        if enums.contains_key(path) {
+            continue;
+        }
+        let found: FileEnums = read(path)
+            .and_then(|source| parse_module(Path::new(path), &source, &ParseOptions::default()).ok())
+            .map(|module| {
+                module
+                    .exports
+                    .iter()
+                    .filter(|export| export.kind == ExportKind::Enum)
+                    .map(|export| {
+                        let names = export.enum_members.iter().map(|member| member.name.clone()).collect();
+                        (export.name.clone(), names, export.used_whole_in_file)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        enums.insert(path, found);
+    }
+    let wanted: BTreeSet<&str> = enums
+        .values()
+        .flatten()
+        .filter(|(_, _, whole)| !whole)
+        .map(|(name, _, _)| name.as_str())
+        .collect();
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let mut seeds = Vec::new();
+    if !wanted.is_empty() {
+        for file in files {
+            let Some(source) = read(file) else { continue };
+            if !wanted.iter().any(|name| source.contains(name)) {
+                continue;
+            }
+            if let Ok(module) = parse_module(Path::new(file), &source, &options) {
+                seeds.extend(whole_uses(file, &module, resolver));
+            }
+        }
+    }
+    let credits = follow_reexports(seeds, resolver, read);
+    members
+        .iter()
+        .filter(|key| {
+            let Some((path, member)) = key.split_once('|') else {
+                return false;
+            };
+            enums.get(path).is_some_and(|found| {
+                found.iter().any(|(name, names, whole)| {
+                    names.iter().any(|known| known == member)
+                        && (*whole
+                            || credits.contains(&format!("{path}|{name}"))
+                            || credits.contains(&format!("{path}|{WHOLE_MODULE}")))
+                })
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 /// Whether `path` is a `BUILD.bazel` or `BUILD` file.
@@ -3096,6 +3219,7 @@ struct Facts {
     ambient_modules: BTreeSet<String>,
     own_paths: BTreeSet<String>,
     paths_before_packages: BTreeSet<String>,
+    whole_enum_members: BTreeSet<String>,
 }
 
 impl Facts {
@@ -3129,6 +3253,12 @@ impl Facts {
             ambient_modules: ambient_module_keys(&knip_unlisted, &files, &read_source),
             own_paths: own_paths_keys(&knip_unlisted, &resolver, &read_source),
             paths_before_packages: paths_before_packages(&files, &resolver, layout, &read_source),
+            whole_enum_members: whole_enum_members(
+                &one_sided(knip, skif, "enumMembers"),
+                &files,
+                &resolver,
+                &read_source,
+            ),
         }
     }
 
@@ -3161,6 +3291,7 @@ impl Facts {
             ambient_modules: &self.ambient_modules,
             own_paths: &self.own_paths,
             paths_before_packages: &self.paths_before_packages,
+            whole_enum_members: &self.whole_enum_members,
             rush_root,
             replaced_knip_config: !options.repo_knip_config,
             layout,
@@ -4501,6 +4632,7 @@ mod tests {
             ambient_modules: &NO_KEYS,
             own_paths: &NO_KEYS,
             paths_before_packages: &NO_KEYS,
+            whole_enum_members: &NO_KEYS,
             rush_root: false,
             replaced_knip_config: false,
             layout,
@@ -6031,6 +6163,73 @@ vi.mock("mocked-package");
             unused_file_credits(&unused, &BTreeSet::new(), &Resolver::relative(&is_file), &read).is_empty(),
             "without paths and workspace packages the file imports nothing by relative path"
         );
+    }
+
+    #[test]
+    fn members_of_an_enum_used_as_a_whole_split_off() {
+        let sources = BTreeMap::from([
+            (
+                "src/enums.ts",
+                "export enum KeyCode { A, B }\nexport enum Language { En, De }\nexport enum Read { P, Q }\n\
+                 export enum Typed { M, N }\nexport enum Local { L1, L2 }\nexport enum Lazy { Z1, Z2 }\n\
+                 export const names = Object.keys(Local);\n",
+            ),
+            ("src/barrel.ts", "export * from './enums';\n"),
+            (
+                "src/api.ts",
+                "import * as enums from './enums';\nexport const api = { KeyCode: enums.KeyCode, p: enums.Read.P };\n",
+            ),
+            (
+                "src/dto.ts",
+                "import { Language } from './barrel';\nexport class Dto { @IsEnum(Language) language!: string; }\n",
+            ),
+            (
+                "src/input.ts",
+                "import { Typed } from './barrel';\nexport function take(value: Typed): void { console.log(value); }\n",
+            ),
+            (
+                "src/lazy.ts",
+                "export async function load() { return import('./other'); }\n",
+            ),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let members = strings(&[
+            "src/enums.ts|A",
+            "src/enums.ts|En",
+            "src/enums.ts|L1",
+            "src/enums.ts|Q",
+            "src/enums.ts|M",
+            "src/enums.ts|Z1",
+            "src/gone.ts|A",
+        ]);
+        let found = whole_enum_members(&members, &files, &resolver, &read);
+        assert_eq!(
+            found,
+            strings(&["src/enums.ts|A", "src/enums.ts|En", "src/enums.ts|L1"]),
+            "a namespace member in an object literal, a decorator argument through a barrel and `Object.keys` in the \
+             own file use the whole enum; a member read, a type annotation and an enum no file names do not"
+        );
+        assert!(whole_enum_members(&BTreeSet::new(), &files, &resolver, &read).is_empty());
+
+        let classifier = Classifier {
+            whole_enum_members: &found,
+            ..bare(&layout)
+        };
+        assert_eq!(
+            classifier.classify(Side::Tool, "enumMembers", "src/enums.ts|A"),
+            Some(WHOLE_ENUM_USE)
+        );
+        for (side, category, key) in [
+            (Side::Tool, "enumMembers", "src/enums.ts|Q"),
+            (Side::Skif, "enumMembers", "src/enums.ts|A"),
+            (Side::Tool, "exports", "src/enums.ts|A"),
+        ] {
+            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+        }
     }
 
     #[test]
