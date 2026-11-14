@@ -625,3 +625,26 @@ fn the_merge_summary_says_which_checks_stay_and_that_the_javascript_analysis_is_
     assert!(!result.stderr.contains("turned off in [rules]"), "{}", result.stderr);
     assert_eq!(fs::read_to_string(dir.path().join("skif.toml")).unwrap(), HAND_WRITTEN);
 }
+
+#[test]
+fn an_output_file_outside_the_project_anchors_the_override_patterns_at_the_root() {
+    let dir = project(r#"{ "name": "demo", "private": true }"#);
+    fs::write(
+        dir.path().join("knip.json"),
+        r#"{ "ignoreIssues": { "src/ui/**": ["exports"] } }"#,
+    )
+    .unwrap();
+    let inside = run(migrate(dir.path()).args(["--from", "knip", "--dry-run"]));
+    assert_eq!(inside.code, 0, "{}{}", inside.stdout, inside.stderr);
+    assert!(inside.stdout.contains("files = [\"src/ui/**\"]"), "{}", inside.stdout);
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let output = elsewhere.path().join("skif.toml");
+    let result = run(migrate(dir.path()).args(["--from", "knip", "--output"]).arg(&output));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let written = fs::read_to_string(&output).unwrap();
+    assert!(written.contains("files = [\"$ROOT/src/ui/**\"]"), "{written}");
+    let linted = run(skif().args(["--format", "json", "--config"]).arg(&output).arg(dir.path()));
+    assert!(linted.code <= 1, "{}{}", linted.stdout, linted.stderr);
+    assert!(!linted.stderr.contains("[[overrides]]"), "{}", linted.stderr);
+}

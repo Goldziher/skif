@@ -94,6 +94,16 @@ All notable changes to this project are documented here. The format follows
 - **Public API** ([#229](https://github.com/Goldziher/skif/issues/229)): `ExtractedConfig::environment_variants` of
   `skif-js-syntax`, the exported value evaluated again with every test on the environment the evaluation leaves
   undecided taken as true, then as false; empty when there is none.
+- **A warning for an `[[overrides]]` pattern that selects nothing**
+  ([#239](https://github.com/Goldziher/skif/issues/239)): a lint run warns on stderr, once per file and pattern,
+  about a path pattern of a file that lies neither in the root nor above it (a `--config` file elsewhere, which
+  anchors `files` and `./` patterns at its own directory), naming that directory and the `$ROOT/` prefix, and about a
+  `packages` pattern of a file in the root that matches no package. A pattern is warned about only when it selects
+  nothing at every root of the run that reads it.
+- `skif migrate --output <FILE>` writes the `files` of the `[[overrides]]` it writes with `$ROOT/` when `FILE` is not in
+  the project directory ([#239](https://github.com/Goldziher/skif/issues/239)).
+- **Public API** ([#239](https://github.com/Goldziher/skif/issues/239)): `OverrideScope::idle_patterns` and
+  `IdleReason` of `skif-config`, and `Options::with_root_anchored` of `skif-migrate`.
 - **Public API**: the `skif-js-types` crate, the type-aware facts from the TypeScript checker of tsrs
   ([ADR 0044](adrs/0044-type-aware-analysis-on-tsrs.md)). `analyze` builds one program per `tsconfig.json` or
   `jsconfig.json` that holds a judged file, found as TypeScript finds it (solution configs followed through their

@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use skif_config::{
-    Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, JsCompiler, Level, Op, PluginConfig,
-    ResolvedConfig, SourceKind, VersionPolicy, discover,
+    Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, IdleReason, JsCompiler, Level, Op,
+    PluginConfig, ResolvedConfig, SourceKind, VersionPolicy, discover,
 };
 use skif_core::{FileSystem, MemoryFs};
 
@@ -755,6 +755,66 @@ fn root_anchors_follow_the_linted_root_not_the_declaring_file() {
     assert!(!applies(&config, 0, Some(("p", "/acme/presets")), None));
     let scope = config.overrides[0].scope.as_ref().unwrap();
     assert_eq!(scope.declared_in, Path::new("/acme/presets"));
+}
+
+/// The idle patterns of override `index` for the packages `packages` (name and absolute directory).
+fn idle(config: &Config, index: usize, packages: &[(&str, &str)]) -> Vec<(String, IdleReason)> {
+    config.overrides[index]
+        .scope
+        .as_ref()
+        .unwrap()
+        .idle_patterns(packages)
+        .into_iter()
+        .map(|(pattern, reason)| (pattern.to_owned(), reason))
+        .collect()
+}
+
+#[test]
+fn path_patterns_of_a_file_outside_the_root_are_idle() {
+    let scratch = "[[overrides]]\nfiles = [\"app/src/ui/**\", \"$ROOT/app/src/ui/**\", \"!app/x\"]\nrules = { x = \"off\" }\n\
+                   [[overrides]]\npackages = [\"./app\", \"app\", \"$ROOT/app\"]\nrules = { x = \"off\" }\n";
+    let files = [
+        ("/tmp/o/shared.toml", scratch),
+        ("/ws/skif.toml", "extends = [\"../tmp/o/shared.toml\"]\n"),
+    ];
+    let config = resolve(&files, "/ws").config;
+    let packages = [("root", "/ws"), ("app", "/ws/app")];
+    assert_eq!(
+        idle(&config, 0, &packages),
+        [("app/src/ui/**".to_owned(), IdleReason::AnchoredOutside)]
+    );
+    assert_eq!(
+        idle(&config, 1, &packages),
+        [("./app".to_owned(), IdleReason::AnchoredOutside)]
+    );
+}
+
+#[test]
+fn package_patterns_of_a_file_in_the_root_that_match_no_package_are_idle() {
+    let text = "[[overrides]]\npackages = [\"app\", \"typo\", \"./app\", \"./nowhere\", \"$ROOT/app\", \"$LOCAL\", \"!app\"]\n\
+                rules = { x = \"off\" }\n\
+                [[overrides]]\nfiles = [\"no/such/dir/**\"]\nrules = { x = \"off\" }\n";
+    let config = resolve(&[("/ws/skif.toml", text)], "/ws").config;
+    let packages = [("root", "/ws"), ("app", "/ws/app")];
+    assert_eq!(
+        idle(&config, 0, &packages),
+        [
+            ("typo".to_owned(), IdleReason::NoPackage),
+            ("./nowhere".to_owned(), IdleReason::NoPackage)
+        ]
+    );
+    assert_eq!(idle(&config, 1, &packages), [], "file patterns inside the root are not judged");
+}
+
+#[test]
+fn patterns_of_a_file_above_the_root_are_not_judged() {
+    let org = "[[overrides]]\npackages = [\"./other/**\", \"other\"]\nrules = { x = \"off\" }\n\
+               [[overrides]]\nfiles = [\"other/**\"]\nrules = { x = \"off\" }\n";
+    let files = [("/acme/.git/HEAD", ""), ("/acme/skif.toml", org), ("/acme/svc/skif.toml", "")];
+    let config = resolve(&files, "/acme/svc").config;
+    let packages = [("svc", "/acme/svc")];
+    assert_eq!(idle(&config, 0, &packages), []);
+    assert_eq!(idle(&config, 1, &packages), []);
 }
 
 #[test]

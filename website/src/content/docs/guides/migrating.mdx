@@ -214,7 +214,7 @@ way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` i
 | `ignoreMembers` | `[js] ignore-members`, or `[js.workspaces."<dir>"] ignore-members` inside a workspace |
 | `ignoreExportsUsedInFile` | `[js] ignore-exports-used-in-file`, or `[js.workspaces."<dir>"] ignore-exports-used-in-file` inside a workspace |
 | `ignoreWorkspaces` | `[js] ignore-workspaces` |
-| `ignoreIssues` | `[[overrides]]` with `files` and the matching rules set to `off` |
+| `ignoreIssues` | `[[overrides]]` with `files` and the matching rules set to `off`; with `--output` to a file outside the project, the `files` start with `$ROOT/` |
 | `includeEntryExports` | `[js] include-entry-exports`, or per workspace |
 | `includeSubpathExports`, `--include-subpath-exports` | `[rules] unused-subpath-exports` at the level of the `subpaths` issue type, next to `unused-subpath-imports`; a workspace-level `includeSubpathExports` is left to you (H), since a rule level applies to every package unless `[[overrides]]` narrow it. With `[js] production`, skif reports no unused subpaths, which knip does (A) |
 | `--tsConfig`, `-t` | `[js] tsconfig` (knip has no configuration key for it); scripts that pass different values get a note and the last one is written |
