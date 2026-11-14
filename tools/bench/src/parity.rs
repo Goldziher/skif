@@ -16,6 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use skif_js::{IncompleteScopeGlobs, is_out_dir, n8n_load_paths, source_candidates};
+use skif_js_plugins::scripts::{IGNORED_BINARIES, is_machine_binary, is_shell_builtin};
 use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ModuleInfo, ParseOptions, parse_module};
 use skif_workspace::{OsFs, declared_member_dirs};
 
@@ -93,6 +94,36 @@ pub const ENTRY_MODULE_DUPLICATE: &str = "entry-module-duplicate";
 pub const BAZEL_BUILD_FILE: &str = "bazel-build-file";
 pub const DECLARATION_FILE: &str = "declaration-file";
 pub const SIGNATURE_TYPE: &str = "signature-type";
+pub const RUSH_PROVIDED_COMMAND: &str = "rush-provided-command";
+pub const GLOBAL_BINARY: &str = "global-binary";
+pub const SHELL_BUILTIN: &str = "shell-builtin";
+pub const DATA_URI: &str = "data-uri";
+pub const REPLACED_KNIP_CONFIG: &str = "replaced-knip-config";
+
+/// The file that makes a checkout a Rush repository (`RUSH_JSON` in `crates/skif-js/src/deps.rs`).
+const RUSH_JSON: &str = "rush.json";
+
+/// The commands Rush itself provides to the scripts of a Rush repository (`RUSH_COMMANDS` in
+/// `crates/skif-js/src/deps.rs`, ADR 0012).
+const RUSH_COMMANDS: [&str; 3] = ["rush", "rushx", "rush-pnpm"];
+
+/// The names of knip's configuration file, which the harness replaces with an empty one.
+const KNIP_CONFIG_FILES: [&str; 14] = [
+    "knip.json",
+    "knip.jsonc",
+    ".knip.json",
+    ".knip.jsonc",
+    "knip.ts",
+    "knip.js",
+    "knip.mts",
+    "knip.mjs",
+    "knip.cts",
+    "knip.cjs",
+    "knip.config.ts",
+    "knip.config.js",
+    "knip.config.mts",
+    "knip.config.mjs",
+];
 
 /// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0022),
 /// whatever the package's `scope`.
@@ -186,7 +217,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 22] = [
+pub const KNIP_DEVIATIONS: [Deviation; 27] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -274,6 +305,26 @@ pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     Deviation {
         id: IMPORTED_BY_SKIF_UNUSED_FILE,
         reason: "skif reports these exports, types and duplicate exports as unused, and a file that skif reports as unused and knip does not imports them (the same import scan). skif credits no import of a file it calls unused, while knip analyses the file and credits the import; the disagreement is the importing file, which `files` already counts once. The in-file counterpart of `used-in-skif-unused-file`",
+    },
+    Deviation {
+        id: RUSH_PROVIDED_COMMAND,
+        reason: "knip reports `rush`, `rushx` and `rush-pnpm` as unlisted binaries of a script in a repository with a `rush.json`; Rush provides these commands to every script from its install, so skif never reports them there (ADR 0012)",
+    },
+    Deviation {
+        id: SHELL_BUILTIN,
+        reason: "knip reports these shell builtins (`read`, `break`, `ulimit`, ...) as unlisted binaries; a shell runs them itself, so skif never reports one (`SHELL_BUILTINS` of `skif-js-plugins`, ADR 0017)",
+    },
+    Deviation {
+        id: GLOBAL_BINARY,
+        reason: "knip reports these binaries as unlisted, and skif's list of system and platform tools that are installed on the machine names them (`IGNORED_BINARIES` and `MACHINE_BINARIES` of `skif-js-plugins`, read by the harness, ADR 0017); skif extends knip's list of global binaries and reports none of them while `ignore-global-binaries` is on, as it is by default",
+    },
+    Deviation {
+        id: DATA_URI,
+        reason: "knip reports a `data:` specifier (`import x from 'data:text/javascript,...'`) as an unlisted dependency; it names an inline module, no package, and skif never takes it for one",
+    },
+    Deviation {
+        id: REPLACED_KNIP_CONFIG,
+        reason: "knip reports the repository's own knip configuration (`knip.ts`, `knip.config.js`, ... at the root of a workspace) as an unused file; the harness replaces it with an empty configuration through `--config`, so knip does not load it, while skif's knip plugin makes it an entry",
     },
 ];
 
@@ -1522,6 +1573,8 @@ struct Classifier<'a> {
     signature_types: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
+    /// knip ran with the harness's empty configuration instead of the repository's own.
+    replaced_knip_config: bool,
     layout: &'a Layout<'a>,
 }
 
@@ -1559,11 +1612,14 @@ impl Classifier<'_> {
         (category == "files")
             .then(|| classify_file(key, self.include_test_files))
             .flatten()
+            .or_else(|| self.replaced_knip_config(category, key).then_some(REPLACED_KNIP_CONFIG))
             .or_else(|| {
                 (category != "files" && FIXTURE_CATEGORIES.contains(&category) && in_fixture_directory(path))
                     .then_some(FIXTURE_FILE)
             })
             .or_else(|| (self.rush_root && owner_dir(key, &is_package).is_empty()).then_some(RUSH_ROOT_FILE))
+            .or_else(|| self.binary_deviation(category, key))
+            .or_else(|| self.unlisted_deviation(category, key))
             .or_else(|| not_judged(category, key, self.not_judged, &is_package).then_some(NOT_JUDGED))
             .or_else(|| self.layout.in_skipped_directory(path).then_some(SKIPPED_DIRECTORY))
             .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
@@ -1586,6 +1642,41 @@ impl Classifier<'_> {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
             })
             .or_else(config_error)
+    }
+
+    /// The deviation a binary only knip reports on a `package.json` (`<manifest>|<binary>`) is: a command Rush provides
+    /// in a Rush repository, a shell builtin, or a tool skif takes for installed on the machine.
+    fn binary_deviation(&self, category: &str, key: &str) -> Option<&'static str> {
+        if category != "binaries" {
+            return None;
+        }
+        let (_, binary) = key.split_once('|')?;
+        if RUSH_COMMANDS.contains(&binary) && (self.layout.is_file)(RUSH_JSON) {
+            return Some(RUSH_PROVIDED_COMMAND);
+        }
+        if is_shell_builtin(binary) {
+            return Some(SHELL_BUILTIN);
+        }
+        (IGNORED_BINARIES.contains(&binary) || is_machine_binary(binary)).then_some(GLOBAL_BINARY)
+    }
+
+    /// The deviation an unlisted dependency only knip reports (`<file>|<name>`) is: a `data:` specifier.
+    fn unlisted_deviation(&self, category: &str, key: &str) -> Option<&'static str> {
+        if category != "unlisted" {
+            return None;
+        }
+        let (_, name) = key.split_once('|')?;
+        name.starts_with("data:").then_some(DATA_URI)
+    }
+
+    /// Whether an unused file only knip reports is a knip configuration file at the root of one of knip's workspaces,
+    /// while knip ran with the harness's configuration instead.
+    fn replaced_knip_config(&self, category: &str, key: &str) -> bool {
+        let (dir, name) = key.rsplit_once('/').unwrap_or(("", key));
+        category == "files"
+            && self.replaced_knip_config
+            && KNIP_CONFIG_FILES.contains(&name)
+            && self.layout.is_workspace(dir)
     }
 
     /// Whether a finding only knip reports follows from a published source being an entry of skif: an unused file that
@@ -2474,6 +2565,7 @@ impl Facts {
             bazel_credits: &self.bazel_credits,
             signature_types: &self.signature_types,
             rush_root,
+            replaced_knip_config: !options.repo_knip_config,
             layout,
         }
     }
@@ -3810,6 +3902,7 @@ mod tests {
             bazel_credits: &NO_KEYS,
             signature_types: &NO_KEYS,
             rush_root: false,
+            replaced_knip_config: false,
             layout,
         }
     }
@@ -3878,6 +3971,96 @@ mod tests {
                 None
             );
         });
+    }
+
+    #[test]
+    fn binaries_rush_provides_shell_builtins_and_skif_s_global_binaries_split_off() {
+        let manifest = |dir: &str| dir.is_empty().then(|| Rc::new(json!({ "name": "root" })));
+        let rush = |file: &str| file == "rush.json";
+        let plain = |_: &str| false;
+        let checkouts: [(&FileProbe<'_>, Option<&str>); 2] = [(&rush, Some(RUSH_PROVIDED_COMMAND)), (&plain, None)];
+        for (is_file, expected) in checkouts {
+            let layout = Layout::new(BTreeSet::new(), &manifest, is_file);
+            let classifier = bare(&layout);
+            for binary in ["rush", "rushx", "rush-pnpm"] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, "binaries", &format!("apps/a/package.json|{binary}")),
+                    expected,
+                    "{binary} with a rush.json: {}",
+                    expected.is_some()
+                );
+            }
+        }
+        let layout = Layout::new(BTreeSet::new(), &manifest, &plain);
+        let classifier = bare(&layout);
+        for (category, key, expected) in [
+            ("binaries", "package.json|read", Some(SHELL_BUILTIN)),
+            ("binaries", "package.json|ulimit", Some(SHELL_BUILTIN)),
+            ("binaries", "package.json|docker", Some(GLOBAL_BINARY)),
+            ("binaries", "package.json|curl", Some(GLOBAL_BINARY)),
+            ("binaries", "package.json|bazel", Some(GLOBAL_BINARY)),
+            ("binaries", "package.json|eslint", None),
+            ("unlisted", "src/a.ts|docker", None),
+        ] {
+            assert_eq!(classifier.classify(Side::Tool, category, key), expected, "{category} {key}");
+        }
+        assert_eq!(
+            classifier.classify(Side::Skif, "binaries", "package.json|docker"),
+            None,
+            "a global binary skif reports stays compared"
+        );
+    }
+
+    #[test]
+    fn unlisted_data_uris_split_off() {
+        with_classifier(&[], &[("", json!({ "name": "root" }))], &[], |classifier| {
+            assert_eq!(
+                classifier.classify(Side::Tool, "unlisted", "src/a.test.ts|data:text"),
+                Some(DATA_URI)
+            );
+            assert_eq!(
+                classifier.classify(Side::Tool, "unlisted", "src/a.test.ts|database"),
+                None
+            );
+            assert_eq!(
+                classifier.classify(Side::Tool, "unresolved", "src/a.test.ts|data:text"),
+                None
+            );
+        });
+    }
+
+    #[test]
+    fn the_knip_config_the_harness_replaces_splits_off_at_a_workspace_root() {
+        let manifests = [
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            ("packages/a", json!({ "name": "a" })),
+        ];
+        let read: BTreeMap<String, Rc<Value>> = manifests
+            .iter()
+            .map(|(dir, manifest)| ((*dir).to_owned(), Rc::new(manifest.clone())))
+            .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let every_file = |_: &str| true;
+        let layout = Layout::new(strings(&["packages/a"]), &manifest, &every_file);
+        let replaced = Classifier {
+            replaced_knip_config: true,
+            ..bare(&layout)
+        };
+        for key in ["knip.ts", "packages/a/knip.config.js"] {
+            assert_eq!(
+                replaced.classify(Side::Tool, "files", key),
+                Some(REPLACED_KNIP_CONFIG),
+                "{key}"
+            );
+        }
+        for key in ["packages/a/src/knip.ts", "knip-helpers.ts"] {
+            assert_eq!(replaced.classify(Side::Tool, "files", key), None, "{key}");
+        }
+        assert_eq!(
+            bare(&layout).classify(Side::Tool, "files", "knip.ts"),
+            None,
+            "knip read the repository's own configuration"
+        );
     }
 
     #[test]
