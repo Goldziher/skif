@@ -9,6 +9,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
+  `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
+  `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it.
+  A project's `config/rig.json` needs the rig it names, and the configs of the selected profile of the installed rig
+  that the project does not have itself are its configs. In a rig, `profiles/*/config/*.json` are its own configs, so
+  the packages they extend and load are used, and so is `@rushstack/heft`; its `profiles/*/tsconfig*.json` are read
+  too, and the packages their compiler options name (`types`, `importHelpers`) are used by the rig but never unlisted
+  at it, as they apply to the projects extending the profile. The table holds 208 plugins
+  ([ADR 0037](adrs/0037-heft-and-rig-packages.md), [#230](https://github.com/Goldziher/skif/issues/230)).
+- **Public API** ([#230](https://github.com/Goldziher/skif/issues/230)): `PluginInput::SharedConfig` of
+  `skif-js-plugins`, a config file a package ships for the packages that extend it.
+
 ## [0.5.0] - 2026-11-14
 
 ### Breaking changes
