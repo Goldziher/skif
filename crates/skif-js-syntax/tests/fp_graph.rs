@@ -44,8 +44,16 @@ fn then_callbacks_name_the_exports_they_read() {
 #[test]
 fn a_lazy_component_loader_reads_the_default_export_of_the_import_it_returns() {
     let cases: &[(&str, &str, &[&str])] = &[
-        ("import { lazy } from 'react';", "lazy(() => import('./x'))", &["default"]),
-        ("import React from 'react';", "React.lazy(() => import('./x'))", &["default"]),
+        (
+            "import { lazy } from 'react';",
+            "lazy(() => import('./x'))",
+            &["default"],
+        ),
+        (
+            "import React from 'react';",
+            "React.lazy(() => import('./x'))",
+            &["default"],
+        ),
         (
             "import * as React from 'react';",
             "React.lazy(async () => { return await import('./x'); })",
@@ -81,9 +89,17 @@ fn a_lazy_component_loader_reads_the_default_export_of_the_import_it_returns() {
             "loadable(() => import('./x'), { resolveComponent: (m) => m.Page })",
             &["*"],
         ),
-        ("import { lazy } from 'react';", "lazy(() => { import('./x'); })", &["*"]),
+        (
+            "import { lazy } from 'react';",
+            "lazy(() => { import('./x'); })",
+            &["*"],
+        ),
         ("import { lazy } from 'other-lib';", "lazy(() => import('./x'))", &["*"]),
-        ("import { wrapLazy } from './wrap';", "wrapLazy(() => import('./x'))", &["*"]),
+        (
+            "import { wrapLazy } from './wrap';",
+            "wrapLazy(() => import('./x'))",
+            &["*"],
+        ),
     ];
     for (import, expression, expected) in cases {
         let info = parse("a.tsx", &format!("{import}\nexport const p = {expression};\n"));
@@ -107,12 +123,16 @@ fn an_import_returned_to_another_call_names_the_call() {
             .iter()
             .find(|import| import.specifier == "./x")
             .expect("records the import");
-        let [name] = import.names.as_slice() else {
-            panic!("one name for {expression}: {:?}", import.names);
-        };
-        assert_eq!(name.kind, ImportedKind::Namespace, "{expression}");
-        assert!(name.escapes, "{expression}");
-        assert_eq!(name.passed_to.as_deref(), *expected, "{expression}");
+        let passed_to: Vec<_> = import.names.iter().map(|name| name.passed_to.as_deref()).collect();
+        let want: Vec<_> = import.names.iter().map(|_| *expected).collect();
+        assert_eq!(passed_to, want, "{expression}");
+        if expected.is_some() {
+            let [name] = import.names.as_slice() else {
+                panic!("one name for {expression}: {:?}", import.names);
+            };
+            assert_eq!(name.kind, ImportedKind::Namespace, "{expression}");
+            assert!(name.escapes, "{expression}");
+        }
     }
 }
 

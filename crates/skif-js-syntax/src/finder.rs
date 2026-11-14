@@ -733,9 +733,11 @@ fn sole_return<'p, 'a>(body: &'p FunctionBody<'a>) -> Option<&'p Expression<'a>>
 fn callee_text(callee: &Expression<'_>) -> Option<String> {
     match callee.get_inner_expression() {
         Expression::Identifier(id) => Some(id.name.as_str().to_owned()),
-        Expression::StaticMemberExpression(member) => {
-            Some(format!("{}.{}", callee_text(&member.object)?, member.property.name.as_str()))
-        }
+        Expression::StaticMemberExpression(member) => Some(format!(
+            "{}.{}",
+            callee_text(&member.object)?,
+            member.property.name.as_str()
+        )),
         _ => None,
     }
 }
