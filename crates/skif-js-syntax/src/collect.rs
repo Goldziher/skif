@@ -737,7 +737,8 @@ pub(crate) fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<
 
 /// The import an `export * from "x"` or `export { a } from "x"` statement inside a `declare module` block makes, `None`
 /// for any other statement. The block declares the types of another module, so the statement adds no export to the
-/// file and imports the types of `x` only.
+/// file and imports the types of `x` only. A relative or absolute `x` is `None` too: TypeScript rejects a relative
+/// module name in an ambient module (TS2439), so it names no file.
 pub(crate) fn ambient_reexport(ctx: &Ctx<'_>, statement: &Statement<'_>) -> Option<Import> {
     let type_name = |kind: ImportedKind| ImportedName {
         kind,
@@ -759,6 +760,9 @@ pub(crate) fn ambient_reexport(ctx: &Ctx<'_>, statement: &Statement<'_>) -> Opti
         ),
         _ => return None,
     };
+    if source.value.starts_with(['.', '/']) {
+        return None;
+    }
     Some(Import {
         specifier: crate::js_string(source.value),
         kind: ImportKind::TypeOnly,
