@@ -298,15 +298,34 @@ fn entry_exports_are_public_api_unless_include_entry_exports() {
 const DEFAULT_CLASSES: [(&str, &str); 6] = [
     ("Lib", "export default class Lib {\n  used() {}\n  unused() {}\n}\n"),
     ("default", "export default class {\n  used() {}\n  unused() {}\n}\n"),
-    ("Lib", "class Lib {\n  used() {}\n  unused() {}\n}\nexport default Lib;\n"),
-    ("Lib", "class Lib {\n  used() {}\n  unused() {}\n}\nexport { Lib as default };\n"),
-    ("Lib", "export class Lib {\n  used() {}\n  unused() {}\n}\nexport default Lib;\n"),
-    ("Lib", "class Lib {\n  used() {}\n  unused() {}\n}\nexport { Lib, Lib as default };\n"),
+    (
+        "Lib",
+        "class Lib {\n  used() {}\n  unused() {}\n}\nexport default Lib;\n",
+    ),
+    (
+        "Lib",
+        "class Lib {\n  used() {}\n  unused() {}\n}\nexport { Lib as default };\n",
+    ),
+    (
+        "Lib",
+        "export class Lib {\n  used() {}\n  unused() {}\n}\nexport default Lib;\n",
+    ),
+    (
+        "Lib",
+        "class Lib {\n  used() {}\n  unused() {}\n}\nexport { Lib, Lib as default };\n",
+    ),
 ];
 
+/// A file of a fixture: its path and its content.
+type File = (&'static str, &'static str);
+
 /// The ways `index.ts` reads `used` of the default export of `lib.ts`, with the re-exporting module each one needs.
-const DEFAULT_READERS: [(&str, &str, Option<(&str, &str)>); 4] = [
-    ("a default import", "import Lib from './lib';\nnew Lib().used();\n", None),
+const DEFAULT_READERS: [(&str, &str, Option<File>); 4] = [
+    (
+        "a default import",
+        "import Lib from './lib';\nnew Lib().used();\n",
+        None,
+    ),
     (
         "a namespace import",
         "import * as lib from './lib';\nnew lib.default().used();\n",

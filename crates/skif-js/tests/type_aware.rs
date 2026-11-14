@@ -110,22 +110,48 @@ fn typed_reads_leave_a_same_named_member_of_another_class_unused() {
 /// The forms of a default-exported class in `src/lib.ts` with members `render` and `paint`, by the name a finding
 /// gives the class.
 const DEFAULT_CLASSES: [(&str, &str); 6] = [
-    ("Lib", "export default class Lib {\n  render(): void {}\n  paint(): void {}\n}\n"),
-    ("default", "export default class {\n  render(): void {}\n  paint(): void {}\n}\n"),
-    ("Lib", "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport default Lib;\n"),
-    ("Lib", "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport { Lib as default };\n"),
-    ("Lib", "export class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport default Lib;\n"),
-    ("Lib", "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport { Lib, Lib as default };\n"),
+    (
+        "Lib",
+        "export default class Lib {\n  render(): void {}\n  paint(): void {}\n}\n",
+    ),
+    (
+        "default",
+        "export default class {\n  render(): void {}\n  paint(): void {}\n}\n",
+    ),
+    (
+        "Lib",
+        "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport default Lib;\n",
+    ),
+    (
+        "Lib",
+        "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport { Lib as default };\n",
+    ),
+    (
+        "Lib",
+        "export class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport default Lib;\n",
+    ),
+    (
+        "Lib",
+        "class Lib {\n  render(): void {}\n  paint(): void {}\n}\nexport { Lib, Lib as default };\n",
+    ),
 ];
 
 /// `paint` of another class, which `src/index.ts` reads, so by name `paint` of every class counts as read.
 const OTHER: (&str, &str) = ("src/other.ts", "export class Other {\n  paint(): void {}\n}\n");
 
+/// A file of a fixture: its path and its content.
+type File = (&'static str, &'static str);
+
 /// The ways `src/index.ts` reaches the default export of `src/lib.ts`: the import, the expression it constructs, and
 /// the re-exporting module it needs.
-const DEFAULT_READERS: [(&str, &str, &str, Option<(&str, &str)>); 4] = [
+const DEFAULT_READERS: [(&str, &str, &str, Option<File>); 4] = [
     ("a default import", "import Lib from './lib';", "Lib", None),
-    ("a namespace import", "import * as lib from './lib';", "lib.default", None),
+    (
+        "a namespace import",
+        "import * as lib from './lib';",
+        "lib.default",
+        None,
+    ),
     (
         "a default re-export",
         "import Lib from './barrel';",
@@ -147,7 +173,13 @@ fn a_default_exported_class_is_judged_with_types_like_a_named_one() {
             let index = format!(
                 "{import}\nimport {{ Other }} from './other';\n\nnew {constructed}().render();\nnew Other().paint();\n"
             );
-            let mut files = vec![PACKAGE, TSCONFIG, OTHER, ("src/index.ts", index.as_str()), ("src/lib.ts", class)];
+            let mut files = vec![
+                PACKAGE,
+                TSCONFIG,
+                OTHER,
+                ("src/index.ts", index.as_str()),
+                ("src/lib.ts", class),
+            ];
             files.extend(barrel);
             assert_eq!(
                 class_findings(&files, ""),
