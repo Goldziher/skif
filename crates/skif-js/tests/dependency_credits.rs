@@ -99,6 +99,34 @@ fn stylesheet_urls_of_package_files_use_the_package() {
 }
 
 #[test]
+fn stylesheet_urls_through_aliases_are_no_unlisted_imports() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"@fontsource/inter":"5.0.0","left-pad":"1.3.0"}}"#,
+        ),
+        (
+            "node_modules/@acme/icons/package.json",
+            r#"{"name":"@acme/icons","version":"1.0.0"}"#,
+        ),
+        ("src/index.ts", "import './index.css';\nexport const main = 1;\n"),
+        (
+            "src/index.css",
+            "@font-face {\n  src: url('@fontsource/inter/files/inter-latin-400.woff2') format('woff2');\n}\n\
+             .hero { background: url('@assets/images/bg.png'); }\n\
+             .logo { background: url(~assets/logo.svg), url(\"~static/icons/home.svg\"); }\n\
+             .icon { background: url(~@acme/icons/home.svg); }\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: left-pad"]);
+    // `@acme/icons` is installed, so its `url()` needs it listed; the aliases name no package skif can find.
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["src/index.css: @acme/icons"]
+    );
+}
+
+#[test]
 fn a_published_subpath_directory_with_a_manifest_belongs_to_its_package() {
     let diagnostics = lint(&[
         (
