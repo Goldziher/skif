@@ -57,6 +57,10 @@ pub struct LintContext<'a> {
     /// Files, relative to the workspace root, that other roots of a multi-root run import; the JS analysis makes
     /// those it owns entries. Empty for a run of one root.
     pub extra_entries: &'a [PathBuf],
+    /// Files, relative to the workspace root, that other roots of a multi-root run name as build sources (a Bazel
+    /// `srcs`); the JS analysis makes those it owns build sources, whose exports are judged. Empty for a run of one
+    /// root.
+    pub extra_build_sources: &'a [PathBuf],
     fs: FsRef<'a>,
     index_cache: Option<&'a IndexCache>,
     shared: &'a SharedCache,
@@ -99,6 +103,7 @@ impl<'a> LintContext<'a> {
             config_path,
             sequential,
             extra_entries: &[],
+            extra_build_sources: &[],
             fs: FsRef(&OsFs),
             index_cache: None,
             shared,
@@ -161,6 +166,11 @@ impl<'a> LintContext<'a> {
 
     pub(crate) const fn with_extra_entries(mut self, extra_entries: &'a [PathBuf]) -> Self {
         self.extra_entries = extra_entries;
+        self
+    }
+
+    pub(crate) const fn with_extra_build_sources(mut self, extra_build_sources: &'a [PathBuf]) -> Self {
+        self.extra_build_sources = extra_build_sources;
         self
     }
 

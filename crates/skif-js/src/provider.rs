@@ -138,6 +138,7 @@ impl RuleProvider for JsProvider {
                 indexes: cx.index_cache().unwrap_or(&self.indexes),
                 modules: parser.as_ref(),
                 extra_entries: cx.extra_entries,
+                extra_build_sources: cx.extra_build_sources,
             },
         );
         analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
@@ -147,6 +148,9 @@ impl RuleProvider for JsProvider {
         }
         for file in analysis.other_project_files() {
             out.report_other_project_file(file);
+        }
+        for file in analysis.other_project_build_sources() {
+            out.report_other_project_build_source(file);
         }
         for (manifest_dir, name) in analysis.dependencies.ancestor_uses() {
             out.report_ancestor_dependency_use(manifest_dir, name);
