@@ -282,6 +282,52 @@ fn path_module_forms_are_understood() {
     }
 }
 
+/// `sep` and `delimiter` of `path` are POSIX's `/` and `:`, however the module or the constant is bound; those of
+/// `path.win32` stay unknown.
+#[test]
+fn path_constants_are_the_posix_ones() {
+    let cases: Vec<(&str, &str, &str)> = vec![
+        (
+            "named import",
+            "c.mjs",
+            "import { sep, delimiter } from 'node:path';\nexport default { a: 'src' + sep + 'app', b: `bin${delimiter}lib` };",
+        ),
+        (
+            "member of the default import",
+            "c.mjs",
+            "import path from 'path';\nexport default { a: `src${path.sep}app`, b: 'bin' + path.delimiter + 'lib' };",
+        ),
+        (
+            "namespace import and posix flavour",
+            "c.mjs",
+            "import * as path from 'node:path';\nexport default { a: 'src' + path.posix.sep + 'app', b: 'bin' + path.posix.delimiter + 'lib' };",
+        ),
+        (
+            "named import of path/posix",
+            "c.mjs",
+            "import { sep, delimiter } from 'path/posix';\nexport default { a: `src${sep}app`, b: `bin${delimiter}lib` };",
+        ),
+        (
+            "destructured require",
+            "c.cjs",
+            "const { sep, delimiter: d } = require('path');\nmodule.exports = { a: `src${sep}app`, b: 'bin' + d + 'lib' };",
+        ),
+    ];
+    for (name, file, source) in cases {
+        let value = extract(file, source).unwrap();
+        assert_eq!(value.get("a"), Some(&s("src/app")), "{name}: {value:?}");
+        assert_eq!(value.get("b"), Some(&s("bin:lib")), "{name}: {value:?}");
+    }
+    let win32 = extract(
+        "c.mjs",
+        "import path from 'node:path';\nexport default { a: path.win32.sep, b: path.win32.delimiter };",
+    )
+    .unwrap();
+    for key in ["a", "b"] {
+        assert_eq!(win32.get(key), Some(&ConfigValue::Unknown), "{key}");
+    }
+}
+
 #[test]
 fn urls_with_a_scheme_and_win32_paths_stay_unknown() {
     let value = extract(
