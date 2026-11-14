@@ -338,7 +338,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 33] = [
     },
     Deviation {
         id: PATHS_BEFORE_PACKAGES,
-        reason: "one tool reports a dependency as unused (knip) or a file as unused (skif) where a file of the workspace imports the dependency's package by a specifier that the `paths` of the importer's TypeScript configuration map to that file, which exists: TypeScript, and knip with it, resolves the import through `paths` before it looks for the package (ADR 0038), so the import uses the file and not the dependency. The harness finds such imports in the files whose configuration sets `paths` and that the workspace manifest lists the package of",
+        reason: "skif reports these dependencies as unused, or knip reports these files as unused, where a file of the workspace imports the dependency's package by a specifier that the `paths` of the importer's TypeScript configuration map to a file of the same workspace, which exists: skif follows TypeScript, which resolves the import through `paths` before it looks for the package, so the import uses that file and not the dependency (ADR 0038); knip credits the dependency and does not use the file. A mapping into another workspace member or into `node_modules` is an import of that package and stays compared. The harness finds such imports in the files whose configuration sets `paths` and whose workspace manifest lists the package",
     },
     Deviation {
         id: WHOLE_ENUM_USE,
@@ -2269,7 +2269,8 @@ impl Classifier<'_> {
                         .then_some(IMPORTED_BY_SKIF_UNUSED_FILE)
                 })
                 .or_else(|| {
-                    (category == "files" && self.paths_before_packages.contains(key)).then_some(PATHS_BEFORE_PACKAGES)
+                    (IMPORTED_CATEGORIES.contains(&category) && self.paths_before_packages.contains(key))
+                        .then_some(PATHS_BEFORE_PACKAGES)
                 })
                 .or_else(|| self.outside_use(category, key))
                 .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
@@ -2299,8 +2300,7 @@ impl Classifier<'_> {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
             })
             .or_else(|| {
-                (IMPORTED_CATEGORIES.contains(&category) && self.paths_before_packages.contains(key))
-                    .then_some(PATHS_BEFORE_PACKAGES)
+                (category == "files" && self.paths_before_packages.contains(key)).then_some(PATHS_BEFORE_PACKAGES)
             })
             .or_else(|| {
                 let credited = IMPORTED_CATEGORIES.contains(&category) && self.bazel_credits.contains(key);
@@ -2685,11 +2685,11 @@ fn own_paths_keys(unlisted: &BTreeSet<String>, resolver: &Resolver<'_>, read: &S
 }
 
 /// `<manifest>|<package>` for each dependency that a file of `files` imports by a specifier the `paths` of its
-/// TypeScript configuration map to a file of the checkout ([`Resolver::paths_target`]), where `<manifest>` is the
-/// `package.json` of the file's workspace and lists the package, and that file: TypeScript resolves such an import
-/// through `paths` before it looks for the package (ADR 0038), so the import uses the mapped file and not the
-/// dependency. Only files whose configuration sets `paths` and whose text holds the literal start of one of its
-/// patterns are parsed.
+/// TypeScript configuration map to a file of the same workspace ([`Resolver::paths_target`]), where `<manifest>` is
+/// the `package.json` of that workspace and lists the package, and that file: TypeScript resolves such an import
+/// through `paths` before it looks for the package, so skif counts it as a use of the file and not of the dependency
+/// (ADR 0038). A mapping into another workspace is an import of that package. Only files whose configuration sets
+/// `paths` and whose text holds the literal start of one of its patterns are parsed.
 fn paths_before_packages(
     files: &[String],
     resolver: &Resolver<'_>,
@@ -2713,7 +2713,10 @@ fn paths_before_packages(
             if !layout.lists(&workspace, package) {
                 continue;
             }
-            if let Some(target) = resolver.paths_target(file, &specifier) {
+            let Some(target) = resolver.paths_target(file, &specifier) else {
+                continue;
+            };
+            if owner_dir(&target, &|dir: &str| layout.is_workspace(dir)) == workspace {
                 found.insert(format!("{}|{package}", joined(&workspace, "package.json")));
                 found.insert(target);
             }
@@ -6576,15 +6579,17 @@ vi.mock("mocked-package");
         let sources = BTreeMap::from([
             (
                 "packages/app/tsconfig.json",
-                r#"{ "compilerOptions": { "paths": { "@acme/ui": ["../ui/src/index.ts"], "@acme/ui/*": ["../ui/src/*"] } } }"#,
+                r#"{ "compilerOptions": { "paths": { "@acme/ui": ["./src/ui/index.ts"], "@acme/ui/*": ["./src/ui/*"],
+                    "@acme/theme": ["../theme/src/index.ts"] } } }"#,
             ),
             (
                 "packages/app/src/main.ts",
                 "import { Button } from '@acme/ui';\nimport { cn } from '@acme/ui/cn';\nimport z from 'zod';\n\
-                 console.log(Button, cn, z);\n",
+                 import { dark } from '@acme/theme';\nconsole.log(Button, cn, z, dark);\n",
             ),
-            ("packages/ui/src/index.ts", "export const Button = 1;\n"),
-            ("packages/ui/src/cn.ts", "export const cn = 1;\n"),
+            ("packages/app/src/ui/index.ts", "export const Button = 1;\n"),
+            ("packages/app/src/ui/cn.ts", "export const cn = 1;\n"),
+            ("packages/theme/src/index.ts", "export const dark = 1;\n"),
             (
                 "packages/other/src/main.ts",
                 "import { Button } from '@acme/ui';\nconsole.log(Button);\n",
@@ -6594,10 +6599,10 @@ vi.mock("mocked-package");
             ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
             (
                 "packages/app",
-                json!({ "name": "app", "dependencies": { "@acme/ui": "workspace:*", "zod": "3.0.0" } }),
+                json!({ "name": "app", "dependencies": { "@acme/ui": "1.0.0", "@acme/theme": "workspace:*", "zod": "3.0.0" } }),
             ),
-            ("packages/other", json!({ "name": "other", "dependencies": { "@acme/ui": "workspace:*" } })),
-            ("packages/ui", json!({ "name": "@acme/ui" })),
+            ("packages/other", json!({ "name": "other", "dependencies": { "@acme/ui": "1.0.0" } })),
+            ("packages/theme", json!({ "name": "@acme/theme" })),
         ]
         .into_iter()
         .map(|(dir, manifest)| (dir, Rc::new(manifest)))
@@ -6606,7 +6611,7 @@ vi.mock("mocked-package");
         let is_file = |file: &str| sources.contains_key(file);
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
         let layout = Layout::new(
-            strings(&["packages/app", "packages/other", "packages/ui"]),
+            strings(&["packages/app", "packages/other", "packages/theme"]),
             &manifest,
             &is_file,
         );
@@ -6617,10 +6622,11 @@ vi.mock("mocked-package");
             found,
             strings(&[
                 "packages/app/package.json|@acme/ui",
-                "packages/ui/src/cn.ts",
-                "packages/ui/src/index.ts",
+                "packages/app/src/ui/cn.ts",
+                "packages/app/src/ui/index.ts",
             ]),
-            "a workspace without a configuration that maps the package keeps it, and a mapping to no file is none"
+            "a mapping into another workspace member is an import of it, a workspace without a configuration that \
+             maps the package keeps it, and a mapping to no file is none"
         );
         let classifier = Classifier {
             paths_before_packages: &found,
@@ -6628,16 +6634,17 @@ vi.mock("mocked-package");
         };
         for (side, category, key, expected) in [
             (
-                Side::Tool,
+                Side::Skif,
                 "dependencies",
                 "packages/app/package.json|@acme/ui",
                 Some(PATHS_BEFORE_PACKAGES),
             ),
-            (Side::Skif, "files", "packages/ui/src/cn.ts", Some(PATHS_BEFORE_PACKAGES)),
-            (Side::Tool, "dependencies", "packages/app/package.json|zod", None),
-            (Side::Tool, "dependencies", "packages/other/package.json|@acme/ui", None),
-            (Side::Tool, "files", "packages/ui/src/cn.ts", None),
-            (Side::Skif, "dependencies", "packages/app/package.json|@acme/ui", None),
+            (Side::Tool, "files", "packages/app/src/ui/cn.ts", Some(PATHS_BEFORE_PACKAGES)),
+            (Side::Skif, "dependencies", "packages/app/package.json|zod", None),
+            (Side::Skif, "dependencies", "packages/app/package.json|@acme/theme", None),
+            (Side::Skif, "dependencies", "packages/other/package.json|@acme/ui", None),
+            (Side::Skif, "files", "packages/app/src/ui/cn.ts", None),
+            (Side::Tool, "dependencies", "packages/app/package.json|@acme/ui", None),
         ] {
             assert_eq!(
                 classifier.classify(side, category, key),
