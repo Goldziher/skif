@@ -2222,7 +2222,10 @@ impl Sharing<'_> {
                     let came = Some((index, 1 - side));
                     let known = by_symbol.entry(to.symbol).or_default();
                     let covering = known.iter().copied().filter(|&other| seen[other].1.covers(&next));
-                    if covering.clone().any(|other| back[other].is_none() || back[other] == came) {
+                    if covering
+                        .clone()
+                        .any(|other| back[other].is_none() || back[other] == came)
+                    {
                         continue;
                     }
                     if let Some(other) = covering.clone().next() {
