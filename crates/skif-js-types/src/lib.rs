@@ -23,7 +23,8 @@ use skif_core::FileSystem;
 
 pub use error::TypeError;
 pub use facts::{
-    CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, TypeFacts, TypeQuery, TypeTimings,
+    CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, TypeFacts, TypeQuery,
+    TypeTimings,
 };
 
 /// The engine and version recorded in [`TypeFacts::engine`].

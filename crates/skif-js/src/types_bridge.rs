@@ -260,15 +260,45 @@ fn checked(
             return (TypeState::Off(reason), Some(summary_without_types(packages, reason)));
         }
     };
-    skif_core::timing::note(format_args!(
-        "js types {}: programs {} ms, queries {} ms",
-        root.display(),
-        facts.timings.programs.as_millis(),
-        facts.timings.queries.as_millis()
-    ));
+    note_timings(root, &facts.timings);
     let summary = asked::summary(root, packages, &facts);
     let typed = Typed::new(analysis, decls, facts);
     (TypeState::Typed(Box::new(typed)), Some(summary))
+}
+
+/// The slowest programs `SKIF_TIMINGS` names.
+#[cfg(feature = "type-aware")]
+const SLOWEST_PROGRAMS: usize = 5;
+
+/// With timings on, the type-aware stages of the analysis at `root`: planning, the build and query times summed over
+/// the programs beside the wall time, and the slowest programs with their sizes and checkers.
+#[cfg(feature = "type-aware")]
+fn note_timings(root: &std::path::Path, timings: &skif_js_types::TypeTimings) {
+    if !skif_core::timing::enabled() {
+        return;
+    }
+    skif_core::timing::note(format_args!(
+        "js types {}: planning {} ms, programs {} ms, queries {} ms (summed), wall {} ms, {} programs, {} threads",
+        root.display(),
+        timings.planning.as_millis(),
+        timings.programs.as_millis(),
+        timings.queries.as_millis(),
+        timings.wall.as_millis(),
+        timings.per_program.len(),
+        timings.threads
+    ));
+    for program in timings.slowest(SLOWEST_PROGRAMS) {
+        skif_core::timing::note(format_args!(
+            "js types {}: program {}: {} judged of {} files, {} checkers, build {} ms, queries {} ms",
+            root.display(),
+            program.config.display(),
+            program.judged_files,
+            program.files,
+            program.checkers,
+            program.build.as_millis(),
+            program.query.as_millis()
+        ));
+    }
 }
 
 #[cfg(feature = "type-aware")]

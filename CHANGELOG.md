@@ -54,7 +54,11 @@ All notable changes to this project are documented here. The format follows
   of those without. `skif explain-usage` names the typed read, the declaration it reaches and the reads credited by
   name, as text and as the `typed` and `untyped-because` fields of the JSON `class-member`, and now explains
   `FILE#Enum.member` and `FILE#Namespace.member` too (`of`: `enum` or `namespace`). `SKIF_TIMINGS` prints a
-  `js types <root>: programs X ms, queries Y ms` line ([ADR 0046](adrs/0046-typed-member-semantics.md)).
+  `js types <root>:` line with the planning time, the build and query times summed over the programs, the wall time,
+  the program count and the threads, then one line for each of the five slowest programs with its judged and total
+  files, its checkers and its build and query times ([ADR 0046](adrs/0046-typed-member-semantics.md)). The library
+  gives them as `TypeTimings` (`planning`, `programs`, `queries`, `wall`, `threads`, `per_program` of
+  `ProgramTiming`, `slowest`).
 - **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
   from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
   `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production

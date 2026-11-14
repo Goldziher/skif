@@ -21,7 +21,7 @@ use crate::owner::ProgramOwner;
 use crate::programs::{self, ConfigHost, Placement, PlannedProgram, ProgramPlan};
 use crate::query::{self, FileFacts, QueryContext};
 use crate::vfs::{self, BomFiles};
-use crate::{ENGINE, TypeError, TypeFacts, TypeInput, TypeTimings};
+use crate::{ENGINE, ProgramTiming, TypeError, TypeFacts, TypeInput, TypeTimings};
 
 /// The stack of the threads that build and check programs: checking recurses deeply, and tsrs-lint gives its program
 /// threads the same.
@@ -69,10 +69,14 @@ pub(crate) fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
         outcomes: plan.programs.iter().map(|_| Mutex::new(None)).collect(),
         regions: Mutex::new(Vec::new()),
     };
+    let run_start = Instant::now();
     session.run(parallelism.programs)?;
+    let wall = run_start.elapsed();
     let outcomes = session.into_outcomes()?;
     let mut facts = assemble(input, &plan, &candidates, outcomes)?;
-    facts.timings.programs += planning;
+    facts.timings.planning = planning;
+    facts.timings.wall = wall;
+    facts.timings.threads = parallelism.threads;
     drop(region);
     Ok(facts)
 }
@@ -203,6 +207,9 @@ struct BuiltProgram {
     walked: Vec<WalkedFile>,
     /// Planned files the program turned out not to hold.
     missing: Vec<usize>,
+    /// Every file of the program.
+    files: usize,
+    checkers: usize,
     build: Duration,
     query: Duration,
 }
@@ -334,14 +341,20 @@ impl Session<'_> {
             options.single_threaded = Tristate::True;
         }
         let owner = ProgramOwner::new(options);
-        let built = self.walk(owner.program(), program, start);
+        let built = self.walk(owner.program(), program, start, checkers);
         drop(owner);
         drop(loader_regions);
         built
     }
 
     /// Walks the judged files of `program` once it is built, copying out what the walks find.
-    fn walk(&self, tsrs: &tsrs_compiler::Program, program: &PlannedProgram, start: Instant) -> Outcome {
+    fn walk(
+        &self,
+        tsrs: &tsrs_compiler::Program,
+        program: &PlannedProgram,
+        start: Instant,
+        checkers: usize,
+    ) -> Outcome {
         tsrs.bind_source_files();
         let build = start.elapsed();
         if self.cancelled() {
@@ -399,6 +412,8 @@ impl Session<'_> {
         Outcome::Built(BuiltProgram {
             walked,
             missing,
+            files: tsrs.get_source_files().len(),
+            checkers,
             build,
             query,
         })
@@ -448,6 +463,14 @@ fn assemble(
             Outcome::Built(built) => {
                 timings.programs += built.build;
                 timings.queries += built.query;
+                timings.per_program.push(ProgramTiming {
+                    config: PathBuf::from(&program.config),
+                    judged_files: program.files.len(),
+                    files: built.files,
+                    checkers: built.checkers,
+                    build: built.build,
+                    query: built.query,
+                });
                 for index in built.missing {
                     states[index] = FileState::Outside;
                 }
