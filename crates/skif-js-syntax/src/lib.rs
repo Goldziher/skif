@@ -79,9 +79,9 @@ pub use config::{
 pub use declaration::{DECLARATION_SUFFIXES, is_declaration_file};
 pub use error::SyntaxError;
 pub use model::{
-    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, Import, ImportKind, ImportedKind,
-    ImportedName, Member, MockCall, ModuleInfo, ParseIssue, ParseOptions, Registration, Removal, RemovalKind,
-    coalesce_ranges, is_source_query,
+    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, Import, ImportKind, ImportedKeyRead,
+    ImportedKind, ImportedName, Member, MockCall, ModuleInfo, ParseIssue, ParseOptions, Registration, Removal,
+    RemovalKind, StringConstant, coalesce_ranges, is_source_query,
 };
 pub use style::{is_stylesheet, parse_stylesheet};
 
@@ -225,7 +225,7 @@ fn parse_block_in(
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
         members::track(&ret.program, &analysis, &mut info, &excluded, base);
-        classes::property_names(&ret.program, &mut info);
+        classes::property_names(&ret.program, &analysis, &mut info);
         if let Some(uses) = uses {
             *uses = members::uses(&ret.program, &analysis);
         }

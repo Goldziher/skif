@@ -361,6 +361,108 @@ fn a_spied_name_and_a_template_read_count() {
     assert_eq!(found(&files), ["service.ts: Service.unread"]);
 }
 
+const BRAND: &str = "type Options = { a: number };\nfunction run(): void {}\nexport class Brand {\n  \
+                     private readonly _cursorContextBrand: void = undefined;\n  \
+                     readonly _rgbaBrand: void = undefined;\n  \
+                     declare protected readonly _Options: Options;\n  \
+                     readonly __brand!: unique symbol;\n  \
+                     readonly initialised: void = run();\n  \
+                     plain = 1;\n}\n";
+
+#[test]
+fn type_only_fields_are_not_judged() {
+    let files = [
+        PACKAGE,
+        ("index.ts", "import { Brand } from './brand';\nconsole.log(new Brand());\n"),
+        ("brand.ts", BRAND),
+    ];
+    assert_eq!(
+        found(&files),
+        ["brand.ts: Brand.initialised", "brand.ts: Brand.plain"],
+        "a `declare` field and a brand typed `void` or `unique symbol` exist only for the type checker; a `void` field \
+         with a real initialiser runs code and is judged"
+    );
+}
+
+const REACTIVE: &str = "export class Reactive {\n  __v_skip = true;\n  __v_raw = 1;\n  __v_key = 2;\n  \
+                        __v_unread = 3;\n}\n";
+
+#[test]
+fn an_element_access_through_a_constant_key_reads_its_string() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import { Reactive } from './reactive';\n\
+             enum ReactiveFlags { SKIP = '__v_skip' }\n\
+             const Keys = { RAW: '__v_raw' } as const;\n\
+             const KEY = '__v_key';\n\
+             const target = new Reactive();\n\
+             console.log(target[ReactiveFlags.SKIP], target[Keys.RAW], target[KEY]);\n",
+        ),
+        ("reactive.ts", REACTIVE),
+    ];
+    assert_eq!(found(&files), ["reactive.ts: Reactive.__v_unread"]);
+}
+
+#[test]
+fn an_element_access_through_a_key_that_is_no_constant_reads_nothing() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import { Reactive } from './reactive';\n\
+             let someVariable = '__v_skip';\n\
+             const Mutable = { RAW: '__v_raw' };\n\
+             const KEY = '__v_key';\n\
+             function read(target: Reactive, KEY: string) { return target[KEY]; }\n\
+             const target = new Reactive();\n\
+             console.log(target[someVariable], target[Mutable.RAW], read(target, someVariable));\n",
+        ),
+        ("reactive.ts", REACTIVE),
+    ];
+    assert_eq!(
+        found(&files),
+        [
+            "reactive.ts: Reactive.__v_key",
+            "reactive.ts: Reactive.__v_raw",
+            "reactive.ts: Reactive.__v_skip",
+            "reactive.ts: Reactive.__v_unread",
+        ],
+        "a `let`, a plain object's property and a parameter that shadows a constant can hold any key"
+    );
+}
+
+#[test]
+fn an_element_access_through_an_imported_constant_reads_its_string() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import { Reactive } from './reactive';\n\
+             import { ReactiveFlags, Mutable } from './flags';\n\
+             import * as barrel from './barrel';\n\
+             const target = new Reactive();\n\
+             console.log(target[ReactiveFlags.SKIP], target[barrel.RAW], target[barrel.Keys.KEY], target[Mutable]);\n",
+        ),
+        (
+            "flags.ts",
+            "export enum ReactiveFlags { SKIP = '__v_skip' }\n\
+             export const RAW = '__v_raw';\n\
+             export const Keys = { KEY: '__v_key' } as const;\n\
+             export let Mutable = '__v_unread';\n",
+        ),
+        ("barrel.ts", "export * from './flags';\n"),
+        ("reactive.ts", REACTIVE),
+    ];
+    assert_eq!(
+        found(&files),
+        ["reactive.ts: Reactive.__v_unread"],
+        "an enum member, a string constant and an `as const` property count through an import, also through a barrel; \
+         an exported `let` does not"
+    );
+}
+
 #[test]
 fn explain_usage_gives_the_evidence_for_a_member() {
     let files = [PACKAGE, ("index.ts", STORE_USER), ("store.ts", STORE)];
@@ -396,6 +498,21 @@ fn explain_usage_names_the_exemption() {
     let text = explain(&files, "view.ts", "View.render");
     assert!(
         text.contains("it overrides a member of a known library base class, which the library calls"),
+        "{text}"
+    );
+    assert!(text.contains("=> not judged"), "{text}");
+}
+
+#[test]
+fn explain_usage_names_the_type_only_exemption() {
+    let files = [
+        PACKAGE,
+        ("index.ts", "import { Brand } from './brand';\nconsole.log(new Brand());\n"),
+        ("brand.ts", BRAND),
+    ];
+    let text = explain(&files, "brand.ts", "Brand._rgbaBrand");
+    assert!(
+        text.contains("it is a field that exists only for the type checker, never read at runtime"),
         "{text}"
     );
     assert!(text.contains("=> not judged"), "{text}");

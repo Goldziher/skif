@@ -719,15 +719,20 @@ member is also exempt when its own JSDoc carries a tag that exempts an export (`
 module reads, like knip 5's `classMembers` (knip 6 dropped the issue type). skif has no type information, so a member
 counts as read when any module of the graph reads a property of its name on any object: `x.name`, `x?.name`,
 `x['name']`, a destructured key, `this.name`, `super.name`, a string literal type or call argument
-(`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. A field that is only assigned
-(`x.name = 1`) is unused, a setter is used when it is assigned. The constructor, `private` members and members with a
-computed key (`[Symbol.iterator]`) are not judged, and nor are a decorated member, every member of a decorated class
-(`@Component()`), members of an interface the class implements (all of its instance members when the interface is
-not declared in the same file), the members a known library base class declares (React's `render` and lifecycle
-methods), every member of a class whose superclass chain leaves the project for another class (`extends HTMLElement`,
-a mixin call, a class of an installed package), and the classes an entry file exports, which are public API unless
-`include-entry-exports` is set. `skif explain-usage FILE#Class.member` shows the files that read the name, or why the
-member is not judged
+(`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. An element access whose key is a
+constant reads the string the constant holds: `x[KEY]` with `const KEY = '__v_skip'`, `x[Flags.SKIP]` with
+`enum Flags { SKIP = '__v_skip' }` or `const Flags = { SKIP: '__v_skip' } as const`, declared in the same module or
+imported (also through a namespace import or a barrel); a `let`, a plain object's property or a parameter can hold
+any key and reads nothing. A field that is only assigned (`x.name = 1`) is unused, a setter is used when it is
+assigned. The constructor, `private` members and members with a computed key (`[Symbol.iterator]`) are not judged,
+and nor are a field that exists only for the type checker (a `declare` field, or a brand typed `void`, `never`,
+`undefined` or `unique symbol` with no value but `undefined`, such as `readonly __brand!: unique symbol`), a
+decorated member, every member of a decorated class (`@Component()`), members of an interface the class implements
+(all of its instance members when the interface is not declared in the same file), the members a known library base
+class declares (React's `render` and lifecycle methods), every member of a class whose superclass chain leaves the
+project for another class (`extends HTMLElement`, a mixin call, a class of an installed package), and the classes an
+entry file exports, which are public API unless `include-entry-exports` is set.
+`skif explain-usage FILE#Class.member` shows the files that read the name, or why the member is not judged
 ([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md)).
 
 **`ignore-files`** lists globs of files that `unused-files` never reports, at the top level (relative to the workspace

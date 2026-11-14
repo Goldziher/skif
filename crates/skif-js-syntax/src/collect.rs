@@ -175,7 +175,7 @@ pub(crate) fn binding_ids(pattern: &BindingPattern<'_>, out: &mut Vec<(String, O
     }
 }
 
-fn enum_member_name(id: &TSEnumMemberName<'_>) -> Option<String> {
+pub(crate) fn enum_member_name(id: &TSEnumMemberName<'_>) -> Option<String> {
     match id {
         TSEnumMemberName::Identifier(i) => Some(i.name.as_str().to_string()),
         TSEnumMemberName::String(s) | TSEnumMemberName::ComputedString(s) => Some(crate::js_string(s.value)),

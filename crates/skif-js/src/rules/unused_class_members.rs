@@ -20,8 +20,10 @@ pub static META: RuleMeta = RuleMeta::new(
 /// Reports members of used exported classes that no module reads (ADR 0042).
 ///
 /// The class must be used by another module; an unused class is reported by `unused-exports`. A member is used when
-/// the member-usage source says so; the declarations decide which members are not judged at all
-/// ([`crate::class_members::MemberExemption`]). The fix deletes the member ([`skif_js_syntax::ClassMember::removal`]).
+/// the member-usage source says so (a read of its name, also through an element access whose key is a constant);
+/// the declarations decide which members are not judged at all, among them a field that exists only for the type
+/// checker ([`crate::class_members::MemberExemption`]). The fix deletes the member
+/// ([`skif_js_syntax::ClassMember::removal`]).
 pub struct UnusedClassMembers;
 
 impl JsRule for UnusedClassMembers {
