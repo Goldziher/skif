@@ -34,10 +34,13 @@ struct Found {
     specifier: String,
     start: usize,
     end: usize,
+    /// [`ImportKind::Url`] for a `url()` outside an import, [`ImportKind::SideEffect`] for an import.
+    kind: ImportKind,
 }
 
 /// Scans the stylesheet `source` (the content of `path`) for the files and packages it imports. Every import has
-/// [`ImportKind::SideEffect`]. Nothing is reported for remote URLs, `data:` URLs, Sass built-in modules,
+/// [`ImportKind::SideEffect`], except a `url()` of a package file outside an import, which has [`ImportKind::Url`].
+/// Nothing is reported for remote URLs, `data:` URLs, Sass built-in modules,
 /// specifiers with interpolation and Stylus globs (`@import "mixins/*"`).
 #[must_use]
 pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
@@ -72,7 +75,7 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
             let end = u32::try_from(found.end.min(source.len())).ok()?;
             Some(Import {
                 specifier,
-                kind: ImportKind::SideEffect,
+                kind: found.kind,
                 names: Vec::new(),
                 call: None,
                 span: lines.span(start, end),
@@ -285,6 +288,7 @@ impl Scanner<'_> {
                 specifier,
                 start,
                 end: self.pos,
+                kind: ImportKind::Url,
             });
         }
     }
@@ -377,6 +381,7 @@ impl Scanner<'_> {
                 specifier,
                 start,
                 end: self.pos,
+                kind: ImportKind::SideEffect,
             });
             return true;
         }
@@ -396,6 +401,7 @@ impl Scanner<'_> {
                 specifier,
                 start,
                 end: self.pos,
+                kind: ImportKind::SideEffect,
             });
             return true;
         }
@@ -405,7 +411,12 @@ impl Scanner<'_> {
     fn record_string(&mut self, start: usize) -> bool {
         match self.read_string() {
             Some((specifier, end)) => {
-                self.found.push(Found { specifier, start, end });
+                self.found.push(Found {
+                    specifier,
+                    start,
+                    end,
+                    kind: ImportKind::SideEffect,
+                });
                 true
             }
             None => false,
@@ -429,7 +440,12 @@ impl Scanner<'_> {
                     if let Some((specifier, end)) = self.read_string()
                         && last == "from"
                     {
-                        self.found.push(Found { specifier, start, end });
+                        self.found.push(Found {
+                            specifier,
+                            start,
+                            end,
+                            kind: ImportKind::SideEffect,
+                        });
                     }
                     last.clear();
                 }
@@ -519,7 +535,7 @@ mod tests {
             ]
         );
         let info = parse_stylesheet(Path::new("a.css"), ".a { b: url(\"@s/p/x.png\"); }");
-        assert_eq!(info.imports[0].kind, ImportKind::SideEffect);
+        assert_eq!(info.imports[0].kind, ImportKind::Url);
         assert_eq!((info.imports[0].span.start, info.imports[0].span.end), (8, 25));
     }
 

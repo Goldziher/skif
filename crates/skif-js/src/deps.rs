@@ -570,6 +570,12 @@ fn read_installed(
     })
 }
 
+/// Whether package `name` is installed in a `node_modules` directory from the directory of `file` up to `root`.
+fn is_installed(fs: &dyn FileSystem, file: &Path, root: &Path, name: &str) -> bool {
+    file.parent()
+        .is_some_and(|start| read_installed(fs, start, root, name, &mut HashMap::default()).is_some())
+}
+
 /// The first installed package `lookup` finds in a directory from `start` up to `root`, as Node.js looks up
 /// `node_modules`.
 fn find_installed(
@@ -1477,6 +1483,15 @@ impl DependencyUsage {
                         if let Some(found) = self.find_listed(module.owner, name) {
                             self.with_via(Use::Mock(module.id), |usage| usage.reference(found, name));
                         }
+                        continue;
+                    }
+                    if kind == Some(ImportKind::Url)
+                        && !self.known_package(name)
+                        && !is_installed(fs, &module.abs, &workspace.root, name)
+                    {
+                        // A stylesheet `url()` of a package that no manifest lists and that is not installed goes
+                        // through a bundler alias skif cannot see (`@assets/…`, Nuxt's `~static/…`) or names a
+                        // missing asset: no unlisted import.
                         continue;
                     }
                     if self.mode.strict() && resolved.type_only {
