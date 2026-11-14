@@ -69,6 +69,15 @@ jobs:
           [[ "$RUNS" =~ ^[1-9][0-9]*$ ]] || { echo "::error::runs must be a positive integer, got '$RUNS'"; exit 1; }
           [[ "$WARMUP" =~ ^[0-9]+$ ]] || { echo "::error::warmup must be a non-negative integer, got '$WARMUP'"; exit 1; }
           [[ "$ONLY" =~ ^[A-Za-z0-9._,-]*$ ]] || { echo "::error::only must be comma-separated repository names, got '$ONLY'"; exit 1; }
+      # ~keep Every corpus checkout keeps its install until all targets are timed, so no install runs between two
+      # ~keep measurements; with vscode, next-js, angular and n8n that is more than the image leaves free. The
+      # ~keep toolchains removed here are ones no step uses, and nothing timed reads them.
+      - name: Free disk space
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Check out the harness
         uses: actions/checkout@v7
         with:
@@ -158,6 +167,11 @@ jobs:
           )
           if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
           target/release/skif-bench "${args[@]}"
+      - name: Report the disk usage
+        if: ${{ !cancelled() }}
+        run: |
+          df -h /
+          du -sh "${RUNNER_TEMP}/bench-work"/* "${RUNNER_TEMP}/bench-work/corpus"/* 2>/dev/null || true
       - name: Write the results to the job summary
         if: ${{ !cancelled() }}
         env:

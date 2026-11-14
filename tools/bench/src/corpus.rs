@@ -526,9 +526,9 @@ mod tests {
         let (tools, bench) = select(file, "bench", &[]).unwrap();
         let (_, parity) = select(file, "parity", &[]).unwrap();
         assert!(!tools.knip.is_empty() && !tools.syncpack.is_empty() && !tools.sherif.is_empty());
-        assert_eq!(bench.len(), 5);
+        assert_eq!(bench.len(), 9);
         assert_eq!(parity.len(), manifest().repo.len());
-        assert!(select(file, "bench", &["vscode".to_owned()]).is_err());
+        assert!(select(file, "bench", &["jest".to_owned()]).is_err());
         assert_eq!(select(file, "parity", &["jest".to_owned()]).unwrap().1.len(), 1);
     }
 
@@ -555,15 +555,24 @@ mod tests {
     #[test]
     fn the_bench_repositories_whose_knip_run_fails_declare_the_error() {
         let repos = manifest().repo;
-        let declared: Vec<(&str, &str)> = repos
+        let declared: Vec<(&str, &str, bool)> = repos
             .iter()
-            .filter_map(|r| Some((r.name.as_str(), r.bench_knip_failure.as_ref()?.matches.as_str())))
+            .filter_map(|r| {
+                let failure = r.bench_knip_failure.as_ref()?;
+                Some((r.name.as_str(), failure.matches.as_str(), failure.timed))
+            })
             .collect();
         assert_eq!(
             declared,
             [
-                ("create-t3-turbo", "Cannot find module 'metro-cache'"),
-                ("vue-core", "sfc-playground/vite.config.ts (__DEV__ is not defined)"),
+                ("create-t3-turbo", "Cannot find module 'metro-cache'", false),
+                ("vue-core", "sfc-playground/vite.config.ts (__DEV__ is not defined)", false),
+                ("n8n", "Error loading packages/@n8n/mcp-apps/vite.config.mts", true),
+                (
+                    "next-js",
+                    "Error loading jest.config.js (Cannot find module './dist/build/jest/jest')",
+                    true
+                ),
             ]
         );
         let t3 = repos.iter().find(|r| r.name == "create-t3-turbo").unwrap();
@@ -571,6 +580,31 @@ mod tests {
             t3.bench_knip_failure.as_ref().unwrap().reason,
             "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide"
         );
+    }
+
+    #[test]
+    fn the_large_bench_repositories_run_five_times_with_the_comparison_configuration() {
+        let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
+        let (_, bench) = select(file, "bench", &[]).unwrap();
+        let capped: Vec<(&str, Option<u32>, Option<u32>, Option<&str>)> = bench
+            .iter()
+            .filter(|r| r.bench_max_runs.is_some() || r.bench_max_warmup.is_some() || r.bench_knip_config.is_some())
+            .map(|r| {
+                (
+                    r.name.as_str(),
+                    r.bench_max_runs,
+                    r.bench_max_warmup,
+                    r.bench_knip_config.as_deref(),
+                )
+            })
+            .collect();
+        let large = (Some(5), Some(1), Some(PARITY_KNIP_CONFIG));
+        assert_eq!(
+            capped,
+            ["angular", "vscode", "n8n", "next-js"].map(|name| (name, large.0, large.1, large.2))
+        );
+        let vscode = bench.iter().find(|r| r.name == "vscode").unwrap();
+        assert!(vscode.recursive && !vscode.entry.is_empty());
     }
 
     #[test]
