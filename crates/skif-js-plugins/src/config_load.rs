@@ -17,30 +17,57 @@ pub fn load_config(path: &Path, source: &str) -> Option<ConfigValue> {
 /// `modules` follows (a base config of the project or of a workspace package).
 #[must_use]
 pub fn load_config_with(path: &Path, source: &str, modules: Option<&dyn ModuleLoader>) -> Option<ConfigValue> {
-    load_config_and_call_arguments(path, source, modules).map(|(value, _)| value)
+    load_parsed_config(path, source, modules).map(|parsed| parsed.value)
 }
 
-/// Like [`load_config_with`], with the arguments of the call a JavaScript or TypeScript config exports when that call
-/// cannot be followed (see [`skif_js_syntax::ExtractedConfig::call_arguments`]); none for any other format.
-pub(crate) fn load_config_and_call_arguments(
+/// A config file as [`load_parsed_config`] reads it.
+#[derive(Debug)]
+pub(crate) struct ParsedConfig {
+    /// The value the file holds or exports.
+    pub(crate) value: ConfigValue,
+    /// The arguments of the call a JavaScript or TypeScript config exports when that call cannot be followed (see
+    /// [`skif_js_syntax::ExtractedConfig::call_arguments`]); none for any other format.
+    pub(crate) call_arguments: Vec<ConfigValue>,
+    /// The value with the tests on the environment the evaluator cannot decide taken as true, then as false (see
+    /// [`skif_js_syntax::ExtractedConfig::environment_variants`]); none when there is no such test and for any other
+    /// format.
+    pub(crate) environment_variants: Vec<ConfigValue>,
+}
+
+impl ParsedConfig {
+    fn of(value: ConfigValue) -> Self {
+        Self {
+            value,
+            call_arguments: Vec::new(),
+            environment_variants: Vec::new(),
+        }
+    }
+}
+
+/// Like [`load_config_with`], with what a JavaScript or TypeScript config holds besides its value ([`ParsedConfig`]).
+pub(crate) fn load_parsed_config(
     path: &Path,
     source: &str,
     modules: Option<&dyn ModuleLoader>,
-) -> Option<(ConfigValue, Vec<ConfigValue>)> {
+) -> Option<ParsedConfig> {
     if path.parent().and_then(Path::file_name).is_some_and(|n| n == ".husky") {
-        return Some((ConfigValue::String(source.to_string()), Vec::new()));
+        return Some(ParsedConfig::of(ConfigValue::String(source.to_string())));
     }
     let extension = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
     let value = match extension.as_deref() {
         Some("js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "jsx" | "tsx") => {
-            return extract_config(source, path, modules).map(|config| (config.value, config.call_arguments));
+            return extract_config(source, path, modules).map(|config| ParsedConfig {
+                value: config.value,
+                call_arguments: config.call_arguments,
+                environment_variants: config.environment_variants,
+            });
         }
         Some("json" | "jsonc" | "json5") => json_like(source),
         Some("yml" | "yaml") => yaml(source),
         Some("toml") => toml(source),
         _ => json_like(source).or_else(|| yaml(source)),
     };
-    value.map(|value| (value, Vec::new()))
+    value.map(ParsedConfig::of)
 }
 
 /// Converts a parsed JSON document.

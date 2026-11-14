@@ -9,6 +9,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Public API** ([#229](https://github.com/Goldziher/skif/issues/229)): `ExtractedConfig::environment_variants` of
+  `skif-js-syntax`, the exported value evaluated again with every test on the environment the evaluation leaves
+  undecided taken as true, then as false; empty when there is none.
+
+### Fixed
+
+- **Environment-gated config references**: a package a tool config names only on a branch the environment chooses
+  (a test that reads `process.env` or `import.meta.env`, directly or through a top-level constant, under `!`, `===`,
+  `&&`, a ternary or an `if`) is an optional reference: it is a use of a package that lists it and no longer
+  `unlisted-dependencies` with the detail `ConfigReference`. A shared Vitest config that spreads
+  `coverage: { provider: 'v8' }` only when `process.env.COVERAGE_ENABLED === 'true'` no longer makes
+  `@vitest/coverage-v8` unlisted in every package calling its factory. A package named however the environment is set,
+  or under a test that reads something else, is reported as before. This holds for every plugin that derives package
+  names from config values. A config with such a test is evaluated three times
+  ([ADR 0036](adrs/0036-packages-named-on-an-environment-gated-branch.md),
+  [#229](https://github.com/Goldziher/skif/issues/229)).
+
 ## [0.5.0] - 2026-11-14
 
 ### Breaking changes

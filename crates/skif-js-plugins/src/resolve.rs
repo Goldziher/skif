@@ -11,7 +11,7 @@ use skif_config::{PluginConfig, PluginOptions};
 use skif_core::{HashMap, HashSet};
 use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir, shell_quote};
 
-use crate::config_load::{from_json, load_config_and_call_arguments};
+use crate::config_load::{ParsedConfig, from_json, load_parsed_config};
 use crate::files::{Listing, find_files, list_files};
 use crate::plugin::{
     BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
@@ -409,7 +409,7 @@ fn parent_of(relative: &str) -> &str {
 
 /// A config file as the config loader read it, with the modules it imports values from.
 struct LoadedConfig {
-    parsed: Option<(ConfigValue, Vec<ConfigValue>)>,
+    parsed: Option<ParsedConfig>,
     imported: Vec<(PathBuf, String)>,
 }
 
@@ -429,7 +429,7 @@ impl ConfigCache {
             inner,
             loaded: RefCell::new(Vec::new()),
         });
-        let parsed = load_config_and_call_arguments(
+        let parsed = load_parsed_config(
             path,
             source,
             recording.as_ref().map(|recording| recording as &dyn ModuleLoader),
@@ -965,11 +965,15 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         // A plugin that reads the source rather than the exported value (`export const config` of Stencil) still
         // sees a file whose export is not understood.
         let fallback: ConfigValue;
-        let (value, call_arguments): (&ConfigValue, &[ConfigValue]) = match &loaded.parsed {
-            Some((value, call_arguments)) => (value, call_arguments.as_slice()),
+        let (value, call_arguments, variants): (&ConfigValue, &[ConfigValue], &[ConfigValue]) = match &loaded.parsed {
+            Some(parsed) => (
+                &parsed.value,
+                parsed.call_arguments.as_slice(),
+                parsed.environment_variants.as_slice(),
+            ),
             None if !reader.reads_config() => {
                 fallback = ConfigValue::Null;
-                (&fallback, &[][..])
+                (&fallback, &[][..], &[][..])
             }
             None => {
                 let Some(value) = reader.read_script(&path, &source) else {
@@ -980,7 +984,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
                     continue;
                 };
                 fallback = value;
-                (&fallback, &[][..])
+                (&fallback, &[][..], &[][..])
             }
         };
         let ast = ConfigAst {
@@ -997,12 +1001,50 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         }
         let mut inputs = reader.resolve_config(&ast, ctx);
         if reader.reads_config() {
+            if !variants.is_empty() {
+                inputs = environment_gated(reader, &ast, variants, ctx, inputs);
+            }
             inputs.extend(argument_entries(ctx, ast.base, call_arguments));
         }
         collector.imported.clone_from(&loaded.imported);
         collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
         collector.imported.clear();
     }
+}
+
+/// `inputs`, what `reader` read from `config`, with each package it requires that the reading of one of `variants`
+/// does not require made optional: `variants` are the value of `config` with every test on the environment the
+/// evaluator cannot decide taken as true, then as false, so such a package is named only on a branch the environment
+/// chooses (ADR 0036). It still credits a manifest listing it, but no manifest needs to list it.
+fn environment_gated(
+    reader: &dyn Plugin,
+    config: &ConfigAst<'_>,
+    variants: &[ConfigValue],
+    ctx: &PluginContext<'_>,
+    inputs: Vec<PluginInput>,
+) -> Vec<PluginInput> {
+    let required: Vec<BTreeSet<String>> = variants
+        .iter()
+        .map(|value| {
+            reader
+                .resolve_config(&ConfigAst { value, ..*config }, ctx)
+                .into_iter()
+                .filter_map(|input| match input {
+                    PluginInput::Dependency(name) => Some(name),
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect();
+    inputs
+        .into_iter()
+        .map(|input| match input {
+            PluginInput::Dependency(name) if !required.iter().all(|names| names.contains(&name)) => {
+                PluginInput::OptionalDependency(name)
+            }
+            other => other,
+        })
+        .collect()
 }
 
 /// The files named in `arguments`, the arguments of a call a config exports that the evaluator cannot follow
@@ -1137,11 +1179,11 @@ mod tests {
             again.imported,
             [(PathBuf::from("/ws/base.js"), "export default { y: 2 };".to_owned())]
         );
-        let (value, _) = again.parsed.as_ref().expect("the config parses");
+        let value = &again.parsed.as_ref().expect("the config parses").value;
         assert!(value.get("x").is_some(), "{value:?}");
         let other = cache.load(Path::new("/ws/other.json"), "{\"z\": 1}", Some(&loader));
         assert_eq!(other.imported, []);
-        assert!(other.parsed.as_ref().is_some_and(|(value, _)| value.get("z").is_some()));
+        assert!(other.parsed.as_ref().is_some_and(|parsed| parsed.value.get("z").is_some()));
     }
 
     /// The dependency set and its sorted order answer exact names and prefixes as a scan of the context's own and
