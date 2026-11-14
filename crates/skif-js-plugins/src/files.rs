@@ -476,11 +476,25 @@ pub(crate) mod tests {
         let found = find_files_outside(&fs, &GlobCache::new(), Path::new("/ws"), &globs, &pruned);
         assert_eq!(
             found,
-            ["a.ts", "lib-extra/c.ts", "packages/one.ts", "packages/two/f.ts", "src/lib/g.ts"]
+            [
+                "a.ts",
+                "lib-extra/c.ts",
+                "packages/one.ts",
+                "packages/two/f.ts",
+                "src/lib/g.ts"
+            ]
         );
         assert_eq!(
             fs.listed(),
-            ["/ws", "/ws/lib-extra", "/ws/packages", "/ws/packages/two", "/ws/src", "/ws/src/lib"].map(Path::new)
+            [
+                "/ws",
+                "/ws/lib-extra",
+                "/ws/packages",
+                "/ws/packages/two",
+                "/ws/src",
+                "/ws/src/lib"
+            ]
+            .map(Path::new)
         );
         let everything = find_files(&fs, &GlobCache::new(), Path::new("/ws"), &globs);
         let outside: Vec<&String> = everything
