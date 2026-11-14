@@ -470,7 +470,7 @@ pub trait ModuleLoader {
 /// Imports are not followed; [`extract_config`] with a loader follows them.
 #[must_use]
 pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
-    evaluate_config(source, path, None).map(|config| config.value)
+    evaluate_config(source, path, None, &Environment::default()).map(|config| config.value)
 }
 
 /// What a config file exports, with the arguments of the calls it is made of that cannot be followed.
@@ -491,6 +491,13 @@ pub struct ExtractedConfig {
     /// otherwise; an unfollowed call anywhere else, such as one a function body computes in a local first, keeps no
     /// arguments.
     pub call_arguments: Vec<ConfigValue>,
+    /// The exported value again, evaluated with every test on the environment that [`ExtractedConfig::value`] leaves
+    /// undecided taken as true, then as false: a condition whose test reads `process.env` or `import.meta.env`
+    /// (`process.env.CI ? a : b`, `...(process.env.COVERAGE === 'true' && { coverage })`, `if (!process.env.CI)`),
+    /// directly or through a top-level constant. What a config names in both is what it names however the
+    /// environment is set; what it names only in [`ExtractedConfig::value`] depends on the environment (ADR 0036).
+    /// Empty when the evaluation decides no such test.
+    pub environment_variants: Vec<ConfigValue>,
 }
 
 /// Statically evaluates what `source` exports, as [`extract_config_object`] does, keeping the arguments of the calls
@@ -502,22 +509,73 @@ pub struct ExtractedConfig {
 /// export whose value depends on itself through imports is [`ConfigValue::Unknown`] there, and one config loads at
 /// most 64 distinct modules and evaluates at most 1024 imported exports and calls. Paths an imported module computes
 /// from its own location (`__dirname`, `import.meta.url`) come back relative to the directory of the config file at
-/// `path`. Without one, imports are unknown.
+/// `path`. Without one, imports are unknown. A test on the environment left undecided has the config evaluated twice
+/// more ([`ExtractedConfig::environment_variants`]).
 #[must_use]
 pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoader>) -> Option<ExtractedConfig> {
-    let Some(loader) = loader else {
-        return evaluate_config(source, path, None);
-    };
-    evaluate_config(source, path, Some(&Modules::new(loader, path)))
+    let (mut config, undecided) = evaluate_with(source, path, loader, Environment::default())?;
+    if undecided {
+        config.environment_variants = [true, false]
+            .into_iter()
+            .map(|truthy| {
+                evaluate_with(source, path, loader, Environment::assuming(truthy)).map(|(variant, _)| variant.value)
+            })
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default();
+    }
+    Some(config)
+}
+
+/// What [`evaluate_config`] finds in `environment`, following imports with `loader` when given, and whether it left a
+/// test on the environment undecided.
+fn evaluate_with(
+    source: &str,
+    path: &Path,
+    loader: Option<&dyn ModuleLoader>,
+    environment: Environment,
+) -> Option<(ExtractedConfig, bool)> {
+    match loader {
+        None => evaluate_config(source, path, None, &environment).map(|config| (config, environment.undecided.get())),
+        Some(loader) => {
+            let modules = Modules::new(loader, path, environment);
+            evaluate_config(source, path, Some(&modules), &modules.environment)
+                .map(|config| (config, modules.environment.undecided.get()))
+        }
+    }
 }
 
 /// The exported value [`extract_config`] finds with `loader`, following the imports it finds.
 #[must_use]
 pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn ModuleLoader) -> Option<ConfigValue> {
-    extract_config(source, path, Some(loader)).map(|config| config.value)
+    evaluate_with(source, path, Some(loader), Environment::default()).map(|(config, _)| config.value)
 }
 
-fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ExtractedConfig> {
+/// How the evaluator takes a test on the environment (`process.env.CI`, `import.meta.env.MODE === 'test'`) whose
+/// value it does not know; see [`ExtractedConfig::environment_variants`].
+#[derive(Default)]
+struct Environment {
+    /// The truthiness every such test is taken to have; `None` leaves it undecided, as any unknown test.
+    assumed: Option<bool>,
+    /// Whether such a test was left undecided.
+    undecided: Cell<bool>,
+}
+
+impl Environment {
+    /// An environment in which every test on it is `truthy`.
+    fn assuming(truthy: bool) -> Self {
+        Self {
+            assumed: Some(truthy),
+            undecided: Cell::new(false),
+        }
+    }
+}
+
+fn evaluate_config(
+    source: &str,
+    path: &Path,
+    modules: Option<&Modules<'_>>,
+    environment: &Environment,
+) -> Option<ExtractedConfig> {
     crate::with_arena(|allocator| {
         let program = parse_program(allocator, source, path)?;
         let followed = modules.map(|modules| FollowedImports { modules, from: path });
@@ -529,13 +587,17 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
         let bindings = module_bindings(&program);
         let imports = import_bindings(&program);
         let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-        let eval = Evaluator::new(&top, &bindings, &imports, file, ".", path, modules);
+        let eval = Evaluator {
+            environment: Some(environment),
+            ..Evaluator::new(&top, &bindings, &imports, file, ".", path, modules)
+        };
         let exported = exported(&program)?;
         let value = eval.exported_value(exported, exports_changed(&program));
         let call_arguments = eval.exported_call_arguments(exported, &value);
         Some(ExtractedConfig {
             value: ConfigValue::from(value),
             call_arguments: call_arguments.into_iter().map(ConfigValue::from).collect(),
+            environment_variants: Vec::new(),
         })
     })
 }
@@ -704,14 +766,17 @@ struct Modules<'l> {
     installed: RefCell<HashMap<(PathBuf, String), bool>>,
     /// What the loader said of each importing directory and specifier ([`ModuleLoader::holds_no_code`]).
     no_code: RefCell<HashMap<(PathBuf, String), bool>>,
+    /// How the evaluators of the config and of the modules it reaches take a test on the environment.
+    environment: Environment,
     /// The module of each analysis [`Self::analyse`] ran or replayed, in the order each found its facts.
     #[cfg(test)]
     passes: RefCell<Vec<(PathBuf, Pass)>>,
 }
 
 impl<'l> Modules<'l> {
-    /// The modules the config file at `path` reaches through `loader`, none of them loaded yet.
-    fn new(loader: &'l dyn ModuleLoader, path: &Path) -> Self {
+    /// The modules the config file at `path` reaches through `loader`, none of them loaded yet, evaluated in
+    /// `environment`.
+    fn new(loader: &'l dyn ModuleLoader, path: &Path, environment: Environment) -> Self {
         Self {
             loader,
             root: path.parent().map_or_default(Path::to_path_buf),
@@ -728,6 +793,7 @@ impl<'l> Modules<'l> {
             replayable: RefCell::new(HashMap::default()),
             installed: RefCell::new(HashMap::default()),
             no_code: RefCell::new(HashMap::default()),
+            environment,
             #[cfg(test)]
             passes: RefCell::new(Vec::new()),
         }
@@ -2458,6 +2524,47 @@ fn declared(visit: impl FnOnce(&mut DeclaredNames)) -> DeclaredNames {
     names
 }
 
+/// Finds whether an expression reads the environment; see [`Evaluator::reads_environment`].
+struct EnvironmentReads<'e, 'c, 'p, 'a> {
+    eval: &'e Evaluator<'c, 'p, 'a>,
+    /// The top-level constants followed so far, which are not followed again.
+    followed: Vec<String>,
+    found: bool,
+}
+
+impl<'a> Visit<'a> for EnvironmentReads<'_, '_, '_, 'a> {
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        if it.property.name.as_str() == "env"
+            && match it.object.get_inner_expression() {
+                Expression::Identifier(id) => id.name.as_str() == "process",
+                Expression::ImportMeta(_) => true,
+                _ => false,
+            }
+        {
+            self.found = true;
+            return;
+        }
+        walk::walk_static_member_expression(self, it);
+    }
+
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        let name = it.name.as_str();
+        let eval = self.eval;
+        if self.found
+            || self.followed.len() >= MAX_CONST_CHAIN
+            || self.followed.iter().any(|followed| followed == name)
+            || eval.is_local(name)
+        {
+            return;
+        }
+        let Some(init) = eval.consts.get(name) else {
+            return;
+        };
+        self.followed.push(name.to_owned());
+        self.visit_expression(init);
+    }
+}
+
 impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
     fn visit_function(&mut self, it: &Function<'a>, flags: oxc_semantic::ScopeFlags) {
         let names = declared(|names| names.visit_function(it, flags));
@@ -2632,6 +2739,8 @@ struct Evaluator<'c, 'p, 'a> {
     captured: RefCell<Option<Value>>,
     /// The argument values of every call whose arguments were evaluated, by the call's span, as first evaluated.
     arguments_of: RefCell<HashMap<Span, Vec<Value>>>,
+    /// How a test on the environment whose value is not known is taken; `None` leaves it undecided.
+    environment: Option<&'c Environment>,
 }
 
 /// The imports of an evaluator that follows none.
@@ -2667,6 +2776,7 @@ impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
             config_setter: RefCell::new(None),
             captured: RefCell::new(None),
             arguments_of: RefCell::new(HashMap::default()),
+            environment: modules.map(|modules| &modules.environment),
         }
     }
 
@@ -3063,12 +3173,40 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         self.expr(expr, depth).split()
     }
 
-    /// Whether `expr` is truthy; `None` when that is not known, as for a value that is not definite ([`Self::read`]).
+    /// Whether `expr` is truthy; `None` when that is not known, as for a value that is not definite ([`Self::read`]),
+    /// unless it is a test on the environment the evaluation assumes ([`Self::assumed_truthiness`]).
     fn truthy(&self, expr: &'p Expression<'a>, depth: u32) -> Option<bool> {
-        match self.read(expr, depth) {
+        let known = match self.read(expr, depth) {
             (value, true) => truthiness(&value),
             (_, false) => None,
+        };
+        known.or_else(|| self.assumed_truthiness(expr))
+    }
+
+    /// The truthiness [`Environment::assumed`] gives `test`, whose own is not known, when it reads the environment
+    /// ([`Self::reads_environment`]); `None` for any other test and when the environment is not assumed, which then
+    /// records that a test on it is left undecided ([`Environment::undecided`]).
+    fn assumed_truthiness(&self, test: &'p Expression<'a>) -> Option<bool> {
+        let environment = self.environment?;
+        if !self.reads_environment(test) {
+            return None;
         }
+        if environment.assumed.is_none() {
+            environment.undecided.set(true);
+        }
+        environment.assumed
+    }
+
+    /// Whether `expr` reads the environment: a member of `process.env` or `import.meta.env`, in `expr` or in the
+    /// initialiser of a top-level constant it names that no binding of the functions being evaluated shadows.
+    fn reads_environment(&self, expr: &Expression<'a>) -> bool {
+        let mut reads = EnvironmentReads {
+            eval: self,
+            followed: Vec::new(),
+            found: false,
+        };
+        reads.visit_expression(expr);
+        reads.found
     }
 
     /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url`, Bun's `import.meta.dir`, `import.meta.path`
@@ -3189,8 +3327,25 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value: over an `a` that is not definite,
     /// `a ?? b` and `a || b` are the union of both sides ([`any_of`]), not definite either, and `a && b` is unknown;
     /// the side a definite `a` selects is as definite as it is.
+    ///
+    /// A test on the environment the evaluation assumes ([`Self::assumed_truthiness`]) selects a side too, a falsy
+    /// left side of `a && b` being `false`.
     fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> Value {
         let (left, definite) = self.read(&logical.left, depth);
+        let known = if definite {
+            left_is_value(logical.operator, &left)
+        } else {
+            None
+        };
+        if known.is_none()
+            && let Some(truthy) = self.assumed_truthiness(&logical.left)
+        {
+            return match (logical.operator, assumed_left_is_value(logical.operator, truthy)) {
+                (_, false) => self.expr(&logical.right, depth),
+                (LogicalOperator::And, true) => Value::Bool(false),
+                (LogicalOperator::Or | LogicalOperator::Coalesce, true) => left,
+            };
+        }
         if !definite {
             return match logical.operator {
                 LogicalOperator::And => Value::Unknown,
@@ -3200,7 +3355,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             };
         }
-        match left_is_value(logical.operator, &left) {
+        match known {
             Some(true) => left,
             Some(false) => self.expr(&logical.right, depth),
             None => Value::Unknown,
@@ -3225,7 +3380,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     LogicalOperator::Coalesce if primitive && !is_void(&logical.left) => Some(true),
                     _ if !definite => None,
                     operator => left_is_value(operator, &left),
-                };
+                }
+                .or_else(|| {
+                    self.assumed_truthiness(&logical.left)
+                        .map(|truthy| assumed_left_is_value(logical.operator, truthy))
+                });
                 // The left side as the value: a falsy `a` of `a && b`, a comparison, a negation and `void` add
                 // nothing.
                 let left = if primitive || logical.operator == LogicalOperator::And {
@@ -5156,6 +5315,15 @@ fn unstable(value: Value, change: &Change) -> Value {
     value
 }
 
+/// Whether the left side of `left <operator> right` is the value of the expression when the left side is assumed to be
+/// `truthy` (for `??`, not nullish).
+fn assumed_left_is_value(operator: LogicalOperator, truthy: bool) -> bool {
+    match operator {
+        LogicalOperator::And => !truthy,
+        LogicalOperator::Or | LogicalOperator::Coalesce => truthy,
+    }
+}
+
 /// Whether the left side of `left <operator> right` is the value of the expression; `None` when that is not known.
 fn left_is_value(operator: LogicalOperator, left: &Value) -> Option<bool> {
     match operator {
@@ -5703,8 +5871,9 @@ mod tests {
     /// What the config `/ws/app/config.ts` of `loader` exports, with the modules that evaluating it followed.
     fn evaluate(loader: &Files) -> (ConfigValue, Modules<'_>) {
         let path = Path::new("/ws/app/config.ts");
-        let modules = Modules::new(loader, path);
-        let config = evaluate_config(loader.0[path], path, Some(&modules)).expect("config is understood");
+        let modules = Modules::new(loader, path, Environment::default());
+        let config =
+            evaluate_config(loader.0[path], path, Some(&modules), &modules.environment).expect("config is understood");
         (config.value, modules)
     }
 

@@ -557,6 +557,61 @@ fn a_guarded_spread_keeps_what_its_object_does_not_replace() {
     assert_eq!(get(&value, &["root"]), &ConfigValue::OneOf(vec![s("app"), s("web")]));
 }
 
+/// The coverage provider of each environment variant of `source`, a Vitest config, sorted (`None` for a variant
+/// without one).
+fn variant_providers(source: &str) -> Vec<Option<String>> {
+    let found = extract_config(source, Path::new("vitest.config.ts"), None).expect("config is understood");
+    let mut providers: Vec<Option<String>> = found
+        .environment_variants
+        .iter()
+        .map(|variant| variant.get("test").and_then(|test| test.get("coverage")))
+        .map(|coverage| coverage.and_then(|c| c.get("provider")).and_then(ConfigValue::as_str).map(str::to_owned))
+        .collect();
+    providers.sort();
+    providers
+}
+
+/// A test on the environment the evaluator cannot decide (`process.env`, `import.meta.env`, under `===`, `!`, `&&`, a
+/// ternary, an `if` or a top-level constant) has the config evaluated again with the test taken as true and as false:
+/// the coverage block is in exactly one of the two.
+#[test]
+fn a_test_on_the_environment_gives_a_variant_for_each_outcome() {
+    for source in [
+        "export default { test: { environment: 'node', \
+         ...(process.env.COVERAGE_ENABLED === 'true' ? { coverage: { provider: 'v8' } } : {}) } };",
+        "export default { test: { environment: 'node', \
+         ...(process.env.COVERAGE_ENABLED === 'true' && { coverage: { provider: 'v8' } }) } };",
+        "export default { test: { ...(!process.env.NO_COVERAGE ? { coverage: { provider: 'v8' } } : {}) } };",
+        "export default { test: { coverage: process.env['COVERAGE'] ? { provider: 'v8' } : undefined } };",
+        "const coverage = import.meta.env.MODE === 'coverage';\n\
+         export default { test: { ...(coverage ? { coverage: { provider: 'v8' } } : {}) } };",
+        "export default () => {\n\
+           const config = { test: { environment: 'node' } };\n\
+           if (process.env.COVERAGE_ENABLED === 'true') {\n\
+             config.test.coverage = { provider: 'v8' };\n\
+           }\n\
+           return config;\n\
+         };",
+    ] {
+        assert_eq!(variant_providers(source), [None, Some("v8".to_owned())], "{source}");
+    }
+}
+
+/// A config without a test on the environment, or whose undecided test reads something else, has no environment
+/// variants: what it names on either branch stays as the evaluation has it.
+#[test]
+fn a_test_that_does_not_read_the_environment_gives_no_variants() {
+    for source in [
+        "export default { test: { coverage: { provider: 'v8' } } };",
+        "import { existsSync } from 'node:fs';\n\
+         export default { test: { ...(existsSync('.coverage') ? { coverage: { provider: 'v8' } } : {}) } };",
+    ] {
+        let found = extract_config(source, Path::new("vitest.config.ts"), None).expect("config is understood");
+        assert_eq!(found.environment_variants, Vec::<ConfigValue>::new(), "{source}");
+        assert!(get(&found.value, &["test"]).as_object().is_some(), "{source}");
+    }
+}
+
 #[test]
 fn a_spread_branch_that_is_not_known_leaves_the_marker() {
     let cases = [
