@@ -48,7 +48,8 @@ tsrs_section="## tsrs (and TypeScript)"
 failures=0
 for archive in "$@"; do
   listed="$(list_members "$archive")"
-  members="$(sed 's|^\./||' <<<"$listed")"
+  mapfile -t names <<<"$listed"
+  members="$(printf '%s\n' "${names[@]#./}")"
   binary=skif
   [[ "$archive" == *windows* ]] && binary=skif.exe
   for member in "$binary" LICENSE ATTRIBUTIONS.md; do

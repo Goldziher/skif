@@ -146,7 +146,7 @@ case "$order" in
 skif-core,skif-specifier,*,skif,skif-cli) ;;
 *) fail "publish-crates: unexpected publish order: ${order}" ;;
 esac
-[[ "$(published_crates | wc -l | tr -d ' ')" -eq 14 ]] || fail "publish-crates: expected 14 crates, got ${order}"
+[[ "$(published_crates | wc -l | tr -d ' ')" -eq 15 ]] || fail "publish-crates: expected 15 crates, got ${order}"
 
 # A crate is published after every skif crate it depends on (cargo publish resolves them on the registry).
 position=0
@@ -159,7 +159,7 @@ while read -r crate; do
   done
   published_before="${published_before}${crate} "
 done < <(published_crates)
-[[ "$position" -eq 14 ]] || fail "publish-crates: checked ${position} crates for dependency order, want 14"
+[[ "$position" -eq 15 ]] || fail "publish-crates: checked ${position} crates for dependency order, want 15"
 
 crates_case "versions already on crates.io are skipped" 0 200 ok
 [[ ! -s "${work}/cargo.log" ]] || fail "publish-crates: cargo ran although every version is published"
@@ -209,7 +209,7 @@ semver_case() {
     STUB_CODES="${work}/codes" GITHUB_STEP_SUMMARY="${work}/semver-summary.md" "$@" bash scripts/semver-checks.sh
 }
 publish_list="$(sed -n '/^crates=(/,/^)/s/^  \([a-z][a-z-]*\)$/\1/p' scripts/publish-crates.sh)"
-[[ "$(wc -l <<<"$publish_list" | tr -d ' ')" -eq 14 ]] || fail "semver-checks: expected 14 crates in publish-crates.sh"
+[[ "$(wc -l <<<"$publish_list" | tr -d ' ')" -eq 15 ]] || fail "semver-checks: expected 15 crates in publish-crates.sh"
 
 semver_case "every published crate is checked" 0
 checked="$(sed -n 's/^semver-checks --package \([^ ]*\) --all-features$/\1/p' "${work}/semver.log")"
