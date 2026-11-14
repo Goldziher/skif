@@ -17,7 +17,7 @@ use skif_js::{JsProvider, PluginSource};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
-const ROOT: &str = "/ws";
+const ROOT: &str = if cfg!(windows) { "C:/ws" } else { "/ws" };
 const ROOT_MANIFEST: &str = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
 
 /// The rules an import named like a dependency can change.
