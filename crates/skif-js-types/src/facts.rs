@@ -159,11 +159,7 @@ impl TypeTimings {
     #[must_use]
     pub fn slowest(&self, count: usize) -> Vec<&ProgramTiming> {
         let mut programs: Vec<&ProgramTiming> = self.per_program.iter().collect();
-        programs.sort_by(|a, b| {
-            b.total()
-                .cmp(&a.total())
-                .then_with(|| a.config.cmp(&b.config))
-        });
+        programs.sort_by(|a, b| b.total().cmp(&a.total()).then_with(|| a.config.cmp(&b.config)));
         programs.truncate(count);
         programs
     }

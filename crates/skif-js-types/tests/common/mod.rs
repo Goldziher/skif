@@ -333,7 +333,11 @@ pub fn generated_programs(classes: &[u32]) -> Generated {
         let dir = format!("packages/p{index}");
         let one = generated(count);
         let offset = u32::try_from(decls.len()).unwrap();
-        reads.extend(one.reads.into_iter().map(|(id, members)| (DeclId(id.0 + offset), members)));
+        reads.extend(
+            one.reads
+                .into_iter()
+                .map(|(id, members)| (DeclId(id.0 + offset), members)),
+        );
         decls.extend(one.query.decls.into_iter().map(|decl| {
             let rel = decl.file.strip_prefix(ROOT).unwrap().to_owned();
             DeclQuery {

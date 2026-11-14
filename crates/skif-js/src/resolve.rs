@@ -2809,8 +2809,11 @@ generated/index.ts
             file("/ws/packages/kit/src/client/link.tsx")
         );
         assert_eq!(
-            r.resolve(Path::new("/ws/packages/kit/testing/runner.js"), "../dist/testing/runner.js")
-                .target,
+            r.resolve(
+                Path::new("/ws/packages/kit/testing/runner.js"),
+                "../dist/testing/runner.js"
+            )
+            .target,
             file("/ws/packages/kit/src/testing/runner.ts")
         );
         assert_eq!(r.resolve(link, "./dist/client/missing").target, Resolved::Unresolved);

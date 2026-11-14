@@ -185,7 +185,7 @@ All notable changes to this project are documented here. The format follows
 
 - Files reached only through framework and build entry points are no longer `unused-files`, so the class members
   only they read are no longer `unused-class-members`
-  ([ADR NNNN](adrs/NNNN-bazel-test-globs-and-angular-packages.md), [#240](https://github.com/Goldziher/skif/issues/240)):
+  ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md), [#240](https://github.com/Goldziher/skif/issues/240)):
   - A relative import into a package's own build output that was never built (`require('./dist/client/link')` in a
     file the package publishes beside `dist`) resolves to the source the output is built from, as a published path
     does.
