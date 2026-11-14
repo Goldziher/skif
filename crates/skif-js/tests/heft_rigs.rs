@@ -86,6 +86,19 @@ const SASS_HEFT: &str = r#"{
 fn repository(rig_json: bool) -> Vec<(&'static str, &'static str)> {
     let mut files = vec![
         ("rush.json", RUSH),
+        // Like published rigs, each rig ships a shared ESLint profile, so it has code of its own.
+        (
+            "rigs/node-rig/profiles/default/includes/eslint/profile.js",
+            "module.exports = {};\n",
+        ),
+        (
+            "rigs/web-rig/profiles/library/includes/eslint/profile.js",
+            "module.exports = {};\n",
+        ),
+        (
+            "rigs/app-rig/profiles/default/includes/eslint/profile.js",
+            "module.exports = {};\n",
+        ),
         (
             "rigs/node-rig/package.json",
             r#"{"name":"node-rig","version":"1.0.0","private":true,"dependencies":{
@@ -119,7 +132,7 @@ fn repository(rig_json: bool) -> Vec<(&'static str, &'static str)> {
         ("rigs/app-rig/profiles/default/config/heft.json", SASS_HEFT),
         (
             "packages/lib/package.json",
-            r#"{"name":"@acme/lib","version":"1.0.0","main":"src/index.ts","devDependencies":{"node-rig":"1.0.0"}}"#,
+            r#"{"name":"@acme/lib","version":"1.0.0","main":"src/index.ts","devDependencies":{"@rushstack/heft-node-rig":"2.11.55"}}"#,
         ),
         ("packages/lib/src/index.ts", "export const a = 1;\n"),
     ];
@@ -129,7 +142,7 @@ fn repository(rig_json: bool) -> Vec<(&'static str, &'static str)> {
             r#"{
               // Tools find their config files in the rig.
               "$schema": "https://developer.microsoft.com/json-schemas/rig-package/rig.schema.json",
-              "rigPackageName": "node-rig"
+              "rigPackageName": "@rushstack/heft-node-rig"
             }"#,
         ));
     }
@@ -165,7 +178,7 @@ fn a_rig_no_rig_json_names_is_unused() {
     let diagnostics = lint(&repository(false));
     assert_eq!(
         found(&diagnostics, "unused-dev-dependencies"),
-        ["packages/lib/package.json: node-rig"],
+        ["packages/lib/package.json: @rushstack/heft-node-rig"],
         "{diagnostics:#?}"
     );
 }
