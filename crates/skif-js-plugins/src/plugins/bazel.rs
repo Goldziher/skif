@@ -8,7 +8,7 @@
 //! the label. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry. The `data` of those rules
 //! and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose imports are
 //! followed, but no entries, so their exports are judged. Each is a file of the package named by its path or by a
-//! label of the `BUILD` file's own package (`":src/index.ts"`). `ng_project` of rules_angular is read as `ts_project`
+//! label of the `BUILD` file's own package (`":src/index.ts"`). `ng_project` of `rules_angular` is read as `ts_project`
 //! is. A target with `testonly = True` is a test target, as `js_test` is, and the include patterns of a `glob([...])`
 //! that the `srcs` or `data` of a test target add are build sources too, as a test runner's file patterns are; its
 //! `exclude` patterns are not applied. The `deps` of an `ng_package` name its entry points: the `index.ts` of each
@@ -63,7 +63,7 @@ const ENTRY_POINT: &str = "entry_point";
 /// The attribute that makes a target one only tests and other test-only targets build from.
 const TESTONLY: &str = "testonly";
 
-/// The rule of rules_angular that packages Angular libraries for npm, and the attribute that names the targets whose
+/// The rule of `rules_angular` that packages Angular libraries for npm, and the attribute that names the targets whose
 /// Bazel packages are its entry points.
 const NG_PACKAGE: (&str, &str) = ("ng_package", "deps");
 

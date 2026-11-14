@@ -228,7 +228,7 @@ mod tests {
             ["/ws/b/tsconfig.json", "/ws/a/tsconfig.json", "/ws/c/tsconfig.json"]
         );
         assert_eq!(timings.slowest(10).len(), 4);
-        assert!(TypeTimings::default().slowest(5).is_empty());
+        assert_eq!(TypeTimings::default().slowest(5), Vec::<&ProgramTiming>::new());
     }
 
     #[test]

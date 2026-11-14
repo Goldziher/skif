@@ -7467,7 +7467,7 @@ fn bazel_format_comprehensions_name_their_packages_and_glob_patterns_none() {
     );
 }
 
-/// An Angular library built with rules_angular: the `deps` of its `ng_package` name the entry points it publishes, the
+/// An Angular library built with `rules_angular`: the `deps` of its `ng_package` name the entry points it publishes, the
 /// `index.ts` of each Bazel package inside the npm package, and an `ng_project` reads as a `ts_project`. The `glob`
 /// of a `testonly` target adds its include patterns as build sources outside production, as a test rule's would,
 /// while the `glob` of a target that is no test still names nothing.
