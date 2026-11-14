@@ -970,10 +970,11 @@ jobs:
             bun) bunx --bun -p "skif-cli@${VERSION}" skif --version ;;
             esac
           }
-          # npm processes a publish before serving it, which has taken over two minutes. An attempt that ran before a
-          # platform package was served leaves an install without it in the npx and bun caches, so each retry starts
-          # from empty caches.
-          for attempt in {1..28}; do
+          # npm processes a publish before serving it, which has taken over two minutes, and the registry has served a
+          # tarball bun asked for as missing for over seven minutes after npm installed it, so the attempts span 15
+          # minutes. An attempt that ran before a platform package was served leaves an install without it in the npx
+          # and bun caches, so each retry starts from empty caches.
+          for attempt in {1..60}; do
             rm -rf "${HOME}/.npm/_npx" "${HOME}/.bun/install/cache"
             if out="$(run_published 2>&1)" && grep -qF "$VERSION" <<<"$out"; then
               echo "$out"
