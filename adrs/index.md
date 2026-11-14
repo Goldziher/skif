@@ -36,10 +36,11 @@ old one.
 | 0026 | [`skif update`: Opt-In Registry Updates, the Only Code That Uses the Network](0026-skif-update.md) | accepted |
 | 0027 | [Distribution and Release: One Name, One Version, One Release Workflow](0027-distribution-and-release.md) | accepted |
 | 0028 | [Editors, Agents and Git Hooks: `skif mcp`, `skif lsp`, `--watch`, the Agent Skill and the Hooks](0028-editors-agents-and-git-hooks.md) | accepted |
-| 0029 | [Performance, Caching and Benchmarks: A Content-Keyed Module Cache and Published Numbers From a Pinned Runner](0029-performance-caching-and-benchmarks.md) | accepted |
+| 0029 | [Performance, Caching and Benchmarks: A Content-Keyed Module Cache and Published Numbers From a Pinned Runner](0029-performance-caching-and-benchmarks.md) | accepted, superseded in part by [0041](0041-benchmarks-on-large-repositories.md) |
 | 0030 | [Supported Versions and the End-to-End Matrix: Upstream End of Life, Tested Layouts](0030-supported-versions-and-the-end-to-end-matrix.md) | accepted |
 | 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted, superseded in part by [0034](0034-build-sources-handed-to-a-nested-root.md) |
 | 0032 | [Nx and Lerna (and Pruned Output Trees): Projects as Scopes, Lerna as Facts, Layouts Recognised by Shape](0032-nx-and-lerna-and-pruned-output-trees.md) | accepted |
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
 | 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
 | 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |
+| 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |

@@ -15,7 +15,11 @@ measured is under [Methodology](#methodology).
 Full skif runs are timed against knip, and `skif --no-js`, which skips the JS analysis, against sherif and syncpack,
 on the [pinned public repositories](https://github.com/Goldziher/skif/blob/main/tools/bench/corpus.toml) with their
 dependencies installed and on generated workspaces. Absolute times depend on the machine; the ratios are the result.
-On npm-cli knip runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it.
+On npm-cli knip runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it. On the
+large repositories (angular, vscode, n8n and next-js) both tools run with the configuration of the
+[agreement comparison](#agreement-with-knip) rather than knip with the repository's own, so they read the same files:
+n8n's own knip configuration checks dependencies only, and vscode's workbench is reached only from the entry points its
+bundler script names.
 
 {/* bench:summary:start */}
 Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.5.0 at `e46391c1ab1c` built with rustc 1.100.0 (0ef1bc386 2026-11-09) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-14 on a GitHub-hosted runner, image ubuntu24 20261111.370.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, AMD EPYC 9V74 80-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 4.79 / 3.53 / 1.67 before and 1.52 / 2.46 / 1.71 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43595557667/attempts/1)).
@@ -248,16 +252,22 @@ command-line invocations, process start-up included, on three kinds of targets:
 | Module graph | 10,000 TypeScript files in 100 packages | `skif` |
 | Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
-skif runs as `skif . --format json --no-install`, with `--no-js` for the manifest and policy rows and with
-`--recursive` where a repository sets `recursive` (babel); the working directory is the target. Non-zero exits are
+skif runs as `skif . --format json --no-install`, with `--no-js` for the manifest and policy rows, with
+`--recursive` where a repository sets `recursive` (babel, vscode, next-js) and, where it sets
+`bench-knip-config = "parity"`, with a `--config` that adds the entry files the agreement comparison gives both tools,
+while knip gets that comparison's configuration in place of the repository's own; the working directory is the
+target. Non-zero exits are
 ignored, since a linter exits 1 when it finds something; a run that exits above 1 or by a signal is an error, since its
 time may be that of a partial run.
 
 ### Runs and statistics
 
 [hyperfine](https://github.com/sharkdp/hyperfine) runs each command without a shell (`-N`), with 3 warmup runs and 15
-measured runs by default (the workflow's `warmup` and `runs` inputs). The tables show medians, which one slow run does
-not move. The warmup means the numbers are warm file cache, not cold start.
+measured runs by default (the workflow's `warmup` and `runs` inputs). On the large repositories, where one knip run
+takes tens of seconds, `corpus.toml` caps them at 1 warmup run and 5 measured runs (`bench-max-warmup`,
+`bench-max-runs`), so the whole run fits the workflow's time limit; the tables name the counts of a capped target. The
+tables show medians, which one slow run does not move. The warmup means the numbers are warm file cache, not cold
+start.
 
 ### Pinned corpus and tools
 
@@ -275,7 +285,9 @@ repository first (`run --install`), through a pinned corepack whose pnpm and yar
 `packageManager`. Installing changes the timings of every tool, not only knip's, so compare only runs made the same
 way. Where knip fails even installed, for reasons that are the repository's own, `corpus.toml` declares the failure
 (`bench-knip-failure`); a run whose error matches is published as `fails: <reason>`, without a ratio, and any other
-error stops the run from being published.
+error stops the run from being published. Where knip prints its whole report before the error, because a configuration
+it cannot load only takes the entries it names away (next-js's root Jest config, two n8n Vite configs), the
+declaration says so (`timed = true`) and the run is published with its time and ratio and the reason beside them.
 
 ### The runner
 
