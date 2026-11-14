@@ -256,9 +256,9 @@ pub fn coverage(
 pub struct Generated {
     /// The files.
     pub workspace: Workspace,
-    /// One package judging every file.
+    /// The packages, each judging every file of its own.
     pub packages: Vec<TypePackage>,
-    /// The classes `C0`..`Cn`, judging `render` and `paint`.
+    /// The classes `C0`..`Cn` of every package, judging `render` and `paint`.
     pub query: TypeQuery,
     /// The typed reads: `render` on every class, through a union of it and its successor, and `paint` on the even
     /// ones.
@@ -318,6 +318,44 @@ pub fn generated(classes: u32) -> Generated {
         packages: vec![package("", "app", &judged)],
         workspace,
         query,
+        reads,
+    }
+}
+
+/// One package per entry of `classes` below `packages/p<k>`, each with its own `tsconfig.json` and so its own program,
+/// holding that many classes in the shape of [`generated`]: programs of different sizes for the scheduler.
+pub fn generated_programs(classes: &[u32]) -> Generated {
+    let mut files = Vec::new();
+    let mut decls = Vec::new();
+    let mut packages = Vec::new();
+    let mut reads = BTreeMap::new();
+    for (index, &count) in classes.iter().enumerate() {
+        let dir = format!("packages/p{index}");
+        let one = generated(count);
+        let offset = u32::try_from(decls.len()).unwrap();
+        reads.extend(one.reads.into_iter().map(|(id, members)| (DeclId(id.0 + offset), members)));
+        decls.extend(one.query.decls.into_iter().map(|decl| {
+            let rel = decl.file.strip_prefix(ROOT).unwrap().to_owned();
+            DeclQuery {
+                file: abs(&dir).join(rel),
+                ..decl
+            }
+        }));
+        let mut judged = Vec::new();
+        for (rel, text) in one.workspace.files {
+            let rel = format!("{dir}/{rel}");
+            if rel.ends_with(".ts") {
+                judged.push(rel.clone());
+            }
+            files.push((rel, text));
+        }
+        let judged: Vec<&str> = judged.iter().map(String::as_str).collect();
+        packages.push(package(&dir, &format!("p{index}"), &judged));
+    }
+    Generated {
+        workspace: Workspace::from_owned(files),
+        packages,
+        query: query(decls),
         reads,
     }
 }
