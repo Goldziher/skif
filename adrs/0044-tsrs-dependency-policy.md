@@ -59,8 +59,10 @@ its process-level choices and makes every upgrade a deliberate, measured change.
 * Each program is owned by a guard whose `Drop` calls `free_unshared_program`; facts are copied out before it drops.
   This is the only unsafe code in skif (`unsafe_code` is denied in `skif-js-types` and forbidden elsewhere), allowed
   at the one call with the reason beside it.
-* A test runs the analysis 50 times in one process and fails when the arena bytes in use grow. Until it passes on the
-  corpus, long-lived hosts (`skif lsp`, `skif mcp`, `--watch`) run untyped by default.
+* A test runs the analysis 50 times on one thread in one process and fails when the arena bytes in use after a run
+  differ from those after the first. With several checker threads the arenas tsrs's worker threads keep for
+  themselves grow from run to run, and skif cannot give them back; long-lived hosts (`skif lsp`, `skif mcp`,
+  `--watch`) therefore run untyped by default until tsrs releases them.
 
 ### Address space and panics
 
@@ -95,7 +97,7 @@ its process-level choices and makes every upgrade a deliberate, measured change.
 * `scripts/check-pins.sh` fails unless every tsrs crate is pinned with `=` to one version.
 * `scripts/check-dependency-tree.sh` fails when a crate other than `skif-js-types` depends on tsrs, or when `skif`
   without default features does.
-* `repeated_analyses_free_their_arenas` (50 runs, arena bytes in use do not grow).
+* `repeated_analyses_free_their_arenas` (50 single-threaded runs, arena bytes in use stay at the first run's).
 * `a_panicking_checker_falls_back_untyped`.
 * The release workflow's archive and npm tarball checks fail when `ATTRIBUTIONS.md` lacks the tsrs section.
 

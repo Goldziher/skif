@@ -71,7 +71,9 @@ pub(crate) fn skif_offset(text: &str, pos: u32, bom: u32) -> u32 {
 }
 
 /// The value declarations whose members a read may reach.
-const CONTAINER: SymbolFlags = SymbolFlags::Class.union(SymbolFlags::Enum).union(SymbolFlags::ValueModule);
+const CONTAINER: SymbolFlags = SymbolFlags::Class
+    .union(SymbolFlags::Enum)
+    .union(SymbolFlags::ValueModule);
 
 struct Walker<'c, 'a> {
     checker: &'c mut Checker,
@@ -147,7 +149,10 @@ impl Walker<'_, '_> {
     }
 
     fn binding_element(&mut self, node: P<Node>) {
-        let Some(pattern) = node.parent().filter(|&parent| tsrs_ast::is_object_binding_pattern(parent)) else {
+        let Some(pattern) = node
+            .parent()
+            .filter(|&parent| tsrs_ast::is_object_binding_pattern(parent))
+        else {
             return;
         };
         let element = node.as_binding_element();
@@ -383,7 +388,12 @@ impl Walker<'_, '_> {
             }
             seen.push(symbol);
             if symbol != class {
-                ancestors.extend(symbol.declarations().iter().filter_map(|&declaration| self.key_of(declaration)));
+                ancestors.extend(
+                    symbol
+                        .declarations()
+                        .iter()
+                        .filter_map(|&declaration| self.key_of(declaration)),
+                );
             }
             if symbol.flags().intersects(SymbolFlags::Class | SymbolFlags::Interface) {
                 let declared = self.checker.get_declared_type_of_symbol_exported(symbol);
@@ -408,14 +418,8 @@ impl Walker<'_, '_> {
         };
         let mut symbols = Vec::new();
         for &implemented in clause.as_heritage_clause().types().nodes() {
-            let Some(expression) = implemented.expression() else {
-                continue;
-            };
-            let name = if expression.kind() == Kind::PropertyAccessExpression {
-                expression.as_property_access_expression().name()
-            } else {
-                expression
-            };
+            // A type reference or an expression with type arguments; the checker resolves its name, qualified or not.
+            let name = tsrs_ast::get_heritage_clause_element_name(implemented);
             if let Some(symbol) = self.checker.get_symbol_at_location_exported(name) {
                 symbols.push(self.resolve_alias(symbol));
             }
@@ -475,7 +479,10 @@ fn aliases_a_value(symbol: P<Symbol>) -> bool {
             Kind::Identifier | Kind::PropertyAccessExpression
         )
     });
-    initialized_from_name || declaration.type_node().is_some_and(|annotation| annotation.kind() == Kind::TypeQuery)
+    initialized_from_name
+        || declaration
+            .type_node()
+            .is_some_and(|annotation| annotation.kind() == Kind::TypeQuery)
 }
 
 /// `expression` without parentheses, type assertions and non-null assertions around it.
@@ -536,7 +543,11 @@ mod tests {
         let name = oxc_offset(text, "Größe");
         assert_eq!(join(text, "enum"), name);
         // UTF-16 would count fewer units: the join is meaningful only because the two differ here.
-        let utf16 = text.split_at(usize::try_from(name).unwrap_or(0)).0.encode_utf16().count();
+        let utf16 = text
+            .split_at(usize::try_from(name).unwrap_or(0))
+            .0
+            .encode_utf16()
+            .count();
         assert_ne!(usize::try_from(name).unwrap_or(0), utf16);
     }
 
@@ -544,6 +555,9 @@ mod tests {
     fn offsets_add_the_byte_order_mark_tsrs_drops() {
         let text = "\u{feff}/** é */\nexport namespace Ns {}";
         assert_eq!(join(text, "namespace"), oxc_offset(text, "Ns"));
-        assert_eq!(oxc_offset(text, "Ns"), oxc_offset(text.trim_start_matches('\u{feff}'), "Ns") + 3);
+        assert_eq!(
+            oxc_offset(text, "Ns"),
+            oxc_offset(text.trim_start_matches('\u{feff}'), "Ns") + 3
+        );
     }
 }

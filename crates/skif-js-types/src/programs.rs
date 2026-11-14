@@ -2,10 +2,11 @@
 //! discovery gives it (tsserver's rules, after tsrs-lint's `find_tsconfig`), each config is built once, and a file no
 //! config includes stays untyped. skif builds no inferred program (ADR 0043).
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use skif_core::HashSet;
 use tsrs_core::tspath;
 use tsrs_tsoptions::{ParseConfigHost, ParsedCommandLine};
 use tsrs_vfs::FS;
@@ -124,7 +125,10 @@ pub(crate) fn plan_programs(input: &TypeInput<'_>, host: &ConfigHost) -> Result<
             let name = tsrs_path(path);
             let placement = match find_config(&name, start, host, &mut cache) {
                 Lookup::Found(config) => {
-                    by_config.entry(host.fs.realpath(&config)).or_default().push(files.len());
+                    by_config
+                        .entry(host.fs.realpath(&config))
+                        .or_default()
+                        .push(files.len());
                     // Replaced by the program index once every file is placed.
                     Placement::Program(usize::MAX)
                 }
@@ -170,8 +174,7 @@ pub(crate) fn parse_config(path: &str, host: &ConfigHost) -> Option<ParsedComman
 
 /// Parses the config at `path`, or says why it cannot be.
 fn parse_config_reporting(path: &str, host: &ConfigHost) -> Result<ParsedCommandLine, String> {
-    let (config, diagnostics) =
-        tsrs_tsoptions::get_parsed_command_line_of_config_file(path, None, None, host, None);
+    let (config, diagnostics) = tsrs_tsoptions::get_parsed_command_line_of_config_file(path, None, None, host, None);
     if !diagnostics.is_empty() {
         return Err(messages(diagnostics.iter().map(|diagnostic| diagnostic.localize())));
     }
@@ -197,7 +200,7 @@ fn find_config(file: &str, start: Start<'_>, host: &ConfigHost, cache: &mut Conf
         Start::Given(config) => Some(config.to_owned()),
     };
     let file_path = host.to_path(file);
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut found_any = false;
     let mut errored = false;
     while let Some(config_path) = next {
@@ -254,10 +257,10 @@ fn holds(config: &ParsedCommandLine, file: &str, file_path: &tspath::Path) -> bo
 /// `jsconfig.json` beside a `tsconfig.json` is still found).
 fn compute_config_file_name(file: &str, skip_directory: bool, host: &ConfigHost) -> Option<String> {
     let mut directory = tspath::get_directory_path(file);
-    let mut skip_tsconfig = skip_directory;
-    let mut skip_jsconfig = skip_directory && !file.ends_with("/tsconfig.json");
+    // Whether the `tsconfig.json` and the `jsconfig.json` of the first directory are skipped.
+    let mut skipped = [skip_directory, skip_directory && !file.ends_with("/tsconfig.json")];
     loop {
-        for (name, skip) in [("tsconfig.json", skip_tsconfig), ("jsconfig.json", skip_jsconfig)] {
+        for (name, skip) in ["tsconfig.json", "jsconfig.json"].into_iter().zip(skipped) {
             if skip {
                 continue;
             }
@@ -274,8 +277,7 @@ fn compute_config_file_name(file: &str, skip_directory: bool, host: &ConfigHost)
             return None;
         }
         directory = parent;
-        skip_tsconfig = false;
-        skip_jsconfig = false;
+        skipped = [false; 2];
     }
 }
 
@@ -327,7 +329,10 @@ mod tests {
     }
 
     fn pairs(expected: &[(&str, &str)]) -> Vec<(String, String)> {
-        expected.iter().map(|&(file, place)| (file.to_owned(), place.to_owned())).collect()
+        expected
+            .iter()
+            .map(|&(file, place)| (file.to_owned(), place.to_owned()))
+            .collect()
     }
 
     #[test]
@@ -356,7 +361,11 @@ mod tests {
         let configs: Vec<&str> = plan.programs.iter().map(|program| program.config.as_str()).collect();
         assert_eq!(
             configs,
-            ["/ws/packages/a/tsconfig.json", "/ws/packages/b/jsconfig.json", "/ws/tsconfig.json"]
+            [
+                "/ws/packages/a/tsconfig.json",
+                "/ws/packages/b/jsconfig.json",
+                "/ws/tsconfig.json"
+            ]
         );
     }
 
@@ -390,7 +399,10 @@ mod tests {
             .with_file("/ws/packages/a/test/a.test.ts", "");
         let plan = plan(
             memory,
-            &[package("/ws/packages/a", &["/ws/packages/a/src/a.ts", "/ws/packages/a/test/a.test.ts"])],
+            &[package(
+                "/ws/packages/a",
+                &["/ws/packages/a/src/a.ts", "/ws/packages/a/test/a.test.ts"],
+            )],
         );
         assert_eq!(
             placements(&plan),
@@ -409,7 +421,10 @@ mod tests {
             .with_file("/ws/packages/a/scripts/build.ts", "")
             .with_file("/ws/packages/b/b.ts", "");
         let packages = [
-            package("/ws/packages/a", &["/ws/packages/a/src/a.ts", "/ws/packages/a/scripts/build.ts"]),
+            package(
+                "/ws/packages/a",
+                &["/ws/packages/a/src/a.ts", "/ws/packages/a/scripts/build.ts"],
+            ),
             package("/ws/packages/b", &["/ws/packages/b/b.ts"]),
         ];
         let plan = plan(memory, &packages);
@@ -430,7 +445,7 @@ mod tests {
             .with_file("/ws/src/a.ts", "");
         let plan = plan(memory, &[package("/ws", &["/ws/src/a.ts"])]);
         assert_eq!(placements(&plan), pairs(&[("/ws/src/a.ts", "ConfigError")]));
-        assert!(plan.programs.is_empty());
+        assert_eq!(plan.programs.len(), 0);
     }
 
     #[test]
@@ -481,7 +496,11 @@ mod tests {
     #[test]
     fn a_given_tsconfig_that_cannot_be_read_is_an_error() {
         let memory = MemoryFs::new().with_file("/ws/src/a.ts", "");
-        let error = plan_with(memory, &[package("/ws", &["/ws/src/a.ts"])], Some(Path::new("missing.json")));
+        let error = plan_with(
+            memory,
+            &[package("/ws", &["/ws/src/a.ts"])],
+            Some(Path::new("missing.json")),
+        );
         assert!(
             matches!(&error, Err(TypeError::Config { path, .. }) if path == Path::new("missing.json")),
             "{error:?}"

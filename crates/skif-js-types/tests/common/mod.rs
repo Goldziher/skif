@@ -70,8 +70,7 @@ impl Workspace {
         self.files
             .iter()
             .find(|(path, _)| path == rel)
-            .map(|(_, text)| text.as_str())
-            .unwrap_or_else(|| panic!("the fixture has no file {rel}"))
+            .map_or_else(|| panic!("the fixture has no file {rel}"), |(_, text)| text.as_str())
     }
 
     /// The workspace as a file system.

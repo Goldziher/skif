@@ -94,7 +94,8 @@ impl Candidates {
     }
 
     fn has_member(&self, id: DeclId, name: &str) -> bool {
-        self.candidate(id).is_some_and(|candidate| candidate.members.contains(name))
+        self.candidate(id)
+            .is_some_and(|candidate| candidate.members.contains(name))
     }
 }
 
@@ -215,7 +216,10 @@ mod tests {
         let base = key("/ws/base.ts", 13);
         let interface = key("/ws/disposable.ts", 17);
         let found = Found {
-            reads: vec![read("/ws/base.ts", 13, "render"), read("/ws/disposable.ts", 17, "dispose")],
+            reads: vec![
+                read("/ws/base.ts", 13, "render"),
+                read("/ws/disposable.ts", 17, "dispose"),
+            ],
             ancestry: BTreeMap::from([(key("/ws/child.ts", 13), BTreeSet::from([base, interface]))]),
             ..Found::default()
         };
