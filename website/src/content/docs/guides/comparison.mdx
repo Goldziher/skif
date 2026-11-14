@@ -339,11 +339,11 @@ name on the [rules pages](../../rules/).
 Generated from the latest imported run of the `bench` workflow, with the dependencies of the repositories installed:
 
 {/* bench:claims:start */}
-- **1.9–9.1x faster than knip** (median 7.6x) for dead-code analysis, on 3 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core.
-- **1.2–8.1x faster than sherif** (median 4.4x) for manifest and workspace checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
-- **5.8–21.4x faster than syncpack** (median 9.8x) for version-policy checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+- **6.0–9.0x faster than knip** (median 7.7x) for dead-code analysis, on 3 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core.
+- **1.2–8.3x faster than sherif** (median 4.4x) for manifest and workspace checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+- **6.3–20.0x faster than syncpack** (median 10.2x) for version-policy checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
 
-skif 0.4.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted runner, measured on 2026-11-13.
+skif 0.5.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted runner, measured on 2026-11-14.
 {/* bench:claims:end */}
 
 The [benchmarks page](../benchmarks/) has the tables per repository and workspace, the workflow run the numbers come
