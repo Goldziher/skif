@@ -14,7 +14,8 @@ pub(super) struct Val {
 
 #[derive(Debug, Clone)]
 pub(super) struct Flag {
-    /// The flag name without leading dashes; short groups such as `-ws` keep all letters.
+    /// The flag name without leading dashes; short groups such as `-ws` keep all letters, unless each of them takes a
+    /// value (`-pe`), when each letter is a flag of its own.
     pub name: String,
     pub value: Option<Val>,
 }
@@ -97,18 +98,26 @@ pub(super) fn parse(words: &[Word], value_flags: &[&str], stop_at_positional: bo
         if let Some(short) = short {
             let first = short.chars().next().map_or(0, char::len_utf8);
             let (head, tail) = short.split_at(first);
-            if tail.is_empty() {
-                let value = if value_flags.contains(&head) {
+            let takes_value = value_flags.contains(&head);
+            if tail.is_empty() || (takes_value && is_value_flag_group(tail, value_flags)) {
+                // A group of value flags (`node -pe code`) is its letters, the last taking the next word.
+                let last = short.char_indices().last().map_or(0, |(at, _)| at);
+                let (leading, last) = short.split_at(last);
+                out.flags.extend(leading.chars().map(|letter| Flag {
+                    name: letter.to_string(),
+                    value: None,
+                }));
+                let value = if value_flags.contains(&last) {
                     i += 1;
                     words.get(i).map(val)
                 } else {
                     None
                 };
                 out.flags.push(Flag {
-                    name: head.to_owned(),
+                    name: last.to_owned(),
                     value,
                 });
-            } else if value_flags.contains(&head) {
+            } else if takes_value {
                 out.flags.push(Flag {
                     name: head.to_owned(),
                     value: Some(Val {
@@ -134,4 +143,12 @@ pub(super) fn parse(words: &[Word], value_flags: &[&str], stop_at_positional: bo
         i += 1;
     }
     out
+}
+
+/// Whether every letter of `letters`, the rest of a short group, is itself a short flag that takes a value.
+fn is_value_flag_group(letters: &str, value_flags: &[&str]) -> bool {
+    letters.chars().all(|letter| {
+        let mut buffer = [0; 4];
+        value_flags.contains(&&*letter.encode_utf8(&mut buffer))
+    })
 }
