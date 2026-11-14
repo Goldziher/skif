@@ -377,7 +377,8 @@ impl EntryContext<'_> {
                 && is_code_file(&source)
             {
                 sources.insert(source);
-            } else if should_have_source(&rel)
+            } else if is_code_file(path)
+                && should_have_source(&rel)
                 && !names_no_file(
                     self.disk,
                     &self.workspace.root,
