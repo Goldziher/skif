@@ -125,6 +125,12 @@ All notable changes to this project are documented here. The format follows
 
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
 
+- **Type-aware scheduling**: the programs with the most judged files are built first, and a program gets checkers in
+  proportion to its share of the judged files (at least the even share of the programs built at once, at most tsrs's
+  count for the machine), so a repository whose root program holds most of the files no longer checks it on a quarter
+  of the cores. The programs that run at once never hold more checkers than the run has threads; a program waits until
+  its checkers fit. The facts do not change.
+
 - **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
   and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and
   warmup runs below the run's (the four large repositories run 5 times after 1 warmup run, so the job fits its time
