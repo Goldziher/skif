@@ -253,6 +253,17 @@ fn table() {
             &["glob", "tsx"],
             &["scripts/check.ts"],
         ),
+        // Web Test Runner's test files: positional, `--files` and after `--`; `--config` takes a value.
+        files(
+            "web-test-runner --config wtr.config.mjs --node-resolve 'test/**/*.test.js' -- spec/after.js",
+            &["web-test-runner"],
+            &["spec/after.js", "test/**/*.test.js"],
+        ),
+        files(
+            "wtr --files spec/listed.js --watch unit.test.ts",
+            &["wtr"],
+            &["spec/listed.js", "unit.test.ts"],
+        ),
         // retry-cli's short and long value flags, as knip lists them.
         files(
             "retry -n 3 --factor 2 -t 100 --max-timeout 500 tsx scripts/a.ts",
