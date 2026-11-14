@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
 - **Consumers of `explain-usage --format json`, `explain-usage --dependency` and `--trace-dependency --format json`**:
   a `require.resolve("x")`, `createRequire(…).resolve("x")` or `import.meta.resolve("x")` is listed with the import
   kind `resolve` instead of `require` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Library users that build `PluginContext` of `skif-js-plugins` with a literal**: it gains `members`, the
+  directories of the run's other packages below the package, whose sources the `execa`, `zx`, `nano-spawn` and `bun`
+  plugins leave out; `&[]` reads them all ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **Library users that build `skif_core::shell::Tokens` with a literal**: it gains `empty_commands`, the commands of
+  redirections alone (`> "$(x)"`) as `EmptyCommand`s ([#97](https://github.com/Goldziher/skif/issues/97)).
 - **Library hosts that lint nested roots themselves**: the files of other projects that a plugin names as build
   sources (a Bazel `srcs`) moved from `Report::other_project_files` to the new
   `Report::other_project_build_sources`. Pass those below the root, made relative to the nested root that owns them,
@@ -38,6 +43,8 @@ All notable changes to this project are documented here. The format follows
   makes a listing of a package's sources that shares the texts it reads with another listing, and
   `WorkspaceListing::package_sources` of `skif-js` makes one that shares them with the run's other packages.
 
+- **Public API** ([#97](https://github.com/Goldziher/skif/issues/97)): `skif-js-syntax` exports `is_plain_word`,
+  `shell_quote` and `shell_word`, which quote a word of a command line as the command plugins do.
 - **Public API** ([#226](https://github.com/Goldziher/skif/issues/226)): the build sources a multi-root host hands a
   nested root. `skif-core`: `Report::other_project_build_sources` and `Report::with_other_project_build_sources`.
   `skif-lint`: `Emitter::report_other_project_build_source`, `Emitter::take_other_project_build_sources`,
@@ -51,8 +58,9 @@ All notable changes to this project are documented here. The format follows
   thirds of a core instead of a third. The files it compares are unchanged. The plugins that search a
   package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) share the texts they read between all packages of a
   workspace and their Nx projects, so a source file is usually read once per workspace instead of once for every
-  package whose directory holds it (a member's sources are also the root package's); packages resolved in parallel can
-  still read the same file at the same time. The output is unchanged.
+  package or project that searches it (`pino` and the `Bun.` check of `bun` also search a member's sources from the
+  root package, and every one of them searches an Nx project's sources from its package); packages resolved in
+  parallel can still read the same file at the same time. The output is unchanged.
 
 - **Performance** ([#224](https://github.com/Goldziher/skif/issues/224)): evaluating a config that follows its imports
   parses and analyses a module inside a cycle of imports once per distinct set of answers its imports give, instead of
@@ -84,6 +92,29 @@ All notable changes to this project are documented here. The format follows
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **`unlisted-binaries`**: a `node:child_process`, `execa`, nano-spawn or `Bun.spawn` call with a literal argument that
+  is not a plain word (`execFileSync("sqlite3", [db, "select …"])`) runs its program: the argument is one quoted word
+  of the command instead of dropping the call, so the binary is judged. The analysis cache is invalidated
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`, `unused-files`**: a computed argument of such a call ends its command, instead of being left
+  out while the literals after it stay: `spawn("node", [script, "out.js"])` no longer runs a file `out.js`. The
+  analysis cache is invalidated ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`, `unused-files`**: a short flag group whose letters all take a value reads as those flags, the
+  last taking the next word, as Node.js reads `node -pe "require('./package.json').version"`: the code is no file
+  and loads no package ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: every word of a command array (moonrepo `command`, `typescript.contentMapper.exec`) that is
+  not a plain word is quoted the same way, so a word such as `&&` or `#` is an argument instead of shell syntax
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: a command substitution runs in the directory of the command that holds it, after a `cd` or
+  a workflow step's `working-directory`, instead of where the text starts: `SUITE=$(pnpm exec tsx x.ts)` in a step
+  with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root. So does a
+  substitution in a command of redirections alone (`cd a && > "$(x)"` runs `x` in `a`), and one after a `pushd` can
+  `popd` back ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: the `execa`, `zx` and nano-spawn plugins of a package read only its own source files, as the
+  `bun` plugin does, so a root that lists execa no longer judges the commands of its members' files against itself: a
+  member's `execa(require.resolve(".bin/jscodeshift"))` runs `jscodeshift` of the member that lists it. A directory
+  with a `package.json` that is no workspace member, such as `scripts/package.json` with only `"type": "module"`, is
+  the package's own: the `bun` plugin no longer skips its files ([#97](https://github.com/Goldziher/skif/issues/97)).
 - **`declare module` re-exports**: `export * from "x"` and `export { a } from "x"` inside a `declare module` block are
   type-only imports of `x`, as an `import` there already was, so they use `x` or its `@types` package: a
   `declare module 'commander' { export * from '@commander-js/extra-typings'; }` no longer leaves

@@ -1,6 +1,6 @@
 //! moonrepo: the `command` of every task in `moon.yml` and `.moon/tasks*.yml` is a script.
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, shell_word};
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 
@@ -41,7 +41,7 @@ impl Plugin for Moonrepo {
                     words
                         .iter()
                         .filter_map(ConfigValue::as_str)
-                        .map(|word| quote(&expand(word)))
+                        .map(|word| shell_word(&expand(word)))
                         .collect::<Vec<_>>()
                         .join(" "),
                 ),
@@ -50,14 +50,5 @@ impl Plugin for Moonrepo {
             .filter(|command| !command.trim().is_empty())
             .map(PluginInput::Script)
             .collect()
-    }
-}
-
-/// A word of a command array as one shell word.
-fn quote(word: &str) -> String {
-    if word.is_empty() || word.contains(|c: char| c.is_whitespace() || "'\"&|;<>()$`\\".contains(c)) {
-        format!("'{}'", word.replace('\'', r"'\''"))
-    } else {
-        word.to_owned()
     }
 }

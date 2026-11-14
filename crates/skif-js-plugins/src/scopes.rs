@@ -155,6 +155,7 @@ impl ScopeShared {
             nx: None,
             globs: owner.globs,
             sources: None,
+            members: &[],
         }
     }
 }

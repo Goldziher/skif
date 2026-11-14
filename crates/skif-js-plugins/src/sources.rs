@@ -141,6 +141,7 @@ mod tests {
         static SCRIPTS: std::sync::LazyLock<IndexMap<String, String>> = std::sync::LazyLock::new(IndexMap::new);
         static PLUGINS: std::sync::LazyLock<IndexMap<String, skif_config::PluginConfig>> =
             std::sync::LazyLock::new(IndexMap::new);
+        static MEMBERS: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| vec!["nested".to_owned()]);
         PluginContext {
             dir: Path::new(dir),
             is_root: false,
@@ -154,6 +155,7 @@ mod tests {
             nx: None,
             globs,
             sources,
+            members: &MEMBERS,
         }
     }
 
@@ -162,7 +164,8 @@ mod tests {
     }
 
     /// A listing answers for the directory it was made for, as a context without one does, and a context of another
-    /// directory that is handed it finds its own sources.
+    /// directory that is handed it finds its own sources. The own sources leave out those of a member, `nested`, and
+    /// keep those below a `package.json` that is not one.
     #[test]
     fn a_listing_serves_only_the_directory_it_lists() {
         let fs = MemoryFs::new()
@@ -170,6 +173,9 @@ mod tests {
             .with_file("/a/types.d.ts", "pino()")
             .with_file("/a/nested/package.json", "{}")
             .with_file("/a/nested/y.ts", "pino()")
+            .with_file("/a/nested/deep/q.ts", "other()")
+            .with_file("/a/esm/package.json", r#"{"type":"module"}"#)
+            .with_file("/a/esm/v.mjs", "other()")
             .with_file("/a/z.js", "other()")
             .with_file("/b/w.ts", "pino()");
         let globs = GlobCache::new();
@@ -186,7 +192,7 @@ mod tests {
         );
         assert_eq!(
             found(&own_sources_where(&with, |_| true)),
-            [("x.ts", "pino()"), ("z.js", "other()")]
+            [("esm/v.mjs", "other()"), ("x.ts", "pino()"), ("z.js", "other()")]
         );
         assert_eq!(
             found(&own_sources_where(&with, |_| true)),
