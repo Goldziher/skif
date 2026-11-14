@@ -99,6 +99,28 @@ fn a_member_read_in_its_own_file_counts_and_a_whole_use_there_uses_every_member(
     );
 }
 
+/// An imported enum named only as a type (`value: E`, `x as E | null`) reads no member, as in its own file; a type
+/// argument (`Record<E, X>`) and a mapped type can stand for every member, so they use it as a whole.
+#[test]
+fn a_type_annotation_naming_an_imported_enum_uses_no_member() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import { Typed, Keyed, Mapped } from './enums';\n\
+             export function take(value: Typed, other?: Typed | null): void { console.log(value, other); }\n\
+             export const read = Typed.N;\n\
+             export const byKey: Record<Keyed, number> = {} as never;\n\
+             export type ByMapped = { [K in Mapped]: string };\n",
+        ),
+        (
+            "enums.ts",
+            "export enum Typed { M, N }\nexport enum Keyed { C, D }\nexport enum Mapped { G, H }\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-enum-members"), ["enums.ts: Typed.M"]);
+}
+
 #[test]
 fn a_whole_use_of_an_imported_enum_uses_every_member() {
     let diagnostics = lint_files(&[

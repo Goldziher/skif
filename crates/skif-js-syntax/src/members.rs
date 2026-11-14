@@ -15,7 +15,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use oxc_ast::ast::{
     Argument, BindingPattern, CallExpression, ComputedMemberExpression, ExportSpecifier, Expression,
     IdentifierReference, ImportDeclaration, JSXMemberExpression, JSXMemberExpressionObject, StaticMemberExpression,
-    TSQualifiedName, TSTemplateLiteralType, TSType, TSTypeName, TSTypeQuery, VariableDeclarator,
+    TSMappedType, TSQualifiedName, TSTemplateLiteralType, TSType, TSTypeName, TSTypeParameterInstantiation,
+    TSTypeQuery, TSTypeReference, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{Scoping, SymbolId};
@@ -109,6 +110,9 @@ struct Tracker<'e> {
     excluded: &'e HashSet<(u32, u32)>,
     /// The scopes of the program, to tell an import binding from a shadowing one.
     scoping: &'e Scoping,
+    /// How many type arguments, template literal types and mapped types the walk is inside: a type naming the
+    /// binding there can stand for every member (`Record<E, X>`, `${E}`, `{ [K in E]: X }`).
+    type_context: u32,
 }
 
 impl Tracker<'_> {
@@ -228,6 +232,43 @@ impl<'a> Visit<'a> for Tracker<'_> {
             JSXMemberExpressionObject::ThisExpression(_) => {}
         }
         walk::walk_jsx_member_expression(self, it);
+    }
+
+    fn visit_ts_type_parameter_instantiation(&mut self, it: &TSTypeParameterInstantiation<'a>) {
+        self.type_context += 1;
+        walk::walk_ts_type_parameter_instantiation(self, it);
+        self.type_context -= 1;
+    }
+
+    fn visit_ts_template_literal_type(&mut self, it: &TSTemplateLiteralType<'a>) {
+        self.type_context += 1;
+        walk::walk_ts_template_literal_type(self, it);
+        self.type_context -= 1;
+    }
+
+    fn visit_ts_mapped_type(&mut self, it: &TSMappedType<'a>) {
+        self.type_context += 1;
+        walk::walk_ts_mapped_type(self, it);
+        self.type_context -= 1;
+    }
+
+    fn visit_ts_type_reference(&mut self, it: &TSTypeReference<'a>) {
+        // A type annotation naming the binding (`value: E`, `x as E | null`) reads no member and passes no value
+        // around: it is a use, but not one that escapes.
+        if self.type_context == 0
+            && let TSTypeName::IdentifierReference(id) = &it.type_name
+        {
+            let excluded = !self.excluded.is_empty() && self.excluded.contains(&(id.span.start, id.span.end));
+            if !excluded && let Some(slot) = self.slot(id) {
+                slot.uses += 1;
+                slot.member_uses += 1;
+            }
+            if let Some(arguments) = &it.type_arguments {
+                self.visit_ts_type_parameter_instantiation(arguments);
+            }
+            return;
+        }
+        walk::walk_ts_type_reference(self, it);
     }
 
     fn visit_ts_qualified_name(&mut self, it: &TSQualifiedName<'a>) {
@@ -439,6 +480,7 @@ pub(crate) fn track(
         open: false,
         excluded,
         scoping,
+        type_context: 0,
     };
     tracker.visit_program(program);
     for (i, j, index) in assigned {
@@ -462,6 +504,7 @@ pub(crate) fn uses(program: &oxc_ast::ast::Program<'_>, analysis: &Analysis<'_>)
         open: true,
         excluded: &excluded,
         scoping: analysis.scoping(),
+        type_context: 0,
     };
     tracker.visit_program(program);
     let Slots {

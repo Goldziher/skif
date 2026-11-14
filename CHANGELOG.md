@@ -30,6 +30,10 @@ All notable changes to this project are documented here. The format follows
   only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
   needs re-recording for the new categories.
 
+### Fixed
+
+- `unused-enum-members`: an imported enum named only in a type annotation (`value: E`, `x as E | null`) no longer counts as used as a whole, so its unread members are reported, as they already were for an enum annotated in its own file. Type arguments (`Record<E, X>`), template literal types and mapped types still use every member. The module cache schema is now 9.
+
 ## [0.5.0] - 2026-11-14
 
 ### Breaking changes
