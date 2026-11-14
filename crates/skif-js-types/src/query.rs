@@ -100,7 +100,6 @@ impl Walker<'_, '_> {
             Kind::SpreadElement
             | Kind::SpreadAssignment
             | Kind::ReturnStatement
-            | Kind::ExportAssignment
             | Kind::ForInStatement => {
                 if let Some(expression) = node.expression() {
                     self.escape(expression);
