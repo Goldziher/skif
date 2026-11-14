@@ -4,6 +4,8 @@
 //! A rig package ships `profiles/<profile>/config/*.json` and `profiles/<profile>/tsconfig*.json` for the projects
 //! that name it; in the rig itself these profiles are its own configs.
 
+use std::path::Path;
+
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -102,11 +104,10 @@ fn extends_inputs(config: &ConfigAst<'_>) -> Vec<PluginInput> {
 /// The `pluginPackage` of every lifecycle plugin (`heftPlugins`) and of every task's plugin
 /// (`phasesByName.<phase>.tasksByName.<task>.taskPlugin`).
 fn plugin_packages(value: &ConfigValue) -> Vec<&str> {
-    let lifecycle = value.get("heftPlugins").map(objects).unwrap_or_default();
+    let lifecycle = value.get("heftPlugins").map_or_default(objects);
     let tasks = value
         .get("phasesByName")
-        .map(values_of)
-        .unwrap_or_default()
+        .map_or_default(values_of)
         .into_iter()
         .filter_map(|phase| phase.get("tasksByName"))
         .flat_map(values_of)
@@ -188,7 +189,11 @@ fn json_files(cx: &PluginContext<'_>, dir: &str) -> Vec<String> {
         .iter()
         .filter(|entry| entry.is_file)
         .filter_map(|entry| entry.path.file_name()?.to_str().map(str::to_owned))
-        .filter(|name| name.ends_with(".json"))
+        .filter(|name| {
+            Path::new(name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        })
         .collect();
     names.sort();
     names
