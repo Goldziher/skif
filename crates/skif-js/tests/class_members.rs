@@ -373,7 +373,10 @@ const BRAND: &str = "type Options = { a: number };\nfunction run(): void {}\nexp
 fn type_only_fields_are_not_judged() {
     let files = [
         PACKAGE,
-        ("index.ts", "import { Brand } from './brand';\nconsole.log(new Brand());\n"),
+        (
+            "index.ts",
+            "import { Brand } from './brand';\nconsole.log(new Brand());\n",
+        ),
         ("brand.ts", BRAND),
     ];
     assert_eq!(
@@ -507,7 +510,10 @@ fn explain_usage_names_the_exemption() {
 fn explain_usage_names_the_type_only_exemption() {
     let files = [
         PACKAGE,
-        ("index.ts", "import { Brand } from './brand';\nconsole.log(new Brand());\n"),
+        (
+            "index.ts",
+            "import { Brand } from './brand';\nconsole.log(new Brand());\n",
+        ),
         ("brand.ts", BRAND),
     ];
     let text = explain(&files, "brand.ts", "Brand._rgbaBrand");

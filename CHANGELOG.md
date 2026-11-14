@@ -68,7 +68,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- The parse cache schema moves to version 10, so the first run after upgrading re-parses every file.
+- The parse cache schema moves to version 11, so the first run after upgrading re-parses every file.
 
 - **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
   and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and
@@ -117,13 +117,13 @@ All notable changes to this project are documented here. The format follows
   (`declare protected readonly _Options: Options`) and a nominal brand or phantom field typed `void`, `never`,
   `undefined` or `unique symbol` with no value but `undefined` (`readonly _rgbaBrand: void = undefined`,
   `readonly __brand!: unique symbol`). A `void` field with a real initialiser is still judged, and `explain-usage`
-  names the exemption.
+  names the exemption ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
 
 - `unused-class-members`: an element access whose key is a constant reads the member the constant names:
   `target[ReactiveFlags.SKIP]` with `enum ReactiveFlags { SKIP = '__v_skip' }` reads `__v_skip`, as do a string
   `const` and a property of an `as const` object, in the same module or imported, also through a namespace import or
-  a re-export. A key held by a `let`, a plain object or a parameter still reads nothing. The parse cache schema moves
-  to 11.
+  a re-export. A key held by a `let`, a plain object or a parameter still reads nothing
+  ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
 
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.

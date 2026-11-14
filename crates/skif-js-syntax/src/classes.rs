@@ -30,8 +30,8 @@ use crate::collect::{
 };
 use crate::jsdoc::leading_tags;
 use crate::model::{
-    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, ImportedKeyRead, ImportedKind,
-    ModuleInfo, StringConstant,
+    ClassMember, ClassMemberKind, ClassShape, Export, ExportKind, Heritage, ImportedKeyRead, ImportedKind, ModuleInfo,
+    StringConstant,
 };
 use crate::semantic::Analysis;
 
@@ -278,7 +278,7 @@ fn is_type_only(property: &PropertyDefinition<'_>) -> bool {
         .as_ref()
         .is_some_and(|annotation| match &annotation.type_annotation {
             TSType::TSVoidKeyword(_) | TSType::TSNeverKeyword(_) | TSType::TSUndefinedKeyword(_) => true,
-            TSType::TSTypeOperator(operator) => {
+            TSType::TSTypeOperatorType(operator) => {
                 operator.operator == TSTypeOperatorOperator::Unique
                     && matches!(operator.type_annotation, TSType::TSSymbolKeyword(_))
             }
