@@ -24,7 +24,10 @@
 //! with `cfg` only what `set` returns of its parameter, and a fresh object it returns shares nothing with what it is
 //! given. The name of any other function the module declares stands for both what its parameters take and what it
 //! returns, but a change of what a parameter takes does not reach what it returns: a call gives that, and the function
-//! does not return it unless it says so (`return options`).
+//! does not return it unless it says so (`return options`). A method or a function value of an object literal stands
+//! for what it returns, but for a parameter that takes its argument whole and has no default: that is what a call gives
+//! the method, which the object does not hold, so a hook that changes and returns the config it is given
+//! (`viteFinal(config) { …; return config; }`) shares nothing with the object holding it.
 //!
 //! A call whose effect is not known (a function the module or a library declares, a `new` of a class other than a
 //! builtin one, a list or string method on an object not known to be a list or string) may change every object it is
@@ -2019,6 +2022,8 @@ impl Sharing<'_> {
             at: Vec::new(),
             exact: true,
             frozen: false,
+            given: Vec::new(),
+            method: false,
             out: Vec::new(),
         };
         visit(&mut refs);
@@ -3343,6 +3348,12 @@ struct Refs<'s> {
     /// Inside what the value does not show where it holds (an argument of an unknown call, an array element, a
     /// spread): `at` stays where that is.
     frozen: bool,
+    /// The names the parameters of the methods being visited bind ([`given_names`]): each takes what a call gives
+    /// the method, which the object holding the method does not hold, so a method that changes and returns what it is
+    /// given (a bundler hook such as `viteFinal(config) { …; return config; }`) shares nothing with that object.
+    given: Vec<SymbolId>,
+    /// Whether the function visited next is the value of a key of an object literal, a method of it.
+    method: bool,
     out: Vec<Held>,
 }
 
@@ -3392,7 +3403,7 @@ impl Refs<'_> {
         if self.part == Part::Body {
             return;
         }
-        if let Some(symbol) = resolved(self.scoping, id) {
+        if let Some(symbol) = resolved(self.scoping, id).filter(|symbol| !self.given.contains(symbol)) {
             self.out.push(Held {
                 symbol,
                 keys,
@@ -3407,9 +3418,10 @@ impl Refs<'_> {
     /// Visits a function with `params`, whose body `visit` visits as `body` ([`Part::Body`], or [`Part::Value`] for an
     /// arrow whose body is an expression). One not entered yet stands for what it returns and, as [`Part::Function`]
     /// says, what its parameters take. One in the value (a getter, a method, a callback) stands for what it returns,
-    /// somewhere at or below where it is, as code that calls it gets that. One in the body of a function is not the
-    /// value.
+    /// somewhere at or below where it is, as code that calls it gets that, but for what a method returns of its
+    /// parameters ([`Self::given`]). One in the body of a function is not the value.
     fn function(&mut self, params: &FormalParameters<'_>, body: Part, visit: impl FnOnce(&mut Self)) {
+        let method = std::mem::take(&mut self.method);
         match self.part {
             Part::Body => {}
             Part::Function { parameters } => {
@@ -3420,12 +3432,32 @@ impl Refs<'_> {
                 visit(self);
                 self.part = Part::Value;
             }
-            Part::Value => self.opaque(|refs| {
-                refs.part = body;
-                visit(refs);
-                refs.part = Part::Value;
-            }),
+            Part::Value => {
+                let depth = self.given.len();
+                if method {
+                    self.given.extend(given_names(params));
+                }
+                self.opaque(|refs| {
+                    refs.part = body;
+                    visit(refs);
+                    refs.part = Part::Value;
+                });
+                self.given.truncate(depth);
+            }
         }
+    }
+
+    /// Visits `value`, the value of a key of an object literal, noting a function there as a method ([`Self::method`]).
+    fn property_value<'a>(&mut self, value: &Expression<'a>)
+    where
+        Self: Visit<'a>,
+    {
+        self.method = matches!(
+            value.get_inner_expression(),
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        );
+        self.visit_expression(value);
+        self.method = false;
     }
 
     /// Visits what `visit` visits as held somewhere at or below where it is.
@@ -3539,10 +3571,10 @@ impl<'a> Visit<'a> for Refs<'_> {
                         .map(|key| crate::js_string(key.as_js_str()))
                         .filter(|key| key != "__proto__");
                     match key {
-                        Some(key) => self.at_key(key, |refs| refs.visit_expression(&p.value)),
+                        Some(key) => self.at_key(key, |refs| refs.property_value(&p.value)),
                         None => self.opaque(|refs| {
                             refs.visit_property_key(&p.key);
-                            refs.visit_expression(&p.value);
+                            refs.property_value(&p.value);
                         }),
                     }
                 }
@@ -3772,6 +3804,20 @@ impl Parameters {
             .flat_map(|(names, exact)| names.iter().map(move |&name| (name, *exact)))
             .chain(self.rest.iter().map(|&name| (name, false)))
     }
+}
+
+/// The names of the parameters of `params` that take the argument at their place, as a whole and with no default: what
+/// a call gives, not what a default or the code around the function holds.
+fn given_names(params: &FormalParameters<'_>) -> Vec<SymbolId> {
+    params
+        .items
+        .iter()
+        .filter(|param| param.initializer.is_none())
+        .filter_map(|param| match &param.pattern {
+            BindingPattern::BindingIdentifier(id) => id.symbol_id.get(),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The symbols of the names `pattern` binds.

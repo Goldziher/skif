@@ -44,6 +44,9 @@ impl Plugin for Storybook {
         if patterns.is_empty() {
             out.push(PluginInput::Entry(DEFAULT_STORIES.to_string()));
         }
+        if unknown_stories(value) {
+            out.push(PluginInput::EntriesIncomplete);
+        }
         // Story globs are written relative to the config directory.
         for pattern in patterns {
             out.extend(entry_glob(config.base, &pattern).map(PluginInput::Entry));
@@ -95,10 +98,11 @@ impl Plugin for Storybook {
 
     /// What the config hides when it names an addon, the framework or the builder in a way that is not known
     /// statically is a package, whose dependencies are then not judged, or a local addon, which lives in the
-    /// Storybook config directory; any other file of the package is judged. A config unknown as a whole, or one that
-    /// spreads or merges in an unknown value, may name stories anywhere.
+    /// Storybook config directory; any other file of the package is judged. A config unknown as a whole, one that
+    /// spreads or merges in an unknown value, and stories not known statically may name stories anywhere. The hooks
+    /// (`viteFinal`, `webpackFinal`, `rsbuildFinal`, ...) only change the bundler config and are not read.
     fn incomplete_scope(&self, cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
-        if cause != IncompleteCause::ComputedEntries {
+        if cause != IncompleteCause::ComputedEntries || unknown_stories(config.value) {
             return IncompleteScope::Package;
         }
         let mut globs = vec![join_rel(config.base, "**")];
@@ -130,6 +134,17 @@ fn packages_named<'v>(value: &'v ConfigValue, out: &mut Vec<PluginInput>) -> Vec
         }
     }
     names
+}
+
+/// Whether `stories` is not known statically, or lists a value that is not (`[...sharedStories]`), in one of the values
+/// it may be.
+fn unknown_stories(main: &ConfigValue) -> bool {
+    main.get("stories").is_some_and(|stories| {
+        stories.alternatives().iter().any(|listed| match listed {
+            ConfigValue::Array(items) => items.iter().any(ConfigValue::is_unknown),
+            other => other.is_unknown(),
+        })
+    })
 }
 
 /// Story globs, with `{ directory, files }` objects expanded.
