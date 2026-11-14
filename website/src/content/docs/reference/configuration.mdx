@@ -599,6 +599,10 @@ entries that do not end in `!` are also removed from the project, so a file only
 the development entries of plugins (stories, test files, Vitest `setupFiles`): they are no production code. A plain
 pattern that matches what a pattern ending in `!` selects (`src/main.js` or `src/**` next to `src/main.js!`) therefore
 excludes the files from a production run, which `stale-js-config` reports.
+The exclusions made of the plain patterns apply to the patterns of the configuration only, as in knip: a file that a
+plugin names as a production entry (the `src/mastra/index.ts` of Mastra, an `entry` of a `tsup.config.ts`) stays a
+production entry when a plain pattern matches it too. A `!src/mastra/index.ts` pattern still removes it, as it does in a
+normal run.
 
 **Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
 statically, a published `main`, `exports` or `bin` that maps to no source file, or a tool's entry in build output that

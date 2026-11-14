@@ -1074,11 +1074,20 @@ impl Setup {
                     .iter()
                     .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
             );
+            let mut entry_globs = globs.globs(&entry).with_regexes(entry_regex.clone());
+            if production {
+                // The exclusions a production run makes of the plain patterns of the config apply to its own
+                // patterns only: a plugin's production entry they match stays an entry, as in knip. Its `!` patterns
+                // still remove one, as in a normal run.
+                let mut kept = plugin_entry.clone();
+                kept.extend(listed::negations(&user.entry));
+                entry_globs = entry_globs.or(globs.globs(&kept));
+            }
             let setup = PackageSetup {
                 id,
                 dir: abs_dir,
                 table_key,
-                entry: globs.globs(&entry).with_regexes(entry_regex.clone()),
+                entry: entry_globs,
                 external_entry,
                 shared_entry: globs.globs(&shared_entry),
                 plugin_entry: globs.globs(&plugin_entry).with_regexes(entry_regex),

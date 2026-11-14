@@ -112,6 +112,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- In production mode a plain `entry` pattern of the config no longer cancels a plugin's production entry for the same
+  file: with `entry = ["src/mastra/index.ts"]` in a Mastra package, or a plain pattern naming an `entry` of
+  `tsup.config.ts`, the file stays a production entry and what only it imports is no longer reported as unused, as in
+  knip. A `!` pattern of the config still removes it ([#236](https://github.com/Goldziher/skif/issues/236)).
+
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 
