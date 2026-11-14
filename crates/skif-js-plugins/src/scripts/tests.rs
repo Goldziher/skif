@@ -225,6 +225,10 @@ fn table() {
         files("node --env-file=.env server.js", &[], &["server.js"]),
         files("node --experimental-strip-types src/a.ts", &[], &["src/a.ts"]),
         files("node -e \"console.log(1)\"", &[], &[]),
+        // A group of value flags takes the next word as the value of its last letter: `-pe` prints the code it runs.
+        deps("node -pe \"require('./package.json').version\"", &[], &[], &[]),
+        deps("node -ep \"require('./package.json').version\"", &[], &[], &[]),
+        deps("node -rts-node/register app.js", &[], &["app.js"], &["ts-node"]),
         files("node --import node:module ./a.mjs", &[], &["./a.mjs"]),
         // Runners.
         deps(
