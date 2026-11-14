@@ -454,6 +454,49 @@ fn a_published_path_into_nothing_leaves_the_package_judged() {
     assert_eq!(absence(&files, "", "app/orphan.js"), "unused-file");
 }
 
+/// A webpack config bundling `entry` from a package with only `src/other.ts` and `orphan.ts`.
+fn bundling(entry: &str) -> [(&'static str, String); 4] {
+    [
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"devDependencies":{"webpack":"5.0.0"}}"#.to_owned(),
+        ),
+        (
+            "webpack.config.js",
+            format!(
+                "const path = require('path');\n\
+                 module.exports = () => ({{ entry: {{ bundle: path.join(__dirname, {entry}) }} }});\n"
+            ),
+        ),
+        ("src/other.ts", "export const other = 1;\n".to_owned()),
+        ("orphan.ts", "export const lonely = 1;\n".to_owned()),
+    ]
+}
+
+/// A plugin entry in build output that maps back to no source file hides what the bundle reaches, so the package's
+/// entries are incomplete and name the entry (ADR 0035).
+#[test]
+fn a_plugin_entry_in_build_output_without_a_source() {
+    let files = bundling("'lib-esm', 'entry.js'");
+    let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (*path, text.as_str())).collect();
+    let report = report(&files, "", "orphan.ts");
+    assert_eq!(report["absence"], "entries-incomplete", "{report}");
+    assert_eq!(
+        report["incomplete"],
+        json!([{ "cause": "unmapped-entry", "file": "lib-esm/entry.js" }]),
+        "{report}"
+    );
+}
+
+/// A plugin entry into nothing (no file, no source behind it, not build output) contributes no entry and leaves the
+/// package's entries known, as a published path into nothing does (ADR 0016).
+#[test]
+fn a_plugin_entry_into_nothing_leaves_the_package_judged() {
+    let files = bundling("'app', 'entry.js'");
+    let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (*path, text.as_str())).collect();
+    assert_eq!(absence(&files, "", "orphan.ts"), "unused-file");
+}
+
 /// An `export *` forwards every export without declaring it: the walk follows the forwarded name through the
 /// re-exporting module's users instead of calling it no export of that module, and the importer list says the module
 /// is re-exported as a whole.

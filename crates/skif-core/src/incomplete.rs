@@ -138,6 +138,9 @@ pub enum IncompleteCause {
     ComputedEntries,
     /// `package.json` publishes build output or bin files none of which maps back to a source file.
     UnmappedPublished,
+    /// A tool configuration names a file in a build output directory as an entry (a bundler's `lib/entry.js`) that
+    /// does not exist and maps back to no source file.
+    UnmappedEntry,
     /// The package has no source file, entry or script of its own (an install hook aside): its manifest lists what
     /// code elsewhere installs it for.
     NoEntries,
@@ -158,6 +161,9 @@ impl IncompleteCause {
             Self::ComputedEntries => "the keys the tool reads entry files from are computed",
             Self::UnmappedPublished => {
                 "package.json publishes build output or bin files none of which maps back to a source file"
+            }
+            Self::UnmappedEntry => {
+                "a tool configuration names build output as an entry that maps back to no source file"
             }
             Self::NoEntries => "the package has no source file, entry or script of its own",
             Self::Unspecified => "an input source reported its entries incomplete",

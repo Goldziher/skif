@@ -75,6 +75,14 @@ All notable changes to this project are documented here. The format follows
   `unused-files`; a `define…` helper or `path.join` given the object runs none of them. Static getters, `toString`,
   `valueOf`, `toJSON`, `then` and the accessors of an object another module makes are not followed
   ([#228](https://github.com/Goldziher/skif/issues/228)).
+- **Build-output entries**: a file a tool configuration names as an entry that does not exist, such as a webpack
+  `entry` of `path.join(__dirname, 'lib-esm', 'entry.js')`, now stands for its source as a published path does:
+  through the `outDir` and `rootDir` of a `tsconfig`, then from a build output directory to its `src` twin, with `.js`
+  mapping to `.ts` and `.tsx`. The files the source reaches and the dependencies they import are no longer reported as
+  `unused-files` and `unused-dependencies`. Such an entry in build output that maps to no source file makes its
+  package incomplete with the new cause `unmapped-entry`, whose `file` is the entry, instead of being dropped while
+  the package was judged; an entry into nothing outside build output is still no entry
+  ([ADR 0035](adrs/0035-plugin-entries-in-build-output.md)).
 
 ## [0.4.0] - 2026-11-12
 

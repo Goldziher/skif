@@ -1111,15 +1111,14 @@ impl Setup {
         }
     }
 
-    /// Marks the packages whose entries the manifest leaves unknown, for the cause found for each.
-    pub(crate) fn mark_entries_incomplete(&mut self, unknown: &[(PackageId, IncompleteCause)]) {
-        for &(id, cause) in unknown {
+    /// Marks the packages whose entries the manifest or an entry in build output leaves unknown, with the reason found
+    /// for each.
+    pub(crate) fn mark_entries_incomplete(&mut self, unknown: &[(PackageId, IncompleteEntries)]) {
+        for (id, reason) in unknown {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
                 package.entries_incomplete = true;
                 package.incomplete_scope = None;
-                package
-                    .incomplete_reasons
-                    .push(IncompleteEntries::new(cause).with_file(package.dir.join("package.json")));
+                package.incomplete_reasons.push(reason.clone());
             }
         }
     }
