@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::{HashMap, HashSet};
-use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
+use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir, shell_quote};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
 use crate::files::{Listing, find_files, list_files};
@@ -766,7 +766,7 @@ impl Collector<'_, '_> {
     /// entries there, and the binaries and packages it names carry the directory, as after `cd`.
     fn script_at(&mut self, dir: &str, text: &str, from: &Path, optional: bool) {
         // A line of its own, so that a script that starts with a comment or a shebang still follows it.
-        let cd = format!("cd '{}'\n", dir.replace('\'', r"'\''"));
+        let cd = format!("cd {}\n", shell_quote(dir));
         let mut texts = vec![text.to_owned()];
         texts.extend(flag_values(text, &["cdk"], &["-a", "--app"]));
         for text in texts {
