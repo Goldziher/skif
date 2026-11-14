@@ -1,10 +1,12 @@
 //! `paths` mappings named like a dependency, as TypeScript resolves them (ADR 0038): the `paths` of a `tsconfig.json`
 //! and of `[js.workspaces.<dir>.paths]` win over an installed package or a workspace member of the same name, and an
 //! import they lead into the package's own sources uses no listed dependency. A mapping whose targets are missing
-//! falls through to the package.
+//! falls through to the package. The `paths` of `[js.workspaces.<dir>.paths]` also win over the `paths` of the
+//! workspace's `tsconfig.json` or `jsconfig.json`.
 //!
 //! Every case is a minimal synthetic workspace: `app` lists the workspace member `src` or the installed package
-//! `lib` and maps a specifier starting with that name into its own sources.
+//! `lib` and maps a specifier starting with that name into its own sources, or maps `*` to its own sources and to a
+//! sibling directory in the opposite order of its compiler config.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -239,4 +241,35 @@ fn paths_to_a_declaration_file_still_use_the_listed_package() {
     ));
     let diagnostics = lint(&files, "");
     assert_eq!(findings(&diagnostics), none(), "{diagnostics:#?}");
+}
+
+/// `app` imports `svc`, which `app/src/svc` and `shared/svc` both provide; `config` (`tsconfig.json` or
+/// `jsconfig.json`) maps `*` to `shared` first.
+fn shadowed_tree(config: &'static str) -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("package.json", r#"{"name":"root","private":true,"workspaces":["app"]}"#),
+        (
+            "app/package.json",
+            r#"{"name":"app","private":true,"type":"module","main":"src/main.js"}"#,
+        ),
+        (config, r#"{"compilerOptions":{"paths":{"*":["../shared/*","./src/*"]}}}"#),
+        ("app/src/main.js", "import svc from 'svc';\nconsole.log(svc);\n"),
+        ("app/src/svc/index.js", "export default \"app\";\n"),
+        ("shared/svc/index.js", "export default \"shared\";\n"),
+    ]
+}
+
+/// The configured `paths` come first whether the compiler options are in a `tsconfig.json` or a `jsconfig.json`:
+/// the import reaches `app/src/svc`, and the `shared` copy the compiler config tries first is unused.
+#[test]
+fn configured_paths_win_over_the_paths_of_the_compiler_config() {
+    let toml = "[js.workspaces.app.paths]\n\"*\" = [\"./src/*\", \"../shared/*\"]\n";
+    for config in ["app/tsconfig.json", "app/jsconfig.json"] {
+        let diagnostics = lint(&shadowed_tree(config), toml);
+        assert_eq!(
+            findings(&diagnostics),
+            ["unused-files shared/svc/index.js: "],
+            "{config}: {diagnostics:#?}"
+        );
+    }
 }
