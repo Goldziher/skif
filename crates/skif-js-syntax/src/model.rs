@@ -302,6 +302,90 @@ pub struct Member {
     pub removal: Option<(u32, u32)>,
 }
 
+/// What a member of a class is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClassMemberKind {
+    /// A method, abstract or not.
+    Method,
+    /// A field, including an `accessor` field and a `declare` field.
+    Property,
+    /// A `get` accessor.
+    Getter,
+    /// A `set` accessor.
+    Setter,
+}
+
+/// A member of a class declaration: a method, field or accessor. The constructor, its parameter properties, index
+/// signatures, static blocks, members marked `private` and members with a computed key that is not a literal
+/// (`[Symbol.iterator]`) are not recorded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ClassMember {
+    /// Member name; an ECMAScript private name keeps its `#` (`#count`).
+    pub name: String,
+    /// What it is.
+    pub kind: ClassMemberKind,
+    /// Declared `static`.
+    pub is_static: bool,
+    /// Has a decorator (`@Input()`, `@HostListener('click')`).
+    pub decorated: bool,
+    /// Location of the member name.
+    pub span: Span,
+    /// `JSDoc` tag names (without `@`) on the member.
+    pub tags: Vec<String>,
+    /// The byte range (absolute, end exclusive) that deletes the member, as for [`Member::removal`]. `None` when the
+    /// rest of the class mentions its name, the name is declared more than once (overloads), or the member is
+    /// decorated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removal: Option<(u32, u32)>,
+}
+
+/// Where the superclass chain of a class leaves its module.
+///
+/// A superclass declared at the top level of the same module is followed to its own superclass, so a chain that ends
+/// in a class of the module with no superclass has no heritage at all.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Heritage {
+    /// A binding imported from `specifier`: the export `name` (`default` for a default import), also when written as
+    /// a member of a namespace or default import (`React.Component`).
+    Imported {
+        /// The specifier as written.
+        specifier: String,
+        /// The export of that module.
+        name: String,
+    },
+    /// An identifier that no top-level declaration or import of the module binds: a global such as `HTMLElement` or
+    /// `Error`.
+    Global(String),
+    /// Anything else: a call (`Mixin(Base)`), a class expression, a local binding that is no top-level class, or a
+    /// chain that loops.
+    Opaque,
+}
+
+/// The members and heritage of a class behind an export, which `unused-class-members` judges (ADR 0042).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ClassShape {
+    /// The members, in source order.
+    pub members: Vec<ClassMember>,
+    /// The class itself has a decorator (`@Component(...)`, `@Injectable()`).
+    #[serde(default)]
+    pub decorated: bool,
+    /// Where its superclass chain leaves the module; `None` when it has no superclass outside the module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extends: Option<Heritage>,
+    /// The member names of the interfaces and object type aliases of the same module that its `implements` clause
+    /// names, with the interfaces those extend; sorted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implemented: Vec<String>,
+    /// The `implements` clause names a type whose members are not known from the module (an import, a qualified
+    /// name, an interface that extends one).
+    #[serde(default)]
+    pub implements_unknown: bool,
+}
+
 /// What a removal edit deletes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -386,6 +470,11 @@ pub struct Export {
     /// used by the browser through its tag name, not through an import.
     #[serde(default)]
     pub registrations: Vec<Registration>,
+    /// The members and heritage of the class behind the export: `export class`, `export default class`, and
+    /// `export { C }` or `export default C` of a top-level class declaration. Not set for an ambient (`declare`)
+    /// class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<ClassShape>,
 }
 
 /// How a class is registered as a custom element (ADR 0020).
@@ -471,6 +560,18 @@ pub struct ModuleInfo {
     /// imports the components it registers into the files that use them so (ADR 0020). Empty for other files.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_tags: Vec<String>,
+    /// The property names the file reads, on any object: `x.name`, `x?.name`, `x['name']`, a destructured key
+    /// (`const { name } = x`, `({ name } = x)`, a parameter pattern), `super.name`, `#name` (with its `#`, also in
+    /// `#name in x`), the right side of a qualified type name (`typeof x.name`), a string literal type (`'name'`,
+    /// `C['name']`) and a string literal argument of a call (`vi.spyOn(x, 'name')`). The markup of a component file
+    /// and the text of a file whose templates are not parsed add every `.name` they hold. Sorted, without
+    /// duplicates; empty when member accesses are not tracked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub property_reads: Vec<String>,
+    /// The property names the file assigns with a plain `=` (`x.name = 1`, `x['name'] = 1`, `this.#name = 1`), which
+    /// are no reads. Sorted, without duplicates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub property_writes: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
     /// files, the issues of every script block.
     pub parse_diagnostics: Vec<ParseIssue>,
@@ -553,6 +654,13 @@ impl ModuleInfo {
         coalesce_ranges(ranges)
     }
 
+    /// Adds property names to [`ModuleInfo::property_reads`], keeping it sorted and without duplicates.
+    pub(crate) fn add_property_reads(&mut self, names: impl IntoIterator<Item = String>) {
+        self.property_reads.extend(names);
+        self.property_reads.sort();
+        self.property_reads.dedup();
+    }
+
     pub(crate) fn merge(&mut self, other: Self) {
         self.imports.extend(other.imports);
         self.exports.extend(other.exports);
@@ -569,6 +677,10 @@ impl ModuleInfo {
         self.template_tags.extend(other.template_tags);
         self.template_tags.sort();
         self.template_tags.dedup();
+        self.add_property_reads(other.property_reads);
+        self.property_writes.extend(other.property_writes);
+        self.property_writes.sort();
+        self.property_writes.dedup();
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
         self.ambient_modules.extend(other.ambient_modules);
         self.augmented_modules.extend(other.augmented_modules);

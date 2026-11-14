@@ -343,6 +343,13 @@ expression: redact_version(&json.stdout)
       "summary": "A member of an exported enum is never read."
     },
     {
+      "id": "unused-class-members",
+      "category": "js",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "A member of an exported class is never read."
+    },
+    {
       "id": "unused-namespace-members",
       "category": "js",
       "default": "warning",

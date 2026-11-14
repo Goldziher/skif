@@ -85,6 +85,7 @@ under [Parity with knip](#parity-with-knip).
 | Unused files | Yes | No | No | Yes |
 | Unused exports and exported types | Yes | No | No | Yes |
 | Unused enum members, namespace members, exports and types in a used namespace | Yes | No | No | Yes |
+| Unused class members | Yes: `unused-class-members`, matched by name (8) | No | No | No: dropped in knip 6 (`classMembers` in knip 5, off by default) |
 | Duplicate exports | Yes | No | No | Yes |
 | Circular imports | Yes: `circular-imports`, off by default | No | No | Yes: `cycles`, not reported by default |
 | Unused `package.json` subpath imports and exports | Yes: `unused-subpath-imports`, and `unused-subpath-exports` off by default (1) | No | No | Yes: `subpaths` (1) |
@@ -118,6 +119,10 @@ under [Parity with knip](#parity-with-knip).
    `node` process.
 7. knip's plugins load configuration files such as `vite.config.ts` with jiti, and knip exits `2` when one fails to
    load.
+8. knip 5 resolved each read with TypeScript's language service. skif has no type checker, so a read of a property
+   of the member's name on any object counts, and it leaves alone the members of decorated classes, of classes that
+   extend an unknown class and of interfaces declared elsewhere, where knip judged them by their references
+   ([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md)).
 
 ### Fixing, adoption and configuration
 

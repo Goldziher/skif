@@ -150,7 +150,10 @@ file, says when it is a build source (a file a plugin names as one a tool builds
 which names the import brings in), and shows the shortest chain of imports from an entry file or a build source. With
 `#EXPORT` it lists the modules that import that export by name or as a whole, follows re-exports (`export { x } from`,
 `export *`) into the modules that use them, and ends with a verdict (`public`, `used` or `unused`) computed from the
-same facts as the lines above it; an export of a file that may be an unknown entry of its package (a package whose
+same facts as the lines above it. With `#Class.member` (a member of an exported class) it explains the class export
+and then the member: the files that read a property of its name, the reason it is not judged when it is not
+(decorated, inherited from a library base, implementing an interface, public API), and the verdict of
+`unused-class-members`; an export of a file that may be an unknown entry of its package (a package whose
 entry files are not fully known, or a file in the narrowed scope of such a package) is `not-judged` instead of
 `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
 as the JavaScript part of a lint run.
