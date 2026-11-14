@@ -76,6 +76,11 @@ All notable changes to this project are documented here. The format follows
   parallel, or one after the other on a single-threaded run (a library host sets it with the new
   `PackageSources::sequential` of `skif-js-plugins`). The output is unchanged.
 
+- **Performance**: the analysis of which bindings may share a changed object follows a change only where it can reach
+  a binding the pass asks about, skips a change of a class of linked bindings an earlier change reached in full, and
+  applies the getters, setters and iterators code may run implicitly once per list of them, so large bundled modules
+  (a 2.8 MB GitHub Action bundle) parse several times faster. The output is unchanged.
+
 ### Fixed
 
 - **Resolve calls**: `require.resolve(x)`, `createRequire(…).resolve(x)` and `import.meta.resolve(x)` return a path
