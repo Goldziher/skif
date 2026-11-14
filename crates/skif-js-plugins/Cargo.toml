@@ -21,6 +21,7 @@ name = "skif_js_plugins"
 globset.workspace = true
 indexmap.workspace = true
 memchr.workspace = true
+rayon.workspace = true
 regex.workspace = true
 serde_json.workspace = true
 skif-config.workspace = true

@@ -71,7 +71,9 @@ All notable changes to this project are documented here. The format follows
 - **Performance**: the `execa`, `zx`, `nano-spawn` and `bun` plugins no longer walk the directories of a package's
   members when they list its own sources, so a workspace root lists only its own directories and each member lists
   its own, instead of the root walking every member's tree too; when a plugin of the package already listed every
-  source (`pino`), the own sources are taken from that listing. The output is unchanged.
+  source (`pino`), the own sources are taken from that listing. The source texts a plugin searches are read in
+  parallel, or one after the other on a single-threaded run (a library host sets it with the new
+  `PackageSources::sequential` of `skif-js-plugins`). The output is unchanged.
 
 ### Fixed
 

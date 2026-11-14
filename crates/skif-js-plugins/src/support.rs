@@ -885,7 +885,7 @@ pub(crate) fn own_sources_containing(cx: &PluginContext<'_>, needle: &str) -> Ve
 /// that package.
 pub(crate) fn own_sources_where(
     cx: &PluginContext<'_>,
-    keep: impl Fn(&str) -> bool,
+    keep: impl Fn(&str) -> bool + Sync,
 ) -> Vec<(String, std::sync::Arc<str>)> {
     sources_where(cx, cx.members, keep)
 }
@@ -896,7 +896,7 @@ pub(crate) fn own_sources_where(
 fn sources_where(
     cx: &PluginContext<'_>,
     members: &[String],
-    keep: impl Fn(&str) -> bool,
+    keep: impl Fn(&str) -> bool + Sync,
 ) -> Vec<(String, std::sync::Arc<str>)> {
     let (fs, dir) = (cx.fs, cx.dir);
     let read = |source: &str| fs.read_to_string(&dir.join(source)).ok();
