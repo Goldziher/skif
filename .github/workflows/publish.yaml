@@ -966,12 +966,15 @@ jobs:
             case "$RUNTIME" in
             # Each Node line is selected by major so it tracks the newest release of that line; only 26 is the pinned
             # tool, and the lock does not cover the others.
-            node-*) MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- npm exec --yes "skif-cli@${VERSION}" -- --version ;;
+            node-*) MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- npm exec --yes --prefer-online "skif-cli@${VERSION}" -- --version ;;
             bun) bunx --bun -p "skif-cli@${VERSION}" skif --version ;;
             esac
           }
-          # npm processes a publish before serving it, which has taken over two minutes.
+          # npm processes a publish before serving it, which has taken over two minutes. An attempt that ran before a
+          # platform package was served leaves an install without it in the npx and bun caches, so each retry starts
+          # from empty caches.
           for attempt in {1..28}; do
+            rm -rf "${HOME}/.npm/_npx" "${HOME}/.bun/install/cache"
             if out="$(run_published 2>&1)" && grep -qF "$VERSION" <<<"$out"; then
               echo "$out"
               exit 0
