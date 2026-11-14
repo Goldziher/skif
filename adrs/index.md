@@ -26,7 +26,7 @@ old one.
 | 0016 | [Config Evaluation and Incomplete Entries: A Sound Static Evaluator and Narrowed Unjudged Scopes](0016-config-evaluation-and-incomplete-entries.md) | accepted |
 | 0017 | [Scripts, Binaries and Working Directories](0017-scripts-binaries-and-working-directories.md) | accepted |
 | 0018 | [Export, Namespace and Member Rules](0018-export-namespace-and-member-rules.md) | accepted |
-| 0019 | [Dependency, Unlisted and Unresolved Findings](0019-dependency-unlisted-and-unresolved-findings.md) | accepted |
+| 0019 | [Dependency, Unlisted and Unresolved Findings](0019-dependency-unlisted-and-unresolved-findings.md) | accepted, superseded in part by [0036](0036-packages-named-on-an-environment-gated-branch.md) |
 | 0020 | [Templates, Components and Custom Elements](0020-templates-components-and-custom-elements.md) | accepted |
 | 0021 | [knip and syncpack Comparison Harness](0021-knip-and-syncpack-comparison-harness.md) | accepted |
 | 0022 | [Reporting and Output Formats](0022-reporting-and-output-formats.md) | accepted |
@@ -43,3 +43,4 @@ old one.
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
 | 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
 | 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |
+| 0036 | [Packages Named on an Environment-Gated Branch](0036-packages-named-on-an-environment-gated-branch.md) | accepted |
