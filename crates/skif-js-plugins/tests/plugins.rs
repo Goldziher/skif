@@ -3458,11 +3458,22 @@ fn heft_config_names_extended_and_plugin_packages() {
             "sass",
         ],
     );
-    assert_eq!(dep_flags(out, "@rushstack/heft-sass-plugin"), Some((false, false, false)));
+    assert_eq!(
+        dep_flags(out, "@rushstack/heft-sass-plugin"),
+        Some((false, false, false))
+    );
     assert_eq!(dep_flags(out, "sass"), Some((true, false, false)));
-    assert!(out.config_files.iter().any(|f| f.ends_with("config/typescript-base.json")));
+    assert!(
+        out.config_files
+            .iter()
+            .any(|f| f.ends_with("config/typescript-base.json"))
+    );
     assert!(out.provided_binaries.contains(&"heft".to_owned()));
-    assert!(!resolve(&[("config/heft.json", "{}")], &["react"]).iter().any(|(id, _)| *id == "heft"));
+    assert!(
+        !resolve(&[("config/heft.json", "{}")], &["react"])
+            .iter()
+            .any(|(id, _)| *id == "heft")
+    );
 }
 
 /// A project's `config/rig.json` names the rig package, which it needs, and the profile (`default` unless
@@ -3508,7 +3519,11 @@ fn heft_rig_json_credits_the_rig_and_reads_its_profile() {
     assert_eq!(dep_flags(out, "@acme/web-rig"), Some((false, false, false)));
     for read in ["config/heft.json", "tsconfig-base.json"] {
         let path = format!("{profile}/{read}");
-        assert!(out.config_files.iter().any(|f| f.ends_with(&path)), "{path}: {:?}", out.config_files);
+        assert!(
+            out.config_files.iter().any(|f| f.ends_with(&path)),
+            "{path}: {:?}",
+            out.config_files
+        );
     }
 
     // Without `rigProfile` the profile is `default`.
@@ -3602,7 +3617,11 @@ fn heft_rig_profiles_are_the_rigs_own_configs() {
     // What a profile `tsconfig` extends is shared as well.
     assert_eq!(dep_flags(out, "jest"), Some((true, true, false)));
     assert!(out.module_dirs.is_empty(), "{:?}", out.module_dirs);
-    assert!(out.config_files.iter().any(|f| f.ends_with("profiles/default/tsconfig-base.json")));
+    assert!(
+        out.config_files
+            .iter()
+            .any(|f| f.ends_with("profiles/default/tsconfig-base.json"))
+    );
     assert!(out.build_dirs.is_empty(), "{:?}", out.build_dirs);
     assert!(out.aliases.is_empty(), "{:?}", out.aliases);
 
@@ -3611,7 +3630,10 @@ fn heft_rig_profiles_are_the_rigs_own_configs() {
         &[("tsconfig.json", r#"{"compilerOptions":{"importHelpers":true}}"#)],
         &["typescript"],
     );
-    assert_eq!(dep_flags(output(&project, "typescript"), "tslib"), Some((false, false, true)));
+    assert_eq!(
+        dep_flags(output(&project, "typescript"), "tslib"),
+        Some((false, false, true))
+    );
 }
 
 #[test]
