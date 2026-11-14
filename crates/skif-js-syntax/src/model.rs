@@ -242,6 +242,11 @@ pub struct ImportedName {
     /// The binding is used in a way that cannot be reduced to members (passed around, re-exported, computed access,
     /// destructured with a rest element), or the module value is not bound at all (`import("x")`, bare `require("x")`).
     pub escapes: bool,
+    /// The call that receives the namespace of an `import("x")` a function returns, as written (`wrapLazy`,
+    /// `routes.define`): `wrapLazy(() => import("x"))` may read any export, so the namespace escapes into it. `None`
+    /// for every other binding, and for a callee that is not a name or a chain of names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passed_to: Option<String>,
 }
 
 /// A module reference.

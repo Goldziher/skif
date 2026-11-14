@@ -13,7 +13,8 @@ All notable changes to this project are documented here. The format follows
 
 - **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and
   heritage of an exported class) and `ModuleInfo` gains `property_reads` and `property_writes`, the property names a
-  module reads and assigns.
+  module reads and assigns. `ImportedName` gains `passed_to`, the call that receives the namespace of an `import()` a
+  function returns.
 
 - **Library hosts that call `PluginSource::inputs` of `skif-js` themselves**: it no longer gives what the `execa`, `zx`
   and `nano-spawn` plugins find in source files, and sets `WorkspaceInputs::scans_reached_sources` for a package where
@@ -111,6 +112,12 @@ All notable changes to this project are documented here. The format follows
   reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
 
 ### Fixed
+
+- `unused-exports`: an `import()` that a lazy-component loader returns (`lazy(() => import("./Page"))` of `react` or
+  `preact/compat`, `React.lazy`, `next/dynamic`, and `@loadable/component` without `resolveComponent`) uses the
+  default export only, so the module's named exports that nothing else reads are reported, as knip reports them.
+  Returned to any other call, it still uses the whole module, and `skif explain-usage` names the call
+  ([ADR NNNN](adrs/NNNN-dynamic-imports-returned-to-a-call.md), [#237](https://github.com/Goldziher/skif/issues/237)).
 
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.

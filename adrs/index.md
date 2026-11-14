@@ -50,3 +50,4 @@ old one.
 | 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted |
 | 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
 | 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |
+| NNNN | [Dynamic Imports Returned to a Call: Lazy-Component Loaders Read `default`, Other Calls the Whole Module](NNNN-dynamic-imports-returned-to-a-call.md) | accepted |

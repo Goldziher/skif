@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrayPattern, AssignmentExpression, AssignmentOperator, AssignmentTarget,
-    BindingPattern, CallExpression, ComputedMemberExpression, Decorator, Expression, FormalParameters,
+    BindingPattern, CallExpression, ComputedMemberExpression, Decorator, Expression, FormalParameters, FunctionBody,
     IdentifierReference, ImportExpression, JSXElement, JSXFragment, ObjectPropertyKind, Program, Statement,
     StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
     TSImportTypeQualifier, TSIndexedAccessType, TSLiteral, TSModuleReference, TSType, TSTypeQueryExprName,
@@ -139,6 +139,7 @@ fn name(kind: ImportedKind, local: Option<&str>, escapes: bool) -> ImportedName 
         accessed_members: Vec::new(),
         nested_members: BTreeMap::new(),
         escapes,
+        passed_to: None,
     }
 }
 
@@ -486,6 +487,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.then_callback(it);
+        self.returned_imports(it);
         self.visit_special_call(it);
         walk::walk_call_expression(self, it);
     }
@@ -698,6 +700,62 @@ pub(crate) fn then_on_import<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p
     }
 }
 
+/// The `import()` a function argument returns: `() => import('./x')`, `async () => await import('./x')` and a body
+/// of one `return import('./x')`.
+fn returned_import<'p, 'a>(argument: &'p Argument<'a>) -> Option<&'p ImportExpression<'a>> {
+    let returned = match argument {
+        Argument::ArrowFunctionExpression(arrow) => match arrow.body.as_expression() {
+            Some(expression) => expression,
+            None => sole_return(arrow.body.as_function_body()?)?,
+        },
+        Argument::FunctionExpression(function) => sole_return(function.body.as_ref()?)?,
+        _ => return None,
+    };
+    let returned = match returned.get_inner_expression() {
+        Expression::AwaitExpression(awaited) => awaited.argument.get_inner_expression(),
+        other => other,
+    };
+    match returned {
+        Expression::ImportExpression(import) => Some(&**import),
+        _ => None,
+    }
+}
+
+/// The value of a function body that is one `return` statement.
+fn sole_return<'p, 'a>(body: &'p FunctionBody<'a>) -> Option<&'p Expression<'a>> {
+    match body.statements.as_slice() {
+        [Statement::ReturnStatement(statement)] => statement.argument.as_ref(),
+        _ => None,
+    }
+}
+
+/// A callee written as a name or a chain of names (`wrapLazy`, `routes.define`), as written.
+fn callee_text(callee: &Expression<'_>) -> Option<String> {
+    match callee.get_inner_expression() {
+        Expression::Identifier(id) => Some(id.name.as_str().to_owned()),
+        Expression::StaticMemberExpression(member) => {
+            Some(format!("{}.{}", callee_text(&member.object)?, member.property.name.as_str()))
+        }
+        _ => None,
+    }
+}
+
+/// Whether the options of `loadable(load, options)` may pick the export to render (`resolveComponent`): an options
+/// object that sets it or spreads another, or options that are not an object literal.
+fn may_pick_component(call: &CallExpression<'_>) -> bool {
+    let Some(options) = call.arguments.get(1) else {
+        return false;
+    };
+    let Some(Expression::ObjectExpression(options)) = options.as_expression().map(Expression::get_inner_expression)
+    else {
+        return true;
+    };
+    options.properties.iter().any(|property| match property {
+        ObjectPropertyKind::ObjectProperty(property) => property.key.is_specific_static_name("resolveComponent"),
+        ObjectPropertyKind::SpreadProperty(_) => true,
+    })
+}
+
 impl Finder<'_, '_> {
     /// `import('./x').then(cb)`: the exports used are those `cb` reads from its parameter, not a member named `then`.
     fn then_callback(&mut self, it: &CallExpression<'_>) {
@@ -716,6 +774,56 @@ impl Finder<'_, '_> {
             _ => return,
         };
         self.pending.insert(import.span.start, names);
+    }
+
+    /// `lazy(() => import('./x'))`: a lazy-component loader ([`Finder::loads_default`]) renders the default export of
+    /// the module its first argument returns. Any other call that receives a function returning an `import()` may
+    /// read any export, so the namespace escapes into it, and the call is recorded to say so.
+    fn returned_imports(&mut self, it: &CallExpression<'_>) {
+        for (index, argument) in it.arguments.iter().enumerate() {
+            let Some(import) = returned_import(argument) else {
+                continue;
+            };
+            let names = if index == 0 && self.loads_default(it) {
+                vec![name(ImportedKind::Default, None, false)]
+            } else {
+                let mut whole = name(ImportedKind::Namespace, None, true);
+                whole.passed_to = callee_text(&it.callee);
+                vec![whole]
+            };
+            self.pending.insert(import.span.start, names);
+        }
+    }
+
+    /// Whether `call` is a lazy-component loader that renders the default export of the module its loader returns:
+    /// `lazy` of `react` and `preact/compat` (also called as `React.lazy`), and the default export of `next/dynamic`
+    /// and of `@loadable/component`, unless the options of the latter may pick another export (`resolveComponent`).
+    fn loads_default(&self, call: &CallExpression<'_>) -> bool {
+        let (local, property) = match call.callee.get_inner_expression() {
+            Expression::Identifier(id) => (id.name.as_str(), None),
+            Expression::StaticMemberExpression(member) => match member.object.get_inner_expression() {
+                Expression::Identifier(object) => (object.name.as_str(), Some(member.property.name.as_str())),
+                _ => return false,
+            },
+            _ => return false,
+        };
+        self.info
+            .imports
+            .iter()
+            .filter(|import| import.kind == ImportKind::Static)
+            .any(|import| {
+                import
+                    .names
+                    .iter()
+                    .filter(|bound| !bound.is_type && bound.local.as_deref() == Some(local))
+                    .any(|bound| match (import.specifier.as_str(), &bound.kind, property) {
+                        ("react" | "preact/compat", ImportedKind::Named(export), None) => export == "lazy",
+                        ("react" | "preact/compat", ImportedKind::Default | ImportedKind::Namespace, Some("lazy"))
+                        | ("next/dynamic", ImportedKind::Default, None) => true,
+                        ("@loadable/component", ImportedKind::Default, None) => !may_pick_component(call),
+                        _ => false,
+                    })
+            })
     }
 
     fn visit_special_call(&mut self, it: &CallExpression<'_>) {
