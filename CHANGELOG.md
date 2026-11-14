@@ -9,6 +9,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **JS**, result-changing: `paths` named like a dependency resolve as TypeScript resolves them, a deliberate
+  departure from knip ([ADR 0038](adrs/0038-paths-before-packages.md),
+  [#222](https://github.com/Goldziher/skif/issues/222)). The `paths` of `[js.workspaces.<dir>.paths]` are tried before
+  installed packages and workspace members, so `src/*` to `./src/*` beside a member named `src` reaches the local file
+  instead of the member's, and that file is no longer reported by `unused-files`; a mapping whose targets are missing
+  still falls through to the package. An import that `tsconfig.json` `paths`, `[js.workspaces.<dir>.paths]` or a
+  bundler alias leads into the project's own sources no longer uses the listed dependency whose name the specifier
+  starts with, so `unused-dependencies` now reports a dependency that only such imports named; an aliased import that
+  reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
 ### Added
 
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,

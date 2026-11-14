@@ -1264,8 +1264,9 @@ impl ModuleResolver {
 
     /// A specifier that is neither relative, a builtin nor foreign: lookup directories, installed packages, aliases.
     ///
-    /// Lookup directories (`baseUrl`, `resolve.modules`) and the workspace-name prefix come first, as they do for
-    /// TypeScript and the bundlers; an alias is tried when nothing is installed.
+    /// The `paths` of the skif configuration come first, then lookup directories (`baseUrl`, `resolve.modules`) and
+    /// the workspace-name prefix, as they do for TypeScript and the bundlers; the `paths` of a `tsconfig.json` come
+    /// before installed packages inside the resolver. Another alias is tried when nothing is installed.
     fn resolve_module(&self, kind: Kind, importer: &Path, specifier: &str) -> Outcome {
         let outcome = |target, package| Outcome {
             target,
@@ -1282,6 +1283,15 @@ impl ModuleResolver {
             return self.package_target(&name, specifier);
         }
         let name = package_name(specifier);
+        let member_name = name
+            .as_ref()
+            .filter(|name| self.members.contains_key(name.as_str()))
+            .cloned();
+        // `paths` win over an installed package or a workspace member of the same name, as they do for TypeScript
+        // (ADR 0038); a mapping whose targets are all missing falls through to them.
+        if let Some(found) = self.through_paths(kind, importer, specifier) {
+            return self.aliased(found, member_name, (importer, specifier));
+        }
         if name.is_some()
             && let Some(found) = self
                 .through_workspace_name(specifier)
@@ -1289,10 +1299,6 @@ impl ModuleResolver {
         {
             return outcome(found, None);
         }
-        let member_name = name
-            .as_ref()
-            .filter(|name| self.members.contains_key(name.as_str()))
-            .cloned();
         if let Ok(path) = self.resolvers(kind, importer).attempt(importer, specifier) {
             if let Some(installed) = node_modules_package(&path) {
                 let package = name.unwrap_or(installed);
@@ -1563,10 +1569,24 @@ impl ModuleResolver {
         self.map_member_target(member, &target).map(|path| self.classify(path))
     }
 
+    /// Follows the `paths` of the skif configuration for the importer's package (and the packages above it), innermost
+    /// package first: what the first existing target names, `None` when no pattern maps `specifier` to anything there.
+    /// A target that is missing, generated or not, leaves the specifier to the package lookup.
+    fn through_paths(&self, kind: Kind, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let directory = importer.parent()?;
+        self.scopes_of(importer).find_map(|(_, scope)| {
+            scope
+                .pattern_paths(specifier)
+                .into_iter()
+                .find_map(|path| self.follow_existing(kind, directory, &path, (path.as_path(), "")))
+        })
+    }
+
     /// Follows the aliases declared for the importer's package (and the packages above it).
     ///
     /// `None` when no alias applies. An alias whose target the configuration computes is not followed but is known not
-    /// to be a package; one whose static target does not exist is unresolved.
+    /// to be a package; one whose static target does not exist is unresolved. The existing targets of `paths` were
+    /// followed before packages ([`Self::through_paths`]), so of a pattern only a generated target is found here.
     fn through_alias(&self, kind: Kind, importer: &Path, specifier: &str) -> Option<Resolved> {
         let root = specifier.split('/').next().unwrap_or(specifier);
         if VIRTUAL_ROOTS.contains(&root) {
@@ -1609,16 +1629,19 @@ impl ModuleResolver {
     /// rest of the specifier below it, see [`Self::through_package_directory`]) or generated code; `None` when nothing
     /// is there.
     fn follow_alias(&self, kind: Kind, directory: &Path, path: &Path, within: (&Path, &str)) -> Option<Resolved> {
+        self.follow_existing(kind, directory, path, within)
+            .or_else(|| self.is_generated(path).then_some(Resolved::Ignored))
+    }
+
+    /// [`Self::follow_alias`] without generated code: what is there at `path`.
+    fn follow_existing(&self, kind: Kind, directory: &Path, path: &Path, within: (&Path, &str)) -> Option<Resolved> {
         if let Some(package) = node_modules_package(path) {
             return Some(Resolved::External(package));
         }
         if let Some(found) = self.resolve_path(kind, directory, path) {
             return Some(self.classify(found));
         }
-        if let Some(found) = self.through_package_directory(within.0, within.1) {
-            return Some(found);
-        }
-        self.is_generated(path).then_some(Resolved::Ignored)
+        self.through_package_directory(within.0, within.1)
     }
 
     /// An alias target that is a package directory, such as a sibling checkout whose `main` points at output that was
