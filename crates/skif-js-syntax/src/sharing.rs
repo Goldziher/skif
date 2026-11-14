@@ -4089,7 +4089,7 @@ fn member_key(member: &MemberExpression<'_>) -> Option<String> {
                 .filter(|raw| is_index(raw)),
             _ => computed.static_property_name().map(crate::js_string),
         },
-        other => other.static_property_name().map(crate::js_string),
+        other @ MemberExpression::StaticMemberExpression(_) => other.static_property_name().map(crate::js_string),
     }
 }
 
