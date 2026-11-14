@@ -218,3 +218,64 @@ fn a_built_script_on_disk_does_not_shadow_its_source() {
         "{diagnostics:#?}"
     );
 }
+
+/// A package whose webpack config bundles `lib-esm/entry.js`, the build output of `src/entry.tsx`, with `extra` files.
+fn bundled_build_output(extra: &[(&str, &str)]) -> Vec<Diagnostic> {
+    let mut files = vec![
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"packageManager":"pnpm@9.0.0",
+            "dependencies":{"react":"18.0.0"},"devDependencies":{"typescript":"5.6.0","webpack":"5.0.0"}}"#,
+        ),
+        (
+            "webpack.config.js",
+            "const path = require('path');\n\
+             module.exports = () => ({ entry: { bundle: path.join(__dirname, 'lib-esm', 'entry.js') } });\n",
+        ),
+        (
+            "src/entry.tsx",
+            "import { createElement } from 'react';\nimport { title } from './title';\n\
+             export const app = createElement('h1', null, title);\n",
+        ),
+        ("src/title.ts", "export const title = 'app';\n"),
+        ("src/orphan.ts", "export const orphan = 1;\n"),
+    ];
+    files.extend_from_slice(extra);
+    lint_files(&files)
+}
+
+/// A bundler entry in a `tsconfig` `outDir` maps back to its source below the `rootDir`.
+#[test]
+fn a_plugin_entry_in_an_out_dir_maps_back_to_its_source() {
+    let diagnostics = bundled_build_output(&[(
+        "tsconfig.json",
+        r#"{ "compilerOptions": { "outDir": "lib-esm", "rootDir": "src" } }"#,
+    )]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/orphan.ts: src/orphan.ts"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// Without a `tsconfig`, a bundler entry in a build output directory maps back to its `src` twin, as a published path
+/// does.
+#[test]
+fn a_plugin_entry_in_a_build_directory_maps_back_to_src() {
+    let diagnostics = bundled_build_output(&[]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/orphan.ts: src/orphan.ts"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}

@@ -6,7 +6,7 @@ use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use skif_core::{FileSystem, IncompleteCause};
+use skif_core::{FileSystem, IncompleteCause, IncompleteEntries};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::analysis::on_disk;
@@ -32,12 +32,14 @@ pub(crate) struct EntryFiles {
     /// and without duplicates.
     pub build_sources: Vec<PathBuf>,
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused, with the
-    /// cause: those that publish build output or bin files none of which maps back to a source file
-    /// ([`IncompleteCause::UnmappedPublished`]), and those with no source file at or below their directory other than
-    /// a package manager's install hook (`.pnpmfile.cjs`), no other entry and no script, whose manifest only lists what
-    /// code elsewhere installs it for ([`IncompleteCause::NoEntries`]). A published path that names no file at all
-    /// ([`names_no_file`]) is no entry and does not make a package's entries unknown (ADR 0016).
-    pub unknown: Vec<(PackageId, IncompleteCause)>,
+    /// reason: those that publish build output or bin files none of which maps back to a source file
+    /// ([`IncompleteCause::UnmappedPublished`]), those a tool configuration gives an entry in build output that maps
+    /// back to no source file ([`IncompleteCause::UnmappedEntry`], ADR 0035), and those with no source file at or below
+    /// their directory other than a package manager's install hook (`.pnpmfile.cjs`), no other entry and no script,
+    /// whose manifest only lists what code elsewhere installs it for ([`IncompleteCause::NoEntries`]). A published path
+    /// or a plugin entry that names no file at all ([`names_no_file`]) is no entry and does not make a package's
+    /// entries unknown (ADR 0016).
+    pub unknown: Vec<(PackageId, IncompleteEntries)>,
     /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
     /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
     /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
@@ -143,7 +145,7 @@ struct EntryContext<'a> {
 struct PackageEntries {
     entries: BTreeSet<PathBuf>,
     build_sources: BTreeSet<PathBuf>,
-    unknown: Vec<(PackageId, IncompleteCause)>,
+    unknown: Vec<(PackageId, IncompleteEntries)>,
     /// In the order they are found, so the merged set is built in the same order as one package after another.
     provided: Vec<PathBuf>,
     other_roots: BTreeSet<PathBuf>,
@@ -245,12 +247,20 @@ impl EntryContext<'_> {
             origins.extend(sources.iter().map(|source| (source.clone(), EntryReason::BinStub)));
             from_tools.extend(sources);
         }
+        let manifest_file = || package_setup.dir.join("package.json");
+        if published_without_source && !mapped_any {
+            unknown.push((id, IncompleteEntries::new(IncompleteCause::UnmappedPublished).with_file(manifest_file())));
+        }
+        let (built_entries, unmapped_entries) = self.missing_plugin_entries(package, package_setup);
+        origins.extend(built_entries.iter().map(|source| (source.clone(), EntryReason::EntryGlob)));
+        from_tools.extend(built_entries);
+        unknown.extend(
+            unmapped_entries
+                .into_iter()
+                .map(|path| (id, IncompleteEntries::new(IncompleteCause::UnmappedEntry).with_file(path))),
+        );
         own.extend(from_tools.iter().cloned());
         provided.extend(from_tools);
-        let unmapped = published_without_source && !mapped_any;
-        if unmapped {
-            unknown.push((id, IncompleteCause::UnmappedPublished));
-        }
         let mut tool_entries: Vec<PathBuf> = package_setup
             .config_files
             .iter()
@@ -285,14 +295,14 @@ impl EntryContext<'_> {
         // else lists what code elsewhere installs it for.
         let has_entries = own.iter().any(|path| !is_install_hook(path));
         own.extend(scope_entries(workspace, setup, candidates, package_setup));
-        if !unmapped
+        if unknown.is_empty()
             && !has_entries
             && package.manifest.value().get("scripts").is_none_or(is_empty_object)
             && below(candidates, &workspace.root, &package_setup.dir)
                 .iter()
                 .all(|candidate| is_install_hook(&candidate.abs))
         {
-            unknown.push((id, IncompleteCause::NoEntries));
+            unknown.push((id, IncompleteEntries::new(IncompleteCause::NoEntries).with_file(manifest_file())));
         }
         PackageEntries {
             entries: own,
@@ -302,6 +312,35 @@ impl EntryContext<'_> {
             other_roots,
             origins,
         }
+    }
+
+    /// The plugin entries of the package that name one file in the package that is neither a file nor a directory, as
+    /// a bundler's `lib-esm/entry.js` does: the source files behind those that are build output, mapped as a published
+    /// path is ([`map_published`]), and, absolute, those that are build output ([`should_have_source`], not
+    /// [`names_no_file`]) with no source behind them, whose entries are unknown (ADR 0035). One that names nothing at
+    /// all stays no entry, as a published path into nothing does (ADR 0016).
+    fn missing_plugin_entries(&self, package: &Package, package_setup: &PackageSetup) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let dir = &package_setup.dir;
+        let mut sources = BTreeSet::new();
+        let mut unmapped = BTreeSet::new();
+        for path in &package_setup.plugin_entry_files {
+            if self.fs.is_file(path) || self.fs.kind(path).is_dir {
+                continue;
+            }
+            let Some(rel) = relative(path, dir) else {
+                continue;
+            };
+            if let Some(source) = map_published(self.fs, package_setup, &rel)
+                && is_code_file(&source)
+            {
+                sources.insert(source);
+            } else if should_have_source(&rel)
+                && !names_no_file(self.disk, &self.workspace.root, package_setup, package.manifest.value(), &rel)
+            {
+                unmapped.insert(path.clone());
+            }
+        }
+        (sources.into_iter().collect(), unmapped.into_iter().collect())
     }
 }
 

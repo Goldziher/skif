@@ -81,8 +81,9 @@ module graph inside the project.
 ## Incomplete packages and stale configuration
 
 - An `incomplete-packages` entry names the `cause` and the `file` that made the entry files unknown (`unknown-config`,
-  `unknown-spread`, `computed-entries`, `unparsable-config`, `unmapped-published`, `no-entries`, ...). Making that
-  config static, or listing the entries in `[js] entry`, lets skif judge the package.
+  `unknown-spread`, `computed-entries`, `unparsable-config`, `unmapped-published`, `unmapped-entry`, `no-entries`,
+  ...). Making that config static, pointing a build-output entry at its source, or listing the entries in
+  `[js] entry`, lets skif judge the package.
 - `stale-js-config` reports configuration entries that matched nothing: remove them.
 - `unparseable-files` reports a reachable file with a syntax error the parser could not recover from.
 
