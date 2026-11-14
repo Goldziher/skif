@@ -17,6 +17,18 @@ All notable changes to this project are documented here. The format follows
 - **Consumers of `explain-usage --format json`, `explain-usage --dependency` and `--trace-dependency --format json`**:
   a `require.resolve("x")`, `createRequire(…).resolve("x")` or `import.meta.resolve("x")` is listed with the import
   kind `resolve` instead of `require` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Library users that build `PluginContext` of `skif-js-plugins` with a literal**: it gains `members`, the
+  directories of the run's other packages below the package, whose sources the `execa`, `zx`, `nano-spawn` and `bun`
+  plugins leave out; `&[]` reads them all ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **Library users that build `skif_core::shell::Tokens` with a literal**: it gains `empty_commands`, the commands of
+  redirections alone (`> "$(x)"`) as `EmptyCommand`s ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **Library hosts that lint nested roots themselves**: the files of other projects that a plugin names as build
+  sources (a Bazel `srcs`) moved from `Report::other_project_files` to the new
+  `Report::other_project_build_sources`. Pass those below the root, made relative to the nested root that owns them,
+  to `RunOptions::with_extra_build_sources` of its run, and credit those outside it as the files of
+  `other_project_files` are; a host that reads only `other_project_files` no longer makes them used
+  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  [#226](https://github.com/Goldziher/skif/issues/226)).
 
 ### Added
 
@@ -31,6 +43,15 @@ All notable changes to this project are documented here. The format follows
   makes a listing of a package's sources that shares the texts it reads with another listing, and
   `WorkspaceListing::package_sources` of `skif-js` makes one that shares them with the run's other packages.
 
+- **Public API** ([#97](https://github.com/Goldziher/skif/issues/97)): `skif-js-syntax` exports `is_plain_word`,
+  `shell_quote` and `shell_word`, which quote a word of a command line as the command plugins do.
+
+- **Public API** ([#226](https://github.com/Goldziher/skif/issues/226)): the build sources a multi-root host hands a
+  nested root. `skif-core`: `Report::other_project_build_sources` and `Report::with_other_project_build_sources`.
+  `skif-lint`: `Emitter::report_other_project_build_source`, `Emitter::take_other_project_build_sources`,
+  `LintContext::extra_build_sources` and `RunOptions::with_extra_build_sources`. `skif`:
+  `RunOptions::with_extra_build_sources`.
+
 ### Changed
 
 - **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): `--watch` scans the tree on up to four
@@ -38,14 +59,22 @@ All notable changes to this project are documented here. The format follows
   thirds of a core instead of a third. The files it compares are unchanged. The plugins that search a
   package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) share the texts they read between all packages of a
   workspace and their Nx projects, so a source file is usually read once per workspace instead of once for every
-  package whose directory holds it (a member's sources are also the root package's); packages resolved in parallel can
-  still read the same file at the same time. The output is unchanged.
+  package or project that searches it (`pino` and the `Bun.` check of `bun` also search a member's sources from the
+  root package, and every one of them searches an Nx project's sources from its package); packages resolved in
+  parallel can still read the same file at the same time. The output is unchanged.
 
 - **Performance** ([#224](https://github.com/Goldziher/skif/issues/224)): evaluating a config that follows its imports
   parses and analyses a module inside a cycle of imports once per distinct set of answers its imports give, instead of
   at every entry; the analysis budget and the findings are unchanged. A change that reaches a whole class of linked
   bindings is applied to that class once instead of once per change. `ModuleLoader::holds_no_code` is asked once per
   importing directory and specifier, as `is_installed` already was.
+
+- **Performance**: the `execa`, `zx`, `nano-spawn` and `bun` plugins no longer walk the directories of a package's
+  members when they list its own sources, so a workspace root lists only its own directories and each member lists
+  its own, instead of the root walking every member's tree too; when a plugin of the package already listed every
+  source (`pino`), the own sources are taken from that listing. The source texts a plugin searches are read in
+  parallel, or one after the other on a single-threaded run (a library host sets it with the new
+  `PackageSources::sequential` of `skif-js-plugins`). The output is unchanged.
 
 ### Fixed
 
@@ -60,9 +89,69 @@ All notable changes to this project are documented here. The format follows
   is, and the call is found behind a TypeScript assertion (`(require as NodeRequire).resolve(x)`). `skif-js-syntax`
   reports the call as `ImportKind::Resolve`, and the analysis cache is invalidated. knip reports nothing for these exports, so the
   findings are skif's alone ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Nested roots under `-r`**: a file of a nested root that an enclosing root's plugin names as a build source (a
+  Bazel `srcs` of the outer `BUILD` file) is a build source of the nested root instead of an entry, so its unused
+  exports are reported there, as they are for a build source of a workspace member; a file the enclosing root also
+  imports or names as an entry stays an entry. A package of the nested root that such a build source belongs to is no
+  longer taken as one another root imports, so `unused-subpath-exports` now judges its `exports` unless an enclosing
+  root imports or runs one of its files
+  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  [#226](https://github.com/Goldziher/skif/issues/226)).
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **`unlisted-binaries`**: a `node:child_process`, `execa`, nano-spawn or `Bun.spawn` call with a literal argument that
+  is not a plain word (`execFileSync("sqlite3", [db, "select …"])`) runs its program: the argument is one quoted word
+  of the command instead of dropping the call, so the binary is judged. The analysis cache is invalidated
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`, `unused-files`**: a computed argument of such a call ends its command, instead of being left
+  out while the literals after it stay: `spawn("node", [script, "out.js"])` no longer runs a file `out.js`. The
+  analysis cache is invalidated ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`, `unused-files`**: a short flag group whose letters all take a value reads as those flags, the
+  last taking the next word, as Node.js reads `node -pe "require('./package.json').version"`: the code is no file
+  and loads no package ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: every word of a command array (moonrepo `command`, `typescript.contentMapper.exec`) that is
+  not a plain word is quoted the same way, so a word such as `&&` or `#` is an argument instead of shell syntax
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: a command substitution runs in the directory of the command that holds it, after a `cd` or
+  a workflow step's `working-directory`, instead of where the text starts: `SUITE=$(pnpm exec tsx x.ts)` in a step
+  with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root. So does a
+  substitution in a command of redirections alone (`cd a && > "$(x)"` runs `x` in `a`), and one after a `pushd` can
+  `popd` back ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: the `execa`, `zx` and nano-spawn plugins of a package read only its own source files, as the
+  `bun` plugin does, so a root that lists execa no longer judges the commands of its members' files against itself: a
+  member's `execa(require.resolve(".bin/jscodeshift"))` runs `jscodeshift` of the member that lists it. A directory
+  with a `package.json` that is no workspace member, such as `scripts/package.json` with only `"type": "module"`, is
+  the package's own: the `bun` plugin no longer skips its files ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`declare module` re-exports**: `export * from "x"` and `export { a } from "x"` inside a `declare module` block are
+  type-only imports of `x`, as an `import` there already was, so they use `x` or its `@types` package: a
+  `declare module 'commander' { export * from '@commander-js/extra-typings'; }` no longer leaves
+  `@commander-js/extra-typings` unused. The block adds no export to the file, and a relative specifier there, which
+  TypeScript rejects, is no import. The analysis cache is invalidated
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **Stylesheet `url()`**: a `url()` that names a file of a package, `~pkg/file` or `@scope/pkg/file` with
+  npm-valid names (`src: url("@ibm/plex/fonts/a.woff2")`), uses the package, so it is no longer reported unused; its
+  query or fragment (`a.eot?#iefix`) is dropped. Other `url()` values stay assets: an unscoped bare path is relative to
+  the stylesheet and `@/…` is an alias. Such a `url()` of a package that no manifest lists and that is not installed
+  is a bundler alias skif cannot see (`url('@assets/images/bg.png')`, Nuxt's `url(~assets/logo.svg)`) or a missing
+  asset, so it is no unlisted import. `skif-js-syntax` reports it as `ImportKind::Url`, and the analysis cache is
+  invalidated ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **Subpath directories**: a `package.json` that adds only `main`, `module`, `types`, `typings` or `browser` in a
+  directory its parent package publishes as a subpath (`exports` has `./<dir>`, or `files` lists it) no longer makes a
+  project of its own, so the files there belong to the package: `module.exports = require('@vue/compiler-sfc')` in
+  `vue/compiler-sfc/index.js` uses the dependency of `vue`. The files that manifest points at are entries of the
+  package, so `server/index.js` of `"files": ["server"]` and what it requires are not unused. A `files` entry of
+  `server/*` or `server/**` publishes the directory too ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **Configs inside `node_modules`**: a tool config that extends or references a config file by a relative path into a
+  `node_modules` directory (`"extends": ["./node_modules/ultracite/config/oxlint/core/.oxlintrc.json"]` in
+  `.oxlintrc.json`) names that package, so it is used, also when it is not installed and the file cannot be read.
+  Only a config of the workspace names it this way: a config file that an installed config reaches in turn is a
+  dependency of that installed package ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **`@types` of typed packages**: an import of a package whose installed `package.json` declares its own types
+  (a non-empty `types` or `typings` naming a file the package holds) no longer uses its `@types` package, which
+  TypeScript does not read then, so a leftover `@types/eslint` beside `eslint` 9 is reported unused, as knip does. A
+  package that is not installed keeps its `@types` package used, and so does a subpath import (`kit/helpers`), which
+  the package's own types may not cover ([#98](https://github.com/Goldziher/skif/issues/98)).
 - **Config evaluation**: a getter, a setter or an iterator of an object or class instance a module makes, also one
   `Object.defineProperty`, `Object.defineProperties`, `Reflect.defineProperty` or `Object.create` defines, that writes
   through `this` (`get grow() { this.list.push(…) }`) now changes what the object holds where code runs it with no call

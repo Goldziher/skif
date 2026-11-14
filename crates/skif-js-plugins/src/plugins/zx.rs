@@ -7,7 +7,7 @@ use skif_js_syntax::extract_imported_calls;
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::scripts::{is_powershell_command, without_commands};
-use crate::support::sources_containing;
+use crate::support::own_sources_containing;
 
 /// The `zx` plugin.
 pub struct Zx;
@@ -29,7 +29,7 @@ impl Plugin for Zx {
 
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
-        for (source, text) in sources_containing(cx, "$`") {
+        for (source, text) in own_sources_containing(cx, "$`") {
             let path = cx.dir.join(&source);
             let globals: &[(&str, &str)] = if has_globals(&text) { &[("$", "zx")] } else { &[] };
             let powershell = uses_powershell(&text);

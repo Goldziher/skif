@@ -23,6 +23,7 @@ pub struct Emitter<'a> {
     diagnostics: Vec<Diagnostic>,
     incomplete_packages: Vec<IncompletePackage>,
     other_project_files: Vec<PathBuf>,
+    other_project_build_sources: Vec<PathBuf>,
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
     config_judgements: Vec<ConfigJudgement>,
 }
@@ -39,6 +40,7 @@ impl<'a> Emitter<'a> {
             diagnostics: Vec::new(),
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
+            other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
         }
@@ -62,13 +64,14 @@ impl<'a> Emitter<'a> {
             diagnostics: Vec::new(),
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
+            other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
         }
     }
 
-    /// Appends the diagnostics, incomplete packages, files of other projects, ancestor dependency uses and
-    /// configuration judgements collected by `other`.
+    /// Appends the diagnostics, incomplete packages, files and build sources of other projects, ancestor dependency
+    /// uses and configuration judgements collected by `other`.
     pub fn merge(&mut self, other: Self) {
         if self.diagnostics.is_empty() {
             self.diagnostics = other.diagnostics;
@@ -77,6 +80,8 @@ impl<'a> Emitter<'a> {
         }
         self.incomplete_packages.extend(other.incomplete_packages);
         self.other_project_files.extend(other.other_project_files);
+        self.other_project_build_sources
+            .extend(other.other_project_build_sources);
         self.ancestor_dependency_uses.extend(other.ancestor_dependency_uses);
         self.config_judgements.extend(other.config_judgements);
     }
@@ -172,6 +177,18 @@ impl<'a> Emitter<'a> {
     #[must_use]
     pub fn take_other_project_files(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.other_project_files)
+    }
+
+    /// Records a file of another project that a plugin names as a build source (a Bazel `srcs`), absolute, so a
+    /// multi-root host can hand it to the root that owns it as a build source rather than an entry.
+    pub fn report_other_project_build_source(&mut self, path: PathBuf) {
+        self.other_project_build_sources.push(path);
+    }
+
+    /// Takes the recorded build sources of other projects, in emission order.
+    #[must_use]
+    pub fn take_other_project_build_sources(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.other_project_build_sources)
     }
 
     /// Records that the analysed code uses dependency `name` through the `package.json` in `manifest_dir`, a

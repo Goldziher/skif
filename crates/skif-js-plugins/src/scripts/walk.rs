@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use super::args::{self, Parsed, Val};
 use super::tables::{self, Files, Runner, Wrapper};
-use super::tokenize::{Segment, Word, is_assignment_text, tokenize};
+use super::tokenize::{EmptyCommand, Segment, Word, is_assignment_text, tokenize};
 use crate::support::{below_node_modules, join_rel};
 
 use super::{
@@ -213,13 +213,30 @@ pub(super) struct Walker<'c> {
     pushed: Vec<(Option<String>, bool)>,
 }
 
+/// Where `segment` starts in the text it was tokenized from; `None` for a segment without words.
+fn segment_start(segment: &Segment) -> Option<usize> {
+    segment
+        .assignments
+        .first()
+        .or_else(|| segment.words.first())
+        .map(|word| word.span.start)
+}
+
+/// The directory of the last of `commands`, each with where it starts in the text, that starts at or before `offset`:
+/// the command that holds a substitution at `offset`. `None` before the first command.
+fn dir_at(commands: &[(usize, DirState)], offset: usize) -> Option<&DirState> {
+    let held_by = commands.partition_point(|(start, _)| *start <= offset);
+    commands.get(held_by.checked_sub(1)?).map(|(_, dir)| dir)
+}
+
 /// The directory state of a [`Walker`] that a shell of its own (a subshell, another script, `sh -c`, a substitution)
 /// restores when it ends.
+#[derive(Clone)]
 struct DirState {
     cwd: Option<String>,
     unknown_dir: bool,
-    /// How many directories `pushd` had left.
-    pushed: usize,
+    /// The directories `pushd` had left.
+    pushed: Vec<(Option<String>, bool)>,
 }
 
 impl<'c> Walker<'c> {
@@ -255,27 +272,43 @@ impl<'c> Walker<'c> {
         let mut tokens = tokenize(text);
         self.functions.extend(std::mem::take(&mut tokens.functions));
         let frame = Frame { text, map };
-        // So does a subshell `( … )`: the state each open one restores, with the segment index it ends before.
-        let mut subshells: Vec<(usize, DirState)> = Vec::new();
+        // So does a subshell `( … )`: the state each open one restores, by its index in `tokens.subshells`, which lists
+        // them in the order they close.
+        let mut opened: Vec<Option<DirState>> = vec![None; tokens.subshells.len()];
+        let mut closed = 0;
+        // A substitution runs in the directory of the command that holds it, before that command: where each command
+        // starts in the text, a command of redirections alone included, with the directory it runs in.
+        let mut commands: Vec<(usize, DirState)> =
+            Vec::with_capacity(tokens.segments.len() + tokens.empty_commands.len());
+        let mut empty = tokens.empty_commands.iter().peekable();
         for (index, segment) in tokens.segments.iter().enumerate() {
-            let mut opening: Vec<&Range<usize>> = tokens
-                .subshells
-                .iter()
-                .filter(|subshell| subshell.start == index && subshell.end > index)
-                .collect();
-            opening.sort_by_key(|subshell| std::cmp::Reverse(subshell.end));
-            for subshell in opening {
-                subshells.push((subshell.end, self.dir_state()));
+            for (subshell, state) in tokens.subshells.iter().zip(&mut opened) {
+                if subshell.start == index && subshell.end > index {
+                    *state = Some(self.dir_state());
+                }
+            }
+            self.empty_commands_at(&mut empty, (index, closed), &mut commands);
+            if let Some(start) = segment_start(segment) {
+                commands.push((start, self.dir_state()));
             }
             self.segment(segment, &frame, st);
-            while let Some((_, state)) = subshells.pop_if(|(end, _)| *end <= index + 1) {
-                self.restore_dir(state);
+            while tokens
+                .subshells
+                .get(closed)
+                .is_some_and(|subshell| subshell.end <= index + 1)
+            {
+                self.empty_commands_at(&mut empty, (index + 1, closed), &mut commands);
+                if let Some(state) = opened[closed].take() {
+                    self.restore_dir(state);
+                }
+                closed += 1;
             }
         }
+        self.empty_commands_at(&mut empty, (usize::MAX, usize::MAX), &mut commands);
         for range in &tokens.substitutions {
             if let Some(inner) = text.get(range.clone()) {
-                self.cwd.clone_from(&saved.cwd);
-                self.unknown_dir = saved.unknown_dir;
+                let dir = dir_at(&commands, range.start).unwrap_or(&saved);
+                self.restore_dir(dir.clone());
                 self.run_text(inner, &map.shifted(range.start), st);
             }
         }
@@ -288,14 +321,27 @@ impl<'c> Walker<'c> {
         DirState {
             cwd: self.cwd.clone(),
             unknown_dir: self.unknown_dir,
-            pushed: self.pushed.len(),
+            pushed: self.pushed.clone(),
         }
     }
 
     fn restore_dir(&mut self, state: DirState) {
         self.cwd = state.cwd;
         self.unknown_dir = state.unknown_dir;
-        self.pushed.truncate(state.pushed);
+        self.pushed = state.pushed;
+    }
+
+    /// Records in `commands` the current directory for each of the `empty` commands that come no later than `at`:
+    /// after its count of segments and of closed subshells.
+    fn empty_commands_at<'t>(
+        &self,
+        empty: &mut std::iter::Peekable<impl Iterator<Item = &'t EmptyCommand>>,
+        at: (usize, usize),
+        commands: &mut Vec<(usize, DirState)>,
+    ) {
+        while let Some(command) = empty.next_if(|command| (command.segments_before, command.subshells_closed) <= at) {
+            commands.push((command.start, self.dir_state()));
+        }
     }
 
     fn segment(&mut self, segment: &Segment, frame: &Frame, st: St) {

@@ -254,6 +254,27 @@ fn resolve_inheriting(
     is_root: bool,
     plugins: &IndexMap<String, PluginConfig>,
 ) -> Vec<(PluginId, PluginOutput)> {
+    resolve_in_workspace(files, dependencies, inherited, &[], is_root, plugins)
+}
+
+/// The plugins of the root package of a workspace whose members lie in `members`.
+fn resolve_with_members(
+    files: &[(&str, &str)],
+    dependencies: &[&str],
+    members: &[&str],
+) -> Vec<(PluginId, PluginOutput)> {
+    resolve_in_workspace(files, dependencies, &[], members, true, &IndexMap::new())
+}
+
+fn resolve_in_workspace(
+    files: &[(&str, &str)],
+    dependencies: &[&str],
+    inherited: &[&str],
+    members: &[&str],
+    is_root: bool,
+    plugins: &IndexMap<String, PluginConfig>,
+) -> Vec<(PluginId, PluginOutput)> {
+    let members: Vec<String> = members.iter().map(|d| (*d).to_string()).collect();
     let inherited: Vec<String> = inherited.iter().map(|d| (*d).to_string()).collect();
     let fs = fs_with(files);
     let dependencies: Vec<String> = dependencies.iter().map(|d| (*d).to_string()).collect();
@@ -271,6 +292,7 @@ fn resolve_inheriting(
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &members,
     };
     resolve_plugins(&ctx)
 }
@@ -300,6 +322,7 @@ fn resolve_with_scripts(
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     resolve_plugins(&ctx)
 }
@@ -1837,6 +1860,55 @@ fn oxlint() {
     assert_deps(out, &["oxlint-config-shared", "oxlint-plugin-a", "oxlint-plugin-b"]);
     assert_entries(&out.entries, &["local-plugin.js"]);
     assert!(out.config_files.iter().any(|f| f.ends_with("base.json")));
+}
+
+#[test]
+fn a_config_extended_from_node_modules_uses_its_package_installed_or_not() {
+    let config = r#"{ "extends": ["./node_modules/shared-oxlint/config/core/.oxlintrc.json", "./base.json"] }"#;
+    let results = resolve(&[(".oxlintrc.json", config), ("base.json", "{}")], &["oxlint"]);
+    assert_eq!(deps(output(&results, "oxlint")), BTreeSet::from(["shared-oxlint"]));
+    let installed = resolve(
+        &[
+            (
+                ".oxlintrc.json",
+                r#"{ "extends": ["./node_modules/@acme/lint/oxlint.json"] }"#,
+            ),
+            (
+                "node_modules/@acme/lint/oxlint.json",
+                r#"{ "jsPlugins": ["oxlint-plugin-acme"] }"#,
+            ),
+        ],
+        &["oxlint"],
+    );
+    assert_eq!(
+        deps(output(&installed, "oxlint")),
+        BTreeSet::from(["@acme/lint", "oxlint-plugin-acme"])
+    );
+}
+
+#[test]
+fn a_config_an_installed_config_extends_from_node_modules_is_not_the_workspaces_dependency() {
+    let results = resolve(
+        &[
+            ("tsconfig.json", r#"{ "extends": "./node_modules/a/tsconfig.json" }"#),
+            ("node_modules/a/tsconfig.json", r#"{ "extends": "../b/tsconfig.json" }"#),
+            (
+                "node_modules/b/tsconfig.json",
+                r#"{ "compilerOptions": { "strict": true } }"#,
+            ),
+        ],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    // `a` reads `b/tsconfig.json`, so `b` is a dependency of `a`, not of the workspace.
+    assert_eq!(deps(out), BTreeSet::from(["a"]));
+    assert!(
+        out.config_files
+            .iter()
+            .any(|file| file.ends_with("node_modules/b/tsconfig.json")),
+        "{:?}",
+        out.config_files
+    );
 }
 
 #[test]
@@ -3681,7 +3753,7 @@ fn bun_reads_the_commands_of_its_own_sources_only() {
             "import { $ } from \"bun\";\nawait $`bun run install-electron`;",
         ),
     ];
-    let results = resolve(&files, &["@types/bun"]);
+    let results = resolve_with_members(&files, &["@types/bun"], &["packages/cli", "packages/desktop"]);
     let root = output(&results, "bun");
     assert_eq!(root.referenced_binaries, ["changeset"]);
     assert!(root.production_entries.is_empty(), "{:?}", root.production_entries);
@@ -4005,6 +4077,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
@@ -4391,6 +4464,7 @@ fn source_scanning_plugins_read_each_source_file_once() {
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     let results = resolve_plugins(&ctx);
 
@@ -4404,14 +4478,15 @@ fn source_scanning_plugins_read_each_source_file_once() {
     }
 }
 
-/// A listing made within another takes the texts the other read: the root package and a member below it, both with
-/// `execa`, read the member's script once between them, and each finds its command.
+/// A listing made within another takes the texts the other read: `pino` of the root package, which searches the
+/// sources of its members, and `pino` of a member below it read the member's logger once between them, and the member
+/// finds its transport target.
 #[test]
 fn listings_within_one_another_read_a_shared_source_file_once() {
     let files = [
         (
-            "packages/a/scripts/release.ts",
-            r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+            "packages/a/src/log.ts",
+            r#"import pino from "pino"; export const logger = pino({ transport: { target: "pino-pretty" } });"#,
         ),
         ("packages/a/package.json", r#"{"name":"a"}"#),
     ];
@@ -4419,7 +4494,7 @@ fn listings_within_one_another_read_a_shared_source_file_once() {
         inner: fs_with(&files),
         reads: std::sync::Mutex::default(),
     };
-    let dependencies = vec!["execa".to_owned()];
+    let dependencies = vec!["pino".to_owned()];
     let scripts = IndexMap::new();
     let plugins = IndexMap::new();
     let globs = GlobCache::new();
@@ -4439,6 +4514,7 @@ fn listings_within_one_another_read_a_shared_source_file_once() {
         nx: None,
         globs: &globs,
         sources: Some(&root_sources),
+        members: &[],
     };
     let member = PluginContext {
         dir: &member_dir,
@@ -4447,13 +4523,12 @@ fn listings_within_one_another_read_a_shared_source_file_once() {
         sources: Some(&member_sources),
         ..root
     };
-    let script = member_dir.join("scripts").join("release.ts");
+    let script = member_dir.join("src").join("log.ts");
     let reads = || fs.reads.lock().unwrap().get(&script).copied();
     let _ = resolve_plugins(&root);
-    assert_eq!(reads(), Some(1), "the root package reads the member's script");
+    assert_eq!(reads(), Some(1), "the root package reads the member's logger");
     let results = resolve_plugins(&member);
-    let binaries = &output(&results, "execa").referenced_binaries;
-    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
+    assert_deps(output(&results, "pino"), &["pino-pretty"]);
     assert_eq!(reads(), Some(1), "the member takes the text the root package read");
 }
 
@@ -4492,6 +4567,7 @@ fn an_nx_project_takes_the_source_texts_its_package_read() {
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     let results = resolve_plugins_in(&ctx, "", || vec![("apps/a".to_owned(), true)]);
 
@@ -4782,8 +4858,85 @@ fn zx_under_powershell_runs_no_cmdlet_binaries() {
     assert_eq!(runs("scripts/bash.mjs"), ["New-Item", "gci", "turbo"]);
 }
 
+/// The sources of a member below a workspace root are the member's: the root reads none of the commands they run with
+/// execa, nano-spawn or zx, whose binaries are judged against the member.
 #[test]
-fn execa_and_nano_spawn_skip_calls_with_an_unsafe_argument() {
+fn execa_nano_spawn_and_zx_read_the_commands_of_their_own_sources_only() {
+    let member = r#"import { execa } from "execa";
+        import spawn from "nano-spawn";
+        import { $ } from "zx";
+        export const jscodeshift = require.resolve(".bin/jscodeshift");
+        await execa(jscodeshift, args);
+        await spawn("member-lint", ["."]);
+        await $`member-deploy`;"#;
+    let root = r#"import { execa } from "execa";
+        import spawn from "nano-spawn";
+        import { $ } from "zx";
+        await execa("changeset", ["publish"]);
+        await spawn("eslint", ["."]);
+        await $`wrangler deploy`;"#;
+    let files = [
+        ("package.json", r#"{"name":"root","workspaces":["packages/*"]}"#),
+        ("scripts/release.mjs", root),
+        ("packages/codemod/package.json", r#"{"name":"codemod"}"#),
+        ("packages/codemod/bin/transform.ts", member),
+    ];
+    let results = resolve_with_members(&files, &["execa", "nano-spawn", "zx"], &["packages/codemod"]);
+    assert_eq!(output(&results, "execa").referenced_binaries, ["changeset"]);
+    assert_eq!(output(&results, "nano-spawn").referenced_binaries, ["eslint"]);
+    assert_eq!(output(&results, "zx").referenced_binaries, ["wrangler"]);
+}
+
+/// A `package.json` that only sets the module format of a directory makes no package of it: the commands of the
+/// scripts below it are the workspace's own.
+#[test]
+fn execa_nano_spawn_and_zx_read_the_commands_below_a_package_json_that_only_sets_the_type() {
+    let files = [
+        ("package.json", r#"{"name":"app"}"#),
+        ("scripts/package.json", r#"{"type":"module"}"#),
+        (
+            "scripts/release.mjs",
+            r#"import { $ } from "zx";
+            import { execa } from "execa";
+            await $`changeset publish`;
+            await execa("eslint", ["."]);"#,
+        ),
+        ("src/esm/package.json", r#"{"type":"module"}"#),
+        (
+            "src/esm/build.js",
+            r#"import spawn from "nano-spawn"; await spawn("tsc", ["--build"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn", "zx"]);
+    assert_eq!(output(&results, "zx").referenced_binaries, ["changeset"]);
+    assert_eq!(output(&results, "execa").referenced_binaries, ["eslint"]);
+    assert_eq!(output(&results, "nano-spawn").referenced_binaries, ["tsc"]);
+}
+
+/// A package below a workspace root that is not one of its members is read from the root, and a member is not.
+#[test]
+fn execa_reads_the_commands_of_a_nested_package_that_is_not_a_member() {
+    let files = [
+        ("package.json", r#"{"name":"root","workspaces":["packages/*"]}"#),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        (
+            "packages/a/run.mjs",
+            r#"import { execa } from "execa"; await execa("member-lint", ["."]);"#,
+        ),
+        ("examples/demo/package.json", r#"{"name":"demo"}"#),
+        (
+            "examples/demo/run.mjs",
+            r#"import { execa } from "execa"; await execa("vite", ["build"]);"#,
+        ),
+    ];
+    let results = resolve_with_members(&files, &["execa"], &["packages/a"]);
+    assert_eq!(output(&results, "execa").referenced_binaries, ["vite"]);
+}
+
+/// execa and nano-spawn hand each argument to the program as one word, without a shell: one that is not a plain word
+/// is quoted, so the call still runs its program and the argument runs nothing.
+#[test]
+fn execa_and_nano_spawn_quote_an_argument_that_is_not_a_plain_word() {
     let files = [
         (
             "scripts/release.ts",
@@ -4796,15 +4949,48 @@ fn execa_and_nano_spawn_skip_calls_with_an_unsafe_argument() {
         ),
     ];
     let results = resolve(&files, &["execa", "nano-spawn"]);
-    for id in ["execa", "nano-spawn"] {
-        let out = output(&results, id);
-        assert!(
-            out.referenced_binaries.is_empty(),
-            "{id}: {:?}",
-            out.referenced_binaries
-        );
-        assert!(out.entries.is_empty(), "{id}: {:?}", out.entries);
-    }
+    let execa = output(&results, "execa");
+    assert!(execa.referenced_binaries.is_empty(), "{:?}", execa.referenced_binaries);
+    assert_eq!(execa.entries, ["scripts/build.js"]);
+    let nano_spawn = output(&results, "nano-spawn");
+    assert_eq!(nano_spawn.referenced_binaries, ["eslint"]);
+    assert!(nano_spawn.entries.is_empty(), "{:?}", nano_spawn.entries);
+}
+
+/// A computed argument ends the command of an execa or nano-spawn call: a literal after it is no file the program
+/// runs.
+#[test]
+fn execa_and_nano_spawn_leave_out_the_arguments_from_a_computed_one_on() {
+    let files = [
+        (
+            "scripts/release.ts",
+            r#"import { execa } from "execa";
+            await execa("node", [scriptPath, "out/app.js"]);
+            await execa("node", ["scripts/build.js", target, "out/lib.js"]);"#,
+        ),
+        (
+            "scripts/check.js",
+            r#"import spawn from "nano-spawn"; await spawn("node", [script, "tools/gen.js"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn"]);
+    assert_eq!(output(&results, "execa").entries, ["scripts/build.js"]);
+    let nano_spawn = output(&results, "nano-spawn");
+    assert!(nano_spawn.entries.is_empty(), "{:?}", nano_spawn.entries);
+}
+
+/// `node -pe` prints the code it runs, which is no file and loads no package.
+#[test]
+fn nano_spawn_reads_node_print_and_eval_as_code() {
+    let files = [(
+        "scripts/version.mjs",
+        r#"import spawn from "nano-spawn";
+        await spawn("node", ["-pe", "require('./package.json').version"]);"#,
+    )];
+    let results = resolve(&files, &["nano-spawn"]);
+    let out = output(&results, "nano-spawn");
+    assert!(out.entries.is_empty(), "{:?}", out.entries);
+    assert!(deps(out).is_empty(), "{:?}", deps(out));
 }
 
 #[test]
@@ -5025,6 +5211,7 @@ fn react_email_looks_for_the_installed_version_up_to_the_workspace_root() {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         resolve_plugins(&ctx)
     };
@@ -6583,6 +6770,15 @@ fn typescript_content_mapper_exec_is_a_script() {
     let results = resolve(&[manifest], &[]);
     let out = output(&results, "typescript-content-mapper");
     assert_entries(&out.entries, &["scripts/map content.js"]);
+    // Each word of `exec` is one argument, never a shell operator.
+    let chained = (
+        "package.json",
+        r#"{"name":"app","typescript":{"contentMapper":{"exec":["node","scripts/map.js","&&","rimraf","dist"]}}}"#,
+    );
+    let results = resolve(&[chained], &[]);
+    let out = output(&results, "typescript-content-mapper");
+    assert_entries(&out.entries, &["scripts/map.js"]);
+    assert!(out.referenced_binaries.is_empty(), "{:?}", out.referenced_binaries);
     let plain = ("package.json", r#"{"name":"app","typescript":{"other":true}}"#);
     let results = resolve(&[plain], &[]);
     assert!(!results.iter().any(|(id, _)| *id == "typescript-content-mapper"));
@@ -6787,6 +6983,7 @@ fn resolve_in_tree(files: &[(&str, &str)], dir: &str, is_root: bool) -> Vec<(Plu
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     resolve_plugins(&ctx)
 }

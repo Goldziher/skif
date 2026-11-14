@@ -311,6 +311,11 @@ pub struct PluginContext<'a> {
     /// The source files of the package, listed and read once for every plugin that searches them. `None` has the
     /// resolvers keep one while they resolve the package; a plugin run on its own lists and reads the sources itself.
     pub sources: Option<&'a PackageSources>,
+    /// The directories of the other packages of the run below the workspace, such as the members of a workspace
+    /// root, relative to the workspace directory and `/`-separated. Their source files are theirs: a plugin that
+    /// reads the commands of the workspace's own sources leaves them out. A directory with a `package.json` that is
+    /// not listed here, such as one that only sets `"type": "module"`, is the workspace's own.
+    pub members: &'a [String],
 }
 
 impl PluginContext<'_> {

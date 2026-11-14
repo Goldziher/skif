@@ -39,6 +39,7 @@ fn run(files: &[(&str, &str)], dependencies: &[&str], scripts: &[(&str, &str)]) 
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     resolve_plugins(&ctx)
 }

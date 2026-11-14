@@ -1,7 +1,6 @@
 //! Small helpers shared by the plugins: package and path classification, naming conventions and
 //! typed access to [`ConfigValue`]s.
 
-use skif_core::HashMap;
 use std::path::{Path, PathBuf};
 
 use skif_js_syntax::{ConfigValue, OWN_SPREAD, is_declaration_file};
@@ -870,60 +869,51 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
 /// the workspace and their text. Declaration files are left out.
 pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(String, std::sync::Arc<str>)> {
     let finder = memchr::memmem::Finder::new(needle.as_bytes());
-    sources_where(cx, |_| true, |text| finder.find(text.as_bytes()).is_some())
+    sources_where(cx, &[], |text| finder.find(text.as_bytes()).is_some())
+}
+
+/// The source files of [`own_sources_where`] whose text contains `needle`: a member's files are the member's, so the
+/// commands they run are judged there.
+pub(crate) fn own_sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(String, std::sync::Arc<str>)> {
+    let finder = memchr::memmem::Finder::new(needle.as_bytes());
+    own_sources_where(cx, |text| finder.find(text.as_bytes()).is_some())
 }
 
 /// The JavaScript and TypeScript source files of the workspace's own whose text `keep` accepts, as their path
-/// relative to the workspace and their text. Declaration files are left out, and so are the files below a directory
-/// with a `package.json` of its own, such as a member of a workspace root: they belong to that package.
+/// relative to the workspace and their text. Declaration files are left out, and so are the files below the directory
+/// of another package of the run ([`PluginContext::members`]), such as a member of a workspace root: they belong to
+/// that package.
 pub(crate) fn own_sources_where(
     cx: &PluginContext<'_>,
-    keep: impl Fn(&str) -> bool,
+    keep: impl Fn(&str) -> bool + Sync,
 ) -> Vec<(String, std::sync::Arc<str>)> {
-    let mut nested = HashMap::default();
-    sources_where(cx, |source| !in_nested_package(cx, source, &mut nested), keep)
+    sources_where(cx, cx.members, keep)
 }
 
-/// The source files of the workspace that `wanted` accepts by path and `keep` by text, with their text: through the
-/// [`PackageSources`] of the context, which lists and reads them once for every plugin, or else listed and read now.
+/// The source files of the workspace below none of the `members` directories whose text `keep` accepts, with their
+/// text: through the [`PackageSources`] of the context, which lists and reads them once for every plugin, or else
+/// listed and read now.
 fn sources_where(
     cx: &PluginContext<'_>,
-    mut wanted: impl FnMut(&str) -> bool,
-    keep: impl Fn(&str) -> bool,
+    members: &[String],
+    keep: impl Fn(&str) -> bool + Sync,
 ) -> Vec<(String, std::sync::Arc<str>)> {
-    let read = |source: &str| cx.fs.read_to_string(&cx.dir.join(source)).ok();
+    let (fs, dir) = (cx.fs, cx.dir);
+    let read = |source: &str| fs.read_to_string(&dir.join(source)).ok();
+    let list = |pruned: &[String]| source_files(cx, pruned);
     if let Some(sources) = PackageSources::of(cx) {
-        return sources.texts(|| source_files(cx).collect(), read, wanted, keep);
+        return sources.texts(members, list, read, keep);
     }
-    source_files(cx)
-        .filter(|source| wanted(source.as_str()))
-        .filter_map(|source| {
-            let text = read(source.as_str())?;
-            keep(&text).then_some((source, text))
-        })
-        .collect()
+    PackageSources::new(dir).texts(members, list, read, keep)
 }
 
-/// The JavaScript and TypeScript files below the workspace directory, declaration files left out.
-fn source_files(cx: &PluginContext<'_>) -> impl Iterator<Item = String> {
+/// The JavaScript and TypeScript files below the workspace directory and none of the `pruned` directories,
+/// declaration files left out.
+fn source_files(cx: &PluginContext<'_>, pruned: &[String]) -> Vec<String> {
     let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
-    crate::files::find_files(cx.fs, cx.globs, cx.dir, &patterns)
-        .into_iter()
-        .filter(|source| !is_declaration_file(source))
-}
-
-/// Whether `path`, relative to the workspace directory, lies below a directory of the workspace that holds a
-/// `package.json`. `nested` remembers the answer for each directory already looked at.
-fn in_nested_package(cx: &PluginContext<'_>, path: &str, nested: &mut HashMap<String, bool>) -> bool {
-    let Some((parent, _)) = path.rsplit_once('/') else {
-        return false;
-    };
-    if let Some(&known) = nested.get(parent) {
-        return known;
-    }
-    let answer = cx.fs.is_file(&cx.dir.join(parent).join("package.json")) || in_nested_package(cx, parent, nested);
-    nested.insert(parent.to_owned(), answer);
-    answer
+    let mut files = crate::files::find_files_outside(cx.fs, cx.globs, cx.dir, &patterns, pruned);
+    files.retain(|source| !is_declaration_file(source));
+    files
 }
 
 /// The workspace's `package.json`, parsed; `None` when it is missing or not JSON.
