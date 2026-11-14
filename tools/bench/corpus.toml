@@ -15,9 +15,16 @@
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
-#   bench-knip-failure  { matches, reason }: knip is known to exit with an error here (bench suite only). A timed knip
-#                    run whose error output holds `matches` is published as failing with `reason` (Markdown prose),
-#                    not timed against skif; an error without that text, or a clean run, makes the check invalid
+#   bench-knip-failure  { matches, reason, timed }: knip is known to exit with an error here (bench suite only). A
+#                    timed knip run whose error output holds `matches` is published as failing with `reason` (Markdown
+#                    prose), not timed against skif; with `timed = true` (knip prints its whole report first, without
+#                    the entries of a configuration it cannot load) it is timed against skif and published with
+#                    `reason`. An error without that text, or a clean run, makes the check invalid
+#   bench-knip-config  "parity": `skif-bench run` times knip with the knip comparison's configuration (empty, plus
+#                    `entry`) instead of the repository's own, and skif with `entry` (bench suite only; required there
+#                    with `entry`)
+#   bench-max-runs   the most measured runs `skif-bench run` makes here, below a higher --runs (bench suite only)
+#   bench-max-warmup the most warmup runs `skif-bench run` makes here, below a higher --warmup (bench suite only)
 #   knip-invalid     why knip's report here is not a valid comparison; the repository is compared and its row marked
 #   knip-root        "rush": while knip runs, the checkout gets a root package.json whose workspaces come from rush.json
 #   notes            why the repository is in the corpus and what to expect from it
@@ -85,7 +92,12 @@ name = "angular"
 url = "https://github.com/angular/angular.git"
 rev = "37563fc32267fd0fcbdff8caf98862962e5d46b5"
 package-manager = "pnpm"
-suites = ["parity"]
+suites = ["bench", "parity"]
+# The large repositories are timed as the knip comparison runs them, in 5 runs after 1 warmup run: knip takes tens of
+# seconds on each, and 15 runs of every tool on all of them would not fit the bench workflow's time limit.
+bench-knip-config = "parity"
+bench-max-runs = 5
+bench-max-warmup = 1
 # Not recursive: the nested projects knip reads (packages/compiler-cli/preprocessor, integration/*) lie inside workspace
 # members, so a recursive run does not lint them as roots either (ADR 0006). It would add at most
 # packages/misc/angular-in-memory-web-api and packages/, whose manifest (`{"type": "module"}`) only marks the module
@@ -146,8 +158,11 @@ name = "vscode"
 url = "https://github.com/microsoft/vscode.git"
 rev = "6b7063d8883d0d6af80246f2f79df95cb8251059"
 package-manager = "pnpm"
-suites = ["parity"]
+suites = ["bench", "parity"]
 recursive = true
+bench-knip-config = "parity"
+bench-max-runs = 5
+bench-max-warmup = 1
 # The entry points build/next/index.ts bundles for every target (the workbench, workers, shared and utility
 # processes); nothing imports them, so without them both tools report the workbench as unused.
 entry = [
@@ -187,7 +202,13 @@ name = "n8n"
 url = "https://github.com/n8n-io/n8n.git"
 rev = "c1420c66253871bacecbe7148754ca050a81e7f2"
 package-manager = "pnpm"
-suites = ["parity"]
+suites = ["bench", "parity"]
+# The repository's own knip.ts checks dependencies only (files, exports and types off, every source file an entry), so
+# the timed knip run takes the knip comparison's configuration, which reports what skif reports.
+bench-knip-config = "parity"
+bench-max-runs = 5
+bench-max-warmup = 1
+bench-knip-failure = { matches = "Error loading packages/@n8n/mcp-apps/vite.config.mts", reason = "two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries", timed = true }
 # The tool configurations of the packages import the built dist of these workspace config packages; the install runs
 # without scripts, so they are built here, each with the workspace packages it depends on (`...`), in dependency order.
 # Then `@n8n/db` generates its gitignored `src/migrations/{sqlite,postgresdb}/index.ts`, which its `src/index.ts`
@@ -226,8 +247,12 @@ name = "next-js"
 url = "https://github.com/vercel/next.js.git"
 rev = "e8ec2aed9266e4550789c78749d4de6297e66d5d"
 package-manager = "pnpm"
-suites = ["parity"]
+suites = ["bench", "parity"]
 recursive = true
+bench-knip-config = "parity"
+bench-max-runs = 5
+bench-max-warmup = 1
+bench-knip-failure = { matches = "Error loading jest.config.js (Cannot find module './dist/build/jest/jest')", reason = "its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries", timed = true }
 notes = "Largest tree of the corpus. examples/* and many test apps are standalone projects (nested roots), so skif runs recursively to read the files knip reads from the root."
 
 [[repo]]

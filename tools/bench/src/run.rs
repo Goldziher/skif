@@ -26,7 +26,7 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
 /// Version of the `summary.json` layout.
-const SUMMARY_SCHEMA: u32 = 5;
+const SUMMARY_SCHEMA: u32 = 6;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
@@ -212,7 +212,7 @@ struct ToolResult {
     /// The error line of one more run outside hyperfine when `error_runs` is not 0, so the summary names the cause.
     error_output: Option<String>,
     /// The failure `corpus.toml` declares for this tool on the target, when that run matched it: the row is shown as
-    /// failing, and its times (still recorded) are compared with nothing.
+    /// failing, and its times (still recorded) are compared with nothing, unless the failure is `timed`.
     failure: Option<ExpectedFailure>,
 }
 
@@ -223,6 +223,9 @@ struct ExpectedFailure {
     reason: String,
     /// The error line of the run outside hyperfine (the row's `error_output`).
     error: String,
+    /// The tool printed its whole report before the error, so its time is compared like a clean run's
+    /// ([`corpus::KnipFailure::timed`]).
+    timed: bool,
 }
 
 /// The declared failure `declared`, when the run outside hyperfine failed that way: its `matches` text is in that
@@ -231,6 +234,7 @@ fn matched_failure(declared: &corpus::KnipFailure, stderr: &str, error_output: &
     (stderr.contains(&declared.matches) || error_output.contains(&declared.matches)).then(|| ExpectedFailure {
         reason: declared.reason.clone(),
         error: error_output.to_owned(),
+        timed: declared.timed,
     })
 }
 
@@ -244,6 +248,10 @@ struct TargetResult {
     installed_with: Option<String>,
     /// The knip failure `corpus.toml` declares for the corpus repository (`bench-knip-failure`).
     declared_knip_failure: Option<corpus::KnipFailure>,
+    /// The warmup and measured runs of every command of the target: the run's, or fewer where the corpus repository
+    /// caps them (`bench-max-warmup`, `bench-max-runs`).
+    warmup: u32,
+    runs: u32,
     results: Vec<ToolResult>,
 }
 
@@ -403,7 +411,7 @@ fn explain_errors(
             && let Some(declared) = &target.knip_failure
         {
             row.failure = matched_failure(declared, &run.stderr, &error_output);
-            if row.failure.is_some() {
+            if row.failure.as_ref().is_some_and(|failure| !failure.timed) {
                 row.relative_to_skif = None;
             }
         }
@@ -419,24 +427,29 @@ struct Target {
     files: Option<usize>,
     dir: PathBuf,
     tools: Vec<Tool>,
-    /// The corpus repository's `bench-knip-args`.
+    /// knip's arguments on this target ([`corpus_tool_args`]): the corpus repository's `bench-knip-args`, then the
+    /// knip comparison's `--config` where it sets `bench-knip-config`.
     knip_args: Vec<String>,
-    /// skif arguments of this target: `--recursive` where the corpus repository sets `recursive`, as in `parity`.
+    /// skif arguments of this target ([`corpus_tool_args`]): `--recursive` where the corpus repository sets
+    /// `recursive`, as in `parity`, and the `--config` with its `entry` files where it sets `bench-knip-config`.
     skif_args: Vec<String>,
     /// What installed the corpus repository ([`install_label`]); `None` when it was not installed.
     installed_with: Option<String>,
     /// The corpus repository's `bench-knip-failure`.
     knip_failure: Option<corpus::KnipFailure>,
+    /// hyperfine's warmup and measured runs of each command ([`corpus_runs`] on a corpus repository).
+    warmup: u32,
+    runs: u32,
 }
 
-fn hyperfine(options: &RunOptions, target: &Target, commands: &[(Tool, String)], export: &Path) -> Result<()> {
+fn hyperfine(target: &Target, commands: &[(Tool, String)], export: &Path) -> Result<()> {
     let mut command = Command::new("hyperfine");
     command
         .current_dir(&target.dir)
         .args(["-N", "--ignore-failure", "--style", "basic", "--warmup"])
-        .arg(options.warmup.to_string())
+        .arg(target.warmup.to_string())
         .arg("--runs")
-        .arg(options.runs.to_string())
+        .arg(target.runs.to_string())
         .arg("--export-json")
         .arg(export);
     for (tool, line) in commands {
@@ -529,8 +542,9 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
 }
 
 /// The ADR 0001 check of skif against knip on a corpus target. A knip failure the target declares and the run matched
-/// leaves it not measured; a declared failure that did not happen (knip ran cleanly, or failed with another error)
-/// makes it invalid, so a changed failure is noticed and the declaration updated.
+/// leaves it not measured, unless the failure is `timed` (knip printed its whole report first), which is checked as a
+/// clean run with the declared reason beside it; a declared failure that did not happen (knip ran cleanly, or failed
+/// with another error) makes it invalid, so a changed failure is noticed and the declaration updated.
 fn knip_check(target: &TargetResult, skif: &ToolResult, knip: &ToolResult) -> TargetCheck {
     let goal = format!("JS analysis >= {KNIP_SPEEDUP_TARGET}x faster than knip");
     let speedup = knip.mean_ms / skif.mean_ms;
@@ -541,7 +555,15 @@ fn knip_check(target: &TargetResult, skif: &ToolResult, knip: &ToolResult) -> Ta
         .collect::<Vec<_>>()
         .concat();
     let measured = format!("measured {speedup:.1}x{errors}");
+    let met = speedup >= KNIP_SPEEDUP_TARGET;
     let (description, status) = match (&target.declared_knip_failure, &knip.failure) {
+        (_, Some(failure)) if failure.timed => (
+            format!(
+                "{goal} ({measured}, as corpus.toml declares, after its report: {})",
+                failure.reason
+            ),
+            CheckStatus::of(met, &[skif]),
+        ),
         (_, Some(failure)) if skif.error_runs == 0 => (
             format!("{goal} (not measured: knip fails here: {})", failure.reason),
             CheckStatus::NotMeasured,
@@ -560,15 +582,21 @@ fn knip_check(target: &TargetResult, skif: &ToolResult, knip: &ToolResult) -> Ta
                 CheckStatus::Invalid,
             )
         }
-        _ => (
-            format!("{goal} ({measured})"),
-            CheckStatus::of(speedup >= KNIP_SPEEDUP_TARGET, &[skif, knip]),
-        ),
+        _ => (format!("{goal} ({measured})"), CheckStatus::of(met, &[skif, knip])),
     };
     TargetCheck {
         target: target.target.clone(),
         description,
         status,
+    }
+}
+
+/// `count` and `noun`, plural unless the count is 1: `1 warmup run`, `5 measured runs`.
+fn count_of(count: u32, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
     }
 }
 
@@ -635,10 +663,18 @@ fn markdown(summary: &Summary) -> String {
         if let Some(installed_with) = &target.installed_with {
             let _ = write!(out, "Installed with {}.\n\n", code_span(installed_with));
         }
+        if (target.warmup, target.runs) != (summary.warmup, summary.runs) {
+            let _ = write!(
+                out,
+                "{} and {}, as corpus.toml caps them here.\n\n",
+                count_of(target.warmup, "warmup run"),
+                count_of(target.runs, "measured run")
+            );
+        }
         out.push_str("| Tool | Mean (ms) | Std dev (ms) | Median (ms) | Min (ms) | Max (ms) | vs skif |\n");
         out.push_str("| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
         for r in &target.results {
-            if let Some(failure) = &r.failure {
+            if let Some(failure) = r.failure.as_ref().filter(|failure| !failure.timed) {
                 let _ = writeln!(
                     out,
                     "| {} | fails: {} | - | - | - | - | - |",
@@ -666,15 +702,18 @@ fn markdown(summary: &Summary) -> String {
                 .error_output
                 .as_deref()
                 .map_or_else(String::new, |output| format!(": {}", code_span(output)));
-            let consequence = if r.failure.is_some() {
-                "as corpus.toml declares, so its time is compared with nothing"
-            } else {
-                "so its time may be that of a partial run"
+            let consequence = match &r.failure {
+                Some(failure) if failure.timed => format!(
+                    "as corpus.toml declares, after its report, so its time is compared ({})",
+                    one_line(&failure.reason)
+                ),
+                Some(_) => "as corpus.toml declares, so its time is compared with nothing".to_owned(),
+                None => "so its time may be that of a partial run".to_owned(),
             };
             let _ = write!(
                 out,
                 "{} exited with an error in {} of {} runs, {consequence}{cause}.\n\n",
-                r.tool, r.error_runs, summary.runs
+                r.tool, r.error_runs, target.runs
             );
         }
     }
@@ -958,6 +997,34 @@ fn corpus_skif_args(repo: &corpus::Repo) -> Vec<String> {
     }
 }
 
+/// The skif and knip arguments of a corpus repository's timed runs: skif's [`corpus_skif_args`] and knip's
+/// `bench-knip-args`, and with `bench-knip-config = "parity"` the configurations of the knip comparison, written into
+/// `scratch`: knip's in place of the repository's own, and skif's with the `entry` files when there are any.
+fn corpus_tool_args(repo: &corpus::Repo, scratch: &Path) -> Result<(Vec<String>, Vec<String>)> {
+    let mut skif = corpus_skif_args(repo);
+    let mut knip = repo.bench_knip_args.clone();
+    if repo.bench_knip_config.as_deref() == Some(corpus::PARITY_KNIP_CONFIG) {
+        let path = |config: PathBuf| config.to_string_lossy().into_owned();
+        knip.extend([
+            "--config".to_owned(),
+            path(parity::write_knip_config(&repo.entry, scratch)?),
+        ]);
+        if let Some(config) = parity::write_skif_entry_config(&repo.entry, scratch)? {
+            skif.extend(["--config".to_owned(), path(config)]);
+        }
+    }
+    Ok((skif, knip))
+}
+
+/// The warmup and measured runs of a corpus repository: the run's `warmup` and `runs`, each capped by the repository's
+/// `bench-max-warmup` and `bench-max-runs`.
+fn corpus_runs(repo: &corpus::Repo, warmup: u32, runs: u32) -> (u32, u32) {
+    (
+        repo.bench_max_warmup.map_or(warmup, |most| warmup.min(most)),
+        repo.bench_max_runs.map_or(runs, |most| runs.min(most)),
+    )
+}
+
 /// The ADR 0001 module graph case: one pnpm workspace whose packages hold `graph_files` TypeScript files in total.
 fn graph_target(options: &RunOptions) -> Result<Target> {
     let packages = options.graph_packages.max(1);
@@ -986,6 +1053,8 @@ fn graph_target(options: &RunOptions) -> Result<Target> {
         skif_args: Vec::new(),
         installed_with: None,
         knip_failure: None,
+        warmup: options.warmup,
+        runs: options.runs,
     })
 }
 
@@ -1058,6 +1127,8 @@ pub fn run(options: &RunOptions) -> Result<()> {
             skif_args: Vec::new(),
             installed_with: None,
             knip_failure: None,
+            warmup: options.warmup,
+            runs: options.runs,
         });
     }
     if options.graph_files > 0 {
@@ -1097,6 +1168,10 @@ pub fn run(options: &RunOptions) -> Result<()> {
                     installed_with = Some(install_label(repo, version.as_deref()));
                 }
             }
+            let configs = std::path::absolute(options.generated_dir.join("configs").join(&repo.name))
+                .context("resolving the configuration directory")?;
+            let (skif_args, knip_args) = corpus_tool_args(repo, &configs)?;
+            let (warmup, runs) = corpus_runs(repo, options.warmup, options.runs);
             targets.push(Target {
                 name: corpus_target_name(repo),
                 kind: "corpus",
@@ -1104,10 +1179,12 @@ pub fn run(options: &RunOptions) -> Result<()> {
                 files: None,
                 dir: checkout,
                 tools,
-                knip_args: repo.bench_knip_args.clone(),
-                skif_args: corpus_skif_args(repo),
+                knip_args,
+                skif_args,
                 installed_with,
                 knip_failure: repo.bench_knip_failure.clone(),
+                warmup,
+                runs,
             });
         }
     }
@@ -1127,7 +1204,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
             .collect();
         let commands: Vec<(Tool, String)> = argvs.iter().map(|(tool, argv)| (*tool, command_line(argv))).collect();
         let export = raw.join(format!("{index:02}.json"));
-        hyperfine(options, target, &commands, &export)?;
+        hyperfine(target, &commands, &export)?;
         let mut results = tool_results(&read_results(&export)?);
         let scratch = std::path::absolute(options.generated_dir.join("errors").join(format!("{index:02}")))
             .context("resolving the error output directory")?;
@@ -1139,6 +1216,8 @@ pub fn run(options: &RunOptions) -> Result<()> {
             files: target.files,
             installed_with: target.installed_with.clone(),
             declared_knip_failure: target.knip_failure.clone(),
+            warmup: target.warmup,
+            runs: target.runs,
             results,
         });
     }
@@ -1278,6 +1357,8 @@ mod tests {
                     files: None,
                     installed_with: Some("pnpm 9.15.0".into()),
                     declared_knip_failure: None,
+                    warmup: 1,
+                    runs: 2,
                     results: vec![
                         row("skif --no-js"),
                         row("sherif"),
@@ -1509,6 +1590,8 @@ mod tests {
                 files: None,
                 installed_with: None,
                 declared_knip_failure: None,
+                warmup: 1,
+                runs: 2,
                 results: tool_results(&[result("skif", 0.1), knip]),
             }
         };
@@ -1536,6 +1619,7 @@ mod tests {
         corpus::KnipFailure {
             matches: "Cannot find module 'metro-cache'".into(),
             reason: "its Expo Metro config needs metro-cache".into(),
+            timed: false,
         }
     }
 
@@ -1545,6 +1629,7 @@ mod tests {
         ExpectedFailure {
             reason: declared().reason,
             error: METRO_ERROR.to_owned(),
+            timed: false,
         }
     }
 
@@ -1566,6 +1651,8 @@ mod tests {
             files: None,
             installed_with: None,
             declared_knip_failure: declared,
+            warmup: 1,
+            runs: 2,
             results,
         }
     }
@@ -1576,7 +1663,8 @@ mod tests {
             matched_failure(&declared(), &format!("warn: slow\n{METRO_ERROR}\n"), "ERROR: other"),
             Some(ExpectedFailure {
                 reason: declared().reason,
-                error: "ERROR: other".to_owned()
+                error: "ERROR: other".to_owned(),
+                timed: false,
             })
         );
         assert_eq!(matched_failure(&declared(), "", METRO_ERROR), Some(metro_failure()));
@@ -1652,11 +1740,15 @@ mod tests {
         let row = serde_json::to_value(&target).unwrap();
         assert_eq!(
             row["declared_knip_failure"],
-            serde_json::json!({ "matches": "Cannot find module 'metro-cache'", "reason": "its Expo Metro config needs metro-cache" })
+            serde_json::json!({ "matches": "Cannot find module 'metro-cache'", "reason": "its Expo Metro config needs metro-cache", "timed": false })
         );
         assert_eq!(
             row["results"][1]["failure"],
-            serde_json::json!({ "reason": "its Expo Metro config needs metro-cache", "error": METRO_ERROR })
+            serde_json::json!({ "reason": "its Expo Metro config needs metro-cache", "error": METRO_ERROR, "timed": false })
+        );
+        assert_eq!(
+            (row["warmup"].clone(), row["runs"].clone()),
+            (serde_json::json!(1), serde_json::json!(2))
         );
         assert_eq!(row["results"][1]["relative_to_skif"], serde_json::Value::Null);
         assert_eq!(row["results"][0]["failure"], serde_json::Value::Null);
@@ -1700,6 +1792,8 @@ mod tests {
                 skif_args: Vec::new(),
                 installed_with: None,
                 knip_failure,
+                warmup: 1,
+                runs: 2,
             };
             let mut knip = result("knip --reporter json", 1.0);
             knip.error_runs = 3;
@@ -1711,6 +1805,7 @@ mod tests {
         let other = explained(Some(corpus::KnipFailure {
             matches: "__DEV__ is not defined".into(),
             reason: "r".into(),
+            timed: false,
         }));
         let undeclared = explained(None);
         fs::remove_dir_all(&dir).unwrap();
@@ -1828,6 +1923,175 @@ mod tests {
         assert_eq!(corpus_skif_args(vue), [] as [String; 0]);
     }
 
+    /// A bench repository `r` with these extra `corpus.toml` keys.
+    fn bench_repo(keys: &str) -> corpus::Repo {
+        toml::from_str(&format!(
+            "name = \"r\"\nurl = \"u\"\nrev = \"0\"\npackage-manager = \"pnpm\"\nsuites = [\"bench\"]\n{keys}"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_corpus_repository_caps_the_runs_of_its_commands_below_the_runs_asked_for() {
+        let capped = bench_repo("bench-max-runs = 5\nbench-max-warmup = 1\n");
+        assert_eq!(corpus_runs(&capped, 3, 15), (1, 5));
+        assert_eq!(corpus_runs(&capped, 0, 2), (0, 2), "a lower --runs or --warmup is kept");
+        assert_eq!(corpus_runs(&bench_repo(""), 3, 15), (3, 15));
+        assert_eq!(corpus_runs(&bench_repo("bench-max-runs = 4\n"), 3, 15), (3, 4));
+    }
+
+    #[test]
+    fn the_comparison_configuration_gives_knip_its_config_and_both_tools_the_entry_files() {
+        let dir = std::env::temp_dir().join(format!("skif-bench-corpus-args-{}", std::process::id()));
+        let scratch = dir.join("configs");
+        let with_entry = bench_repo(
+            "recursive = true\nentry = [\"src/main.ts\"]\nbench-knip-config = \"parity\"\nbench-knip-args = [\"--no-gitignore\"]\n",
+        );
+        let (skif, knip) = corpus_tool_args(&with_entry, &scratch).unwrap();
+        let root = fs::canonicalize(&scratch).unwrap();
+        let knip_config = root.join("knip-config.json");
+        let skif_config = root.join("skif-entry.toml");
+        assert_eq!(skif, ["--recursive", "--config", skif_config.to_str().unwrap()]);
+        assert_eq!(knip, ["--no-gitignore", "--config", knip_config.to_str().unwrap()]);
+        let knip_text = fs::read_to_string(&knip_config).unwrap();
+        let skif_text = fs::read_to_string(&skif_config).unwrap();
+        fs::remove_dir_all(&scratch).unwrap();
+        let entry: serde_json::Value = serde_json::from_str(&knip_text).unwrap();
+        assert!(
+            entry["workspaces"]["."]["entry"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("src/main.ts")),
+            "{knip_text}"
+        );
+        assert!(skif_text.starts_with("[js.workspaces.\".\"]\nentry = ["), "{skif_text}");
+        assert!(skif_text.contains("\"src/main.ts\""), "{skif_text}");
+
+        let (skif, knip) = corpus_tool_args(&bench_repo("bench-knip-config = \"parity\"\n"), &scratch).unwrap();
+        assert_eq!(skif, [] as [String; 0], "no entry files, no skif configuration");
+        assert_eq!(knip, ["--config", knip_config.to_str().unwrap()]);
+        assert_eq!(fs::read_to_string(&knip_config).unwrap(), "{}\n");
+        assert!(!skif_config.exists());
+        fs::remove_dir_all(&scratch).unwrap();
+
+        let (skif, knip) = corpus_tool_args(&bench_repo("bench-knip-args = [\"--no-gitignore\"]\n"), &scratch).unwrap();
+        assert_eq!((skif, knip), (Vec::new(), vec!["--no-gitignore".to_owned()]));
+        assert!(
+            !scratch.exists(),
+            "the repository's own knip configuration needs no file"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The knip failure next-js declares, which knip prints its whole report before.
+    fn timed_declared() -> corpus::KnipFailure {
+        corpus::KnipFailure {
+            matches: "Error loading jest.config.js".into(),
+            reason: "its root Jest config requires the built next/jest".into(),
+            timed: true,
+        }
+    }
+
+    const JEST_ERROR: &str = "ERROR: Error loading jest.config.js (Cannot find module './dist/build/jest/jest')";
+
+    fn jest_failure() -> ExpectedFailure {
+        ExpectedFailure {
+            reason: timed_declared().reason,
+            error: JEST_ERROR.to_owned(),
+            timed: true,
+        }
+    }
+
+    #[test]
+    fn a_timed_knip_failure_is_checked_like_a_clean_run_with_its_reason() {
+        let goal = "JS analysis >= 5x faster than knip";
+        let reason = "as corpus.toml declares, after its report: its root Jest config requires the built next/jest";
+        let mut slow = corpus_target(5, Some(timed_declared()), Some(jest_failure()));
+        slow.results[1].mean_ms = 300.0;
+        let mut skif_errored = corpus_target(5, Some(timed_declared()), Some(jest_failure()));
+        skif_errored.results[0].error_runs = 1;
+        for (case, target, status, description) in [
+            (
+                "fast enough",
+                corpus_target(5, Some(timed_declared()), Some(jest_failure())),
+                CheckStatus::Pass,
+                format!("{goal} (measured 10.0x; knip --reporter json exited with an error in 5 runs, {reason})"),
+            ),
+            (
+                "too slow",
+                slow,
+                CheckStatus::Fail,
+                format!("{goal} (measured 3.0x; knip --reporter json exited with an error in 5 runs, {reason})"),
+            ),
+            (
+                "skif errored",
+                skif_errored,
+                CheckStatus::Invalid,
+                format!(
+                    "{goal} (measured 10.0x; skif exited with an error in 1 runs; knip --reporter json exited with an error in 5 runs, {reason})"
+                ),
+            ),
+            (
+                "unmatched",
+                corpus_target(5, Some(timed_declared()), None),
+                CheckStatus::Invalid,
+                format!(
+                    "{goal} (measured 10.0x; knip --reporter json exited with an error in 5 runs; corpus.toml declares that knip fails here with `Error loading jest.config.js`, but knip's error is another one: the declaration is stale)"
+                ),
+            ),
+        ] {
+            let found = checks(&[target]);
+            assert_eq!(found[0].status, status, "{case}");
+            assert_eq!(found[0].description, description, "{case}");
+        }
+    }
+
+    #[test]
+    fn a_timed_knip_failure_keeps_its_times_and_ratio_in_the_summary() {
+        let mut target = corpus_target(2, Some(timed_declared()), Some(jest_failure()));
+        target.results[1].error_output = Some(JEST_ERROR.to_owned());
+        let found = checks(std::slice::from_ref(&target));
+        let text = markdown(&summary_of(vec![target], found));
+        for expected in [
+            "| knip --reporter json | 1000 | 1.0 | 1000 | 1000 | 1000 | 10.0x |\n",
+            "\n\nknip --reporter json exited with an error in 2 of 2 runs, as corpus.toml declares, after its report, so its time is compared (its root Jest config requires the built next/jest): `ERROR: Error loading jest.config.js (Cannot find module './dist/build/jest/jest')`.\n",
+            "| corpus: r (pnpm) | JS analysis >= 5x faster than knip (measured 10.0x; knip --reporter json exited with an error in 2 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest) | pass |\n",
+        ] {
+            assert!(text.contains(expected), "{expected}\n{text}");
+        }
+        assert!(!text.contains("fails:"), "{text}");
+    }
+
+    #[test]
+    fn a_target_with_capped_runs_says_so_and_counts_its_errors_out_of_its_own_runs() {
+        let mut capped = corpus_target(5, None, None);
+        (capped.warmup, capped.runs) = (0, 5);
+        let mut one = corpus_target(0, None, None);
+        one.target = "corpus: t (pnpm)".into();
+        (one.warmup, one.runs) = (1, 1);
+        let uncapped = TargetResult {
+            target: "corpus: s (pnpm)".into(),
+            ..corpus_target(0, None, None)
+        };
+        let text = markdown(&summary_of(vec![capped, uncapped, one], Vec::new()));
+        assert!(
+            text.contains(
+                "## corpus: r (pnpm)\n\n0 warmup runs and 5 measured runs, as corpus.toml caps them here.\n\n| Tool |"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("## corpus: s (pnpm)\n\n| Tool |"), "{text}");
+        assert!(
+            text.contains("knip --reporter json exited with an error in 5 of 5 runs, so its time may be"),
+            "{text}"
+        );
+        assert!(
+            text.contains("## corpus: t (pnpm)\n\n1 warmup run and 1 measured run, as corpus.toml caps them here.\n\n"),
+            "{text}"
+        );
+        assert_eq!(text.matches("as corpus.toml caps them").count(), 2, "{text}");
+    }
+
     #[test]
     fn a_corpus_install_names_its_package_manager_version_or_its_command() {
         let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
@@ -1869,6 +2133,8 @@ mod tests {
             files: None,
             installed_with: None,
             declared_knip_failure: None,
+            warmup: 1,
+            runs: 2,
             results: vec![ToolResult {
                 tool: "skif --no-js".into(),
                 mean_ms,
@@ -1895,6 +2161,8 @@ mod tests {
             files: Some(files),
             installed_with: None,
             declared_knip_failure: None,
+            warmup: 1,
+            runs: 2,
             results: vec![ToolResult {
                 tool: "skif".into(),
                 mean_ms,
