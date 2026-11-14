@@ -274,16 +274,24 @@ impl EntryContext<'_> {
         }
         let manifest_file = || package_setup.dir.join("package.json");
         if published_without_source && !mapped_any {
-            unknown.push((id, IncompleteEntries::new(IncompleteCause::UnmappedPublished).with_file(manifest_file())));
+            unknown.push((
+                id,
+                IncompleteEntries::new(IncompleteCause::UnmappedPublished).with_file(manifest_file()),
+            ));
         }
         let (built_entries, unmapped_entries) = self.missing_plugin_entries(package, package_setup);
-        origins.extend(built_entries.iter().map(|source| (source.clone(), EntryReason::EntryGlob)));
-        from_tools.extend(built_entries);
-        unknown.extend(
-            unmapped_entries
-                .into_iter()
-                .map(|path| (id, IncompleteEntries::new(IncompleteCause::UnmappedEntry).with_file(path))),
+        origins.extend(
+            built_entries
+                .iter()
+                .map(|source| (source.clone(), EntryReason::EntryGlob)),
         );
+        from_tools.extend(built_entries);
+        unknown.extend(unmapped_entries.into_iter().map(|path| {
+            (
+                id,
+                IncompleteEntries::new(IncompleteCause::UnmappedEntry).with_file(path),
+            )
+        }));
         own.extend(from_tools.iter().cloned());
         provided.extend(from_tools);
         let mut tool_entries: Vec<PathBuf> = package_setup
@@ -333,7 +341,10 @@ impl EntryContext<'_> {
                 .iter()
                 .all(|candidate| is_install_hook(&candidate.abs))
         {
-            unknown.push((id, IncompleteEntries::new(IncompleteCause::NoEntries).with_file(manifest_file())));
+            unknown.push((
+                id,
+                IncompleteEntries::new(IncompleteCause::NoEntries).with_file(manifest_file()),
+            ));
         }
         PackageEntries {
             entries: own,
@@ -367,7 +378,13 @@ impl EntryContext<'_> {
             {
                 sources.insert(source);
             } else if should_have_source(&rel)
-                && !names_no_file(self.disk, &self.workspace.root, package_setup, package.manifest.value(), &rel)
+                && !names_no_file(
+                    self.disk,
+                    &self.workspace.root,
+                    package_setup,
+                    package.manifest.value(),
+                    &rel,
+                )
             {
                 unmapped.insert(path.clone());
             }
