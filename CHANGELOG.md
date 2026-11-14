@@ -9,77 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Added
-
-- **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
-  from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
-  `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production
-  entries, from `mikro-orm.config.*` and the configs `package.json#mikro-orm.configPaths` names; the `files` of
-  `web-test-runner.config.*` and of its `groups` are entries, and so are the test files a script passes to `wtr` or
-  `web-test-runner`; the two Vue plugins are enabled by their packages. The table holds 212 plugins
-  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
-
-### Fixed
-
-- A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
-  the flags' values: the value is no longer read as the command, so the binary and the file it runs are found.
 ### Breaking changes
 
 - **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and
   heritage of an exported class) and `ModuleInfo` gains `property_reads` and `property_writes`, the property names a
   module reads and assigns.
-
-### Added
-
-- `unused-class-members` (a warning, unsafe fix) reports the methods, fields and accessors of used exported classes
-  that no module reads, following knip 5's `classMembers`. Without type information a member counts as read when any
-  module reads a property of its name; decorated members and classes, members a base class outside the project may
-  declare, implemented interface members, classes exposed by an entry file, tagged members and `ignore-members`
-  names are not judged ([ADR 0042](adrs/0042-unused-class-members.md)).
-- `skif explain-usage FILE#Class.member` explains one class member: the modules that read its name, the exemption
-  that applies and the verdict.
-- `ignore-members` also exempts class members.
-
-### Changed
-
-- The parse cache schema moves to version 9, so the first run after upgrading re-parses every file.
-### Changed
-
-- **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
-  and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and
-  warmup runs below the run's (the four large repositories run 5 times after 1 warmup run, so the job fits its time
-  limit), and `bench-knip-config = "parity"`, which times knip with the knip comparison's configuration instead of the
-  repository's own and skif with the same `entry` files (n8n's own knip configuration checks dependencies only). A
-  `bench-knip-failure` with `timed = true` declares an error knip exits with after printing its whole report (next-js's
-  root Jest config, two n8n Vite configs): that run is timed and compared, and published with the reason. The summary
-  records each target's run counts (`summary.json` schema 6), the published tables name a capped target's counts, and
-  the workflow frees disk space for the installs before it builds
-  ([ADR 0041](adrs/0041-benchmarks-on-large-repositories.md)).
-### Added
-
-- **Comparison harness**: the knip comparison sets apart more known deviations, decided from the checkout's files,
-  manifests, TypeScript configurations and an import scan with skif's parser
-  ([ADR 0040](adrs/0040-more-known-deviations-of-the-knip-comparison.md), amending
-  [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)): `rush-provided-command`, `shell-builtin`,
-  `global-binary` (read from skif's own binary tables), `data-uri`, `ambient-module`, `own-tsconfig-paths`,
-  `replaced-knip-config`, `whole-enum-use` (ADR 0018 stands: a whole use credits every member, and enum-member recall
-  is read with these set apart), `published-file`, `paths-before-packages` and `uninstalled-project` (the
-  turborepo-examples root the corpus install leaves out).
-
-### Changed
-
-- **Comparison harness**: `published-source` covers the sources a published `node` `bin` stub loads and the files a
-  published source re-exports; `non-member-project` covers a nested root's default-entry re-exports and, with
-  `skipped-directory`, exports only skif reports whose importers lie in a project or directory skif does not read;
-  `bazel-build-file` covers the files `rules_js` rules name in `srcs`, `data` and `entry_point` and what they reach;
-  `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
-  only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
-  needs re-recording for the new categories.
-
-### Fixed
-
-- `unused-enum-members`: an imported enum named only in a type annotation (`value: E`, `x as E | null`) no longer counts as used as a whole, so its unread members are reported, as they already were for an enum annotated in its own file. Type arguments (`Record<E, X>`), template literal types and mapped types still use every member. The module cache schema is now 9.
-### Breaking changes
 
 - **Library hosts that call `PluginSource::inputs` of `skif-js` themselves**: it no longer gives what the `execa`, `zx`
   and `nano-spawn` plugins find in source files, and sets `WorkspaceInputs::scans_reached_sources` for a package where
@@ -89,31 +23,31 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
   [#233](https://github.com/Goldziher/skif/issues/233)).
 
-### Changed
-
-- **Performance** ([#233](https://github.com/Goldziher/skif/issues/233)): the `execa`, `zx` and `nano-spawn` plugins
-  read the commands of the source files the module graph reaches, as knip does, from the texts the graph already
-  read, instead of every source file of each package that lists or inherits the library. A member that inherits a
-  root's `execa` no longer reads its test fixtures, which on a large monorepo took most of the JS setup. A file such a
-  command runs (`execa("node", ["scripts/next.mjs"])`) is an entry as before, and the graph is built again to reach it
-  ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md)).
-- **`unlisted-binaries`, `unused-dependencies`**: a command in a source file nothing imports or runs, such as a test
-  fixture's `execa("x")`, runs no binary, so it is no longer reported unlisted and no longer credits the package that
-  provides it ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
-  [#233](https://github.com/Goldziher/skif/issues/233)).
-### Changed
-
-- **JS**, result-changing: `paths` named like a dependency resolve as TypeScript resolves them, a deliberate
-  departure from knip ([ADR 0038](adrs/0038-paths-before-packages.md),
-  [#222](https://github.com/Goldziher/skif/issues/222)). The `paths` of `[js.workspaces.<dir>.paths]` are tried before
-  installed packages and workspace members, so `src/*` to `./src/*` beside a member named `src` reaches the local file
-  instead of the member's, and that file is no longer reported by `unused-files`; a mapping whose targets are missing
-  still falls through to the package. An import that `tsconfig.json` `paths`, `[js.workspaces.<dir>.paths]` or a
-  bundler alias leads into the project's own sources no longer uses the listed dependency whose name the specifier
-  starts with, so `unused-dependencies` now reports a dependency that only such imports named; an aliased import that
-  reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
 ### Added
 
+- **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
+  from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
+  `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production
+  entries, from `mikro-orm.config.*` and the configs `package.json#mikro-orm.configPaths` names; the `files` of
+  `web-test-runner.config.*` and of its `groups` are entries, and so are the test files a script passes to `wtr` or
+  `web-test-runner`; the two Vue plugins are enabled by their packages. The table holds 212 plugins
+  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
+- `unused-class-members` (a warning, unsafe fix) reports the methods, fields and accessors of used exported classes
+  that no module reads, following knip 5's `classMembers`. Without type information a member counts as read when any
+  module reads a property of its name; decorated members and classes, members a base class outside the project may
+  declare, implemented interface members, classes exposed by an entry file, tagged members and `ignore-members`
+  names are not judged ([ADR 0042](adrs/0042-unused-class-members.md)).
+- `skif explain-usage FILE#Class.member` explains one class member: the modules that read its name, the exemption
+  that applies and the verdict.
+- `ignore-members` also exempts class members.
+- **Comparison harness**: the knip comparison sets apart more known deviations, decided from the checkout's files,
+  manifests, TypeScript configurations and an import scan with skif's parser
+  ([ADR 0040](adrs/0040-more-known-deviations-of-the-knip-comparison.md), amending
+  [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)): `rush-provided-command`, `shell-builtin`,
+  `global-binary` (read from skif's own binary tables), `data-uri`, `ambient-module`, `own-tsconfig-paths`,
+  `replaced-knip-config`, `whole-enum-use` (ADR 0018 stands: a whole use credits every member, and enum-member recall
+  is read with these set apart), `published-file`, `paths-before-packages` and `uninstalled-project` (the
+  turborepo-examples root the corpus install leaves out).
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
   `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
   `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it.
@@ -129,7 +63,57 @@ All notable changes to this project are documented here. The format follows
   `skif-js-syntax`, the exported value evaluated again with every test on the environment the evaluation leaves
   undecided taken as true, then as false; empty when there is none.
 
+### Changed
+
+- The parse cache schema moves to version 10, so the first run after upgrading re-parses every file.
+
+- **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
+  and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and
+  warmup runs below the run's (the four large repositories run 5 times after 1 warmup run, so the job fits its time
+  limit), and `bench-knip-config = "parity"`, which times knip with the knip comparison's configuration instead of the
+  repository's own and skif with the same `entry` files (n8n's own knip configuration checks dependencies only). A
+  `bench-knip-failure` with `timed = true` declares an error knip exits with after printing its whole report (next-js's
+  root Jest config, two n8n Vite configs): that run is timed and compared, and published with the reason. The summary
+  records each target's run counts (`summary.json` schema 6), the published tables name a capped target's counts, and
+  the workflow frees disk space for the installs before it builds
+  ([ADR 0041](adrs/0041-benchmarks-on-large-repositories.md)).
+
+- **Comparison harness**: `published-source` covers the sources a published `node` `bin` stub loads and the files a
+  published source re-exports; `non-member-project` covers a nested root's default-entry re-exports and, with
+  `skipped-directory`, exports only skif reports whose importers lie in a project or directory skif does not read;
+  `bazel-build-file` covers the files `rules_js` rules name in `srcs`, `data` and `entry_point` and what they reach;
+  `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
+  only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
+  needs re-recording for the new categories.
+
+- **Performance** ([#233](https://github.com/Goldziher/skif/issues/233)): the `execa`, `zx` and `nano-spawn` plugins
+  read the commands of the source files the module graph reaches, as knip does, from the texts the graph already
+  read, instead of every source file of each package that lists or inherits the library. A member that inherits a
+  root's `execa` no longer reads its test fixtures, which on a large monorepo took most of the JS setup. A file such a
+  command runs (`execa("node", ["scripts/next.mjs"])`) is an entry as before, and the graph is built again to reach it
+  ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md)).
+
+- **`unlisted-binaries`, `unused-dependencies`**: a command in a source file nothing imports or runs, such as a test
+  fixture's `execa("x")`, runs no binary, so it is no longer reported unlisted and no longer credits the package that
+  provides it ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
+  [#233](https://github.com/Goldziher/skif/issues/233)).
+
+- **JS**, result-changing: `paths` named like a dependency resolve as TypeScript resolves them, a deliberate
+  departure from knip ([ADR 0038](adrs/0038-paths-before-packages.md),
+  [#222](https://github.com/Goldziher/skif/issues/222)). The `paths` of `[js.workspaces.<dir>.paths]` are tried before
+  installed packages and workspace members, so `src/*` to `./src/*` beside a member named `src` reaches the local file
+  instead of the member's, and that file is no longer reported by `unused-files`; a mapping whose targets are missing
+  still falls through to the package. An import that `tsconfig.json` `paths`, `[js.workspaces.<dir>.paths]` or a
+  bundler alias leads into the project's own sources no longer uses the listed dependency whose name the specifier
+  starts with, so `unused-dependencies` now reports a dependency that only such imports named; an aliased import that
+  reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
+
 ### Fixed
+
+- A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
+  the flags' values: the value is no longer read as the command, so the binary and the file it runs are found.
+
+- `unused-enum-members`: an imported enum named only in a type annotation (`value: E`, `x as E | null`) no longer counts as used as a whole, so its unread members are reported, as they already were for an enum annotated in its own file. Type arguments (`Record<E, X>`), template literal types and mapped types still use every member.
 
 - **Environment-gated config references**: a package a tool config names only on a branch the environment chooses
   (a test that reads `process.env` or `import.meta.env`, directly or through a top-level constant, under `!`, `===`,
