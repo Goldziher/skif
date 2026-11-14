@@ -182,3 +182,57 @@ fn a_rig_no_rig_json_names_is_unused() {
         "{diagnostics:#?}"
     );
 }
+
+/// A Heft project: its Jest task runs the compiled tests and its Storybook task the storykit and CLI packages its
+/// options name.
+fn heft_project() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "rush.json",
+            r#"{"rushVersion":"5.150.0","pnpmVersion":"9.0.0","projects":[{"packageName":"app","projectFolder":"app"}]}"#,
+        ),
+        (
+            "app/package.json",
+            r#"{"name":"app","version":"1.0.0","main":"./src/index.ts","scripts":{"build":"heft build"},"devDependencies":{
+              "@rushstack/heft":"1.3.4","@rushstack/heft-jest-plugin":"1.0.0","@rushstack/heft-storybook-plugin":"1.0.0",
+              "app-storykit":"1.0.0","@storybook/react":"6.4.22"}}"#,
+        ),
+        (
+            "app/config/heft.json",
+            r#"{
+  "phasesByName": {
+    "build": {
+      "tasksByName": {
+        "storybook": {
+          "taskPlugin": {
+            "pluginPackage": "@rushstack/heft-storybook-plugin",
+            "options": { "storykitPackageName": "app-storykit", "cliPackageName": "@storybook/react" }
+          }
+        }
+      }
+    },
+    "test": {
+      "tasksByName": { "jest": { "taskPlugin": { "pluginPackage": "@rushstack/heft-jest-plugin" } } }
+    }
+  }
+}"#,
+        ),
+        ("app/src/index.ts", "export const a = 1;\n"),
+        (
+            "app/src/test/index.test.ts",
+            "import { helper } from './helper';\nhelper();\n",
+        ),
+        ("app/src/test/helper.ts", "export function helper(): void {}\n"),
+        ("app/src/orphan.ts", "export const b = 2;\n"),
+    ]
+}
+
+/// The tests of the Jest task are entries and the packages the Storybook task's options name are used; only the file
+/// nothing reaches is unused.
+#[test]
+fn heft_tasks_credit_their_tests_and_option_packages() {
+    let diagnostics = lint(&heft_project());
+    assert_eq!(found(&diagnostics, "unused-files"), ["app/src/orphan.ts: "]);
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), Vec::<String>::new());
+    assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new());
+}

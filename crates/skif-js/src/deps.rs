@@ -998,6 +998,11 @@ fn judged_config(
 
 /// For every package, the packages whose directory contains it, innermost first, and the root last. With `isolate`
 /// (`[js] isolate-workspaces`, strict mode) none: each package uses only what its own manifest lists.
+/// Whether `target` is a declaration file, which holds types and no code to load.
+fn declares_only(graph: &ModuleGraph, target: ModuleId) -> bool {
+    graph.module(target).abs.to_str().is_some_and(is_declaration_file)
+}
+
 fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>> {
     if isolate {
         return vec![Vec::new(); workspace.package_ids().count()];
@@ -1549,11 +1554,12 @@ impl DependencyUsage {
                         self.push_unlisted_binary(module.owner, bin, &module.path);
                     }
                 } else if let Some(import) = module.info.imports.get(resolved.import)
-                    && !matches!(resolved.target, Target::Module(_))
+                    && !matches!(resolved.target, Target::Module(target) if !declares_only(graph, target))
                 {
                     // An alias that leads into the sources of the project is a local import, as it is for TypeScript
                     // (ADR 0038): it uses no listed package of the name the specifier starts with. One that found
-                    // no file can still stand in for the listed package. A bare builtin name (`events`, `buffer`)
+                    // no file can still stand in for the listed package, and so can one that leads to a declaration
+                    // file, which types the package the import loads at runtime. A bare builtin name (`events`, `buffer`)
                     // uses a listed package of that name, the polyfill a bundler resolves it to for the browser; a
                     // `node:` specifier names no package.
                     self.reference_listed(module.owner, &import.specifier);

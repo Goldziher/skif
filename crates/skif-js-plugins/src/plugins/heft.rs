@@ -30,6 +30,22 @@ const DEFAULT_PROFILE: &str = "default";
 /// Heft plugin packages that load another package the project provides, which they credit without requiring it.
 const LOADED_BY_PLUGIN: &[(&str, &[&str])] = &[("@rushstack/heft-sass-plugin", &["sass"])];
 
+/// Heft plugin packages whose task `options` name packages the plugin runs, with the option keys naming them.
+const NAMED_BY_OPTIONS: &[(&str, &[&str])] = &[(
+    "@rushstack/heft-storybook-plugin",
+    &["storykitPackageName", "cliPackageName"],
+)];
+
+/// The Jest plugin of Heft, which runs the compiled tests of the project.
+const JEST_PLUGIN: &str = "@rushstack/heft-jest-plugin";
+
+/// The sources of the tests the Jest plugin runs by default: its shared config matches `lib/**/*.test.{cjs,js}`, the
+/// output of these files, and Jest loads the manual mocks next to them.
+const JEST_ENTRIES: &[&str] = &[
+    "src/**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+    "src/**/__mocks__/**/*.{ts,tsx,js,jsx}",
+];
+
 static SPEC: PluginSpec = PluginSpec {
     id: ID,
     enablers: &[Enabler::Dependency(HEFT), Enabler::File("config/rig.json")],
@@ -60,7 +76,12 @@ impl Plugin for Heft {
         }
         let mut out = extends_inputs(config);
         if name == "heft.json" {
-            out.extend(plugin_packages(config.value).into_iter().flat_map(plugin_inputs));
+            let packages = plugin_packages(config.value);
+            if packages.contains(&JEST_PLUGIN) {
+                out.extend(JEST_ENTRIES.iter().map(|glob| PluginInput::Entry((*glob).to_owned())));
+            }
+            out.extend(packages.into_iter().flat_map(plugin_inputs));
+            out.extend(option_packages(config.value));
             // A rig provides Heft to the projects that use it.
             if is_profile_config(config.base) {
                 out.push(PluginInput::OptionalDependency(HEFT.to_owned()));
@@ -105,17 +126,38 @@ fn extends_inputs(config: &ConfigAst<'_>) -> Vec<PluginInput> {
 /// (`phasesByName.<phase>.tasksByName.<task>.taskPlugin`).
 fn plugin_packages(value: &ConfigValue) -> Vec<&str> {
     let lifecycle = value.get("heftPlugins").map_or_default(objects);
-    let tasks = value
+    lifecycle
+        .into_iter()
+        .chain(task_plugins(value))
+        .filter_map(|plugin| plugin.get("pluginPackage").and_then(ConfigValue::as_str))
+        .collect()
+}
+
+/// The `taskPlugin` of every task (`phasesByName.<phase>.tasksByName.<task>`).
+fn task_plugins(value: &ConfigValue) -> Vec<&ConfigValue> {
+    value
         .get("phasesByName")
         .map_or_default(values_of)
         .into_iter()
         .filter_map(|phase| phase.get("tasksByName"))
         .flat_map(values_of)
-        .filter_map(|task| task.get("taskPlugin"));
-    lifecycle
+        .filter_map(|task| task.get("taskPlugin"))
+        .collect()
+}
+
+/// The packages a task plugin's `options` name for it to run ([`NAMED_BY_OPTIONS`]), such as the storykit and CLI
+/// packages of the Storybook plugin.
+fn option_packages(value: &ConfigValue) -> Vec<PluginInput> {
+    task_plugins(value)
         .into_iter()
-        .chain(tasks)
-        .filter_map(|plugin| plugin.get("pluginPackage").and_then(ConfigValue::as_str))
+        .filter_map(|plugin| {
+            let package = plugin.get("pluginPackage").and_then(ConfigValue::as_str)?;
+            let keys = NAMED_BY_OPTIONS.iter().find(|(name, _)| *name == package)?.1;
+            Some((plugin.get("options")?, keys))
+        })
+        .flat_map(|(options, keys)| keys.iter().filter_map(|key| options.get(key)?.as_str()))
+        .filter_map(package_name)
+        .map(PluginInput::Dependency)
         .collect()
 }
 

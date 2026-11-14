@@ -30,7 +30,7 @@ All notable changes to this project are documented here. The format follows
   `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production
   entries, from `mikro-orm.config.*` and the configs `package.json#mikro-orm.configPaths` names; the `files` of
   `web-test-runner.config.*` and of its `groups` are entries, and so are the test files a script passes to `wtr` or
-  `web-test-runner`; the two Vue plugins are enabled by their packages. The table holds 212 plugins
+  `web-test-runner`; the two Vue plugins are enabled by their packages. The table holds 213 plugins
   ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
 - `unused-class-members` (a warning, unsafe fix) reports the methods, fields and accessors of used exported classes
   that no module reads, following knip 5's `classMembers`. Without type information a member counts as read when any
@@ -50,12 +50,14 @@ All notable changes to this project are documented here. The format follows
   turborepo-examples root the corpus install leaves out).
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
   `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
-  `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it.
+  `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it,
+  `@rushstack/heft-storybook-plugin` the `storykitPackageName` and `cliPackageName` of its options, and a
+  `@rushstack/heft-jest-plugin` task makes the tests under `src` entries, the sources of the compiled tests it runs.
   A project's `config/rig.json` needs the rig it names, and the configs of the selected profile of the installed rig
   that the project does not have itself are its configs. In a rig, `profiles/*/config/*.json` are its own configs, so
   the packages they extend and load are used, and so is `@rushstack/heft`; its `profiles/*/tsconfig*.json` are read
   too, and the packages their compiler options name (`types`, `importHelpers`) are used by the rig but never unlisted
-  at it, as they apply to the projects extending the profile. The table holds 208 plugins
+  at it, as they apply to the projects extending the profile. The table holds 213 plugins
   ([ADR 0037](adrs/0037-heft-and-rig-packages.md), [#230](https://github.com/Goldziher/skif/issues/230)).
 - **Public API** ([#230](https://github.com/Goldziher/skif/issues/230)): `PluginInput::SharedConfig` of
   `skif-js-plugins`, a config file a package ships for the packages that extend it.
@@ -109,6 +111,9 @@ All notable changes to this project are documented here. The format follows
   reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
 
 ### Fixed
+
+- A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
+  the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 
 - A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
   the flags' values: the value is no longer read as the command, so the binary and the file it runs are found.

@@ -224,3 +224,19 @@ fn an_import_no_paths_entry_matches_still_uses_the_listed_package() {
         );
     }
 }
+
+/// A `paths` entry that maps the package to a declaration file only types it: the import still loads the listed
+/// package at runtime, so the package is used.
+#[test]
+fn paths_to_a_declaration_file_still_use_the_listed_package() {
+    let mut files = installed_tree(
+        Some(r#"{"compilerOptions":{"baseUrl":".","paths":{"lib/*":["./types/lib.d.ts"]}}}"#),
+        false,
+    );
+    files.push((
+        "packages/app/types/lib.d.ts",
+        "export declare function helper(): string;\n",
+    ));
+    let diagnostics = lint(&files, "");
+    assert_eq!(findings(&diagnostics), none(), "{diagnostics:#?}");
+}
