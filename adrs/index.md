@@ -34,7 +34,7 @@ old one.
 | 0024 | [CLI Contract](0024-cli-contract.md) | accepted |
 | 0025 | [`skif migrate`: A One-Shot Translator From sherif, syncpack and knip](0025-skif-migrate.md) | accepted |
 | 0026 | [`skif update`: Opt-In Registry Updates, the Only Code That Uses the Network](0026-skif-update.md) | accepted |
-| 0027 | [Distribution and Release: One Name, One Version, One Release Workflow](0027-distribution-and-release.md) | accepted |
+| 0027 | [Distribution and Release: One Name, One Version, One Release Workflow](0027-distribution-and-release.md) | accepted, superseded in part by [0045](0045-tsrs-dependency-policy.md) |
 | 0028 | [Editors, Agents and Git Hooks: `skif mcp`, `skif lsp`, `--watch`, the Agent Skill and the Hooks](0028-editors-agents-and-git-hooks.md) | accepted |
 | 0029 | [Performance, Caching and Benchmarks: A Content-Keyed Module Cache and Published Numbers From a Pinned Runner](0029-performance-caching-and-benchmarks.md) | accepted, superseded in part by [0041](0041-benchmarks-on-large-repositories.md) |
 | 0030 | [Supported Versions and the End-to-End Matrix: Upstream End of Life, Tested Layouts](0030-supported-versions-and-the-end-to-end-matrix.md) | accepted |
@@ -50,7 +50,8 @@ old one.
 | 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted |
 | 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
 | 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |
-| 0043 | [Type-Aware Analysis on tsrs: On by Default, Switchable, Untyped Where a Project Has No Types](0043-type-aware-analysis-on-tsrs.md) | proposed |
-| 0044 | [tsrs Dependency Policy: One Crate, Exact Pins, and the Process-Level Constraints of the Checker](0044-tsrs-dependency-policy.md) | proposed |
-| 0045 | [Typed Member Semantics: What a Typed Read Credits, and the `type-resolved` Deviation](0045-typed-member-semantics.md) | proposed |
-| 0046 | [Performance Budget and Benchmarks With Types](0046-performance-budget-with-types.md) | proposed |
+| 0043 | [Type-Only Class Fields and Constant Element Keys](0043-type-only-class-fields-and-constant-element-keys.md) | accepted |
+| 0044 | [Type-Aware Analysis on tsrs: On by Default, Switchable, Untyped Where a Project Has No Types](0044-type-aware-analysis-on-tsrs.md) | accepted |
+| 0045 | [tsrs Dependency Policy: One Crate, Exact Pins, and the Process-Level Constraints of the Checker](0045-tsrs-dependency-policy.md) | accepted |
+| 0046 | [Typed Member Semantics: What a Typed Read Credits, and the `type-resolved` Deviation](0046-typed-member-semantics.md) | accepted |
+| 0047 | [Performance Budget and Benchmarks With Types](0047-performance-budget-with-types.md) | accepted |

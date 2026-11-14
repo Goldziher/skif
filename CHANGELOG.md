@@ -14,8 +14,9 @@ All notable changes to this project are documented here. The format follows
 - **Library users that build `skif-js-syntax` structs with a literal**: `Export` gains `class` (the members and
   heritage of an exported class) and `declaration_start` (the offset of the name of the class, enum or namespace
   declaration it stands for, which the type-aware analysis keys declarations by), and `ModuleInfo` gains
-  `property_reads` and `property_writes`, the property names a module reads and assigns. The module cache schema moves
-  to 11, so a persisted cache is parsed again.
+  `property_reads` and `property_writes`, the property names a module reads and assigns, `string_constants`, the
+  strings behind its exported constants, and `imported_key_reads`, its element accesses through an imported constant
+  key.
 
 - **Library hosts that call `PluginSource::inputs` of `skif-js` themselves**: it no longer gives what the `execa`, `zx`
   and `nano-spawn` plugins find in source files, and sets `WorkspaceInputs::scans_reached_sources` for a package where
@@ -26,7 +27,7 @@ All notable changes to this project are documented here. The format follows
   [#233](https://github.com/Goldziher/skif/issues/233)).
 
 - **`skif-cli` library users**: `install_panic_hook` is removed. `run_to_exit` now catches a panic itself and exits 2,
-  as `run` does, so a binary built on it needs no hook ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
+  as `run` does, so a binary built on it needs no hook ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 
 ### Added
 
@@ -35,7 +36,7 @@ All notable changes to this project are documented here. The format follows
   reads are resolved with the TypeScript type checker, which is slower and gives more accurate member findings; turning
   it off is faster and less accurate for member findings. The flag overrides every workspace table. The language
   server, `skif mcp` and `--watch` run without types
-  ([ADR 0043](adrs/0043-type-aware-analysis-on-tsrs.md)).
+  ([ADR 0044](adrs/0044-type-aware-analysis-on-tsrs.md)).
 - **Type-aware coverage in the report**: the JSON report carries a `type-aware` object (`enabled`, `engine` and each
   package's `dir`, `name`, `state` `typed`, `partial` or `untyped`, `reason` and `untyped-files`), SARIF carries it in
   the run's `properties`, and the human output prints one `types:` line before the summary when a package is partial
@@ -50,7 +51,7 @@ All notable changes to this project are documented here. The format follows
   of those without. `skif explain-usage` names the typed read, the declaration it reaches and the reads credited by
   name, as text and as the `typed` and `untyped-because` fields of the JSON `class-member`, and now explains
   `FILE#Enum.member` and `FILE#Namespace.member` too (`of`: `enum` or `namespace`). `SKIF_TIMINGS` prints a
-  `js types <root>: programs X ms, queries Y ms` line ([ADR 0045](adrs/0045-typed-member-semantics.md)).
+  `js types <root>: programs X ms, queries Y ms` line ([ADR 0046](adrs/0046-typed-member-semantics.md)).
 - **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
   from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
   `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production
@@ -91,25 +92,25 @@ All notable changes to this project are documented here. The format follows
   `skif-js-syntax`, the exported value evaluated again with every test on the environment the evaluation leaves
   undecided taken as true, then as false; empty when there is none.
 - **Public API**: the `skif-js-types` crate, the type-aware facts from the TypeScript checker of tsrs
-  ([ADR 0043](adrs/0043-type-aware-analysis-on-tsrs.md)). `analyze` builds one program per `tsconfig.json` or
+  ([ADR 0044](adrs/0044-type-aware-analysis-on-tsrs.md)). `analyze` builds one program per `tsconfig.json` or
   `jsconfig.json` that holds a judged file, found as TypeScript finds it (solution configs followed through their
   references, `[js] tsconfig` for the root package), and answers which members of the asked classes, enums and
   namespaces typed reads reach, directly, through a base class or through an implemented interface
-  ([ADR 0045](adrs/0045-typed-member-semantics.md)); which declarations are used as a whole; which reads it could not
+  ([ADR 0046](adrs/0046-typed-member-semantics.md)); which declarations are used as a whole; which reads it could not
   settle; and the coverage of every package with the reason it is not fully typed. A panic inside the checker leaves
   that program's packages untyped (`checker-failed`), and every program's memory is freed before `analyze` returns.
   The `plain-ptrs` feature builds tsrs without its fixed address reservation
-  ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
+  ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 - `ATTRIBUTIONS.md` has a "tsrs (and TypeScript)" section with the full NOTICE and the Apache-2.0 licence of tsrs, the
   TypeScript checker behind type-aware analysis, and ships in every crate, binary archive and npm package; the
-  release checks fail when it is missing ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
+  release checks fail when it is missing ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 - The `plain-ptrs` feature of `skif` (and `skif-js`, `skif-js-types`) makes tsrs use plain pointers instead of its
   fixed address-space reservation; the npm addon enables it, so the reservation cannot collide with Node.js's and
-  abort the host ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
+  abort the host ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 
 ### Changed
 
-- The parse cache schema moves to version 10, so the first run after upgrading re-parses every file.
+- The parse cache schema moves to version 12, so the first run after upgrading re-parses every file.
 
 - **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
   and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and
@@ -154,9 +155,21 @@ All notable changes to this project are documented here. The format follows
 
 - Release binaries unwind on panic (`panic = "unwind"`) instead of aborting, so a panic inside the type checker can
   fall back to the untyped analysis. A panic that ends a run still exits 2, prints its message to stderr and, with
-  `--format json`, writes one `internal` error document ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
+  `--format json`, writes one `internal` error document ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 
 ### Fixed
+
+- `unused-class-members`: a field that exists only for the type checker is no longer reported: a `declare` field
+  (`declare protected readonly _Options: Options`) and a nominal brand or phantom field typed `void`, `never`,
+  `undefined` or `unique symbol` with no value but `undefined` (`readonly _rgbaBrand: void = undefined`,
+  `readonly __brand!: unique symbol`). A `void` field with a real initialiser is still judged, and `explain-usage`
+  names the exemption ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
+
+- `unused-class-members`: an element access whose key is a constant reads the member the constant names:
+  `target[ReactiveFlags.SKIP]` with `enum ReactiveFlags { SKIP = '__v_skip' }` reads `__v_skip`, as do a string
+  `const` and a property of an `as const` object, in the same module or imported, also through a namespace import or
+  a re-export. A key held by a `let`, a plain object or a parameter still reads nothing
+  ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
 
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.

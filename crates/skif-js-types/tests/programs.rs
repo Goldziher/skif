@@ -1,4 +1,4 @@
-//! Program discovery and coverage (ADR 0043): each judged file belongs to its nearest `tsconfig.json`, solution
+//! Program discovery and coverage (ADR 0044): each judged file belongs to its nearest `tsconfig.json`, solution
 //! configs and project references are followed, and a package without usable types is reported, not failed.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

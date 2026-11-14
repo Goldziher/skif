@@ -94,7 +94,7 @@ linker without installing.
 ## Upgrading tsrs
 
 tsrs, the TypeScript checker behind type-aware analysis, is upgraded on its own, never alongside other work
-([ADR 0044](adrs/0044-tsrs-dependency-policy.md)):
+([ADR 0045](adrs/0045-tsrs-dependency-policy.md)):
 
 1. Move every `tsrs_*` entry of `[workspace.dependencies]` to the new version together, each as an exact `=` pin;
    `scripts/check-pins.sh` fails otherwise. Only `skif-js-types` may depend on them, and `skif` without default
@@ -107,7 +107,7 @@ tsrs, the TypeScript checker behind type-aware analysis, is upgraded on its own,
    `LICENSE` texts of the release), copy it over every other `ATTRIBUTIONS.md`, and run `scripts/check-headers.sh`
    and `scripts/check-package-contents.sh`.
 5. Attach the evidence to the change: the parity run, the typed-versus-untyped comparison on the corpus, the
-   benchmark against the budget of [ADR 0046](adrs/0046-performance-budget-with-types.md), and
+   benchmark against the budget of [ADR 0047](adrs/0047-performance-budget-with-types.md), and
    `repeated_analyses_free_their_arenas`.
 
 ## Architecture decisions

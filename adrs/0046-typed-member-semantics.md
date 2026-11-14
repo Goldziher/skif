@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-14
 decision-makers: ["Na'aman Hirschfeld"]
 ---
@@ -8,7 +8,7 @@ decision-makers: ["Na'aman Hirschfeld"]
 
 ## Context and Problem Statement
 
-With type awareness ([ADR 0043](0043-type-aware-analysis-on-tsrs.md)) the checker can tell which declaration a read
+With type awareness ([ADR 0044](0044-type-aware-analysis-on-tsrs.md)) the checker can tell which declaration a read
 reaches. [ADR 0042](0042-unused-class-members.md) defines what `unused-class-members` judges and credits by name;
 [ADR 0018](0018-export-namespace-and-member-rules.md) does the same for enum and namespace members. The comparison
 harness ([ADR 0021](0021-knip-and-syncpack-comparison-harness.md)) compares skif with knip, which has no type checker

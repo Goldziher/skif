@@ -1,4 +1,4 @@
-//! Type-aware member rules (ADR 0043, ADR 0045): where the checker covers a declaring file, member uses come from it;
+//! Type-aware member rules (ADR 0044, ADR 0046): where the checker covers a declaring file, member uses come from it;
 //! elsewhere, and for every read it cannot settle, they are credited by name. Each workspace has a real
 //! `tsconfig.json`.
 
@@ -18,10 +18,7 @@ const ROOT: &str = "/ws";
 
 const TYPES_OFF: &str = "[js]\ntype-aware = false\n";
 
-const PACKAGE: (&str, &str) = (
-    "package.json",
-    r#"{"name":"app","private":true,"main":"src/index.ts"}"#,
-);
+const PACKAGE: (&str, &str) = ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#);
 
 const TSCONFIG: (&str, &str) = (
     "tsconfig.json",
@@ -314,10 +311,7 @@ fn explain_usage_explains_an_enum_member_with_types() {
     let files = [
         PACKAGE,
         TSCONFIG,
-        (
-            "src/colors.ts",
-            "export enum Color {\n  Red,\n  Green,\n}\n",
-        ),
+        ("src/colors.ts", "export enum Color {\n  Red,\n  Green,\n}\n"),
         (
             "src/index.ts",
             "import { Color } from './colors';\n\nconst Palette = Color;\nexport const red = Palette.Red;\n",

@@ -362,6 +362,10 @@ pub(crate) fn ignores_in_file_use(setting: &IgnoreExportsUsedInFile, export: &Ex
 }
 
 /// The settings of one workspace package.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent per-package switches, each resolved from its own configuration key"
+)]
 pub(crate) struct PackageSetup {
     pub id: PackageId,
     /// Absolute package directory.

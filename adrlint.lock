@@ -134,7 +134,7 @@ blake3 = "28b4f573e9395f37e18d0ae38697668219131eaa4a1d1d812d2c786481e158ab"
 [adrs."adrs/0027-distribution-and-release.md"]
 number = 27
 status = "accepted"
-blake3 = "16c861f8ae7be65b908b8129f1e10f893aedcf5db1dfad3de395e0dabb8e275b"
+blake3 = "5a45a81141c6e2d506ecabf5e2b207a2ada2bc112b67a56d8aa81521ba4a71f4"
 
 [adrs."adrs/0028-editors-agents-and-git-hooks.md"]
 number = 28
@@ -210,3 +210,28 @@ blake3 = "48f56ec813b0665c29e859060352f1c1efd96bba6ae794cb2d7425aac0cd540b"
 number = 42
 status = "accepted"
 blake3 = "2c9c4eef057796eea2c4a9d98cfdd70abaeb8b2a517a893b16c589a158e8c961"
+
+[adrs."adrs/0043-type-only-class-fields-and-constant-element-keys.md"]
+number = 43
+status = "accepted"
+blake3 = "018fb3d002d00b13a2582bbf477bcc90b9535ec4a59d8471911af64613b63e83"
+
+[adrs."adrs/0044-type-aware-analysis-on-tsrs.md"]
+number = 44
+status = "accepted"
+blake3 = "c5f8177a75c0e4f31430d89c3677a20ae607f87f027fd7e33271927c228e2f9c"
+
+[adrs."adrs/0045-tsrs-dependency-policy.md"]
+number = 45
+status = "accepted"
+blake3 = "cce6fd17e21aff4589c7ed61e6515ba76fc315567844af7b086f9c19d32b315c"
+
+[adrs."adrs/0046-typed-member-semantics.md"]
+number = 46
+status = "accepted"
+blake3 = "5cb381d071e6816e71cfec5ad14c23782b358ad2585d8e3e70fd5800d79a2105"
+
+[adrs."adrs/0047-performance-budget-with-types.md"]
+number = 47
+status = "accepted"
+blake3 = "57df9eda1c9bac1c661813250ef7be90374338b265225d3eb862fc2fbf9474f6"

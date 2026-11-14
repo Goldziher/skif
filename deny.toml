@@ -5,11 +5,11 @@ allow = [
   "Apache-2.0 WITH LLVM-exception",
   "BSD-3-Clause",
   "BlueOak-1.0.0",
-  # xxhash-rust, a dependency of the tsrs checker (ADR 0044).
+  # xxhash-rust, a dependency of the tsrs checker (ADR 0045).
   "BSL-1.0",
   "ISC",
   "Unicode-3.0",
-  # unicode-id-start 1.1.2, the exact version tsrs pins for the whole workspace, oxc included (ADR 0044).
+  # unicode-id-start 1.1.2, the exact version tsrs pins for the whole workspace, oxc included (ADR 0045).
   "Unicode-DFS-2016",
   "Unlicense",
   "Zlib",

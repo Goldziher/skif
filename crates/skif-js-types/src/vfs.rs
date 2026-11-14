@@ -63,7 +63,7 @@ pub(crate) fn tsrs_fs(fs: Arc<dyn FileSystem>) -> (Arc<dyn FS>, Arc<BomFiles>) {
 }
 
 /// The directory of the `lib.*.d.ts` files embedded in tsrs. Passed explicitly: `bundled::default_lib_path` reads
-/// `TSRS_LIB_PATH` (ADR 0044).
+/// `TSRS_LIB_PATH` (ADR 0045).
 pub(crate) fn lib_path() -> String {
     bundled::lib_path()
 }

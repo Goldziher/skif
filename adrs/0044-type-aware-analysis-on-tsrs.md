@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-14
 decision-makers: ["Na'aman Hirschfeld"]
 ---
@@ -46,7 +46,7 @@ user trade accuracy for speed in one switch.
 
 ### What runs
 
-* A new crate, `skif-js-types`, is the only crate that depends on tsrs ([ADR 0044](0044-tsrs-dependency-policy.md)).
+* A new crate, `skif-js-types`, is the only crate that depends on tsrs ([ADR 0045](0045-tsrs-dependency-policy.md)).
   Its API takes the judged files per package and a query (the declarations whose member reads skif judges) and returns
   owned facts: typed member reads, uses of a declaration as a whole, reads it could not settle, the files it covered
   and the type coverage of every package. No tsrs type appears in it.
@@ -65,7 +65,7 @@ user trade accuracy for speed in one switch.
   Types never remove a syntactic use, so with types on these findings are a subset of the findings with types off.
 * `explain-usage` names the typed evidence (the read and the declaration it reaches).
 * Reads through `any`, an error type or an unresolved module are credited by name, as without types
-  ([ADR 0045](0045-typed-member-semantics.md)).
+  ([ADR 0046](0046-typed-member-semantics.md)).
 
 ### On by default, switchable off
 
@@ -73,11 +73,11 @@ user trade accuracy for speed in one switch.
   flag `--no-type-aware` and the npm option `noTypeAware` turn it off. With it off nothing of tsrs runs and no memory
   is reserved for it.
 * The documentation states the trade-off: type awareness is slower and more accurate, with the measured cost from the
-  benchmark workflow ([ADR 0046](0046-performance-budget-with-types.md)).
+  benchmark workflow ([ADR 0047](0047-performance-budget-with-types.md)).
 * The Cargo feature `type-aware` of the facade is off by default, as `js-analysis` is; the CLI enables it by default
   and the npm addon always. A build without it reports every package untyped with the reason `not-built`.
 * The language server, `skif mcp` and `--watch` run untyped until repeated analyses are shown to free their memory
-  ([ADR 0044](0044-tsrs-dependency-policy.md)).
+  ([ADR 0045](0045-tsrs-dependency-policy.md)).
 
 ### Fallback and reporting
 
@@ -97,7 +97,7 @@ user trade accuracy for speed in one switch.
 * Bad, because typed runs read and bind every file of each program a second time, beside oxc's parse; the cost is
   published, not avoided.
 * Bad, because skif takes on a large pre-release dependency with process-level constraints
-  ([ADR 0044](0044-tsrs-dependency-policy.md)).
+  ([ADR 0045](0045-tsrs-dependency-policy.md)).
 * Neutral: oxc stays the only parser of the module graph and the syntax facts, so
   [ADR 0013](0013-js-analysis-core-oxc-module-graph-and-resolution.md) holds for everything but member usage in typed
   files.
@@ -107,7 +107,7 @@ user trade accuracy for speed in one switch.
 * `typed_mode_only_removes_enum_and_namespace_findings`: on the fixtures, enum and namespace findings with types on
   are a subset of those with types off.
 * `no_type_aware_reserves_nothing`: with types off no tsrs code runs (the arena counter stays at zero).
-* Fixtures with a real `tsconfig.json` for every case of [ADR 0045](0045-typed-member-semantics.md), plus no
+* Fixtures with a real `tsconfig.json` for every case of [ADR 0046](0046-typed-member-semantics.md), plus no
   `tsconfig`, uninstalled dependencies, a `tsconfig` parse error, project references and a solution config, each
   asserting the coverage state and reason.
 * CLI snapshots of the JSON `type-aware` key and the footer line; the npm smoke test runs with and without

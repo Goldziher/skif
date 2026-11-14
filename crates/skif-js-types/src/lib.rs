@@ -1,8 +1,8 @@
-//! Type-aware facts for skif's JS/TS analysis, from the TypeScript checker of tsrs (ADR 0043).
+//! Type-aware facts for skif's JS/TS analysis, from the TypeScript checker of tsrs (ADR 0044).
 //!
 //! skif's module graph and syntax facts come from oxc. Where a project has types, [`analyze`] answers what oxc
 //! cannot: which member a read reaches through a typed receiver, an override or an implemented interface. The answer
-//! is owned data ([`TypeFacts`]); this crate is the only one that depends on tsrs (ADR 0044).
+//! is owned data ([`TypeFacts`]); this crate is the only one that depends on tsrs (ADR 0045).
 
 mod coverage;
 mod error;
