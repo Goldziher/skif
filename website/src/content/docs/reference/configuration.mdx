@@ -616,7 +616,9 @@ verdict `not-judged`.
 
 `unused-files` skips only the files the unreadable configuration could plausibly make entries, its narrowed scope. A
 config that is unknown, spreads or merges in an unknown base, or computes its entry keys can only add entries where its
-tool looks for them:
+tool looks for them. A method or function value of a config that changes or spreads the value a call gives it and
+returns it (a bundler hook such as Storybook's `viteFinal`, `webpackFinal` and `rsbuildFinal`, or Next.js's `webpack`)
+leaves the rest of the config known:
 
 | Plugin | Narrowed scope (relative to the package, besides the plugin's own entry globs) |
 | --- | --- |
@@ -645,7 +647,7 @@ may set it; a spread of an imported base is shared and narrows), when a `vitest`
 config is unknown as a whole or computes its `reporter` list itself (a reporter's name is not known statically, or a
 spread of a value the config computes may set the list: a reporter module may be any file; a reporter a condition picks
 among known ones, `process.env.CI ? 'github' : './reporter.ts'`, credits each), when a `storybook` config is unknown
-as a whole or spreads an unknown value, when the plugin gives no scope (any other plugin), when the published build
+as a whole, spreads an unknown value or lists `stories` not known statically (`stories: [...shared]`), when the plugin gives no scope (any other plugin), when the published build
 output maps to no source file
 (publishing may expose any file), and when a module of the package imports a computed path (`import(name)`,
 `require(name)`), which may load any of its files. `explain-usage` says which applies: a file in the scope is an entry

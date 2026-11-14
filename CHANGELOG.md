@@ -112,6 +112,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A config method or function value that changes and returns the value a call gives it, such as a Storybook
+  `viteFinal`, `webpackFinal` or `rsbuildFinal` hook that spreads the bundler config, no longer leaves the whole config
+  partly unknown, so the package is no longer incomplete (`unknown-spread`) and `unused-files` and the
+  unused-dependency rules judge it. A Storybook `stories` list that is not known statically (`[...shared]`) now leaves
+  the package unjudged, as it may name any file as a story ([#234](https://github.com/Goldziher/skif/issues/234)).
+
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 
