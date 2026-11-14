@@ -172,6 +172,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Files reached only through framework and build entry points are no longer `unused-files`, so the class members
+  only they read are no longer `unused-class-members`
+  ([ADR NNNN](adrs/NNNN-bazel-test-globs-and-angular-packages.md), [#240](https://github.com/Goldziher/skif/issues/240)):
+  - A relative import into a package's own build output that was never built (`require('./dist/client/link')` in a
+    file the package publishes beside `dist`) resolves to the source the output is built from, as a published path
+    does.
+  - Bazel: a target with `testonly = True` is a test target, and the include patterns of a `glob([...])` that the
+    `srcs` or `data` of a test target add are build sources outside `--production`, so the `*_spec.ts` files of a
+    `testonly` `ts_project` are used. rules_angular's `ng_project` is read as `ts_project` is, and the `index.ts` of
+    each Bazel package of the npm package that the `deps` of an `ng_package` name is a production entry.
 - A function-form Vite config (`defineConfig((env) => ({ … }))`) whose plugin factory branches on what it is given no
   longer leaves a `build.rolldownOptions.input` computed from a list (`Object.fromEntries(PAGES.map(…))`) unknown and
   the package incomplete (`computed-entries`): the callback of a `define…` helper takes what the tool passes, so a
