@@ -254,6 +254,27 @@ fn resolve_inheriting(
     is_root: bool,
     plugins: &IndexMap<String, PluginConfig>,
 ) -> Vec<(PluginId, PluginOutput)> {
+    resolve_in_workspace(files, dependencies, inherited, &[], is_root, plugins)
+}
+
+/// The plugins of the root package of a workspace whose members lie in `members`.
+fn resolve_with_members(
+    files: &[(&str, &str)],
+    dependencies: &[&str],
+    members: &[&str],
+) -> Vec<(PluginId, PluginOutput)> {
+    resolve_in_workspace(files, dependencies, &[], members, true, &IndexMap::new())
+}
+
+fn resolve_in_workspace(
+    files: &[(&str, &str)],
+    dependencies: &[&str],
+    inherited: &[&str],
+    members: &[&str],
+    is_root: bool,
+    plugins: &IndexMap<String, PluginConfig>,
+) -> Vec<(PluginId, PluginOutput)> {
+    let members: Vec<String> = members.iter().map(|d| (*d).to_string()).collect();
     let inherited: Vec<String> = inherited.iter().map(|d| (*d).to_string()).collect();
     let fs = fs_with(files);
     let dependencies: Vec<String> = dependencies.iter().map(|d| (*d).to_string()).collect();
@@ -271,6 +292,7 @@ fn resolve_inheriting(
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &members,
     };
     resolve_plugins(&ctx)
 }
@@ -300,6 +322,7 @@ fn resolve_with_scripts(
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     resolve_plugins(&ctx)
 }
@@ -3681,7 +3704,7 @@ fn bun_reads_the_commands_of_its_own_sources_only() {
             "import { $ } from \"bun\";\nawait $`bun run install-electron`;",
         ),
     ];
-    let results = resolve(&files, &["@types/bun"]);
+    let results = resolve_with_members(&files, &["@types/bun"], &["packages/cli", "packages/desktop"]);
     let root = output(&results, "bun");
     assert_eq!(root.referenced_binaries, ["changeset"]);
     assert!(root.production_entries.is_empty(), "{:?}", root.production_entries);
@@ -4005,6 +4028,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
@@ -4391,6 +4415,7 @@ fn source_scanning_plugins_read_each_source_file_once() {
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     let results = resolve_plugins(&ctx);
 
@@ -4440,6 +4465,7 @@ fn listings_within_one_another_read_a_shared_source_file_once() {
         nx: None,
         globs: &globs,
         sources: Some(&root_sources),
+        members: &[],
     };
     let member = PluginContext {
         dir: &member_dir,
@@ -4492,6 +4518,7 @@ fn an_nx_project_takes_the_source_texts_its_package_read() {
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     let results = resolve_plugins_in(&ctx, "", || vec![("apps/a".to_owned(), true)]);
 
@@ -4805,10 +4832,56 @@ fn execa_nano_spawn_and_zx_read_the_commands_of_their_own_sources_only() {
         ("packages/codemod/package.json", r#"{"name":"codemod"}"#),
         ("packages/codemod/bin/transform.ts", member),
     ];
-    let results = resolve(&files, &["execa", "nano-spawn", "zx"]);
+    let results = resolve_with_members(&files, &["execa", "nano-spawn", "zx"], &["packages/codemod"]);
     assert_eq!(output(&results, "execa").referenced_binaries, ["changeset"]);
     assert_eq!(output(&results, "nano-spawn").referenced_binaries, ["eslint"]);
     assert_eq!(output(&results, "zx").referenced_binaries, ["wrangler"]);
+}
+
+/// A `package.json` that only sets the module format of a directory makes no package of it: the commands of the
+/// scripts below it are the workspace's own.
+#[test]
+fn execa_nano_spawn_and_zx_read_the_commands_below_a_package_json_that_only_sets_the_type() {
+    let files = [
+        ("package.json", r#"{"name":"app"}"#),
+        ("scripts/package.json", r#"{"type":"module"}"#),
+        (
+            "scripts/release.mjs",
+            r#"import { $ } from "zx";
+            import { execa } from "execa";
+            await $`changeset publish`;
+            await execa("eslint", ["."]);"#,
+        ),
+        ("src/esm/package.json", r#"{"type":"module"}"#),
+        (
+            "src/esm/build.js",
+            r#"import spawn from "nano-spawn"; await spawn("tsc", ["--build"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn", "zx"]);
+    assert_eq!(output(&results, "zx").referenced_binaries, ["changeset"]);
+    assert_eq!(output(&results, "execa").referenced_binaries, ["eslint"]);
+    assert_eq!(output(&results, "nano-spawn").referenced_binaries, ["tsc"]);
+}
+
+/// A package below a workspace root that is not one of its members is read from the root, and a member is not.
+#[test]
+fn execa_reads_the_commands_of_a_nested_package_that_is_not_a_member() {
+    let files = [
+        ("package.json", r#"{"name":"root","workspaces":["packages/*"]}"#),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        (
+            "packages/a/run.mjs",
+            r#"import { execa } from "execa"; await execa("member-lint", ["."]);"#,
+        ),
+        ("examples/demo/package.json", r#"{"name":"demo"}"#),
+        (
+            "examples/demo/run.mjs",
+            r#"import { execa } from "execa"; await execa("vite", ["build"]);"#,
+        ),
+    ];
+    let results = resolve_with_members(&files, &["execa"], &["packages/a"]);
+    assert_eq!(output(&results, "execa").referenced_binaries, ["vite"]);
 }
 
 /// execa and nano-spawn hand each argument to the program as one word, without a shell: one that is not a plain word
@@ -5053,6 +5126,7 @@ fn react_email_looks_for_the_installed_version_up_to_the_workspace_root() {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         resolve_plugins(&ctx)
     };
@@ -6815,6 +6889,7 @@ fn resolve_in_tree(files: &[(&str, &str)], dir: &str, is_root: bool) -> Vec<(Plu
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     resolve_plugins(&ctx)
 }
