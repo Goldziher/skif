@@ -38,6 +38,9 @@ pub struct LintOptions {
     pub no_js: Option<bool>,
     /// Lint production dependencies only (`--production`).
     pub production: Option<bool>,
+    /// Resolve member reads without the TypeScript type checker (`--no-type-aware`). Types are on by default;
+    /// turning them off is faster and less accurate for member findings.
+    pub no_type_aware: Option<bool>,
     /// Treat warnings as failures (`--fail-on-warnings`).
     pub fail_on_warnings: Option<bool>,
     /// Rule ids to turn off (`--ignore-rule`).
@@ -64,6 +67,7 @@ impl LintOptions {
             .with_fail_on_warnings(self.fail_on_warnings)
             .with_production(self.production)
             .with_no_js(self.no_js.unwrap_or(false))
+            .with_no_type_aware(self.no_type_aware.unwrap_or(false))
             .with_config_file(self.config.map(|file| {
                 let file = PathBuf::from(file);
                 std::path::absolute(&file).unwrap_or(file)
