@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format follows
 - **Consumers of `explain-usage --format json`, `explain-usage --dependency` and `--trace-dependency --format json`**:
   a `require.resolve("x")`, `createRequire(…).resolve("x")` or `import.meta.resolve("x")` is listed with the import
   kind `resolve` instead of `require` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Library users that build `PluginContext` of `skif-js-plugins` with a literal**: it gains `members`, the
+  directories of the run's other packages below the package, whose sources the `execa`, `zx`, `nano-spawn` and `bun`
+  plugins leave out; `&[]` reads them all ([#97](https://github.com/Goldziher/skif/issues/97)).
 
 ### Added
 
@@ -74,8 +77,9 @@ All notable changes to this project are documented here. The format follows
   ([#97](https://github.com/Goldziher/skif/issues/97)).
 - **`unlisted-binaries`**: the `execa`, `zx` and nano-spawn plugins of a package read only its own source files, as the
   `bun` plugin does, so a root that lists execa no longer judges the commands of its members' files against itself: a
-  member's `execa(require.resolve(".bin/jscodeshift"))` runs `jscodeshift` of the member that lists it
-  ([#97](https://github.com/Goldziher/skif/issues/97)).
+  member's `execa(require.resolve(".bin/jscodeshift"))` runs `jscodeshift` of the member that lists it. A directory
+  with a `package.json` that is no workspace member, such as `scripts/package.json` with only `"type": "module"`, is
+  the package's own: the `bun` plugin no longer skips its files ([#97](https://github.com/Goldziher/skif/issues/97)).
 
 ## [0.4.0] - 2026-11-12
 
