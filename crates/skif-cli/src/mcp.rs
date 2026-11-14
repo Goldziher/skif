@@ -17,12 +17,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
-use skif::{ConfigOverrides, MemoryModuleCache, ModuleCache};
+use skif::{MemoryModuleCache, ModuleCache};
 
 use crate::commands::rules_document;
 use crate::error::{CliError, Kind};
 use crate::explain::{self, Failure};
-use crate::lint::{canonical, lint_to_json_with};
+use crate::lint::{canonical, lint_to_json_with, server_overrides};
 use crate::output::{error_document, stderr_line};
 
 /// The protocol revisions this server speaks, newest first; the first is offered when the client asks for another.
@@ -358,7 +358,7 @@ fn lint(arguments: &Arguments<'_>, caches: &mut Caches) -> Result<Value, Failure
     let path = arguments.string("path").map_err(usage)?.unwrap_or(".");
     let recursive = arguments.flag("recursive").map_err(usage)?;
     let only = arguments.strings("rules").map_err(usage)?;
-    let mut overrides = ConfigOverrides::default()
+    let mut overrides = server_overrides()
         .with_production(arguments.flag("production").map_err(usage)?.then_some(true))
         .with_no_js(arguments.flag("no_js").map_err(usage)?);
     if let Some(only) = only {
@@ -410,8 +410,7 @@ fn explain_usage(arguments: &Arguments<'_>) -> Result<Value, Failure> {
         .filter(|export| !export.is_empty());
     let start = canonical(Path::new(arguments.string("path").map_err(usage)?.unwrap_or("."))).map_err(plain)?;
     let file = explain::resolve_file(&start, file).map_err(plain)?;
-    let overrides =
-        ConfigOverrides::default().with_production(arguments.flag("production").map_err(usage)?.then_some(true));
+    let overrides = server_overrides().with_production(arguments.flag("production").map_err(usage)?.then_some(true));
     let report = explain::explain(&start, &file, export, &overrides)?;
     let report =
         serde_json::to_value(&report).map_err(|error| plain(CliError::new(Kind::Internal, error.to_string())))?;
