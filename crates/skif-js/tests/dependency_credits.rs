@@ -157,7 +157,10 @@ fn a_package_that_ships_its_own_types_does_not_use_its_types_package() {
             "node_modules/eslint/package.json",
             r#"{"name":"eslint","version":"9.0.0","types":"lib/types/index.d.ts"}"#,
         ),
-        ("node_modules/eslint/lib/types/index.d.ts", "export namespace Linter {}\n"),
+        (
+            "node_modules/eslint/lib/types/index.d.ts",
+            "export namespace Linter {}\n",
+        ),
         (
             "node_modules/react-is/package.json",
             r#"{"name":"react-is","version":"19.0.0","main":"index.js"}"#,
