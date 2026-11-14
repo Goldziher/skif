@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, Write};
 
-use skif_core::{Diagnostic, Fix, FixSafety, IncompleteScope, Report, Severity, Span, Summary};
+use skif_core::{
+    Diagnostic, Fix, FixSafety, IncompleteScope, Report, Severity, Span, Summary, TypeAwareState, TypeAwareSummary,
+};
 
 use crate::options::RenderOptions;
 use crate::style::Painter;
@@ -67,7 +69,51 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
         );
         writeln!(out, "{}", paint.dim(line))?;
     }
+    if let Some(line) = report.type_aware.as_ref().and_then(type_aware_line) {
+        writeln!(out, "{}", paint.dim(line))?;
+    }
     writeln!(out, "{}", summary_line(paint, &report.summary))
+}
+
+/// The footer line about packages the type checker did not fully cover: `types: 3 of 41 packages untyped
+/// (no-tsconfig 2, unresolved-modules 1); run with --no-type-aware to skip types`. `None` when every package is
+/// typed, or when the run asked for no types, so a run without types says nothing about them.
+fn type_aware_line(summary: &TypeAwareSummary) -> Option<String> {
+    if !summary.enabled {
+        return None;
+    }
+    let mut untyped = 0;
+    let mut partial = 0;
+    let mut reasons: BTreeMap<&str, usize> = BTreeMap::new();
+    for package in summary.degraded() {
+        if package.state == TypeAwareState::Partial {
+            partial += 1;
+        } else {
+            untyped += 1;
+        }
+        if let Some(kind) = package.reason_kind() {
+            *reasons.entry(kind).or_default() += 1;
+        }
+    }
+    let total = plural(summary.packages.len(), "package");
+    let counts = match (untyped, partial) {
+        (0, 0) => return None,
+        (0, partial) => format!("{partial} of {total} partially typed"),
+        (untyped, 0) => format!("{untyped} of {total} untyped"),
+        (untyped, partial) => format!("{untyped} of {total} untyped, {partial} partially typed"),
+    };
+    let mut reasons: Vec<(&str, usize)> = reasons.into_iter().collect();
+    reasons.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let reasons = if reasons.is_empty() {
+        String::new()
+    } else {
+        let listed: Vec<String> = reasons
+            .iter()
+            .map(|(kind, count)| format!("{} {count}", escape_controls(kind)))
+            .collect();
+        format!(" ({})", listed.join(", "))
+    };
+    Some(format!("types: {counts}{reasons}; run with --no-type-aware to skip types"))
 }
 
 fn start(diagnostic: &Diagnostic) -> u32 {

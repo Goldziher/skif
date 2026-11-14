@@ -4,7 +4,8 @@
 //! [`RenderOptions::with_source`]; when some file's text is unknown the run declares `unicodeCodePoints` and emits
 //! skif's scalar-value columns unchanged. Paths are percent-encoded URI references. Fixes are
 //! operations on structured files rather than text replacements, so they are listed under `properties.fixes`
-//! instead of the SARIF `fixes` array, which requires concrete artifact changes.
+//! instead of the SARIF `fixes` array, which requires concrete artifact changes. The type-aware coverage of the run,
+//! when the report has one, is the `type-aware` member of the run's `properties`, shaped as in the JSON document.
 
 use skif_core::HashMap;
 use std::fmt::Write as _;
@@ -18,6 +19,7 @@ use skif_core::{
 
 use crate::options::RenderOptions;
 use crate::path::is_absolute_text;
+use crate::type_aware::{self, TypeAwareView};
 
 const SCHEMA_URI: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const SARIF_VERSION: &str = "2.1.0";
@@ -38,6 +40,15 @@ struct Run<'a> {
     tool: Tool<'a>,
     column_kind: &'static str,
     results: Vec<SarifResult<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    properties: Option<RunProperties<'a>>,
+}
+
+/// The run's property bag: the type-aware coverage, under the key the JSON document gives it.
+#[derive(Serialize)]
+struct RunProperties<'a> {
+    #[serde(rename = "type-aware")]
+    type_aware: TypeAwareView<'a>,
 }
 
 #[derive(Serialize)]
@@ -422,6 +433,9 @@ pub fn render_sarif(report: &Report, options: &RenderOptions, out: &mut dyn Writ
             },
             column_kind: if utf16 { "utf16CodeUnits" } else { "unicodeCodePoints" },
             results,
+            properties: report.type_aware.as_ref().map(|summary| RunProperties {
+                type_aware: type_aware::view(summary, options),
+            }),
         }],
     };
     serde_json::to_writer_pretty(&mut *out, &document)?;
