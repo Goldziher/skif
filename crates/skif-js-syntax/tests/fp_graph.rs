@@ -42,6 +42,81 @@ fn then_callbacks_name_the_exports_they_read() {
 }
 
 #[test]
+fn a_lazy_component_loader_reads_the_default_export_of_the_import_it_returns() {
+    let cases: &[(&str, &str, &[&str])] = &[
+        ("import { lazy } from 'react';", "lazy(() => import('./x'))", &["default"]),
+        ("import React from 'react';", "React.lazy(() => import('./x'))", &["default"]),
+        (
+            "import * as React from 'react';",
+            "React.lazy(async () => { return await import('./x'); })",
+            &["default"],
+        ),
+        (
+            "import { lazy as load } from 'preact/compat';",
+            "load(function () { return import('./x'); })",
+            &["default"],
+        ),
+        (
+            "import loadable from '@loadable/component';",
+            "loadable(() => import('./x'))",
+            &["default"],
+        ),
+        (
+            "import dynamic from 'next/dynamic';",
+            "dynamic(() => import('./x'), { ssr: false })",
+            &["default"],
+        ),
+        (
+            "import dynamic from 'next/dynamic';",
+            "dynamic(() => import('./x').then((m) => m.Page))",
+            &["Page"],
+        ),
+        (
+            "import { lazy } from 'react';",
+            "lazy(() => import('./x').then((m) => ({ default: m.Page })))",
+            &["Page"],
+        ),
+        (
+            "import loadable from '@loadable/component';",
+            "loadable(() => import('./x'), { resolveComponent: (m) => m.Page })",
+            &["*"],
+        ),
+        ("import { lazy } from 'react';", "lazy(() => { import('./x'); })", &["*"]),
+        ("import { lazy } from 'other-lib';", "lazy(() => import('./x'))", &["*"]),
+        ("import { wrapLazy } from './wrap';", "wrapLazy(() => import('./x'))", &["*"]),
+    ];
+    for (import, expression, expected) in cases {
+        let info = parse("a.tsx", &format!("{import}\nexport const p = {expression};\n"));
+        assert_eq!(imported(&info, "./x"), *expected, "{import} {expression}");
+    }
+}
+
+#[test]
+fn an_import_returned_to_another_call_names_the_call() {
+    let cases: &[(&str, Option<&str>)] = &[
+        ("wrapLazy(() => import('./x'))", Some("wrapLazy")),
+        ("routes.define('page', () => import('./x'))", Some("routes.define")),
+        ("lazy(function () { return import('./x'); })", Some("lazy")),
+        ("lazy(() => { import('./x'); })", None),
+        ("import('./x')", None),
+    ];
+    for (expression, expected) in cases {
+        let info = parse("a.ts", &format!("export const p = {expression};\n"));
+        let import = info
+            .imports
+            .iter()
+            .find(|import| import.specifier == "./x")
+            .expect("records the import");
+        let [name] = import.names.as_slice() else {
+            panic!("one name for {expression}: {:?}", import.names);
+        };
+        assert_eq!(name.kind, ImportedKind::Namespace, "{expression}");
+        assert!(name.escapes, "{expression}");
+        assert_eq!(name.passed_to.as_deref(), *expected, "{expression}");
+    }
+}
+
+#[test]
 fn awaited_import_members_are_still_read_directly() {
     let info = parse("a.ts", "export const then = (await import('./x')).then;\n");
     assert_eq!(imported(&info, "./x"), ["then"]);

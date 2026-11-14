@@ -2,7 +2,8 @@
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
 //! `Promise.all`, spies on a namespace member, enums read through a namespace, parameters that shadow an import,
 //! dynamic imports bound to an import's name, members read through `export * as`, fixture directories, wildcard
-//! `exports`, same-name pairs, types named by a same-name type and duplicate exports.
+//! `exports`, same-name pairs, types named by a same-name type, duplicate exports and dynamic imports a lazy-component
+//! loader returns.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -234,6 +235,46 @@ fn imports_awaited_together_use_only_what_their_bindings_read() {
         found(&diagnostics, "unused-namespace-exports"),
         ["spaced.ts: unusedSpaced"]
     );
+}
+
+const LAZY_FILES: [(&str, &str); 6] = [
+    PACKAGE,
+    (
+        "index.ts",
+        "import { lazy } from 'react';\nimport dynamic from 'next/dynamic';\nimport { wrapLazy } from './wrap';\n\
+         export const viaHelper = wrapLazy(() => import('./A'));\n\
+         export const viaReact = lazy(() => import('./B'));\n\
+         export const viaNext = dynamic(() => import('./C').then((m) => m.Picked));\n",
+    ),
+    ("wrap.ts", "export const wrapLazy = (load: () => unknown) => load;\n"),
+    ("A.ts", "export const A = 1;\nexport default 2;\n"),
+    ("B.ts", "export const B = 1;\nexport default 2;\n"),
+    ("C.ts", "export const Picked = 1;\nexport const Other = 2;\n"),
+];
+
+/// `lazy` of React and `next/dynamic` read only the export the loader resolves to, as knip counts them; an import
+/// returned to any other call keeps the namespace in use, since that call may read any export (ADR NNNN).
+#[test]
+fn a_lazy_component_loader_uses_only_the_export_it_renders() {
+    let diagnostics = lint_files(&LAZY_FILES);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["B.ts: B", "C.ts: Other"]);
+}
+
+#[test]
+fn the_explanation_of_an_import_returned_to_a_call_names_the_call() {
+    let helper = analysis_text(&LAZY_FILES, "A.ts", Some("A"));
+    assert!(
+        helper.contains(
+            "imported by index.ts:4 (the namespace, used as a whole, returned from a callback passed to wrapLazy)"
+        ),
+        "{helper}"
+    );
+    assert!(helper.contains("=> used by another module"), "{helper}");
+    let react = analysis_text(&LAZY_FILES, "B.ts", Some("B"));
+    assert!(react.contains("no module imports it by name or as a whole"), "{react}");
+    assert!(react.contains("=> not used by another module"), "{react}");
+    let file = analysis_text(&LAZY_FILES, "B.ts", None);
+    assert!(file.contains("index.ts:5 (dynamic: default)"), "{file}");
 }
 
 #[test]
