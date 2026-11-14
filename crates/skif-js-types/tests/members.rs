@@ -412,3 +412,86 @@ fn an_interface_implemented_through_a_namespace_import_credits_the_class() {
         },
     );
 }
+
+/// Syntax where a name, key or heritage element is not an identifier, or where a read sits in a class member other
+/// than a method: tsrs's accessors panic on a node of another kind, which would leave the package untyped
+/// (`checker-failed`), so each case also asserts the package stays typed.
+#[test]
+fn reads_through_names_of_every_kind_credit_their_member_and_keep_the_package_typed() {
+    const IMPORT: &str = "import { Widget } from './widgets';\n\n";
+    for (case, body, reads) in [
+        (
+            "a computed key and a shorthand in a binding pattern",
+            "const key = 'paint';\n\nexport function draw(widget: Widget): unknown[] {\n  const { [key]: painted, render } = widget;\n  return [painted, render];\n}\n",
+            vec![(0, vec!["render"])],
+        ),
+        (
+            "a string-literal and a computed key in a destructuring assignment",
+            "declare const widget: Widget;\nconst key = 'render';\nexport let painted: unknown;\nexport let rendered: unknown;\n({ 'paint': painted, [key]: rendered } = widget);\n",
+            vec![(0, vec!["paint"])],
+        ),
+        (
+            "a string-literal and a template-literal element access",
+            "declare const widget: Widget;\nwidget['paint']();\nwidget[`render`]();\n",
+            vec![(0, vec!["paint", "render"])],
+        ),
+        (
+            "an element access with a non-literal key",
+            "declare const widget: Widget;\ndeclare const key: 'render' | 'paint';\nwidget[key]();\n",
+            vec![],
+        ),
+        (
+            "a string-literal `in` and an indexed access type",
+            "declare const widget: Widget;\nexport const renders = 'render' in widget;\nexport type Paint = Widget['paint'];\n",
+            vec![(0, vec!["render", "paint"])],
+        ),
+        (
+            "a private name and a private `in`",
+            "export class Holder {\n  #widget = new Widget();\n  draw(other: object): boolean {\n    this.#widget.render();\n    return #widget in other;\n  }\n}\n",
+            vec![(0, vec!["render"])],
+        ),
+        (
+            "an optional chain, a non-null assertion and `satisfies`",
+            "export function draw(widget?: Widget): void {\n  widget?.render();\n  (widget! satisfies Widget).paint();\n}\n",
+            vec![(0, vec!["render", "paint"])],
+        ),
+        (
+            "`super` in an anonymous default-exported class",
+            "export default class extends Widget {\n  override render(): void {\n    super.render();\n  }\n}\n",
+            vec![(0, vec!["render"])],
+        ),
+        (
+            "a class expression bound to a variable",
+            "export const Fancy = class extends Widget {};\nnew Fancy().paint();\n",
+            vec![(0, vec!["paint"])],
+        ),
+        (
+            "a decorator argument",
+            "declare function tag(value: unknown): (target: unknown, context: ClassDecoratorContext) => void;\ndeclare const widget: Widget;\n\n@tag(widget.paint)\nexport class Tagged {}\n",
+            vec![(0, vec!["paint"])],
+        ),
+        (
+            "a parameter property read in an accessor and an overload, beside an index signature",
+            "export class Panel {\n  [name: string]: unknown;\n  constructor(private readonly widget: Widget) {}\n  get painted(): void {\n    return this.widget.paint();\n  }\n  draw(): void;\n  draw(times: number): void;\n  draw(_times?: number): void {\n    this.widget.render();\n  }\n}\n",
+            vec![(0, vec!["paint", "render"])],
+        ),
+        (
+            "a class merged with a namespace",
+            "export class Merged extends Widget {}\nexport namespace Merged {\n  export const made = new Merged();\n}\nMerged.made.render();\n",
+            vec![(0, vec!["render"])],
+        ),
+    ] {
+        let workspace = widgets(&format!("{IMPORT}{body}"));
+        let facts = run(&workspace, &[widgets_package()], &widgets_query(&workspace));
+        assert_case(
+            case,
+            &facts,
+            &Expected {
+                reads,
+                covered: vec!["src/widgets.ts", "src/main.ts"],
+                coverage: vec![typed("", "app")],
+                ..Expected::default()
+            },
+        );
+    }
+}
