@@ -417,9 +417,15 @@ pub(crate) fn mark(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInfo) 
         };
         if let Some(class) = class.filter(|class| !class.declare) {
             export.class = Some(top.shape(ctx, class));
-            export.declaration_start = class.id.as_ref().map(|id| ctx.off(id.span.start));
+            export.declaration_start = Some(declaration_key(ctx, class));
         }
     }
+}
+
+/// The offset [`crate::model::Export::declaration_start`] keys `class` by: the start of its name, or the end of its
+/// body for an anonymous `export default class {}`, which has no name.
+fn declaration_key(ctx: &Ctx<'_>, class: &Class<'_>) -> u32 {
+    ctx.off(class.id.as_ref().map_or(class.body.span.end, |id| id.span.start))
 }
 
 /// Records the property names `program` reads and writes in [`ModuleInfo::property_reads`] and

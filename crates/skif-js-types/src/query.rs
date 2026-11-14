@@ -437,15 +437,23 @@ impl Walker<'_, '_> {
         }
     }
 
-    /// The key of a class, enum or namespace declaration: its file and the offset of its name in skif's text.
+    /// The key of a class, enum or namespace declaration: its file and the offset of its name in skif's text, or for
+    /// an anonymous `export default class {}`, which has no name, the offset just past its closing brace.
     fn key_of(&self, declaration: P<Node>) -> Option<DeclKey> {
-        let name = declaration_name(declaration)?;
-        let file = tsrs_ast::get_source_file_of_node(name)?;
-        let pos = name.pos().source_offset()?;
+        let name = declaration_name(declaration);
+        if name.is_none() && declaration.kind() != Kind::ClassDeclaration {
+            return None;
+        }
+        let file = tsrs_ast::get_source_file_of_node(declaration)?;
         let file_name = file.file_name();
+        let bom = self.context.boms.offset(file_name);
+        let name_start = match name {
+            Some(name) => skif_offset(file.text(), name.pos().source_offset()?, bom),
+            None => declaration.end().source_offset()?.saturating_add(bom),
+        };
         Some(DeclKey {
             file: file_name.to_owned(),
-            name_start: skif_offset(file.text(), pos, self.context.boms.offset(file_name)),
+            name_start,
         })
     }
 }

@@ -515,8 +515,9 @@ pub struct Export {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class: Option<ClassShape>,
     /// The byte offset of the name of the class, enum or namespace declaration of this module the export stands for
-    /// (`Foo` in `class Foo`, also behind `export { Foo }` and `export default Foo`). The type-aware analysis keys
-    /// declarations by it (ADR 0044); `None` for other exports and for an anonymous default class.
+    /// (`Foo` in `class Foo`, also behind `export { Foo }` and `export default Foo`), or for an anonymous
+    /// `export default class {}`, which has no name, the offset just past its closing brace. The type-aware analysis
+    /// keys declarations by it (ADR 0044), and the exports of one class share it; `None` for other exports.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration_start: Option<u32>,
 }
