@@ -928,7 +928,8 @@ is reported by `unlisted-dependencies` at the config with the detail `ConfigRefe
 ("`tsconfig.json` references `@acme/tsconfig`, which is not listed in `package.json`"). Built-in names
 (`prisma-client-js`, a `generator client` block), relative paths and the string `extends` of an ESLint flat config
 (`js/recommended`) are no packages, except a relative path into a `node_modules` directory: an Oxlint `extends` of
-`./node_modules/ultracite/config/oxlint/core/.oxlintrc.json` names `ultracite`, installed or not. A built-in ESLint config (`eslint:recommended`) is an optional reference to
+`./node_modules/ultracite/config/oxlint/core/.oxlintrc.json` names `ultracite`, installed or not. Only a config of the
+workspace names a package this way: a config file an installed config extends in turn is that package's dependency. A built-in ESLint config (`eslint:recommended`) is an optional reference to
 `eslint`; knip credits it as a plain dependency, which it reports where no manifest lists `eslint`, but skif does not,
 since a package that only enables ESLint may get it from the root. A package that a command in a config names (`node --require x`
 in a hook), one a plugin assumes without reading a config, and an optional reference (Vite's `optimizeDeps.include`,
@@ -943,9 +944,10 @@ names or its `@types` package: `types: ["cypress"]` with `cypress` listed at the
 package visible, so a globals-only one such as `@types/chrome` counts as used. A config without `types` keeps them all
 too before TypeScript 6, and none from TypeScript 6, which defaults `types` to `[]`: there an `@types` package is used
 only when an import, a `types` entry or a `/// <reference types>` names it. An import of a package uses its `@types`
-package only when the installed package declares no types of its own (`types` or `typings` in its `package.json`), as
-TypeScript reads those first: with `eslint` 9 installed, `import type { Linter } from 'eslint'` leaves `@types/eslint`
-unused. A package that is not installed keeps its `@types` package used. A config's own `types` and `typeRoots`
+package only when the installed package declares no types of its own (a non-empty `types` or `typings` in its
+`package.json` naming a file the package holds), as TypeScript reads those first: with `eslint` 9 installed,
+`import type { Linter } from 'eslint'` leaves `@types/eslint` unused. A package that is not installed keeps its
+`@types` package used, and so does a subpath import (`kit/helpers`), which the package's own types may not cover. A config's own `types` and `typeRoots`
 replace the ones it extends, and a later `extends` entry overrides an earlier one. A solution config whose
 `references` name other configs (`files: []` beside `tsconfig.app.json`) keeps every package when one of the configs
 does. The version is that of the `typescript` installed in the nearest `node_modules` from the package up to the
@@ -972,7 +974,8 @@ with `ignore-packages` included) is a separate project, often a root of its own 
 `scripts` folder with its own lockfile); a `package.json` holding only `type`, `sideEffects` or `imports` is a
 marker for the files below it and makes no project, and so is one that adds only `main`, `module`, `types`, `typings`
 or `browser` in a directory the package above publishes as a subpath (its `exports` has `./<dir>` or its `files`
-lists the directory), as `pkg/server/package.json` does for `pkg/server` in packages written before `exports`. The
+lists the directory, also as `server/*` or `server/**`), as `pkg/server/package.json` does for `pkg/server` in
+packages written before `exports`. The files that manifest points at are then entries of the package above. The
 files of a separate project are not
 the analysed root's: when a script or an import of the root reaches one, that file is not reported in the root, and
 its imports are neither unlisted there nor uses of the root's dependencies. The nested project judges the file against
@@ -1063,9 +1066,12 @@ Stylesheets that code imports are followed: `@import`, `@use`, `@forward` and th
 `.scss`, `.sass`, `.less` and `.pcss` files, and `@import` and `@require` of Stylus (`.styl`, `.stylus`, and
 `<style lang="stylus">` blocks), where a bare name is looked up next to the file before it is taken as a package and a
 glob (`@import "mixins/*"`) is skipped. A `url()` elsewhere in a stylesheet is an asset and is not followed, except
-one that names a file of a package, `~pkg/file` or `@scope/pkg/file` (`url("@ibm/plex/fonts/a.woff2")`): it uses the
-package. An unscoped bare `url(images/bg.png)` is relative to the stylesheet and `@/…` is an alias, so neither names
-a package. A reached Stylus file uses the `stylus` package. `.tsrx` files (`@tsrx/core`)
+one that names a file of a package, `~pkg/file` or `@scope/pkg/file` with npm-valid names
+(`url("@ibm/plex/fonts/a.woff2")`, read without a query or fragment such as `?#iefix`): it uses the package. An
+unscoped bare `url(images/bg.png)` is relative to the stylesheet and `@/…` is an alias, so neither names a package.
+Such a `url()` of a package that no manifest lists and that is not installed goes through a bundler alias skif
+cannot see (`url('@assets/images/bg.png')`, Nuxt's `url(~assets/logo.svg)`, a webpack `resolve.modules` directory)
+or names a missing asset, so `unlisted-dependencies` does not report it. A reached Stylus file uses the `stylus` package. `.tsrx` files (`@tsrx/core`)
 are not TypeScript a parser accepts, so only their `import` statements and `import()` calls are read: the packages and
 files they name are used, every imported binding counts as used as a whole, and their exports are not known, so a
 re-export (`export { x } from './y'`) is not followed and `./y` is not reached through it. A reached `.tsrx` file uses
