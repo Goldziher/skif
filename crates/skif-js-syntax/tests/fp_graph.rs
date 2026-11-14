@@ -476,6 +476,18 @@ fn reexports_inside_declare_module_bodies_are_type_imports_but_no_exports() {
 }
 
 #[test]
+fn relative_reexports_inside_declare_module_bodies_are_no_imports() {
+    let info = parse(
+        "types.d.ts",
+        "declare module 'kit' {\n  export * from './local';\n  export { a } from '../up';\n  \
+         export * from '/abs/types';\n  export * from 'kit-types';\n}\n",
+    );
+    let specifiers: Vec<&str> = info.imports.iter().map(|import| import.specifier.as_str()).collect();
+    assert_eq!(specifiers, ["kit-types"]);
+    assert!(info.exports.is_empty(), "{:?}", info.exports);
+}
+
+#[test]
 fn declare_module_in_a_module_file_is_an_augmentation() {
     let info = parse(
         "next-auth.d.ts",
