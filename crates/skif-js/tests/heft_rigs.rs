@@ -147,8 +147,16 @@ fn rig_profiles_credit_the_rigs_dependencies_and_rig_json_the_rig() {
         ["rigs/node-rig/package.json: left-pad"],
         "{diagnostics:#?}"
     );
-    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
-    assert_eq!(found(&diagnostics, "unlisted-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 /// Without `config/rig.json` nothing names the rig in the project, which then lists it without using it.
