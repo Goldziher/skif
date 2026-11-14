@@ -210,3 +210,8 @@ blake3 = "48f56ec813b0665c29e859060352f1c1efd96bba6ae794cb2d7425aac0cd540b"
 number = 42
 status = "accepted"
 blake3 = "2c9c4eef057796eea2c4a9d98cfdd70abaeb8b2a517a893b16c589a158e8c961"
+
+[adrs."adrs/0043-type-only-class-fields-and-constant-element-keys.md"]
+number = 43
+status = "accepted"
+blake3 = "018fb3d002d00b13a2582bbf477bcc90b9535ec4a59d8471911af64613b63e83"
