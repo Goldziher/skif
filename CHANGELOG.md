@@ -66,24 +66,32 @@ All notable changes to this project are documented here. The format follows
 - **`declare module` re-exports**: `export * from "x"` and `export { a } from "x"` inside a `declare module` block are
   type-only imports of `x`, as an `import` there already was, so they use `x` or its `@types` package: a
   `declare module 'commander' { export * from '@commander-js/extra-typings'; }` no longer leaves
-  `@commander-js/extra-typings` unused. The block adds no export to the file, and the analysis cache is invalidated
+  `@commander-js/extra-typings` unused. The block adds no export to the file, and a relative specifier there, which
+  TypeScript rejects, is no import. The analysis cache is invalidated
   ([#98](https://github.com/Goldziher/skif/issues/98)).
-- **Stylesheet `url()`**: a `url()` that names a file of a package, `~pkg/file` or `@scope/pkg/file`
-  (`src: url("@ibm/plex/fonts/a.woff2")`), uses the package, so it is no longer reported unused. Other `url()` values
-  stay assets: an unscoped bare path is relative to the stylesheet and `@/…` is an alias. The analysis cache is
+- **Stylesheet `url()`**: a `url()` that names a file of a package, `~pkg/file` or `@scope/pkg/file` with
+  npm-valid names (`src: url("@ibm/plex/fonts/a.woff2")`), uses the package, so it is no longer reported unused; its
+  query or fragment (`a.eot?#iefix`) is dropped. Other `url()` values stay assets: an unscoped bare path is relative to
+  the stylesheet and `@/…` is an alias. Such a `url()` of a package that no manifest lists and that is not installed
+  is a bundler alias skif cannot see (`url('@assets/images/bg.png')`, Nuxt's `url(~assets/logo.svg)`) or a missing
+  asset, so it is no unlisted import. `skif-js-syntax` reports it as `ImportKind::Url`, and the analysis cache is
   invalidated ([#98](https://github.com/Goldziher/skif/issues/98)).
 - **Subpath directories**: a `package.json` that adds only `main`, `module`, `types`, `typings` or `browser` in a
   directory its parent package publishes as a subpath (`exports` has `./<dir>`, or `files` lists it) no longer makes a
   project of its own, so the files there belong to the package: `module.exports = require('@vue/compiler-sfc')` in
-  `vue/compiler-sfc/index.js` uses the dependency of `vue` ([#98](https://github.com/Goldziher/skif/issues/98)).
+  `vue/compiler-sfc/index.js` uses the dependency of `vue`. The files that manifest points at are entries of the
+  package, so `server/index.js` of `"files": ["server"]` and what it requires are not unused. A `files` entry of
+  `server/*` or `server/**` publishes the directory too ([#98](https://github.com/Goldziher/skif/issues/98)).
 - **Configs inside `node_modules`**: a tool config that extends or references a config file by a relative path into a
   `node_modules` directory (`"extends": ["./node_modules/ultracite/config/oxlint/core/.oxlintrc.json"]` in
-  `.oxlintrc.json`) names that package, so it is used, also when it is not installed and the file cannot be read
-  ([#98](https://github.com/Goldziher/skif/issues/98)).
+  `.oxlintrc.json`) names that package, so it is used, also when it is not installed and the file cannot be read.
+  Only a config of the workspace names it this way: a config file that an installed config reaches in turn is a
+  dependency of that installed package ([#98](https://github.com/Goldziher/skif/issues/98)).
 - **`@types` of typed packages**: an import of a package whose installed `package.json` declares its own types
-  (`types` or `typings`) no longer uses its `@types` package, which TypeScript does not read then, so a leftover
-  `@types/eslint` beside `eslint` 9 is reported unused, as knip does. A package that is not installed keeps its
-  `@types` package used ([#98](https://github.com/Goldziher/skif/issues/98)).
+  (a non-empty `types` or `typings` naming a file the package holds) no longer uses its `@types` package, which
+  TypeScript does not read then, so a leftover `@types/eslint` beside `eslint` 9 is reported unused, as knip does. A
+  package that is not installed keeps its `@types` package used, and so does a subpath import (`kit/helpers`), which
+  the package's own types may not cover ([#98](https://github.com/Goldziher/skif/issues/98)).
 
 ## [0.4.0] - 2026-11-12
 
