@@ -146,7 +146,10 @@ fn installed_tree(app_tsconfig: Option<&'static str>, local: bool) -> Vec<(&'sta
 
 #[cfg(unix)]
 const SRC_TSCONFIG: &str = r#"{"compilerOptions":{"baseUrl":".","paths":{"src/*":["./src/*"]}}}"#;
+#[cfg(unix)]
+const SRC_PATHS: &str = "[js.workspaces.\"packages/app\".paths]\n\"src/*\" = [\"./src/*\"]\n";
 const LIB_TSCONFIG: &str = r#"{"compilerOptions":{"baseUrl":".","paths":{"lib/*":["./src/lib/*"]}}}"#;
+const LIB_PATHS: &str = "[js.workspaces.\"packages/app\".paths]\n\"lib/*\" = [\"./src/lib/*\"]\n";
 
 #[cfg(unix)]
 #[test]
@@ -170,7 +173,41 @@ fn tsconfig_paths_into_own_sources_do_not_use_the_installed_package_named_like_t
 }
 
 #[cfg(unix)]
+#[test]
+fn configured_paths_win_over_the_member_named_like_the_prefix() {
+    let diagnostics = lint_installed(&member_tree(None, true), SRC_PATHS);
+    assert_eq!(
+        findings(&diagnostics),
+        ["unused-dependencies packages/app/package.json: src"],
+        "the local file is reached, not the member's: {diagnostics:#?}"
+    );
+}
+
+#[test]
+fn configured_paths_win_over_the_installed_package_named_like_the_prefix() {
+    let diagnostics = lint(&installed_tree(None, true), LIB_PATHS);
+    assert_eq!(
+        findings(&diagnostics),
+        ["unused-dependencies packages/app/package.json: lib"],
+        "the local file is reached, not the installed one: {diagnostics:#?}"
+    );
+}
+
 #[cfg(unix)]
+#[test]
+fn configured_paths_whose_target_is_missing_fall_through_to_the_member() {
+    let diagnostics = lint_installed(&member_tree(None, false), SRC_PATHS);
+    assert_eq!(findings(&diagnostics), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn paths_whose_target_is_missing_fall_through_to_the_installed_package() {
+    for (tsconfig, toml) in [(Some(LIB_TSCONFIG), ""), (None, LIB_PATHS)] {
+        let diagnostics = lint(&installed_tree(tsconfig, false), toml);
+        assert_eq!(findings(&diagnostics), none(), "{tsconfig:?} {toml}: {diagnostics:#?}");
+    }
+}
+
 #[test]
 fn an_import_no_paths_entry_matches_still_uses_the_listed_package() {
     let other_tsconfig = r#"{"compilerOptions":{"baseUrl":".","paths":{"local/*":["./src/local/*"]}}}"#;
