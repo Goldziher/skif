@@ -592,7 +592,10 @@ fn gated_coverage_workspace(condition: &str, app_dependencies: &str) -> Vec<(Str
 }
 
 fn lint_owned(files: &[(String, String)]) -> Vec<Diagnostic> {
-    let borrowed: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+    let borrowed: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect();
     lint(&borrowed)
 }
 
