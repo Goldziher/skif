@@ -9,7 +9,7 @@ use crate::dependency_types::{DependencyType, DependencyTypes};
 use crate::error::ConfigError;
 use crate::overrides::ConfigOverrides;
 use crate::rules::{Level, RuleConfig, rules_map};
-use crate::selector::{Selector, anchor_patterns, unanchored};
+use crate::selector::{Probe, Selector, anchor_patterns, probes, unanchored};
 
 #[cfg(feature = "schema")]
 use crate::schema::RuleConfigSchema;
@@ -2744,6 +2744,28 @@ impl Override {
     }
 }
 
+/// Why a pattern of an [`OverrideScope`] selects nothing at its root (see [`OverrideScope::idle_patterns`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IdleReason {
+    /// A path pattern anchored at the directory of a file that lies neither in the root nor in a directory above it
+    /// (a `--config` file elsewhere, a preset outside the project): no file or package of the root is below it.
+    AnchoredOutside,
+    /// A `packages` pattern of a file in the root or below it that matches no package of the workspace.
+    NoPackage,
+}
+
+/// Where the declaring file of an override lies relative to the root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placement {
+    /// In the root or below it: the configuration is the root's own.
+    Inside,
+    /// In a directory above the root, which may configure other roots too.
+    Above,
+    /// Anywhere else.
+    Outside,
+}
+
 /// Where an [`Override`] was declared, with its patterns resolved to absolute ones.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -2757,6 +2779,8 @@ pub struct OverrideScope {
     packages: Selector,
     files: Selector,
     unanchored: Vec<String>,
+    placement: Placement,
+    probes: Vec<Probe>,
 }
 
 impl OverrideScope {
@@ -2776,7 +2800,53 @@ impl OverrideScope {
                 .into_iter()
                 .chain(unanchored(scoped.files.patterns(), true))
                 .collect(),
+            placement: if declared_in.starts_with(root) {
+                Placement::Inside
+            } else if root.starts_with(declared_in) {
+                Placement::Above
+            } else {
+                Placement::Outside
+            },
+            probes: probes(scoped.packages.patterns(), declared_in, root, false)?
+                .into_iter()
+                .chain(probes(scoped.files.patterns(), declared_in, root, true)?)
+                .collect(),
         })
+    }
+
+    /// The inclusions of `packages` and `files`, as written and in that order, that select nothing at the root, given
+    /// its `packages` (each its name and `/`-separated absolute directory, the root package included):
+    ///
+    /// - every path pattern not written with `$ROOT/` when the declaring file lies neither in the root nor above it
+    ///   ([`IdleReason::AnchoredOutside`]);
+    /// - every `packages` pattern that matches none of `packages` when the declaring file lies in the root or below
+    ///   it ([`IdleReason::NoPackage`]).
+    ///
+    /// The patterns of a file above the root are not judged, since such a file may configure other roots, and nor are
+    /// the `files` patterns of a file in the root, which would need the files of the run. Exclusions (`!`) and the
+    /// patterns that leave their anchor ([`unanchored`](Self::unanchored)) are not listed.
+    #[must_use]
+    pub fn idle_patterns(&self, packages: &[(&str, &str)]) -> Vec<(&str, IdleReason)> {
+        self.probes
+            .iter()
+            .filter_map(|probe| {
+                let reason = match self.placement {
+                    Placement::Outside if probe.declared_anchor => IdleReason::AnchoredOutside,
+                    Placement::Inside => {
+                        let selector = probe.packages.as_ref()?;
+                        if packages
+                            .iter()
+                            .any(|(name, dir)| selector.matches_any([*name, *dir], true))
+                        {
+                            return None;
+                        }
+                        IdleReason::NoPackage
+                    }
+                    Placement::Outside | Placement::Above => return None,
+                };
+                Some((probe.written.as_str(), reason))
+            })
+            .collect()
     }
 
     /// The `packages` and `files` patterns, as written, that leave the directory they are anchored at (`../packages/*`)

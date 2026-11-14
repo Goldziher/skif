@@ -296,6 +296,48 @@ pub(crate) fn unanchored(patterns: &[String], paths_only: bool) -> Vec<String> {
         .collect()
 }
 
+/// One inclusion of an override's `packages` or `files` list, kept to tell whether it selects anything at the root.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Probe {
+    /// The pattern as written.
+    pub(crate) written: String,
+    /// Whether it is a path anchored at the directory of the declaring file, not at the root with `$ROOT/`.
+    pub(crate) declared_anchor: bool,
+    /// The pattern alone, anchored, for a `packages` pattern; `None` for a `files` pattern.
+    pub(crate) packages: Option<Selector>,
+}
+
+/// A [`Probe`] for every inclusion of `patterns` (declared in `declared_in`, for the root `root`) that stays inside
+/// its anchor; `paths_only` as for [`anchor_patterns`], and also for a `files` list.
+pub(crate) fn probes(
+    patterns: &[String],
+    declared_in: &Path,
+    root: &Path,
+    paths_only: bool,
+) -> Result<Vec<Probe>, ConfigError> {
+    let mut probes = Vec::new();
+    for pattern in patterns {
+        if pattern.starts_with('!') {
+            continue;
+        }
+        let path = path_part(pattern, paths_only);
+        if path.is_some_and(|(_, rest)| anchored_path(Path::new("/"), rest).is_none()) {
+            continue;
+        }
+        let packages = if paths_only {
+            None
+        } else {
+            Some(anchor_patterns(std::slice::from_ref(pattern), declared_in, root, false)?)
+        };
+        probes.push(Probe {
+            written: pattern.clone(),
+            declared_anchor: path.is_some_and(|(at_root, _)| !at_root),
+            packages,
+        });
+    }
+    Ok(probes)
+}
+
 /// `dir/**` also selects `dir` itself: a glob ending in `/**` matches what is below the directory, not the directory,
 /// and `./apps/old/**` is meant to select the package that lives at `apps/old` too.
 fn with_directory(path: String) -> Vec<String> {

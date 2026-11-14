@@ -1593,7 +1593,12 @@ allowed in it.
 
 Patterns that select packages or files in an override, and `extends` paths, are relative to the directory of the
 file that declares them. `$ROOT/` at the start of a pattern anchors it at the root being linted instead, which a
-shared preset needs. A pattern that would leave its anchor (`../packages/*` in `config/shared.toml`) never matches, and a lint run warns about it on stderr, naming the file: write `$ROOT/packages/*` instead. Values are read in the scope they
+shared preset needs. A pattern that would leave its anchor (`../packages/*` in `config/shared.toml`) never matches, and a lint run warns about it on stderr, naming the file: write `$ROOT/packages/*` instead. A lint run also warns
+about a pattern that selects nothing at any root that reads it: a path pattern of a file that lies neither in the
+root nor above it, such as a `--config` file in another directory, whose `files` and `./` patterns are anchored at
+that directory (write them with `$ROOT/`), and a `packages` pattern of a file in the root that matches no package.
+Patterns of a file above the root are not judged, since that file may configure other roots, and nor are `files`
+patterns inside the root. Values are read in the scope they
 configure: top-level `[js]` globs are relative to the root, `js` globs of an override or package file are relative
 to each package. `ignore-packages`, `[[ignore]] packages`, group selectors and `[js.workspaces]` keys stay relative
 to the root, with one exception: in a multi-root run with `--config <FILE>`, the `[js.workspaces]` keys and
