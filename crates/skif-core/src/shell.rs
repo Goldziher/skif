@@ -89,6 +89,7 @@ pub fn tokenize(src: &str) -> Tokens {
         case_depth: 0,
         case_pattern: false,
         open_subshells: Vec::new(),
+        redirect_start: None,
     }
     .run()
 }
@@ -121,6 +122,8 @@ struct Lexer<'a> {
     case_pattern: bool,
     /// The index of the first segment of every subshell `( … )` open at the current position, outermost first.
     open_subshells: Vec<usize>,
+    /// Where the first redirection of the current command starts, for an [`EmptyCommand`].
+    redirect_start: Option<usize>,
 }
 
 impl Lexer<'_> {
@@ -198,6 +201,7 @@ impl Lexer<'_> {
         {
             self.tokens.functions.push(name.text.clone());
         }
+        let redirect_start = self.redirect_start.take();
         let mut words = std::mem::take(&mut self.words);
         let split = words.iter().take_while(|w| is_assignment_text(&w.text)).count();
         let rest = words.split_off(split);
@@ -205,6 +209,12 @@ impl Lexer<'_> {
             self.tokens.segments.push(Segment {
                 assignments: words,
                 words: rest,
+            });
+        } else if let Some(start) = redirect_start {
+            self.tokens.empty_commands.push(EmptyCommand {
+                start,
+                segments_before: self.tokens.segments.len(),
+                subshells_closed: self.tokens.subshells.len(),
             });
         }
     }
@@ -551,12 +561,16 @@ impl Lexer<'_> {
         let fd_prefix = self
             .cur
             .as_ref()
-            .is_some_and(|w| !w.text.is_empty() && w.text.chars().all(|c| c.is_ascii_digit()));
-        if fd_prefix {
+            .filter(|w| !w.text.is_empty() && w.text.chars().all(|c| c.is_ascii_digit()))
+            .map(|w| w.span.start);
+        let start = if let Some(start) = fd_prefix {
             self.cur = None;
+            start
         } else {
             self.end_word();
-        }
+            self.pos(self.i)
+        };
+        self.redirect_start.get_or_insert(start);
         let c = self.chars[self.i].1;
         self.i += 1;
         let mut heredoc = false;

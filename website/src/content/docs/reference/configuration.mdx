@@ -833,7 +833,8 @@ own or the `defaults.run` of its job or workflow, is read as a `cd` before the s
 package manager runs in another directory (`cd web && npm run build`) is the script of the package there, so the caller's script of that name is not followed.
 A `cd` in a subshell
 (`(cd "$TMP" && tar xf a.tgz) && npm run build`) ends with it. A command substitution runs in the directory of the
-command that holds it (`cd sub && SUITE=$(pnpm exec tsx resolve.ts)` runs `tsx` in `sub`). A directory that is not a static relative path
+command that holds it (`cd sub && SUITE=$(pnpm exec tsx resolve.ts)` runs `tsx` in `sub`), a command of redirections
+alone included (`cd sub && > "$(tsx x.ts)"`). A directory that is not a static relative path
 (`cd $DIR`, `cd /tmp`, `cd -`, `cd "$(dirname "$0")"`) is not followed: a binary run by name there is judged where the
 script starts, but a package manager run there (`npm run build`, `bun run build`, `pnpm exec rspack`) works on the
 package of that directory, as with `--filter`, so its scripts are not followed and its binaries are not judged. A
