@@ -582,10 +582,7 @@ fn knip_check(target: &TargetResult, skif: &ToolResult, knip: &ToolResult) -> Ta
                 CheckStatus::Invalid,
             )
         }
-        _ => (
-            format!("{goal} ({measured})"),
-            CheckStatus::of(met, &[skif, knip]),
-        ),
+        _ => (format!("{goal} ({measured})"), CheckStatus::of(met, &[skif, knip])),
     };
     TargetCheck {
         target: target.target.clone(),
@@ -1008,7 +1005,10 @@ fn corpus_tool_args(repo: &corpus::Repo, scratch: &Path) -> Result<(Vec<String>,
     let mut knip = repo.bench_knip_args.clone();
     if repo.bench_knip_config.as_deref() == Some(corpus::PARITY_KNIP_CONFIG) {
         let path = |config: PathBuf| config.to_string_lossy().into_owned();
-        knip.extend(["--config".to_owned(), path(parity::write_knip_config(&repo.entry, scratch)?)]);
+        knip.extend([
+            "--config".to_owned(),
+            path(parity::write_knip_config(&repo.entry, scratch)?),
+        ]);
         if let Some(config) = parity::write_skif_entry_config(&repo.entry, scratch)? {
             skif.extend(["--config".to_owned(), path(config)]);
         }
@@ -1746,7 +1746,10 @@ mod tests {
             row["results"][1]["failure"],
             serde_json::json!({ "reason": "its Expo Metro config needs metro-cache", "error": METRO_ERROR, "timed": false })
         );
-        assert_eq!((row["warmup"].clone(), row["runs"].clone()), (serde_json::json!(1), serde_json::json!(2)));
+        assert_eq!(
+            (row["warmup"].clone(), row["runs"].clone()),
+            (serde_json::json!(1), serde_json::json!(2))
+        );
         assert_eq!(row["results"][1]["relative_to_skif"], serde_json::Value::Null);
         assert_eq!(row["results"][0]["failure"], serde_json::Value::Null);
         let found = checks(std::slice::from_ref(&target));
@@ -1948,14 +1951,8 @@ mod tests {
         let root = fs::canonicalize(&scratch).unwrap();
         let knip_config = root.join("knip-config.json");
         let skif_config = root.join("skif-entry.toml");
-        assert_eq!(
-            skif,
-            ["--recursive", "--config", skif_config.to_str().unwrap()]
-        );
-        assert_eq!(
-            knip,
-            ["--no-gitignore", "--config", knip_config.to_str().unwrap()]
-        );
+        assert_eq!(skif, ["--recursive", "--config", skif_config.to_str().unwrap()]);
+        assert_eq!(knip, ["--no-gitignore", "--config", knip_config.to_str().unwrap()]);
         let knip_text = fs::read_to_string(&knip_config).unwrap();
         let skif_text = fs::read_to_string(&skif_config).unwrap();
         fs::remove_dir_all(&scratch).unwrap();
@@ -1979,7 +1976,10 @@ mod tests {
 
         let (skif, knip) = corpus_tool_args(&bench_repo("bench-knip-args = [\"--no-gitignore\"]\n"), &scratch).unwrap();
         assert_eq!((skif, knip), (Vec::new(), vec!["--no-gitignore".to_owned()]));
-        assert!(!scratch.exists(), "the repository's own knip configuration needs no file");
+        assert!(
+            !scratch.exists(),
+            "the repository's own knip configuration needs no file"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2075,7 +2075,9 @@ mod tests {
         };
         let text = markdown(&summary_of(vec![capped, uncapped, one], Vec::new()));
         assert!(
-            text.contains("## corpus: r (pnpm)\n\n0 warmup runs and 5 measured runs, as corpus.toml caps them here.\n\n| Tool |"),
+            text.contains(
+                "## corpus: r (pnpm)\n\n0 warmup runs and 5 measured runs, as corpus.toml caps them here.\n\n| Tool |"
+            ),
             "{text}"
         );
         assert!(text.contains("## corpus: s (pnpm)\n\n| Tool |"), "{text}");

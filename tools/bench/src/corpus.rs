@@ -566,7 +566,11 @@ mod tests {
             declared,
             [
                 ("create-t3-turbo", "Cannot find module 'metro-cache'", false),
-                ("vue-core", "sfc-playground/vite.config.ts (__DEV__ is not defined)", false),
+                (
+                    "vue-core",
+                    "sfc-playground/vite.config.ts (__DEV__ is not defined)",
+                    false
+                ),
                 ("n8n", "Error loading packages/@n8n/mcp-apps/vite.config.mts", true),
                 (
                     "next-js",
@@ -584,9 +588,10 @@ mod tests {
 
     #[test]
     fn the_large_bench_repositories_run_five_times_with_the_comparison_configuration() {
+        type Capped<'a> = (&'a str, Option<u32>, Option<u32>, Option<&'a str>);
         let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
         let (_, bench) = select(file, "bench", &[]).unwrap();
-        let capped: Vec<(&str, Option<u32>, Option<u32>, Option<&str>)> = bench
+        let capped: Vec<Capped<'_>> = bench
             .iter()
             .filter(|r| r.bench_max_runs.is_some() || r.bench_max_warmup.is_some() || r.bench_knip_config.is_some())
             .map(|r| {
@@ -629,7 +634,12 @@ mod tests {
             "suites = [\"bench\"]\nbench-knip-failure = { matches = \"m\", reason = \"r\", timed = true }\n",
         )
         .unwrap();
-        assert!(timed.repo[0].bench_knip_failure.as_ref().is_some_and(|failure| failure.timed));
+        assert!(
+            timed.repo[0]
+                .bench_knip_failure
+                .as_ref()
+                .is_some_and(|failure| failure.timed)
+        );
         for (name, keys, problem) in [
             (
                 "failure-parity",
