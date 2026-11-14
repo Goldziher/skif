@@ -4,8 +4,15 @@
 //! cannot: which member a read reaches through a typed receiver, an override or an implemented interface. The answer
 //! is owned data ([`TypeFacts`]); this crate is the only one that depends on tsrs (ADR 0044).
 
+mod coverage;
 mod error;
 mod facts;
+mod members;
+mod owner;
+mod programs;
+mod query;
+mod session;
+mod vfs;
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -97,22 +104,17 @@ impl<'a> TypeInput<'a> {
 /// [`TypeError::Config`] when an explicit `tsconfig` cannot be read, [`TypeError::Internal`] when the checker fails
 /// unexpectedly and [`TypeError::Cancelled`] when the host cancels. A package without usable types is no error.
 pub fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
-    let coverage = input
-        .packages
-        .iter()
-        .map(|package| PackageCoverage {
-            dir: package.dir.clone(),
-            name: package.name.clone(),
-            state: CoverageState::Untyped,
-            reason: Some(CoverageReason::NotBuilt),
-            untyped_files: u32::try_from(package.files.len()).unwrap_or(u32::MAX),
-        })
-        .collect();
-    Ok(TypeFacts {
-        engine: ENGINE,
-        coverage,
-        ..TypeFacts::default()
-    })
+    session::analyze(input)
+}
+
+/// The bytes of tsrs's arenas in use now, for tests that check repeated analyses give their memory back.
+///
+/// With compressed pointers (the default on unix) these are the chunks of the process-wide reservation that are
+/// handed out, on every thread; with `plain-ptrs` only the calling thread's arena is counted.
+#[doc(hidden)]
+#[must_use]
+pub fn arena_bytes_in_use() -> usize {
+    tsrs_core::ptr::reserve_stats().map_or_else(tsrs_core::ptr::arena_used_bytes, |(in_use, _)| in_use)
 }
 
 const _: () = {
