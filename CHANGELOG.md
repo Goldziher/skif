@@ -112,6 +112,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `paths` of `[js.workspaces.<dir>.paths]` come before the `paths` and `baseUrl` of the workspace's
+  `jsconfig.json` or `tsconfig.json`, which the `typescript` plugin reads as lookup directories and aliases (a
+  `jsconfig.json` enables it by itself): when both map `*` to the same directories in a different order, the import
+  reaches the configured target, and the file the compiler config tries first is the one reported by `unused-files`
+  ([ADR 0038](adrs/0038-paths-before-packages.md), [#238](https://github.com/Goldziher/skif/issues/238)).
+
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 
