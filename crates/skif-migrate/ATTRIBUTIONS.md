@@ -136,7 +136,7 @@ analysis follows its semantics and its plugin set; the behaviour is re-implement
 source file is copied, apart from the data noted below.
 
 - **Source**: <https://github.com/webpro-nl/knip>
-- **Upstream commit**: `da07b6e9887f9a1eb08545da29755b7f9d309bca`
+- **Upstream commit**: `b25639c96bfff334519a189605e609a4ed5ae801`
 - **License**: ISC
 - **Authors**: Lars Kappert and the knip contributors
 - **Copyright**: Copyright (c) 2022-2026 Lars Kappert
@@ -151,9 +151,10 @@ source file is copied, apart from the data noted below.
 - Analysis is static: configuration files are read with oxc, never executed, and tools are not run to ask for
   their entries.
 - The list of binaries that are never reported as unlisted is adapted from knip's `constants.ts`.
-- The plugin table is declarative data with optional resolvers, keyed by knip's plugin names. `aws-cdk`,
-  `browser-extension`, `azure-pipelines`, `sapper` and `taskr` are skif's own: knip has no plugin of these names at
-  the pinned commit.
+- The plugin table is declarative data with optional resolvers, keyed by knip's plugin names. `azure-pipelines`,
+  `bazel`, `browser-extension`, `knip`, `sapper`, `tap` and `taskr` are skif's own: knip has no plugin of these names
+  at the pinned commit. knip's `glob` and `retry-cli` plugins describe only the arguments of a binary, and are rows of
+  the script parser's tables instead.
 - Rule ids, severities and configuration (`skif.toml`) are skif's own.
 
 ### License Compatibility
