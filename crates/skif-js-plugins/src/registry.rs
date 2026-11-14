@@ -11,7 +11,7 @@ use crate::plugins::{
     commitlint, convex, create_typescript_app, cspell, cucumber, cypress, danger, dependency_cruiser, docusaurus,
     dotenv, drizzle, electron_forge, electron_vite, eleventy, esbuild, eslint, eve, execa, expo, expo_router,
     expressive_code, fast, filesystem_routing, flue, fumadocs, gatsby, github_action, github_actions, graphql_codegen,
-    hardhat, husky, i18next_parser, jasmine, jest, karma, knex, knip, kysely_codegen, ladle, laravel_vite_plugin,
+    hardhat, heft, husky, i18next_parser, jasmine, jest, karma, knex, knip, kysely_codegen, ladle, laravel_vite_plugin,
     lefthook, lingui, lint_staged, linthtml, lit, lockfile_lint, lost_pixel, lunaria, markdownlint, marko, mastra, mcp,
     mdx, mdxlint, metro, mise, mocha, moonrepo, msw, nano_spawn, nano_staged, nest, netlify, next, next_intl, next_mdx,
     nitro, node, node_modules_inspector, nodemon, npm_package_json_lint, nuxt, nuxtjs_i18n, nx, nyc, oclif, openapi_ts,
@@ -28,7 +28,7 @@ use crate::plugins::{
     zx,
 };
 
-static PLUGINS: [&dyn Plugin; 207] = [
+static PLUGINS: [&dyn Plugin; 208] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -236,6 +236,7 @@ static PLUGINS: [&dyn Plugin; 207] = [
     &taskr::Taskr,
     &bazel::Bazel,
     &knip::Knip,
+    &heft::Heft,
 ];
 
 /// Every plugin, in the order of the table (ADR 0015, ADR 0006, ADR 0018).

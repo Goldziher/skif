@@ -456,6 +456,9 @@ struct Collector<'a, 'b> {
     imported: Vec<(PathBuf, String)>,
     /// Whether `[js.plugins]` configures the plugin's entries, which then replace its default entry globs.
     entries_configured: bool,
+    /// Whether the config being absorbed is one the package ships for the packages that extend it
+    /// ([`PluginInput::SharedConfig`]).
+    shared: bool,
 }
 
 /// A [`ModuleLoader`] that records the modules it loads, so a package a config names can be traced to the module
@@ -505,6 +508,8 @@ struct Queued {
     depth: u8,
     /// The plugin that reads it; `None` for the plugin being run.
     reader: Option<PluginId>,
+    /// The package ships the file for the packages that extend it ([`PluginInput::SharedConfig`]).
+    shared: bool,
 }
 
 impl Collector<'_, '_> {
@@ -563,7 +568,7 @@ impl Collector<'_, '_> {
         (from, config): (&Path, Option<&ConfigAst<'_>>),
         depth: u8,
     ) {
-        let foreign = self.belongs_to_other_package(from);
+        let foreign = self.shared || self.belongs_to_other_package(from);
         let optional = registry::plugin(reader).is_some_and(|plugin| plugin.spec().optional_binaries);
         for input in inputs {
             if foreign
@@ -601,10 +606,11 @@ impl Collector<'_, '_> {
                 PluginInput::OptionalDependency(name) => {
                     self.dependency(DepRef::new(name, from, true, config.is_some()));
                 }
+                // A compiler option of a shared config applies to the packages extending it, which judge it.
                 PluginInput::CompilerDependency { name, type_only } => self.dependency(DepRef {
                     type_only,
-                    reader_may_list: true,
-                    ..DepRef::new(name, from, false, config.is_some())
+                    reader_may_list: !self.shared,
+                    ..DepRef::new(name, from, self.shared, config.is_some())
                 }),
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),
                 PluginInput::ConfigFile(path) => {
@@ -621,11 +627,14 @@ impl Collector<'_, '_> {
                         self.queue.push_back(Queued {
                             path,
                             depth: depth + 1,
-                            reader: None,
+                            // What a shared config extends is shared too, and read as the shared config is.
+                            reader: self.shared.then_some(reader),
+                            shared: self.shared,
                         });
                     }
                 }
-                PluginInput::LinkedConfig { plugin, path } => self.linked_config(plugin, &path, depth),
+                PluginInput::LinkedConfig { plugin, path } => self.linked_config(plugin, &path, depth, false),
+                PluginInput::SharedConfig { plugin, path } => self.linked_config(plugin, &path, depth, true),
                 PluginInput::VirtualModule(pattern) => push_unique(&mut self.out.virtual_modules, pattern),
                 PluginInput::Script(text) => self.script(&text, from, optional),
                 PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script, from, optional),
@@ -693,8 +702,9 @@ impl Collector<'_, '_> {
         }
     }
 
-    /// Queues the files `path` names for `plugin`, a glob matching none of them queueing nothing.
-    fn linked_config(&mut self, plugin: PluginId, path: &str, depth: u8) {
+    /// Queues the files `path` names for `plugin`, a glob matching none of them queueing nothing; `shared` when the
+    /// package ships them for the packages that extend them ([`PluginInput::SharedConfig`]).
+    fn linked_config(&mut self, plugin: PluginId, path: &str, depth: u8, shared: bool) {
         if depth >= MAX_CONFIG_DEPTH || registry::plugin(plugin).is_none() {
             return;
         }
@@ -710,6 +720,7 @@ impl Collector<'_, '_> {
                 path,
                 depth: depth + 1,
                 reader: Some(plugin),
+                shared,
             });
         }
     }
@@ -830,6 +841,7 @@ fn run_plugin(
         confine_to_package: matches!(spec.id, "typescript" | "tsrs" | "nx"),
         imported: Vec::new(),
         entries_configured: !options.entry.is_empty(),
+        shared: false,
     };
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
@@ -852,6 +864,7 @@ fn run_plugin(
         path,
         depth: 0,
         reader: None,
+        shared: false,
     }));
 
     let mut visited = BTreeSet::new();
@@ -946,9 +959,11 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         path: relative,
         depth,
         reader,
+        shared,
     }) = collector.queue.pop_front()
     {
         let key = reader.map_or_else(|| relative.clone(), |id| format!("{id}:{relative}"));
+        let key = if shared { format!("shared:{key}") } else { key };
         if !visited.insert(key) {
             continue;
         }
@@ -1007,7 +1022,9 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             inputs.extend(argument_entries(ctx, ast.base, call_arguments));
         }
         collector.imported.clone_from(&loaded.imported);
+        collector.shared = shared;
         collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
+        collector.shared = false;
         collector.imported.clear();
     }
 }
@@ -1282,6 +1299,7 @@ mod tests {
             confine_to_package: false,
             imported: Vec::new(),
             entries_configured: false,
+            shared: false,
         };
         collector.absorb(
             "vite",
