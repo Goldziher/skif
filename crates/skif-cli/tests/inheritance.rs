@@ -155,3 +155,84 @@ fn an_override_pattern_that_leaves_its_anchor_is_warned_about() {
     );
     assert_eq!(result.stderr.matches("../packages/*").count(), 1, "{}", result.stderr);
 }
+
+/// The number of `version-mismatch` diagnostics of a JSON run.
+fn mismatches(result: &support::Run) -> usize {
+    result.json()["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "version-mismatch")
+        .count()
+}
+
+const MISMATCH_OFF: &str = "[js]\nenabled = false\n\n[[overrides]]\npackages = [\"./packages/*\"]\nrules = { version-mismatch = \"off\" }\n";
+
+#[test]
+fn an_override_of_a_config_file_outside_the_root_is_warned_about() {
+    let dir = fixture("mismatch");
+    fs::write(dir.path().join("skif.toml"), MISMATCH_OFF).unwrap();
+    let inside = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(mismatches(&inside), 0, "the override applies: {}", inside.stdout);
+    assert!(!inside.stderr.contains("[[overrides]]"), "{}", inside.stderr);
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let config = elsewhere.path().join("skif.toml");
+    fs::write(&config, MISMATCH_OFF).unwrap();
+    let outside = run(skif().args(["--format", "json", "--config"]).arg(&config).arg(dir.path()));
+    assert!(mismatches(&outside) > 0, "the override selects nothing: {}", outside.stdout);
+    let anchor = elsewhere.path().file_name().unwrap().to_str().unwrap();
+    assert!(
+        outside
+            .stderr
+            .contains("skif.toml: the [[overrides]] pattern `./packages/*` selects nothing: it is relative to ")
+            && outside.stderr.contains(anchor)
+            && outside.stderr.contains("$ROOT/<path>"),
+        "{}",
+        outside.stderr
+    );
+    assert_eq!(outside.stderr.matches("./packages/*").count(), 1, "{}", outside.stderr);
+}
+
+#[test]
+fn an_override_package_pattern_that_matches_no_package_is_warned_about() {
+    let dir = fixture("mismatch");
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\n\n[[overrides]]\npackages = [\"@cli/nobody\", \"@cli/a\", \"./packages/b\"]\nmax-level = \"info\"\n",
+    )
+    .unwrap();
+    let result = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert!(result.code <= 1, "{}{}", result.stdout, result.stderr);
+    assert!(
+        result
+            .stderr
+            .contains("skif.toml: the [[overrides]] pattern `@cli/nobody` selects no package of the run"),
+        "{}",
+        result.stderr
+    );
+    assert_eq!(result.stderr.matches("[[overrides]]").count(), 1, "{}", result.stderr);
+}
+
+#[test]
+fn an_override_that_selects_packages_of_one_root_of_a_recursive_run_is_not_warned_about() {
+    let dir = fixture("inheritance");
+    let result = run(skif().args(["--format", "json", "-r"]).arg(dir.path()));
+    assert!(result.code <= 1, "{}{}", result.stdout, result.stderr);
+    assert!(!result.stderr.contains("[[overrides]]"), "{}", result.stderr);
+
+    fs::write(
+        dir.path().join("web/skif.toml"),
+        "[[overrides]]\npackages = [\"@inheritance/app\", \"@inheritance/gone\"]\n\n[overrides.rules]\nempty-dependencies = \"error\"\n",
+    )
+    .unwrap();
+    let stale = run(skif().args(["--format", "json", "-r"]).arg(dir.path()));
+    assert!(
+        stale
+            .stderr
+            .contains("the [[overrides]] pattern `@inheritance/gone` selects no package of the run"),
+        "{}",
+        stale.stderr
+    );
+    assert_eq!(stale.stderr.matches("[[overrides]]").count(), 1, "{}", stale.stderr);
+}

@@ -1046,7 +1046,13 @@ fn ignore_issues(state: &mut State<'_>, src: &Src, target: &Target, path: &str, 
         let element = state
             .doc
             .element(&["overrides"], vec![format!("knip ignoreIssues for {file}")]);
-        element.set("files", Val::strs([target.file_glob(file)]));
+        let glob = target.file_glob(file);
+        let glob = if state.options.root_anchored {
+            format!("$ROOT/{}", glob.trim_start_matches("./"))
+        } else {
+            glob
+        };
+        element.set("files", Val::strs([glob]));
         element.set(
             "rules",
             Val::Inline(rule_ids.iter().map(|id| ((*id).to_owned(), Val::str("off"))).collect()),

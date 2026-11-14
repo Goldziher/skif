@@ -2230,3 +2230,34 @@ fn knip_in_a_single_package_project_says_nothing_about_tsconfig_paths() {
     );
     assert_eq!(class(&member, MERGED_PATHS), NoteClass::Approximate);
 }
+
+/// The `files` of every `[[overrides]]` entry of a migration of `config` with `options`.
+fn override_files(config: &str, options: &Options) -> Vec<String> {
+    let mut input = ToolInput::new(Tool::Knip);
+    input.config = Some(text("knip.json", config));
+    input.package_json = Some(text("package.json", &package(&[])));
+    let migration = migrate(&[input], options).unwrap();
+    table(&migration)["overrides"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| strings(&entry["files"]))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn knip_ignore_issues_are_written_from_the_root_for_a_file_outside_the_project() {
+    let config = r#"{
+        "ignoreIssues": { "./src/ui/**": ["exports"] },
+        "workspaces": { "packages/a": { "ignoreIssues": { "lib/**": ["types"] } } }
+    }"#;
+    assert_eq!(
+        override_files(config, &options(Profile::Exact)),
+        ["./src/ui/**", "packages/a/lib/**"]
+    );
+    assert_eq!(
+        override_files(config, &options(Profile::Exact).with_root_anchored(true)),
+        ["$ROOT/src/ui/**", "$ROOT/packages/a/lib/**"]
+    );
+}

@@ -1,7 +1,7 @@
 //! `skif [PATH]`: lint, optionally fix, report, and choose the exit code.
 
 use std::borrow::Cow;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,8 +10,8 @@ use rayon::prelude::*;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
-    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, ModuleCache, OsFs,
-    Prefer, Report, Selector, Target, Workspace, join_lexical, relative_tsconfig,
+    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IdleReason, IgnoreEntry, Linter,
+    ModuleCache, OsFs, Prefer, Report, Selector, Target, Workspace, join_lexical, relative_tsconfig,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -775,6 +775,7 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
     })?;
     note_truncated(&truncated);
     warn_unanchored_patterns(&targets);
+    warn_idle_patterns(&targets);
     if args.debug {
         trace::debug_targets(&base, &targets);
     }
@@ -934,6 +935,67 @@ fn warn_unanchored_patterns(targets: &[Target]) {
                 }
             }
         }
+    }
+}
+
+/// Warns, once per file and pattern, about the `[[overrides]]` patterns that select nothing at any root of the run
+/// that reads them (see [`skif::OverrideScope::idle_patterns`]): a path pattern of a file outside the root, as a
+/// `--config` file elsewhere has, and a package pattern that matches no package. A pattern some root may use is not
+/// warned about.
+fn warn_idle_patterns(targets: &[Target]) {
+    let mut idle: BTreeMap<(PathBuf, &str), Option<(IdleReason, &Path)>> = BTreeMap::new();
+    for target in targets {
+        let dirs: Vec<(&str, String)> = target
+            .workspace
+            .all_packages()
+            .map(|package| {
+                let dir = if package.dir.as_os_str().is_empty() {
+                    skif_core::slash(&target.root)
+                } else {
+                    skif_core::slash(&target.root.join(&package.dir))
+                };
+                (package.display_name(), dir)
+            })
+            .collect();
+        let packages: Vec<(&str, &str)> = dirs.iter().map(|(name, dir)| (*name, dir.as_str())).collect();
+        for scoped in &target.config.overrides {
+            let Some(scope) = scoped.scope.as_ref() else {
+                continue;
+            };
+            let file = target
+                .sources
+                .get(scope.source)
+                .map_or_else(|| scope.declared_in.clone(), |source| source.path.clone());
+            let found = scope.idle_patterns(&packages);
+            for pattern in scoped.packages.patterns().iter().chain(scoped.files.patterns()) {
+                let verdict = found
+                    .iter()
+                    .find(|(written, _)| *written == pattern.as_str())
+                    .map(|(_, reason)| (*reason, scope.declared_in.as_path()));
+                let entry = idle.entry((file.clone(), pattern.as_str())).or_insert(verdict);
+                if verdict.is_none() {
+                    *entry = None;
+                }
+            }
+        }
+    }
+    for ((file, pattern), verdict) in idle {
+        let Some((reason, declared_in)) = verdict else {
+            continue;
+        };
+        let shown = file.display().to_string();
+        let (file, pattern) = (escape_controls(&shown), escape_controls(pattern));
+        stderr_line(&match reason {
+            IdleReason::NoPackage => {
+                format!("warning: {file}: the [[overrides]] pattern `{pattern}` selects no package of the run")
+            }
+            _ => format!(
+                "warning: {file}: the [[overrides]] pattern `{pattern}` selects nothing: it is relative to {}, the \
+                 directory of the file, and no root of the run lies below it; write a path from the root as \
+                 `$ROOT/<path>`",
+                escape_controls(&declared_in.display().to_string())
+            ),
+        });
     }
 }
 
