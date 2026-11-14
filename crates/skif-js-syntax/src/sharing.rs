@@ -2134,7 +2134,8 @@ impl Sharing<'_> {
             return self.links.append(&mut pending);
         }
         while !pending.is_empty() {
-            let reached = self.reached_by_changes();
+            let targets: HashSet<SymbolId> = pending.iter().map(|link| link.b.symbol).collect();
+            let reached = self.reached_by_changes(&targets);
             let (linked, rest): (Vec<Link>, Vec<Link>) =
                 pending.into_iter().partition(|link| reached.contains(&link.b.symbol));
             pending = rest;
@@ -2145,17 +2146,40 @@ impl Sharing<'_> {
         }
     }
 
-    /// The bindings a change made so far reaches through the links, each alias counted as linked to the local it takes
-    /// a part of, as which the evaluator follows is not known yet.
-    fn reached_by_changes(&mut self) -> HashSet<SymbolId> {
+    /// The bindings of `targets` a change made so far reaches through the links, each alias counted as linked to the
+    /// local it takes a part of, as which the evaluator follows is not known yet. A reach stays within the class of the
+    /// changed binding ([`Self::class_of`]), so only the changes of a class holding a target are followed, and none of
+    /// a class an earlier change reached in full.
+    fn reached_by_changes(&mut self, targets: &HashSet<SymbolId>) -> HashSet<SymbolId> {
         let base = self.link_aliases_for_now();
         let links_of = self.links_of();
-        let reached: HashSet<SymbolId> = self
-            .mutated
-            .iter()
-            .flat_map(|(symbol, write)| self.reached(&links_of, *symbol, write))
-            .map(|(symbol, _)| symbol)
-            .collect();
+        let mut reached: HashSet<SymbolId> = HashSet::default();
+        let mut in_full: HashSet<SymbolId> = HashSet::default();
+        for (symbol, write) in &self.mutated {
+            if reached.len() == targets.len() {
+                break;
+            }
+            if in_full.contains(symbol) {
+                continue;
+            }
+            let Some(class) = self.class_of(*symbol) else {
+                if targets.contains(symbol) {
+                    reached.insert(*symbol);
+                }
+                continue;
+            };
+            if !targets.iter().any(|target| class.binary_search(target).is_ok()) {
+                continue;
+            }
+            let found: Vec<SymbolId> = match self.reach_of(&links_of, *symbol, write) {
+                Reach::InFull(class) => {
+                    in_full.extend(class.iter().copied());
+                    class.to_vec()
+                }
+                Reach::Places(places) => places.into_iter().map(|(other, _)| other).collect(),
+            };
+            reached.extend(found.into_iter().filter(|other| targets.contains(other)));
+        }
         self.unlink_since(base);
         reached
     }
@@ -2333,6 +2357,15 @@ impl Sharing<'_> {
         let mut in_full: HashMap<SymbolId, Option<SymbolId>> = HashMap::default();
         for (symbol, origin) in origins {
             let through_alias = applied.iter().find(|alias| alias.alias == symbol);
+            // A reach stays within the class of `symbol`: once every binding of it holds a change in full, a change by
+            // an origin that is no alias changes nothing more, so its reach is not walked.
+            if through_alias.is_none()
+                && self
+                    .class_of(symbol)
+                    .is_some_and(|class| in_full.get(&class[0]) == Some(&None))
+            {
+                continue;
+            }
             let reach = self.reach_of(&links_of, symbol, &origin);
             if let (None, Reach::InFull(class)) = (through_alias, &reach) {
                 let left = origin.covers(&Write::default()).then_some(symbol);
