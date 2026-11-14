@@ -688,6 +688,40 @@ fn vite_reads_the_rolldown_build_input() {
     );
 }
 
+/// A plugin factory that branches on what it is given leaves the input a function-form config computes from a list
+/// known, so the pages are entries and the package is complete (#235).
+#[test]
+fn vite_reads_a_computed_input_next_to_a_branching_plugin_factory() {
+    let results = resolve(
+        &[
+            (
+                "vite.config.js",
+                "import path from 'node:path';\nimport { sep } from 'node:path';\n\
+                 const resolveFromApp = (appDir) => {\n\
+                 const appPrefix = appDir.endsWith(sep) ? appDir : appDir + sep;\n\
+                 return { name: 'resolve-from-app', prefix: appPrefix };\n};\n\
+                 const PAGES = ['admin', 'console'];\n\
+                 export default defineConfig((env) => ({\n\
+                 build: { rolldownOptions: { input: Object.fromEntries(PAGES.map((page) => [page, path.resolve(__dirname, `${page}.html`)])) } },\n\
+                 plugins: [resolveFromApp(__dirname)],\n}));\n",
+            ),
+            (
+                "admin.html",
+                r#"<html><script type="module" src="/src/admin.js"></script></html>"#,
+            ),
+            (
+                "console.html",
+                r#"<html><script type="module" src="/src/console.js"></script></html>"#,
+            ),
+        ],
+        &["vite"],
+    );
+    let out = output(&results, "vite");
+    let production: BTreeSet<&str> = out.production_entries.iter().map(String::as_str).collect();
+    assert_eq!(production, BTreeSet::from(["src/admin.js", "src/console.js"]));
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+}
+
 #[test]
 fn vite_root_moves_index_html_and_rooted_paths() {
     // mastra's factory-ui: `root: 'src'` serves `src/index.html`, whose `/main.tsx` is `src/main.tsx`.

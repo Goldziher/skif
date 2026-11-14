@@ -1281,7 +1281,8 @@ result is not known keeps the element. `Object.fromEntries` of a known list of `
 template literals and `+` write known strings, numbers and booleans, and `===` and `!==` compare known primitives. A
 Vite or Vitest `root` that is one of several directories reads the HTML entries of each. A path function, a template
 literal or `+` over a value that is one of several is one of the results of each, unknown when one is unknown or there
-would be more than eight, so `path.join(dir, 'vitest.setup.ts')` with such a `dir` is one of two paths. A list of
+would be more than eight, so `path.join(dir, 'vitest.setup.ts')` with such a `dir` is one of two paths. The `sep`
+and `delimiter` of `path` are POSIX's `/` and `:` (those of `path.win32` are unknown). A list of
 files or patterns (setup files, test globs, bundler entries) whose value or element is one of several known strings
 makes each an entry candidate; one that names no file is dropped without a hint, unless it lies in build output, where
 it stands for its source or leaves the package incomplete as described under incomplete entries.
@@ -1323,7 +1324,9 @@ the `mergeConfig` of Vite and Vitest), `createRequire`, or
 `Object.assign`, `Object.defineProperties` or `Object.defineProperty` and `Reflect.defineProperty`, which change only
 their first argument, the last two only the key they name when it is a string, unless that argument is given through a
 spread (`Object.assign(...[config, extra])`); these are no `define…` helpers. A `define…` helper and a merge that copies keep none of their
-arguments in another, so a change of one argument leaves the others known. A list or string
+arguments in another, so a change of one argument leaves the others known, and call no function they are given with
+anything of the config: the parameters of the callback of `defineConfig((env) => ({ … }))` take what the tool passes,
+so a change a plugin factory in it makes of what it is given does not reach the other keys the callback returns. A list or string
 method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string,
 and one that calls a function it is given with the list's elements (`forEach`, `map`, `reduce`) only when that
 function is written in place or declared by the config and no `this` object follows it (`list.forEach(fn, thisArg)`);

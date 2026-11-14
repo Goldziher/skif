@@ -172,6 +172,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A function-form Vite config (`defineConfig((env) => ({ … }))`) whose plugin factory branches on what it is given no
+  longer leaves a `build.rolldownOptions.input` computed from a list (`Object.fromEntries(PAGES.map(…))`) unknown and
+  the package incomplete (`computed-entries`): the callback of a `define…` helper takes what the tool passes, so a
+  change the factory may make of its argument does not reach the other keys the callback returns. The `sep` and
+  `delimiter` of `path` evaluate to `/` and `:` ([#235](https://github.com/Goldziher/skif/issues/235)).
 - `unused-exports`: an `import()` that a lazy-component loader returns (`lazy(() => import("./Page"))` of `react` or
   `preact/compat`, `React.lazy`, `next/dynamic`, and `@loadable/component` without `resolveComponent`) uses the
   default export only, so the module's named exports that nothing else reads are reported, as knip reports them.
