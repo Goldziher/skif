@@ -253,6 +253,12 @@ fn table() {
             &["glob", "tsx"],
             &["scripts/check.ts"],
         ),
+        // retry-cli's short and long value flags, as knip lists them.
+        files(
+            "retry -n 3 --factor 2 -t 100 --max-timeout 500 tsx scripts/a.ts",
+            &["retry", "tsx"],
+            &["scripts/a.ts"],
+        ),
         deps(
             "babel-node -r dotenv/config src/a.js",
             &["babel-node"],
