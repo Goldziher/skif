@@ -370,12 +370,11 @@ impl PluginSource {
         );
         let modules = ConfigModules::new(request.fs, request.workspace);
         let shared;
-        let sources = match sources {
-            Some(sources) => sources,
-            None => {
-                shared = request.listing.package_sources(request.workspace, &dir);
-                &shared
-            }
+        let sources = if let Some(sources) = sources {
+            sources
+        } else {
+            shared = request.listing.package_sources(request.workspace, &dir);
+            &shared
         };
         let package_dir = package.dir.to_string_lossy().replace('\\', "/");
         let members = members_below(request.workspace, &package_dir);
@@ -427,7 +426,7 @@ impl InputSource for PluginSource {
         let resolved = self.resolve(request, None, PluginPass::WithoutReachedScans);
         let scans = resolved
             .iter()
-            .any(|(id, _)| registry::plugin(id).is_some_and(|plugin| plugin.scans_reached_sources()));
+            .any(|(id, _)| registry::plugin(id).is_some_and(skif_js_plugins::Plugin::scans_reached_sources));
         WorkspaceInputs {
             scans_reached_sources: scans,
             ..all_inputs(resolved)

@@ -64,7 +64,7 @@ fn lint_counting(files: &[(&str, &str)]) -> (Vec<Diagnostic>, BTreeMap<PathBuf, 
         inner: memory,
         reads: Mutex::default(),
     });
-    let fs: Arc<dyn FileSystem> = Arc::clone(&counting);
+    let fs: Arc<dyn FileSystem> = counting.clone();
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
     let mut diagnostics = run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap();
