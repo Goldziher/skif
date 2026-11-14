@@ -803,14 +803,22 @@ fn package_patterns_of_a_file_in_the_root_that_match_no_package_are_idle() {
             ("./nowhere".to_owned(), IdleReason::NoPackage)
         ]
     );
-    assert_eq!(idle(&config, 1, &packages), [], "file patterns inside the root are not judged");
+    assert_eq!(
+        idle(&config, 1, &packages),
+        [],
+        "file patterns inside the root are not judged"
+    );
 }
 
 #[test]
 fn patterns_of_a_file_above_the_root_are_not_judged() {
     let org = "[[overrides]]\npackages = [\"./other/**\", \"other\"]\nrules = { x = \"off\" }\n\
                [[overrides]]\nfiles = [\"other/**\"]\nrules = { x = \"off\" }\n";
-    let files = [("/acme/.git/HEAD", ""), ("/acme/skif.toml", org), ("/acme/svc/skif.toml", "")];
+    let files = [
+        ("/acme/.git/HEAD", ""),
+        ("/acme/skif.toml", org),
+        ("/acme/svc/skif.toml", ""),
+    ];
     let config = resolve(&files, "/acme/svc").config;
     let packages = [("svc", "/acme/svc")];
     assert_eq!(idle(&config, 0, &packages), []);

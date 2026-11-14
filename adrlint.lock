@@ -235,3 +235,8 @@ blake3 = "5cb381d071e6816e71cfec5ad14c23782b358ad2585d8e3e70fd5800d79a2105"
 number = 47
 status = "accepted"
 blake3 = "57df9eda1c9bac1c661813250ef7be90374338b265225d3eb862fc2fbf9474f6"
+
+[adrs."adrs/0048-dynamic-imports-returned-to-a-call.md"]
+number = 48
+status = "accepted"
+blake3 = "11792b700e076da5815fbd214cc380a3d16e1aba1f08711244ac60dc5c524876"

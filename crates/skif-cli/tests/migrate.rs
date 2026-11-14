@@ -644,7 +644,10 @@ fn an_output_file_outside_the_project_anchors_the_override_patterns_at_the_root(
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
     let written = fs::read_to_string(&output).unwrap();
     assert!(written.contains("files = [\"$ROOT/src/ui/**\"]"), "{written}");
-    let linted = run(skif().args(["--format", "json", "--config"]).arg(&output).arg(dir.path()));
+    let linted = run(skif()
+        .args(["--format", "json", "--config"])
+        .arg(&output)
+        .arg(dir.path()));
     assert!(linted.code <= 1, "{}{}", linted.stdout, linted.stderr);
     assert!(!linted.stderr.contains("[[overrides]]"), "{}", linted.stderr);
 }

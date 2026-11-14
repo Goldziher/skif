@@ -327,7 +327,12 @@ pub(crate) fn probes(
         let packages = if paths_only {
             None
         } else {
-            Some(anchor_patterns(std::slice::from_ref(pattern), declared_in, root, false)?)
+            Some(anchor_patterns(
+                std::slice::from_ref(pattern),
+                declared_in,
+                root,
+                false,
+            )?)
         };
         probes.push(Probe {
             written: pattern.clone(),

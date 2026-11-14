@@ -201,21 +201,16 @@ All notable changes to this project are documented here. The format follows
   `undefined` or `unique symbol` with no value but `undefined` (`readonly _rgbaBrand: void = undefined`,
   `readonly __brand!: unique symbol`). A `void` field with a real initialiser is still judged, and `explain-usage`
   names the exemption ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
-
 - `unused-class-members`: an element access whose key is a constant reads the member the constant names:
   `target[ReactiveFlags.SKIP]` with `enum ReactiveFlags { SKIP = '__v_skip' }` reads `__v_skip`, as do a string
   `const` and a property of an `as const` object, in the same module or imported, also through a namespace import or
   a re-export. A key held by a `let`, a plain object or a parameter still reads nothing
   ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
-
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
-
 - A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
   the flags' values: the value is no longer read as the command, so the binary and the file it runs are found.
-
 - `unused-enum-members`: an imported enum named only in a type annotation (`value: E`, `x as E | null`) no longer counts as used as a whole, so its unread members are reported, as they already were for an enum annotated in its own file. Type arguments (`Record<E, X>`), template literal types and mapped types still use every member.
-
 - **Environment-gated config references**: a package a tool config names only on a branch the environment chooses
   (a test that reads `process.env` or `import.meta.env`, directly or through a top-level constant, under `!`, `===`,
   `&&`, a ternary or an `if`) is an optional reference: it is a use of a package that lists it and no longer

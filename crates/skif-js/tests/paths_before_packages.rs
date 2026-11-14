@@ -252,7 +252,10 @@ fn shadowed_tree(config: &'static str) -> Vec<(&'static str, &'static str)> {
             "app/package.json",
             r#"{"name":"app","private":true,"type":"module","main":"src/main.js"}"#,
         ),
-        (config, r#"{"compilerOptions":{"paths":{"*":["../shared/*","./src/*"]}}}"#),
+        (
+            config,
+            r#"{"compilerOptions":{"paths":{"*":["../shared/*","./src/*"]}}}"#,
+        ),
         ("app/src/main.js", "import svc from 'svc';\nconsole.log(svc);\n"),
         ("app/src/svc/index.js", "export default \"app\";\n"),
         ("shared/svc/index.js", "export default \"shared\";\n"),

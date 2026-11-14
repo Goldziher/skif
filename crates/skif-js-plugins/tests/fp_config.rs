@@ -412,7 +412,11 @@ fn storybook_hooks_that_change_the_bundler_config_leave_the_entries_complete() {
 #[test]
 fn storybook_stories_not_known_statically_leave_the_package_unjudged() {
     let hook = "viteFinal(config) { return { ...config }; }";
-    for stories in ["[...sharedStories]", "['../src/**/*.stories.tsx', ...sharedStories]", "sharedStories"] {
+    for stories in [
+        "[...sharedStories]",
+        "['../src/**/*.stories.tsx', ...sharedStories]",
+        "sharedStories",
+    ] {
         let source = storybook_main(stories, hook);
         let results = run(&[(".storybook/main.ts", &source)], &["@storybook/react-vite"], &[]);
         let out = output(&results, "storybook");

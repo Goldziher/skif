@@ -1784,7 +1784,10 @@ fn a_write_through_a_binding_taking_this_changes_the_imported_values() {
 /// declared in the config.
 fn pages_config(parameters: &str, input: &str, plugins: &str, factory: &str, imported: bool) -> ConfigValue {
     let (import, local) = if imported {
-        ("import { resolveFromApp } from '../tools/plugins';\n".to_owned(), String::new())
+        (
+            "import { resolveFromApp } from '../tools/plugins';\n".to_owned(),
+            String::new(),
+        )
     } else {
         (String::new(), format!("const resolveFromApp = {factory};\n"))
     };

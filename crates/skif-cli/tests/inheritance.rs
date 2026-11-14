@@ -166,7 +166,8 @@ fn mismatches(result: &support::Run) -> usize {
         .count()
 }
 
-const MISMATCH_OFF: &str = "[js]\nenabled = false\n\n[[overrides]]\npackages = [\"./packages/*\"]\nrules = { version-mismatch = \"off\" }\n";
+const MISMATCH_OFF: &str =
+    "[js]\nenabled = false\n\n[[overrides]]\npackages = [\"./packages/*\"]\nrules = { version-mismatch = \"off\" }\n";
 
 #[test]
 fn an_override_of_a_config_file_outside_the_root_is_warned_about() {
@@ -179,8 +180,15 @@ fn an_override_of_a_config_file_outside_the_root_is_warned_about() {
     let elsewhere = tempfile::tempdir().unwrap();
     let config = elsewhere.path().join("skif.toml");
     fs::write(&config, MISMATCH_OFF).unwrap();
-    let outside = run(skif().args(["--format", "json", "--config"]).arg(&config).arg(dir.path()));
-    assert!(mismatches(&outside) > 0, "the override selects nothing: {}", outside.stdout);
+    let outside = run(skif()
+        .args(["--format", "json", "--config"])
+        .arg(&config)
+        .arg(dir.path()));
+    assert!(
+        mismatches(&outside) > 0,
+        "the override selects nothing: {}",
+        outside.stdout
+    );
     let anchor = elsewhere.path().file_name().unwrap().to_str().unwrap();
     assert!(
         outside
