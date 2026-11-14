@@ -116,7 +116,10 @@ mod tests {
             (CoverageState::Typed, None, 0)
         );
         let full = package_coverage(&package(&["a.ts"]), &[TYPED]);
-        assert_eq!((full.dir, full.name), (PathBuf::from("/ws/packages/a"), Some("a".to_owned())));
+        assert_eq!(
+            (full.dir, full.name),
+            (PathBuf::from("/ws/packages/a"), Some("a".to_owned()))
+        );
     }
 
     #[test]
@@ -178,7 +181,10 @@ mod tests {
     #[test]
     fn a_failed_checker_is_named_first() {
         assert_eq!(
-            coverage(&["a.ts", "b.ts"], &[FileState::CheckerFailed, FileState::Covered { unresolved_modules: 4 }]),
+            coverage(
+                &["a.ts", "b.ts"],
+                &[FileState::CheckerFailed, FileState::Covered { unresolved_modules: 4 }]
+            ),
             (CoverageState::Partial, Some(CoverageReason::CheckerFailed), 1)
         );
         assert_eq!(

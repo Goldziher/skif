@@ -376,3 +376,39 @@ fn declarations_after_a_bom_and_non_ascii_text_join_on_utf8_offsets() {
         },
     );
 }
+
+#[test]
+fn an_interface_implemented_through_a_namespace_import_credits_the_class() {
+    let workspace = Workspace::new(&[
+        ("tsconfig.json", TSCONFIG),
+        ("src/shape.ts", "export interface Shape {\n  area(): number;\n}\n"),
+        (
+            "src/square.ts",
+            "import type * as shapes from './shape';\n\nexport class Square implements shapes.Shape {\n  area(): number {\n    return 1;\n  }\n}\n",
+        ),
+        (
+            "src/main.ts",
+            "import type { Shape } from './shape';\n\nexport function total(shape: Shape): number {\n  return shape.area();\n}\n",
+        ),
+    ]);
+    let query = query(vec![workspace.decl(
+        "src/square.ts",
+        DeclKind::Class,
+        "Square",
+        &["area"],
+    )]);
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/main.ts", "src/shape.ts", "src/square.ts"])],
+        &query,
+    );
+    assert_facts(
+        &facts,
+        &Expected {
+            reads: vec![(0, vec!["area"])],
+            covered: vec!["src/main.ts", "src/shape.ts", "src/square.ts"],
+            coverage: vec![typed("", "app")],
+            ..Expected::default()
+        },
+    );
+}

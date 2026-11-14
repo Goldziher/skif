@@ -203,7 +203,11 @@ impl Session<'_> {
         } = self.parallelism;
         config.parsed_config.compiler_options = Some(P::new(CompilerOptions {
             checkers: Some(i64::try_from(checkers).unwrap_or(i64::MAX)),
-            single_threaded: if single_threaded { Tristate::True } else { base.single_threaded },
+            single_threaded: if single_threaded {
+                Tristate::True
+            } else {
+                base.single_threaded
+            },
             ..(*base).clone()
         }));
         // Dropped after the program: nothing that outlives the program points into its loader regions.

@@ -169,9 +169,10 @@ impl FS for SkifVfs {
     }
 
     fn realpath(&self, path: &str) -> String {
-        self.fs
-            .canonicalize(Path::new(path))
-            .map_or_else(|_| path.to_owned(), |real| tspath::normalize_path(&real.to_string_lossy()))
+        self.fs.canonicalize(Path::new(path)).map_or_else(
+            |_| path.to_owned(),
+            |real| tspath::normalize_path(&real.to_string_lossy()),
+        )
     }
 }
 
@@ -219,7 +220,10 @@ mod tests {
         assert!(fs.file_exists("/ws/a.ts") && !fs.file_exists("/ws/src"));
         assert!(fs.directory_exists("/ws/src") && !fs.directory_exists("/ws/a.ts"));
         assert!(fs.stat("/ws/src").is_some_and(|info| info.is_dir()));
-        assert!(fs.stat("/ws/b.ts").is_some_and(|info| !info.is_dir() && info.name() == "b.ts"));
+        assert!(
+            fs.stat("/ws/b.ts")
+                .is_some_and(|info| !info.is_dir() && info.name() == "b.ts")
+        );
         assert!(fs.stat("/ws/none").is_none());
         assert_eq!(fs.realpath("/ws/b.ts"), "/ws/b.ts");
         assert!(fs.write_file("/ws/b.ts", "x").is_err());
@@ -230,7 +234,10 @@ mod tests {
         let fs = fs();
         let lib = format!("{}/lib.es5.d.ts", lib_path());
         assert!(fs.file_exists(&lib));
-        assert!(fs.read_file(&lib).is_some_and(|text| text.contains("interface Array<T>")));
+        assert!(
+            fs.read_file(&lib)
+                .is_some_and(|text| text.contains("interface Array<T>"))
+        );
     }
 
     #[test]
