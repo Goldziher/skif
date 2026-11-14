@@ -8,10 +8,15 @@
 //! the label. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry. The `data` of those rules
 //! and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose imports are
 //! followed, but no entries, so their exports are judged. Each is a file of the package named by its path or by a
-//! label of the `BUILD` file's own package (`":src/index.ts"`). A computed value (`glob([...])`, `select({...})`, a
-//! variable) names nothing; the exception is a comprehension that formats each string of a list literal
-//! (`[":node_modules/%s" % name for name in ["vite"]]`), which names each formatted label. Neither a `glob` pattern
-//! (`"node_modules/**"`), another format template nor a target that is no npm package name names a dependency.
+//! label of the `BUILD` file's own package (`":src/index.ts"`). `ng_project` of rules_angular is read as `ts_project`
+//! is. A target with `testonly = True` is a test target, as `js_test` is, and the include patterns of a `glob([...])`
+//! that the `srcs` or `data` of a test target add are build sources too, as a test runner's file patterns are; its
+//! `exclude` patterns are not applied. The `deps` of an `ng_package` name its entry points: the `index.ts` of each
+//! Bazel package of the npm package they name is a production entry, the package's public API. Any other computed
+//! value (the `glob` of a target that is no test, `select({...})`, a variable) names nothing; the exception is a
+//! comprehension that formats each string of a list literal (`[":node_modules/%s" % name for name in ["vite"]]`),
+//! which names each formatted label. Neither a `glob` pattern (`"node_modules/**"`), another format template nor a
+//! target that is no npm package name names a dependency.
 //!
 //! The plugin reads nothing outside a Bazel repository that uses `rules_js`: the nearest directory at or above the
 //! package holding `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE` must name `aspect_rules_js` in
@@ -23,7 +28,7 @@ use std::path::Path;
 
 use skif_core::{LineIndex, Span, is_valid_package_name, slash};
 
-use crate::bazel::{ROOT_FILES, calls, is_output_path, label_literals, package_path, repository_root};
+use crate::bazel::{Call, ROOT_FILES, calls, is_output_path, label_literals, package_path, repository_root};
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{join_rel, package_name};
 
@@ -48,11 +53,22 @@ const RULES: &[(&str, &[&str], bool)] = &[
     ("js_test", &["entry_point", "data"], true),
     ("js_library", &["srcs", "data"], false),
     ("ts_project", &["srcs", "data"], false),
+    ("ng_project", &["srcs", "data"], false),
 ];
 
 /// The attribute that names the file a rule runs, an entry whose exports are public. The files every other attribute
 /// of [`RULES`] names are build sources.
 const ENTRY_POINT: &str = "entry_point";
+
+/// The attribute that makes a target one only tests and other test-only targets build from.
+const TESTONLY: &str = "testonly";
+
+/// The rule of rules_angular that packages Angular libraries for npm, and the attribute that names the targets whose
+/// Bazel packages are its entry points.
+const NG_PACKAGE: (&str, &str) = ("ng_package", "deps");
+
+/// The file of a Bazel package that is the entry point `ng_package` publishes for it.
+const NG_ENTRY_FILE: &str = "index.ts";
 
 impl Plugin for Bazel {
     fn spec(&self) -> &'static PluginSpec {
@@ -90,20 +106,75 @@ impl Plugin for Bazel {
             return out;
         }
         for call in calls(config.source) {
-            let Some((_, attributes, test)) = RULES.iter().find(|(rule, _, _)| *rule == call.rule) else {
+            if call.rule == NG_PACKAGE.0 {
+                out.extend(ng_package_entries(&call, &package, &bazel_package, cx));
+                continue;
+            }
+            let Some((_, attributes, test_rule)) = RULES.iter().find(|(rule, _, _)| *rule == call.rule) else {
                 continue;
             };
+            let test = *test_rule || call.is_true(TESTONLY);
             for attribute in *attributes {
                 for path in call.values(attribute).filter_map(package_path) {
                     let file = config.join(path);
                     if cx.fs.is_file(&cx.dir.join(&file)) {
-                        out.push(input(file, *attribute == ENTRY_POINT, *test));
+                        out.push(input(file, *attribute == ENTRY_POINT, test));
                     }
+                }
+                if test && *attribute != ENTRY_POINT {
+                    out.extend(
+                        call.glob_patterns(attribute)
+                            .filter_map(package_path)
+                            .map(|pattern| PluginInput::BuildSource(config.join(pattern))),
+                    );
                 }
             }
         }
         out
     }
+}
+
+/// The production entries an `ng_package` call names: the [`NG_ENTRY_FILE`] of each Bazel package of its `deps`
+/// that lies in the npm package at `package` (relative to the repository root) and holds the file, a label of the
+/// `BUILD` file's own package (`":core"`) naming `bazel_package`.
+fn ng_package_entries(call: &Call, package: &str, bazel_package: &str, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    call.values(NG_PACKAGE.1)
+        .filter_map(|label| label_package(label, bazel_package))
+        .filter_map(|target| within(&target, package))
+        .map(|dir| join_rel(&dir, NG_ENTRY_FILE))
+        .filter(|file| cx.fs.is_file(&cx.dir.join(file)))
+        .map(PluginInput::ProductionEntry)
+        .collect()
+}
+
+/// The Bazel package, relative to the repository root, of a target `label` of the main repository written in a
+/// `BUILD` file of `bazel_package`: `//pkg`, `//pkg:target` and `@//pkg` name `pkg`, `:target` and `target` the file's
+/// own package. A label of another repository (`@npm//pkg`) names none.
+fn label_package(label: &str, bazel_package: &str) -> Option<String> {
+    let main = match label.strip_prefix('@') {
+        Some(after) => after.trim_start_matches('@').strip_prefix("//")?,
+        None => match label.strip_prefix("//") {
+            Some(absolute) => absolute,
+            None => return (!label.is_empty()).then(|| bazel_package.to_owned()),
+        },
+    };
+    let package = main.split_once(':').map_or(main, |(package, _)| package);
+    Some(package.to_owned())
+}
+
+/// `target`, a directory relative to the repository root, relative to the npm package at `package` (`""` for the
+/// repository root); `None` when it lies outside the package.
+fn within(target: &str, package: &str) -> Option<String> {
+    if target == package {
+        return Some(String::new());
+    }
+    if package.is_empty() {
+        return Some(target.to_owned());
+    }
+    target
+        .strip_prefix(package)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .map(str::to_owned)
 }
 
 /// The input for `file`, which a rule names in its `entry_point` when `entry`, of a test rule when `test`.

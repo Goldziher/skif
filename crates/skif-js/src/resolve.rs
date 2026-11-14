@@ -20,7 +20,7 @@ use skif_js_syntax::{DECLARATION_SUFFIXES, is_stylesheet};
 use skif_workspace::Workspace;
 
 use crate::compilers::Compilers;
-use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports, resolve_imports};
+use crate::manifest_paths::{ENTRY_FIELDS, is_out_dir, map_to_source, resolve_exports, resolve_imports};
 use crate::setup::Setup;
 use crate::specifier::{
     assumed_package, bin_link, has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package,
@@ -1327,7 +1327,10 @@ impl ModuleResolver {
                     root_dirs: Some(root),
                 };
             }
-            if let Some(found) = self.through_relative_package_directory(importer, specifier) {
+            if let Some(found) = self
+                .through_relative_package_directory(importer, specifier)
+                .or_else(|| self.through_build_output(importer, specifier))
+            {
                 return outcome(found, None);
             }
         }
@@ -1670,6 +1673,42 @@ impl ModuleResolver {
     fn through_relative_package_directory(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
         let directory = join_normalized(importer.parent()?, specifier);
         self.through_package_directory(&directory, "")
+    }
+
+    /// A relative specifier into the build output of the package it lies in, where the output was never built
+    /// (`require('./dist/client/link')` in a file the package publishes beside its build): the source that output maps
+    /// back to, as a published path maps ([`Self::map_member_target`]). The output is an `outDir` of the package's
+    /// build directories or a first directory of the package named like build output (`dist`, `lib`, ...); a file
+    /// inside that directory names no build output, so its own relative imports are never mapped.
+    fn through_build_output(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let target = join_normalized(importer.parent()?, specifier);
+        let dir = target
+            .ancestors()
+            .skip(1)
+            .take_while(|dir| dir.starts_with(&self.root))
+            .find(|dir| self.member_at(dir).is_some() || self.fs.is_file(&dir.join("package.json")))?;
+        let adhoc;
+        let member = if let Some(known) = self.member_at(dir) {
+            known
+        } else {
+            adhoc = self.directory_package(dir)?;
+            &*adhoc
+        };
+        let output = member
+            .build_dirs
+            .iter()
+            .map(|(out_dir, _)| out_dir.clone())
+            .find(|out_dir| target.starts_with(out_dir))
+            .or_else(|| {
+                let first = target.strip_prefix(&member.dir).ok()?.components().next()?;
+                let first = first.as_os_str().to_str()?;
+                is_out_dir(first).then(|| member.dir.join(first))
+            })?;
+        if importer.starts_with(&output) {
+            return None;
+        }
+        let rest = slash(target.strip_prefix(&member.dir).ok()?);
+        self.map_member_target(member, &rest).map(|path| self.classify(path))
     }
 
     /// The package in `dir` that is not a workspace member, with its manifest parsed once per directory.
@@ -2747,6 +2786,39 @@ generated/index.ts
         );
         assert_eq!(r.resolve(smoke, "../../bare").target, Resolved::Ignored);
         assert_eq!(r.resolve(smoke, "../../missing").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn a_relative_import_into_unbuilt_output_of_its_package_maps_to_source() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                "packages/kit/package.json",
+                r#"{"name":"kit","main":"./dist/server/index.js"}"#,
+            ),
+            ("packages/kit/link.js", ""),
+            ("packages/kit/testing/runner.js", ""),
+            ("packages/kit/src/client/link.tsx", ""),
+            ("packages/kit/src/testing/runner.ts", ""),
+            ("packages/kit/lib/helper.js", ""),
+            ("packages/kit/src/util.ts", ""),
+        ]);
+        let link = Path::new("/ws/packages/kit/link.js");
+        assert_eq!(
+            r.resolve(link, "./dist/client/link").target,
+            file("/ws/packages/kit/src/client/link.tsx")
+        );
+        assert_eq!(
+            r.resolve(Path::new("/ws/packages/kit/testing/runner.js"), "../dist/testing/runner.js")
+                .target,
+            file("/ws/packages/kit/src/testing/runner.ts")
+        );
+        assert_eq!(r.resolve(link, "./dist/client/missing").target, Resolved::Unresolved);
+        assert_eq!(r.resolve(link, "./other/link").target, Resolved::Unresolved);
+        assert_eq!(
+            r.resolve(Path::new("/ws/packages/kit/lib/helper.js"), "./util").target,
+            Resolved::Unresolved
+        );
     }
 
     fn file(path: &str) -> Resolved {

@@ -150,6 +150,11 @@ pub(crate) struct Call {
     /// Each keyword argument with the string literals of its value, in order. A literal inside a nested call
     /// (`glob([...])`, `select({...})`) is left out: it is no plain value of the argument.
     pub(crate) attributes: Vec<(String, Vec<String>)>,
+    /// Each keyword argument with the include patterns of a `glob(...)` its value adds (`srcs = glob(["**/*.ts"])`,
+    /// `srcs = ["a.ts"] + glob([...])`), in order. A `glob` inside another call (`select({...})`) is left out.
+    pub(crate) globs: Vec<(String, Vec<String>)>,
+    /// The keyword arguments whose value is the name `True` (`testonly = True`).
+    pub(crate) true_attributes: Vec<String>,
 }
 
 impl Call {
@@ -159,6 +164,19 @@ impl Call {
             .iter()
             .filter(move |(attribute, _)| attribute == name)
             .flat_map(|(_, values)| values.iter().map(String::as_str))
+    }
+
+    /// The include patterns of the `glob(...)` calls the keyword argument `name` adds, empty when it adds none.
+    pub(crate) fn glob_patterns(&self, name: &str) -> impl Iterator<Item = &str> {
+        self.globs
+            .iter()
+            .filter(move |(attribute, _)| attribute == name)
+            .flat_map(|(_, patterns)| patterns.iter().map(String::as_str))
+    }
+
+    /// Whether the keyword argument `name` is `True`.
+    pub(crate) fn is_true(&self, name: &str) -> bool {
+        self.true_attributes.iter().any(|attribute| attribute == name)
     }
 }
 
@@ -326,6 +344,8 @@ fn read_call(rule: &str, tokens: &[Token], start: usize) -> (Call, usize) {
     let mut call = Call {
         rule: rule.to_owned(),
         attributes: Vec::new(),
+        globs: Vec::new(),
+        true_attributes: Vec::new(),
     };
     // For each open bracket, whether it opens the arguments of a call; the first is the call's own.
     let mut open: Vec<bool> = vec![true];
@@ -333,6 +353,16 @@ fn read_call(rule: &str, tokens: &[Token], start: usize) -> (Call, usize) {
     let mut at = start;
     while at < tokens.len() {
         match &tokens[at] {
+            Token::Name(name)
+                if name == GLOB && open.len() == 1 && matches!(tokens.get(at + 1), Some(Token::Open('('))) =>
+            {
+                let (patterns, next) = glob_includes(tokens, at + 2);
+                if let Some(index) = attribute {
+                    call.globs.push((call.attributes[index].0.clone(), patterns));
+                }
+                at = next;
+                continue;
+            }
             Token::Open(bracket) => {
                 let after_name = matches!(
                     at.checked_sub(1).and_then(|before| tokens.get(before)),
@@ -350,6 +380,11 @@ fn read_call(rule: &str, tokens: &[Token], start: usize) -> (Call, usize) {
             Token::Name(name) if open.len() == 1 && matches!(tokens.get(at + 1), Some(Token::Assign)) => {
                 call.attributes.push((name.clone(), Vec::new()));
                 attribute = Some(call.attributes.len() - 1);
+                let is_true = matches!(tokens.get(at + 2), Some(Token::Name(value)) if value == "True")
+                    && matches!(tokens.get(at + 3), None | Some(Token::Comma | Token::Close));
+                if is_true {
+                    call.true_attributes.push(name.clone());
+                }
                 at += 2;
                 continue;
             }
@@ -365,6 +400,45 @@ fn read_call(rule: &str, tokens: &[Token], start: usize) -> (Call, usize) {
         at += 1;
     }
     (call, at)
+}
+
+/// The include patterns of the `glob(...)` whose arguments start at token `start`, just after its `(`, and the position
+/// after its `)`: the string literals directly in the list literal given first or as `include`. The `exclude` patterns
+/// and every computed value (a variable, a call) are left out.
+fn glob_includes(tokens: &[Token], start: usize) -> (Vec<String>, usize) {
+    let mut patterns = Vec::new();
+    // The brackets open inside the call's own parentheses.
+    let mut brackets: Vec<char> = Vec::new();
+    let mut argument = 0_usize;
+    let mut keyword: Option<&str> = None;
+    let mut at = start;
+    while let Some(token) = tokens.get(at) {
+        match token {
+            Token::Open(bracket) => brackets.push(*bracket),
+            Token::Close if brackets.is_empty() => return (patterns, at + 1),
+            Token::Close => {
+                brackets.pop();
+            }
+            Token::Comma if brackets.is_empty() => {
+                argument += 1;
+                keyword = None;
+            }
+            Token::Name(name) if brackets.is_empty() && matches!(tokens.get(at + 1), Some(Token::Assign)) => {
+                keyword = Some(name.as_str());
+                at += 2;
+                continue;
+            }
+            Token::Text(text) if brackets == ['['] => {
+                let include = keyword.map_or(argument == 0, |name| name == "include");
+                if include {
+                    patterns.push(text.clone());
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    (patterns, at)
 }
 
 /// The packages that `rules_js`'s `npm_translate_lock` hoists with `public_hoist_packages`, from Starlark `source`, each
@@ -697,6 +771,38 @@ NAME = "x".format(1)
         assert_eq!(binary.values("env").count(), 0);
         assert_eq!(binary.values("visibility").collect::<Vec<_>>(), ["//visibility:public"]);
         assert_eq!(found[0].attributes, []);
+    }
+
+    #[test]
+    fn calls_keep_the_include_patterns_of_their_globs_and_their_true_arguments() {
+        let source = r#"
+ts_project(
+    name = "test_lib",
+    testonly = True,
+    srcs = glob(["**/*_spec.ts", "testing/*.ts"], exclude = ["legacy_spec.ts"]) + ["extra.ts"],
+    data = native.glob(include = ["fixtures/**"], exclude = SKIPPED),
+    deps = select({"//conditions:default": glob(["never/*.ts"])}),
+    visibility = glob(SPEC_FILES),
+    tags = ["manual"] if True else [],
+)
+
+ts_project(name = "lib", testonly = False, srcs = glob([PATTERN, "src/*.ts"]))
+"#;
+        let found = calls(source);
+        let test = &found[0];
+        assert_eq!(
+            test.glob_patterns("srcs").collect::<Vec<_>>(),
+            ["**/*_spec.ts", "testing/*.ts"]
+        );
+        assert_eq!(test.values("srcs").collect::<Vec<_>>(), ["extra.ts"]);
+        assert_eq!(test.glob_patterns("data").collect::<Vec<_>>(), ["fixtures/**"]);
+        assert_eq!(test.glob_patterns("deps").count(), 0);
+        assert_eq!(test.glob_patterns("visibility").count(), 0);
+        assert!(test.is_true("testonly"));
+        assert!(!test.is_true("tags"));
+        let lib = &found[1];
+        assert!(!lib.is_true("testonly"));
+        assert_eq!(lib.glob_patterns("srcs").collect::<Vec<_>>(), ["src/*.ts"]);
     }
 
     #[test]

@@ -28,15 +28,22 @@ applies.
     dependency.
   - The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, whose exports are public, when a
     literal names an existing file of the package (`"src/main.ts"` or `":src/main.ts"`).
-  - The `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: the files
-    so named are used, and so is what they import, but they are no entries. Their unused exports and types are
+  - The `data` of those rules and the `srcs` and `data` of `js_library`, `ts_project` and rules_angular's
+    `ng_project` are build sources: the files so named are used, and so is what they import, but they are no entries. Their unused exports and types are
     `unused-exports` and `unused-types`, and their members and duplicates are checked, as in any other module. A file
     that something else makes an entry (a `main` or `bin` of `package.json`, an `entry` glob) stays one.
   - A root `BUILD` file can name the files of a workspace member below it that has no `BUILD` file of its own
     (`srcs = ["packages/foo/src/x.ts"]`): they are entries or build sources of that member. One in a project of its
     own below the root (a nested root) is an entry or build source of that root under `skif -r`, so the unused
     exports of a build source there are reported as they are in a member.
-  - The files of `js_test` count only outside `--production`.
+  - The files of `js_test` count only outside `--production`, and so do those of any of these rules with
+    `testonly = True`, a test target. The `srcs` and `data` of a test target also count through a `glob([...])`: its
+    include patterns, relative to the `BUILD` file, are build sources, as a test runner's file patterns are, so the
+    `*_spec.ts` files that `srcs = glob(["**/*_spec.ts"])` of a `testonly` `ts_project` builds and a `jasmine_test`
+    runs are used. Its `exclude` patterns are not applied, and a `glob` of a target that is no test names nothing.
+  - The `deps` of an `ng_package` (rules_angular) name the entry points it publishes: the `index.ts` of each Bazel
+    package inside the npm package that a label names (`":core"`, `"//packages/common/http"`) is a production entry,
+    whose exports are public, so the `public_api.ts` it re-exports is the package's API.
 - **Output trees.** The `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<workspace>` links at the top of the
   Bazel repository are never read. An import that reaches a file there, directly or through `rootDirs`, is generated
   code and is not followed.
@@ -60,8 +67,8 @@ applies.
 
 ## What skif does not read
 
-- **Macros and computed values.** Only literals count, and the formatting comprehension above. A `glob([...])`, a
-  `select({...})`, a variable, a comprehension of another shape (over a variable, with an `if` filter), or a target
+- **Macros and computed values.** Only literals count, and the formatting comprehension above and the `glob` of a
+  test target. Any other `glob([...])`, a `select({...})`, a variable, a comprehension of another shape (over a variable, with an `if` filter), or a target
   that a macro in a `.bzl` file defines names no dependency, entry, build source or output. Such a file can be
   `unused-files` and such an import `unresolved-imports`.
 - **Labels in a sibling package.** Each package reads only the `BUILD` files below its own directory, so
@@ -282,7 +289,8 @@ bazel = false
   imports without listing are `unlisted-dependencies`, as in knip, unless `[js] use-public-hoisting = true` counts
   them as available ([`[js]`](../../reference/configuration/#js)). `public_hoist_packages` is read only as a dict
   literal in the root `MODULE.bazel`, `WORKSPACE.bazel` or `WORKSPACE`.
-- Macros, `glob()`, `select()` and variables in `BUILD` files are not evaluated (above).
+- Macros, `glob()` (but for the include patterns of a test target's), `select()` and variables in `BUILD` files are
+  not evaluated (above).
 - A Bazel repository with a member lockfile that nothing names lists its directories for `BUILD` files on every run,
   until the lockfile is removed or allowed.
 - A `bazel-*` link member is left out of the analysis even when it was meant to be linted; `!bazel-*` is the supported

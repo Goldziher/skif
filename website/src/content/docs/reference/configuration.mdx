@@ -532,7 +532,10 @@ declare virtual modules through it; use `ignore-unresolved` for your own. Two sm
 an unresolved import is located at the start of its statement, not at the specifier, and `import "./dir"` of a
 directory with neither an index file nor a `package.json` is reported where knip is silent. A directory with a
 `package.json` whose `main` or `exports` point at build output that does not exist resolves to the source file behind
-it (`dist` to `src`), and is not reported when there is none. A relative import of a missing file that a `.gitignore`
+it (`dist` to `src`), and is not reported when there is none. So does a relative import into a package's own build
+output that was never built (`require('./dist/client/link')` in a file the package publishes beside `dist`): it
+resolves to the source that output is built from, through the package's `outDir` and `rootDir` or from `dist` to
+`src`, unless the importing file lies in that output directory itself. A relative import of a missing file that a `.gitignore`
 lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken for generated and not
 reported: the `.gitignore` of the root, of a package, or of any directory between the file and the git repository
 root, such as a `src/temp/.gitignore` that ignores its own contents or the `.gitignore` of a folder above a nested
