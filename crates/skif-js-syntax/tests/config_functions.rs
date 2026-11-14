@@ -2252,6 +2252,25 @@ fn a_change_of_what_a_factory_parameter_takes_leaves_the_config_it_returns_known
     }
 }
 
+/// A list method whose callback the pass does not follow (`filter`) may change what a name the factory's parameter
+/// binds holds, as an element of the list or as the callback, which the config's `plugins` holds too. That change
+/// reaches the factory from the name and back from the config it returns, and neither way brings it to all the factory
+/// returns: the config holds only the keys the factory writes.
+#[test]
+fn a_change_of_what_a_factory_parameter_takes_through_its_plugins_leaves_the_config_known() {
+    for parameter in ["{ production }", "[production]", "production"] {
+        for plugins in ["[production].filter(Boolean)", "[Plugin].filter(production)"] {
+            let value = factory_config(parameter, plugins, "");
+            assert_eq!(keys(&value), ["entry", "plugins"], "{parameter} {plugins}: {value:?}");
+            assert_eq!(
+                get(&value, &["entry"]),
+                &ConfigValue::Object(vec![("bundle".to_owned(), s("./lib/entry.js"))]),
+                "{parameter} {plugins}: {value:?}"
+            );
+        }
+    }
+}
+
 /// A `const` that holds a string shares no object, so giving it to a call that may change what it is given does not
 /// make an alias that also reads it one the evaluator cannot follow: the change through the alias is applied.
 #[test]
