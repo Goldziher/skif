@@ -52,6 +52,7 @@ mod subpaths;
 mod trace;
 mod tsconfig_files;
 mod tsconfig_paths;
+mod types_bridge;
 mod usage;
 
 pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
@@ -59,8 +60,8 @@ pub use class_members::MemberExemption;
 pub use config_check::relative_tsconfig;
 pub use deps::{DependencyUsage, ForeignMapping, RunsIn, UnlistedBinary, UnlistedConfigDependency, UnlistedImport};
 pub use explain::{
-    Absence, ClassMemberReport, EntryReason, ExportReport, ExportUser, Importer, MemberVerdict, ReExport, UsageReport,
-    Verdict,
+    Absence, ClassMemberReport, EntryReason, ExportReport, ExportUser, Importer, MemberOf, MemberVerdict, ReExport,
+    TypedEvidence, UsageReport, Verdict,
 };
 #[doc(hidden)]
 pub use globs::IncompleteScopeGlobs;

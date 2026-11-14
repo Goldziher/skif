@@ -61,6 +61,11 @@ impl Declared {
             alias_of: None,
         }
     }
+
+    /// The offset of the name of an enum or namespace declaration, which [`Export::declaration_start`] records.
+    fn declaration_start(&self, ctx: &Ctx<'_>) -> Option<u32> {
+        matches!(self.kind, ExportKind::Enum | ExportKind::Namespace).then(|| ctx.off(self.name_span.start))
+    }
 }
 
 /// Result of the top-level pass.
@@ -534,6 +539,7 @@ fn whole_statement(ctx: &Ctx<'_>, stmt: OxcSpan, siblings: usize) -> Removal {
 }
 
 fn export_from_declared(ctx: &Ctx<'_>, d: Declared, tags: Vec<String>, removal: Option<Removal>) -> Export {
+    let declaration_start = d.declaration_start(ctx);
     Export {
         local_name: Some(d.name.clone()),
         name: d.name,
@@ -553,6 +559,7 @@ fn export_from_declared(ctx: &Ctx<'_>, d: Declared, tags: Vec<String>, removal: 
         alias_of: d.alias_of,
         registrations: Vec::new(),
         class: None,
+        declaration_start,
     }
 }
 
@@ -577,6 +584,7 @@ impl Export {
             alias_of: None,
             registrations: Vec::new(),
             class: None,
+            declaration_start: None,
         }
     }
 }
@@ -883,6 +891,7 @@ fn collect_named_export(
             if let Some(d) = decl {
                 export.enum_members.clone_from(&d.enum_members);
                 export.namespace_members.clone_from(&d.namespace_members);
+                export.declaration_start = d.declaration_start(ctx);
             }
             export.local_name = Some(local);
             export.tags = tags;

@@ -277,3 +277,70 @@ fn rules_read_through_the_file_system_the_host_passes() {
     // Without a file system of its own the run reads the real one, where `/ws/notes.txt` does not exist.
     assert_eq!(messages(&RunOptions::default()), ["unreadable"]);
 }
+
+/// Records a type-aware summary of one package, as a provider with a type-aware analysis does.
+struct TypeAwareRule {
+    meta: &'static RuleMeta,
+    summary: skif_core::TypeAwareSummary,
+}
+
+impl Rule for TypeAwareRule {
+    fn meta(&self) -> &'static RuleMeta {
+        self.meta
+    }
+
+    fn check(&self, _cx: &LintContext<'_>, out: &mut Emitter<'_>) {
+        out.report_type_aware(self.summary.clone());
+    }
+}
+
+#[test]
+fn the_report_merges_the_type_aware_summaries_of_every_provider() {
+    use skif_core::{TypeAwarePackage, TypeAwareState, TypeAwareSummary};
+
+    let provider = |id: &str, summary: TypeAwareSummary| {
+        let rule = TypeAwareRule {
+            meta: leak_meta(&format!("{id}-rule"), Some(Severity::Warning)),
+            summary,
+        };
+        Box::new(RulesProvider::new(
+            Box::leak(id.to_owned().into_boxed_str()),
+            vec![Box::new(rule) as Box<dyn Rule>],
+        )) as Box<dyn skif_lint::RuleProvider>
+    };
+    let registry = Registry::new(vec![
+        provider(
+            "types-b",
+            TypeAwareSummary::new(true, vec![TypeAwarePackage::new("b", "b", TypeAwareState::Typed)])
+                .with_engine("tsrs"),
+        ),
+        provider(
+            "types-a",
+            TypeAwareSummary::new(
+                false,
+                vec![TypeAwarePackage::new("a", "a", TypeAwareState::Untyped).with_reason("disabled")],
+            ),
+        ),
+    ])
+    .unwrap();
+    let cfg = config("");
+    let ws = workspace(&cfg);
+    let report = run(&registry, &ws, &cfg, &RunOptions::default()).unwrap();
+    let summary = report.type_aware.expect("both providers recorded a summary");
+    assert!(summary.enabled);
+    assert_eq!(summary.engine.as_deref(), Some("tsrs"));
+    let dirs: Vec<String> = summary
+        .packages
+        .iter()
+        .map(|package| package.dir.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(dirs, ["a", "b"]);
+}
+
+#[test]
+fn a_run_without_a_type_aware_analysis_has_no_summary() {
+    let registry = many_rules();
+    let cfg = config("");
+    let ws = workspace(&cfg);
+    assert_eq!(run(&registry, &ws, &cfg, &RunOptions::default()).unwrap().type_aware, None);
+}
