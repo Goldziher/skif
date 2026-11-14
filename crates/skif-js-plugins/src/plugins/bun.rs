@@ -208,8 +208,8 @@ fn spawn_command(arguments: &[ConfigValue]) -> Option<String> {
     }
 }
 
-/// The command of a list of words run with `options`: the program and its literal arguments, a computed argument left
-/// out as for `spawn` of `node:child_process`. `None` when the program is computed or not a plain word
+/// The command of a list of words run with `options`: the program and its literal arguments up to the first computed
+/// one, as for `spawn` of `node:child_process`. `None` when the program is computed or not a plain word
 /// ([`literal_command`]).
 fn words_command(words: &[ConfigValue], options: Option<&ConfigValue>) -> Option<String> {
     let (program, rest) = words.split_first()?;
