@@ -1211,8 +1211,11 @@ impl PathMap {
 #[derive(Debug, Default)]
 struct PathOptions {
     base_url: Option<String>,
-    paths: Option<(String, Vec<(String, Vec<String>)>)>,
+    paths: Option<(String, PathMappings)>,
 }
+
+/// Each `paths` pattern with its targets, in the order the configuration lists them.
+type PathMappings = Vec<(String, Vec<String>)>;
 
 /// `value`, a path of the configuration in `dir`, relative to the checkout: below `dir`, or for a value that starts
 /// with `${configDir}` below `config_dir`, the directory of the configuration that is being resolved.
@@ -2625,8 +2628,7 @@ fn unlisted_specifiers(key: &str, read: &SourceReader<'_>) -> Vec<String> {
     };
     let package = bare_package(name);
     let found: Vec<String> = read(path)
-        .map(|source| bare_specifiers(path, &source))
-        .unwrap_or_default()
+        .map_or_default(|source| bare_specifiers(path, &source))
         .into_iter()
         .filter(|specifier| specifier == name || (package.is_some() && bare_package(specifier) == package))
         .collect();
@@ -2833,7 +2835,7 @@ fn whole_enum_members(
         }
         let found: FileEnums = read(path)
             .and_then(|source| parse_module(Path::new(path), &source, &ParseOptions::default()).ok())
-            .map(|module| {
+            .map_or_default(|module| {
                 module
                     .exports
                     .iter()
@@ -2843,8 +2845,7 @@ fn whole_enum_members(
                         (export.name.clone(), names, export.used_whole_in_file)
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         enums.insert(path, found);
     }
     let wanted: BTreeSet<&str> = enums
@@ -3537,8 +3538,7 @@ fn one_sided(own: &Keys, other: &Keys, category: &str) -> BTreeSet<String> {
     let none = BTreeSet::new();
     let theirs = other.get(category).unwrap_or(&none);
     own.get(category)
-        .map(|keys| keys.difference(theirs).cloned().collect())
-        .unwrap_or_default()
+        .map_or_default(|keys| keys.difference(theirs).cloned().collect())
 }
 
 /// The unused files of one side of the comparison (its `files` findings).
@@ -5599,12 +5599,16 @@ mod tests {
             for key in [
                 "packages/core/src/other.ts",
                 "packages/core/schematics.ts",
-                "packages/core/schematics/a.js",
                 "packages/common/locales/ff-CM.mts",
                 "packages/common/locale/ff-CM.ts",
             ] {
                 assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
             }
+            // A JavaScript file `exports` publishes as it is is a published file, not a source of one.
+            assert_eq!(
+                classifier.classify(Side::Tool, "files", "packages/core/schematics/a.js"),
+                Some(PUBLISHED_FILE)
+            );
             assert!(
                 !classifier
                     .layout
@@ -6797,7 +6801,7 @@ vi.mock("mocked-package");
     }
 
     /// A manifest reader over these manifests, by directory.
-    fn manifests_of(manifests: &[(&str, Value)]) -> impl Fn(&str) -> Option<Rc<Value>> {
+    fn manifests_of(manifests: &[(&str, Value)]) -> impl Fn(&str) -> Option<Rc<Value>> + use<> {
         let read: BTreeMap<String, Rc<Value>> = manifests
             .iter()
             .map(|(dir, manifest)| ((*dir).to_owned(), Rc::new(manifest.clone())))
@@ -7000,9 +7004,9 @@ vi.mock("mocked-package");
             .filter(|(path, _)| is_build_file(path))
             .map(|(path, source)| ((*path).to_owned(), (*source).to_owned()))
             .collect();
-        let built = bazel_sources(&build_files, &is_file, &read);
+        let sources = bazel_sources(&build_files, &is_file, &read);
         assert_eq!(
-            built,
+            sources,
             strings(&[
                 "adev/pipeline/data.json",
                 "adev/pipeline/helpers/format.mts",
@@ -7020,7 +7024,7 @@ vi.mock("mocked-package");
             "adev/pipeline/globbed/a.mts",
             "plain/a.mts",
         ]);
-        let reached = bazel_reach(&built, (&knip_unused, &BTreeSet::new()), &is_file, &read);
+        let reached = bazel_reach(&sources, (&knip_unused, &BTreeSet::new()), &is_file, &read);
         assert_eq!(
             reached,
             strings(&[
@@ -7029,7 +7033,7 @@ vi.mock("mocked-package");
                 "adev/pipeline/lib/util.mts",
             ])
         );
-        assert!(bazel_reach(&built, (&knip_unused, &knip_unused), &is_file, &read).is_empty());
+        assert!(bazel_reach(&sources, (&knip_unused, &knip_unused), &is_file, &read).is_empty());
 
         let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
         let classifier = Classifier {
