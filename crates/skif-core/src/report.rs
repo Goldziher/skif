@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::diagnostic::Diagnostic;
 use crate::incomplete::IncompletePackage;
 use crate::rule::Severity;
+use crate::type_aware::TypeAwareSummary;
 
 /// Aggregate counts over a report.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +42,9 @@ pub struct Report {
     /// by directory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub incomplete_packages: Vec<IncompletePackage>,
+    /// How far the type-aware analysis covered each package; `None` when the run had no JS analysis to type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_aware: Option<TypeAwareSummary>,
     /// Files of other projects that the analysed code uses, absolute and sorted. The run does not judge them. Those
     /// below the workspace root belong to a project of their own (a directory below a package that holds a
     /// `package.json`, such as a nested root) and are imported, run by a script or named as an entry by a plugin; a
@@ -150,6 +154,7 @@ impl Report {
             diagnostics,
             summary,
             incomplete_packages: Vec::new(),
+            type_aware: None,
             other_project_files: Vec::new(),
             other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
@@ -162,6 +167,13 @@ impl Report {
     pub fn with_incomplete_packages(mut self, mut packages: Vec<IncompletePackage>) -> Self {
         packages.sort_by(|a, b| a.dir.cmp(&b.dir).then_with(|| a.name.cmp(&b.name)));
         self.incomplete_packages = packages;
+        self
+    }
+
+    /// Sets the type-aware coverage of the run.
+    #[must_use]
+    pub fn with_type_aware(mut self, summary: TypeAwareSummary) -> Self {
+        self.type_aware = Some(summary);
         self
     }
 
@@ -622,5 +634,24 @@ mod tests {
         );
         let empty = serde_json::to_value(Report::new(Vec::new(), 1)).unwrap();
         assert!(empty.get("incomplete-packages").is_none());
+    }
+
+    #[test]
+    fn type_aware_serializes_under_its_key_and_is_omitted_when_unset() {
+        use crate::type_aware::{TypeAwarePackage, TypeAwareState};
+
+        let report = Report::new(Vec::new(), 1).with_type_aware(TypeAwareSummary::new(
+            true,
+            vec![TypeAwarePackage::new("", "root", TypeAwareState::Untyped).with_reason("no-tsconfig")],
+        ));
+        assert_eq!(
+            serde_json::to_value(&report).unwrap()["type-aware"],
+            serde_json::json!({
+                "enabled": true,
+                "packages": [{ "dir": "", "name": "root", "state": "untyped", "reason": "no-tsconfig", "untyped-files": 0 }]
+            })
+        );
+        let empty = serde_json::to_value(Report::new(Vec::new(), 1)).unwrap();
+        assert!(empty.get("type-aware").is_none());
     }
 }

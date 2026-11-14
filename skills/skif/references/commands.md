@@ -44,6 +44,7 @@ Scope of the analysis:
 | `--dependencies`, `--exports`, `--files`, `--cycles` | knip's shortcuts for `--include`. |
 | `--no-js` | Skip the JavaScript analysis (manifest, workspace and policy rules only; what the git hooks run). |
 | `--production` | Analyse production code only. |
+| `--no-type-aware` | Resolve member reads without the TypeScript type checker: faster, less accurate member findings (`[js] type-aware`, on by default). |
 | `--isolate-workspaces` | Each package may use only what its own manifest lists, without production mode (`[js] isolate-workspaces`). |
 | `--strict` | knip's strict mode: `--production` and `--isolate-workspaces`, and only direct dependencies count (`[js] strict`). |
 | `--include-entry-exports` | Also report unused exports of entry files. |
