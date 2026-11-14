@@ -7,7 +7,8 @@
 # umbrella must ship the generated loader (index.js, index.d.ts) and the bin, and list the six platform packages
 # as optional dependencies; each platform package must ship its .node addon. This is what turns a missing
 # artifact (the loader is generated, not committed) into a failed job instead of a broken release. Every package
-# also carries LICENSE and ATTRIBUTIONS.md, the notices the MIT and ISC code inside the addon requires.
+# also carries LICENSE and ATTRIBUTIONS.md, the notices the MIT and ISC code inside the addon requires, and its
+# ATTRIBUTIONS.md holds the tsrs section that the checker's Apache-2.0 NOTICE requires (ADR 0044).
 set -euo pipefail
 
 dir="${1:?usage: check-npm-tarballs.sh <directory-of-tarballs> <version>}"
@@ -53,10 +54,21 @@ require() {
   fi
 }
 
+tsrs_section="## tsrs (and TypeScript)"
+# require_tsrs_section <tarball>: the tarball's ATTRIBUTIONS.md, when present, holds the tsrs section.
+require_tsrs_section() {
+  local tarball="$1"
+  listing "$tarball" | grep -xF "package/ATTRIBUTIONS.md" >/dev/null || return 0
+  if ! tar -xzOf "${dir}/${tarball}" package/ATTRIBUTIONS.md | grep -xF "$tsrs_section" >/dev/null; then
+    fail "ATTRIBUTIONS.md in ${tarball} lacks the '${tsrs_section}' section"
+  fi
+}
+
 if [[ -f "${dir}/skif-cli-${version}.tgz" ]]; then
   for member in index.js index.d.ts bin/skif.js package.json LICENSE ATTRIBUTIONS.md README.md; do
     require "skif-cli-${version}.tgz" "$member"
   done
+  require_tsrs_section "skif-cli-${version}.tgz"
   declared="$(tar -xzOf "${dir}/skif-cli-${version}.tgz" package/package.json |
     jq -r '(.optionalDependencies // {}) | to_entries[] | "\(.key)@\(.value)"' | LC_ALL=C sort)"
   wanted="$(for platform in "${platforms[@]}"; do echo "skif-${platform}@${version}"; done | LC_ALL=C sort)"
@@ -73,6 +85,7 @@ for platform in "${platforms[@]}"; do
   require "$tarball" "package.json"
   require "$tarball" "LICENSE"
   require "$tarball" "ATTRIBUTIONS.md"
+  require_tsrs_section "$tarball"
 done
 
 if [[ "$failures" -ne 0 ]]; then

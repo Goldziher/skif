@@ -326,19 +326,29 @@ grep -qF 'rev: v0.7.1' "$integrations" || fail "release-bump: 0.x pre-commit rev
 # ---------------------------------------------------------------- check-archive
 archive_dir="${work}/archives"
 mkdir -p "${archive_dir}/full" "${archive_dir}/bare"
-for member in skif skif.exe LICENSE ATTRIBUTIONS.md; do echo "$member" >"${archive_dir}/full/${member}"; done
-for member in skif skif.exe LICENSE; do echo "$member" >"${archive_dir}/bare/${member}"; done
+mkdir -p "${archive_dir}/untyped"
+for member in skif skif.exe LICENSE; do echo "$member" | tee "${archive_dir}/full/${member}" "${archive_dir}/untyped/${member}" >"${archive_dir}/bare/${member}"; done
+printf '# Attributions\n\n## tsrs (and TypeScript)\n' >"${archive_dir}/full/ATTRIBUTIONS.md"
+printf '# Attributions\n\n## knip\n' >"${archive_dir}/untyped/ATTRIBUTIONS.md"
 tar czf "${archive_dir}/skif-x86_64-unknown-linux-gnu.tar.gz" -C "${archive_dir}/full" skif LICENSE ATTRIBUTIONS.md
+tar czf "${archive_dir}/skif-dotted-unknown-linux-gnu.tar.gz" -C "${archive_dir}/full" ./skif ./LICENSE ./ATTRIBUTIONS.md
 tar czf "${archive_dir}/skif-bare-unknown-linux-gnu.tar.gz" -C "${archive_dir}/bare" skif LICENSE
+tar czf "${archive_dir}/skif-untyped-unknown-linux-gnu.tar.gz" -C "${archive_dir}/untyped" skif LICENSE ATTRIBUTIONS.md
 expect "check-archive accepts a complete tarball" 0 bash scripts/check-archive.sh "${archive_dir}/skif-x86_64-unknown-linux-gnu.tar.gz"
 expect "check-archive rejects a tarball without ATTRIBUTIONS.md" 1 bash scripts/check-archive.sh "${archive_dir}/skif-bare-unknown-linux-gnu.tar.gz"
 expect_in_out "check-archive missing notice" "ATTRIBUTIONS.md"
+expect "check-archive reads ATTRIBUTIONS.md from members named ./" 0 bash scripts/check-archive.sh "${archive_dir}/skif-dotted-unknown-linux-gnu.tar.gz"
+expect "check-archive rejects an ATTRIBUTIONS.md without the tsrs section" 1 bash scripts/check-archive.sh "${archive_dir}/skif-untyped-unknown-linux-gnu.tar.gz"
+expect_in_out "check-archive tsrs section" "lacks the '## tsrs (and TypeScript)' section"
 if command -v python3 >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
   zip_members() { (cd "$1" && python3 -I -m zipfile -c "$2" "${@:3}"); }
   zip_members "${archive_dir}/full" "${archive_dir}/skif-x86_64-pc-windows-msvc.zip" skif.exe LICENSE ATTRIBUTIONS.md
   zip_members "${archive_dir}/bare" "${archive_dir}/skif-bare-pc-windows-msvc.zip" skif.exe LICENSE
   expect "check-archive accepts a complete zip" 0 bash scripts/check-archive.sh "${archive_dir}/skif-x86_64-pc-windows-msvc.zip"
   expect "check-archive rejects an incomplete zip" 1 bash scripts/check-archive.sh "${archive_dir}/skif-bare-pc-windows-msvc.zip"
+  zip_members "${archive_dir}/untyped" "${archive_dir}/skif-untyped-pc-windows-msvc.zip" skif.exe LICENSE ATTRIBUTIONS.md
+  expect "check-archive rejects a zip whose ATTRIBUTIONS.md lacks the tsrs section" 1 bash scripts/check-archive.sh "${archive_dir}/skif-untyped-pc-windows-msvc.zip"
+  expect_in_out "check-archive zip tsrs section" "lacks the '## tsrs (and TypeScript)' section"
 fi
 expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
 
@@ -356,6 +366,7 @@ pack_tarball() {
     mkdir -p "$(dirname "${stage}/package/${member}")"
     echo "$member" >"${stage}/package/${member}"
   done
+  [[ ! -f "${stage}/package/ATTRIBUTIONS.md" ]] || echo "${TSRS_SECTION-## tsrs (and TypeScript)}" >>"${stage}/package/ATTRIBUTIONS.md"
   tar czf "${out}/${name}" -C "$stage" package
 }
 
@@ -416,6 +427,11 @@ npm_fixture "${work}/npm-no-addon" 1.2.3
 pack_tarball "${work}/npm-no-addon" skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
 expect "check-npm-tarballs rejects a platform package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-addon" 1.2.3
 expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
+
+npm_fixture "${work}/npm-no-tsrs" 1.2.3
+TSRS_SECTION="## knip" pack_tarball "${work}/npm-no-tsrs" skif-linux-arm64-musl-1.2.3.tgz '{}' skif.linux-arm64-musl.node LICENSE ATTRIBUTIONS.md
+expect "check-npm-tarballs rejects an ATTRIBUTIONS.md without the tsrs section" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-tsrs" 1.2.3
+expect_in_out "check-npm-tarballs tsrs section" "ATTRIBUTIONS.md in skif-linux-arm64-musl-1.2.3.tgz lacks the '## tsrs (and TypeScript)' section"
 
 npm_fixture "${work}/npm-bad-optional" 1.2.3
 pack_tarball "${work}/npm-bad-optional" skif-cli-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \
