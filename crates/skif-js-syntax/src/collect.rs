@@ -760,7 +760,7 @@ pub(crate) fn ambient_reexport(ctx: &Ctx<'_>, statement: &Statement<'_>) -> Opti
         ),
         _ => return None,
     };
-    if source.value.starts_with(['.', '/']) {
+    if source.value.starts_with('.') || source.value.starts_with('/') {
         return None;
     }
     Some(Import {
