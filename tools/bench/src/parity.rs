@@ -548,6 +548,52 @@ fn align_unlisted_unresolved(skif: &mut Keys, knip: &Keys) {
     }
 }
 
+/// The `<file>|<specifier>` keys of skif's `stale-mocks` findings: the module a test-runner mock (`jest.requireActual`,
+/// `vi.mock`) names that does not exist, which skif's message quotes in the call (`` `jest.mock('./x')` ``).
+pub fn stale_mock_keys(document: &Value, root: &Path) -> BTreeSet<String> {
+    document
+        .get("diagnostics")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|diagnostic| diagnostic.get("rule").and_then(Value::as_str) == Some("stale-mocks"))
+        .filter_map(|diagnostic| {
+            let path = normalize(
+                diagnostic
+                    .pointer("/location/path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                root,
+            );
+            let message = diagnostic.get("message").and_then(Value::as_str)?;
+            let call = backticked(message).into_iter().next()?;
+            mock_specifier(call).map(|specifier| format!("{path}|{specifier}"))
+        })
+        .collect()
+}
+
+/// The specifier a mock call quotes: `./x` of `jest.mock('./x')`.
+fn mock_specifier(call: &str) -> Option<&str> {
+    call.split_once("('")?.1.strip_suffix("')")
+}
+
+/// Adds to skif's `unresolved` each finding only knip reports there that skif reports as `stale-mocks` on the same
+/// file and specifier ([`stale_mock_keys`]), so it counts as agreement: skif reports a test-runner mock of a module
+/// that does not exist under its own rule (ADR 0019), and knip reports the specifier as unresolved.
+fn align_stale_mocks(skif: &mut Keys, knip: &Keys, stale: &BTreeSet<String>) {
+    let Some(theirs) = knip.get("unresolved") else {
+        return;
+    };
+    let paired: Vec<String> = theirs
+        .iter()
+        .filter(|key| stale.contains(*key) && !skif.get("unresolved").is_some_and(|own| own.contains(*key)))
+        .cloned()
+        .collect();
+    if !paired.is_empty() {
+        skif.entry("unresolved".to_owned()).or_default().extend(paired);
+    }
+}
+
 /// What skif left unjudged in a package it lists under `incomplete-packages`, from the entry's `scope`.
 #[derive(Debug, Clone)]
 pub enum NotJudgedScope {
@@ -2466,6 +2512,7 @@ fn parity_repo(
     let knip_found = knip_keys(&knip_run.doc, &root);
     align_export_labels(&mut skif_found, &knip_found);
     align_unlisted_unresolved(&mut skif_found, &knip_found);
+    align_stale_mocks(&mut skif_found, &knip_found, &stale_mock_keys(&skif_run.doc, &root));
     let manifest = manifest_reader(&root);
     let is_file = |file: &str| root.join(file).is_file();
     let build_dirs = build_dir_reader(&root);
@@ -3220,6 +3267,38 @@ mod tests {
         let (counts, _) = diff::compare(&skif, &knip);
         assert_eq!(counts["unresolved"].both, 2);
         assert_eq!(counts["unlisted"].both, 2);
+    }
+
+    #[test]
+    fn an_unresolved_import_skif_reports_as_a_stale_mock_on_the_same_file_and_specifier_is_agreement() {
+        let doc = json!({ "diagnostics": [
+            { "rule": "stale-mocks", "message": "`jest.requireActual('./pathToModule')` names a module that does not exist", "location": { "path": "/r/packages/t/a.test.ts" } },
+            { "rule": "stale-mocks", "message": "`vi.mock('./gone')` names a module that does not exist", "location": { "path": "/r/packages/t/b.test.ts" } },
+            { "rule": "unresolved-imports", "message": "`./other` cannot be resolved", "location": { "path": "/r/packages/t/c.ts" } },
+        ]});
+        let stale = stale_mock_keys(&doc, Path::new("/r"));
+        assert_eq!(
+            stale,
+            strings(&["packages/t/a.test.ts|./pathToModule", "packages/t/b.test.ts|./gone"])
+        );
+        let mut skif = Keys::new();
+        let knip = Keys::from([(
+            "unresolved".to_owned(),
+            strings(&[
+                "packages/t/a.test.ts|./pathToModule",
+                "packages/t/b.test.ts|./elsewhere",
+                "packages/t/c.ts|./pathToModule",
+            ]),
+        )]);
+        align_stale_mocks(&mut skif, &knip, &stale);
+        assert_eq!(
+            set(&skif, "unresolved"),
+            ["packages/t/a.test.ts|./pathToModule"],
+            "another specifier in the mocking file, or the same specifier in another file, stays one-sided"
+        );
+        let (counts, _) = diff::compare(&skif, &knip);
+        assert_eq!(counts["unresolved"].both, 1);
+        assert_eq!(counts["unresolved"].tool_only, 2);
     }
 
     #[test]

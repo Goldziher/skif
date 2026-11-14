@@ -231,7 +231,9 @@ skif when all do. A skif finding knip has under another of these labels counts a
 same way an import only skif reports in `unlisted` that knip reports in `unresolved` on the same file, or the
 reverse, counts as shared under knip's category and key: a tsconfig `types` entry or `importHelpers` is a package no
 manifest lists for skif and a module knip cannot resolve. The two keys pair when they name the same package, a
-specifier with a subpath (`vite/client`) pairing with its package (`vite`).
+specifier with a subpath (`vite/client`) pairing with its package (`vite`). An import only knip reports in
+`unresolved` that skif reports as `stale-mocks` on the same file and specifier (`jest.requireActual('./x')` of a
+module that does not exist, which skif reports under its own rule, ADR 0019) counts as shared too.
 
 **Signature types.** skif counts an export that the signature of a used export of the same file mentions as used ([ADR
 0029](../../adrs/0018-export-namespace-and-member-rules.md)):
