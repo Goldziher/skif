@@ -233,3 +233,22 @@ fn a_subpath_import_of_a_typed_package_uses_its_types_package() {
     // The types of `kit` cover `kit` itself, not `kit/helpers`, which `@types/kit/helpers.d.ts` may declare.
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
 }
+
+#[test]
+fn the_main_of_a_subpath_directory_published_through_files_is_an_entry() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"lib","version":"1.0.0","main":"index.js","files":["index.js","server","client/**"],"dependencies":{"server-impl":"1.0.0","client-impl":"1.0.0","left-pad":"1.3.0"}}"#,
+        ),
+        ("index.js", "module.exports = 1;\n"),
+        ("server/package.json", r#"{"main":"index.js"}"#),
+        ("server/index.js", "module.exports = require('./impl');\n"),
+        ("server/impl.js", "module.exports = require('server-impl');\n"),
+        ("client/package.json", r#"{"browser":"./entry.js"}"#),
+        ("client/entry.js", "module.exports = require('client-impl');\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: left-pad"]);
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+}
