@@ -983,7 +983,10 @@ impl Sharing<'_> {
         }
         let mut finder = MentionsThis::default();
         finder.visit_expression(expr);
-        (finder.this.then(|| self.this_site()), finder.sup.then_some(ThisSite::Super))
+        (
+            finder.this.then(|| self.this_site()),
+            finder.sup.then_some(ThisSite::Super),
+        )
     }
 
     /// Records `effect` as a change the getter, setter, iterator or method whose `this` the code being visited has, if
@@ -1245,7 +1248,12 @@ impl Sharing<'_> {
             .implicit
             .calls
             .iter()
-            .map(|call| (call.site, self.call_effect(call.caller, call.method.as_deref(), effects)))
+            .map(|call| {
+                (
+                    call.site,
+                    self.call_effect(call.caller, call.method.as_deref(), effects),
+                )
+            })
             .filter(|(_, effect)| *effect != ThisEffect::default())
             .map(|(site, effect)| (site, !effect.contents))
             .collect();
@@ -1321,12 +1329,7 @@ impl Sharing<'_> {
     /// What a call of the method `method` on `this` in the function `caller` may change of what `this` holds: what the
     /// methods of that name the module declares change ([`Implicit::own_methods`]), when the object or class `caller`
     /// is in has one of its own; anything otherwise, as the method called is not known.
-    fn call_effect(
-        &self,
-        caller: ScopeId,
-        method: Option<&str>,
-        effects: &HashMap<ScopeId, ThisEffect>,
-    ) -> ThisEffect {
+    fn call_effect(&self, caller: ScopeId, method: Option<&str>, effects: &HashMap<ScopeId, ThisEffect>) -> ThisEffect {
         self.implicit
             .own_methods(caller, method)
             .map_or_else(ThisEffect::contents, |methods| union_of(methods, effects))
@@ -1348,16 +1351,14 @@ impl Sharing<'_> {
     /// Adds `effect`, what the place `site` changes of the object there, to the functions whose `this` that object may
     /// be: the function whose code the place is in where it is that function's `this`, and a change of all it holds
     /// where it is a value below it (`this.list`) or a binding taking what `this` holds (`const self = this`).
-    fn note_runs_on_this(
-        &self,
-        site: &ImplicitSite,
-        effect: &ThisEffect,
-        effects: &mut HashMap<ScopeId, ThisEffect>,
-    ) {
+    fn note_runs_on_this(&self, site: &ImplicitSite, effect: &ThisEffect, effects: &mut HashMap<ScopeId, ThisEffect>) {
         let contents = ThisEffect::contents();
         if let Some(owner) = site.owner {
             for &(_, exact) in &site.this {
-                effects.entry(owner).or_default().add(if exact { effect } else { &contents });
+                effects
+                    .entry(owner)
+                    .or_default()
+                    .add(if exact { effect } else { &contents });
             }
         }
         for (place, _, _) in &site.parts {
@@ -2837,8 +2838,15 @@ impl<'a> Visit<'a> for Sharing<'_> {
         self.target_parts(&it.left, &mut places, &mut defaults);
         let targets: Vec<SymbolId> = places.iter().map(|place| place.symbol).collect();
         self.bind_this(&targets, &it.right);
-        self.note_destructured(&it.right, pattern_runs(|pattern| pattern.visit_assignment_target(&it.left)));
-        if let Some(member) = it.left.as_simple_assignment_target().and_then(|target| target.as_member_expression()) {
+        self.note_destructured(
+            &it.right,
+            pattern_runs(|pattern| pattern.visit_assignment_target(&it.left)),
+        );
+        if let Some(member) = it
+            .left
+            .as_simple_assignment_target()
+            .and_then(|target| target.as_member_expression())
+        {
             self.note_key_value(member_key(member), &it.right);
         }
         // A function assigned stands for what its parameters take as well as what it returns, as one declared does.
@@ -2920,14 +2928,20 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if let Some(initializer) = &it.initializer {
             self.bind_this(&bound_symbols(&it.pattern), initializer);
             self.default_of(&it.pattern, initializer);
-            self.note_destructured(initializer, pattern_runs(|pattern| pattern.visit_binding_pattern(&it.pattern)));
+            self.note_destructured(
+                initializer,
+                pattern_runs(|pattern| pattern.visit_binding_pattern(&it.pattern)),
+            );
         }
         walk::walk_formal_parameter(self, it);
     }
 
     fn visit_assignment_pattern(&mut self, it: &AssignmentPattern<'a>) {
         self.default_of(&it.left, &it.right);
-        self.note_destructured(&it.right, pattern_runs(|pattern| pattern.visit_binding_pattern(&it.left)));
+        self.note_destructured(
+            &it.right,
+            pattern_runs(|pattern| pattern.visit_binding_pattern(&it.left)),
+        );
         walk::walk_assignment_pattern(self, it);
     }
 
@@ -3653,7 +3667,10 @@ fn callables(program: &Program<'_>, scoping: &Scoping) -> Callables {
     let FindCallables { found, callees, .. } = finder;
     let mut out = Callables::default();
     for (symbol, scope, parameters, patterns) in found {
-        if patterns.iter().any(|pattern| !pattern.own.is_empty() || !pattern.below.is_empty()) {
+        if patterns
+            .iter()
+            .any(|pattern| !pattern.own.is_empty() || !pattern.below.is_empty())
+        {
             out.patterns.insert(symbol, patterns);
         }
         let apart = scoping.get_resolved_reference_ids(symbol).iter().all(|&reference| {
@@ -4060,7 +4077,8 @@ fn member_key(member: &MemberExpression<'_>) -> Option<String> {
 
 /// Whether `digits`, the text of a number, is the key JavaScript names that index by (`0`, `12`, not `012` or `1e3`).
 fn is_index(digits: &str) -> bool {
-    digits == "0" || (!digits.starts_with('0') && !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+    digits == "0"
+        || (!digits.starts_with('0') && !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// Whether `expr` is `this`.
@@ -4153,7 +4171,11 @@ fn descriptors<'b, 'a>(
     };
     match (object.name.as_str(), member.property.name.as_str()) {
         ("Object" | "Reflect", "defineProperty") => {
-            let key = call.arguments.get(1).and_then(Argument::as_expression).and_then(static_string);
+            let key = call
+                .arguments
+                .get(1)
+                .and_then(Argument::as_expression)
+                .and_then(static_string);
             literal(2).map(|descriptor| (key, descriptor)).into_iter().collect()
         }
         ("Object", "defineProperties" | "create") => literal(1).map_or_else(Vec::new, described_keys),
@@ -4435,7 +4457,8 @@ fn reads_keys(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     let name = member.property.name.as_str();
     (name == "assign" && assigns(names, call))
         || (pure_function(names, call).is_some()
-            && module_object(names, &member.object).is_some_and(|object| KEY_READING_FUNCTIONS.contains(&(object, name))))
+            && module_object(names, &member.object)
+                .is_some_and(|object| KEY_READING_FUNCTIONS.contains(&(object, name))))
 }
 
 /// Whether `expr` is a list literal of values that hold no object ([`is_primitive`]), with no spread.

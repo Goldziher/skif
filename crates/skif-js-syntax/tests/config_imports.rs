@@ -1449,7 +1449,11 @@ fn a_binding_taking_this_in_a_getter_runs_what_a_read_through_it_runs_on_the_obj
     );
     for member in [through_self, in_function, destructured] {
         let value = shared_config(made_by_touch(&member, "return make().twice;"), "touch", "touch();");
-        assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{member}: {value:?}");
+        assert_eq!(
+            read_at(&value, &["plugins"]),
+            &ConfigValue::Unknown,
+            "{member}: {value:?}"
+        );
         assert_eq!(read_at(&value, &["name"]), &s("app"), "{member}: {value:?}");
     }
 }
@@ -1460,22 +1464,53 @@ fn a_binding_taking_this_in_a_getter_runs_what_a_read_through_it_runs_on_the_obj
 #[test]
 fn a_destructured_parameter_runs_the_getters_and_iterators_of_what_it_takes() {
     for (member, statements, expected) in [
-        (PUSHING_GETTER, "const take = ({ grow }) => grow;\nconst got = take(box);", Boxed::Changed),
-        (PUSHING_GETTER, "const got = [box].map(({ grow }) => grow);", Boxed::Changed),
-        (PUSHING_ITERATOR, "function first([item]) { return item; }\nconst got = first(box);", Boxed::Changed),
-        (PUSHING_GETTER, "const take = ({ grow } = box) => grow;\nconst got = take();", Boxed::Changed),
-        (PUSHING_GETTER, "const take = ({ mode }) => mode;\nconst got = take(box);", Boxed::Known),
-        (PUSHING_GETTER, "const got = [box].map(({ mode }) => mode);", Boxed::Known),
+        (
+            PUSHING_GETTER,
+            "const take = ({ grow }) => grow;\nconst got = take(box);",
+            Boxed::Changed,
+        ),
+        (
+            PUSHING_GETTER,
+            "const got = [box].map(({ grow }) => grow);",
+            Boxed::Changed,
+        ),
+        (
+            PUSHING_ITERATOR,
+            "function first([item]) { return item; }\nconst got = first(box);",
+            Boxed::Changed,
+        ),
+        (
+            PUSHING_GETTER,
+            "const take = ({ grow } = box) => grow;\nconst got = take();",
+            Boxed::Changed,
+        ),
+        (
+            PUSHING_GETTER,
+            "const take = ({ mode }) => mode;\nconst got = take(box);",
+            Boxed::Known,
+        ),
+        (
+            PUSHING_GETTER,
+            "const got = [box].map(({ mode }) => mode);",
+            Boxed::Known,
+        ),
     ] {
         assert_box(member, statements, expected);
     }
     for (member, body) in [
         (PUSHING_GETTER, "const take = ({ grow }) => grow; return take(make());"),
         (PUSHING_GETTER, "return [make()].map(({ grow }) => grow);"),
-        (PUSHING_ITERATOR, "function first([item]) { return item; } return first(make());"),
+        (
+            PUSHING_ITERATOR,
+            "function first([item]) { return item; } return first(make());",
+        ),
     ] {
         let value = shared_config(made_by_touch(member, body), "touch", "touch();");
-        assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{body}: {value:?}");
+        assert_eq!(
+            read_at(&value, &["plugins"]),
+            &ConfigValue::Unknown,
+            "{body}: {value:?}"
+        );
         assert_eq!(read_at(&value, &["name"]), &s("app"), "{body}: {value:?}");
     }
 }
@@ -1519,7 +1554,11 @@ fn a_getter_or_setter_a_descriptor_defines_runs_with_the_defined_object_as_this(
 fn a_getter_giving_a_key_of_this_a_new_value_leaves_that_key_unknown() {
     let getter = "get prod() { this.mode = 'production'; return true; }";
     assert_box(getter, "box.prod;", Boxed::Mode);
-    assert_box("set prod(v) { this.mode = v; }", "box.prod = 'production';", Boxed::Mode);
+    assert_box(
+        "set prod(v) { this.mode = v; }",
+        "box.prod = 'production';",
+        Boxed::Mode,
+    );
     assert_box(getter, "box.list;", Boxed::Known);
     for config in [
         "const config = { mode: 'development', get prod() { this.mode = 'production'; return true; } };\n\
@@ -1565,7 +1604,11 @@ fn an_iteration_runs_the_next_method_of_an_iterator_and_no_other_computed_method
         "for (const item of box.list) {}",
         Boxed::Known,
     );
-    let value = shared_config(made_by_touch(iterator, "for (const item of make()) {}"), "touch", "touch();");
+    let value = shared_config(
+        made_by_touch(iterator, "for (const item of make()) {}"),
+        "touch",
+        "touch();",
+    );
     assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{value:?}");
 }
 
@@ -1573,8 +1616,16 @@ fn an_iteration_runs_the_next_method_of_an_iterator_and_no_other_computed_method
 /// is the control.
 #[test]
 fn a_tagged_template_runs_the_getters_of_its_values() {
-    assert_box(PUSHING_GETTER, "import { css } from 'lit';\ncss`${box}`;", Boxed::Changed);
-    assert_box(PUSHING_GETTER, "import { css } from 'lit';\ncss`${box.mode}`;", Boxed::Known);
+    assert_box(
+        PUSHING_GETTER,
+        "import { css } from 'lit';\ncss`${box}`;",
+        Boxed::Changed,
+    );
+    assert_box(
+        PUSHING_GETTER,
+        "import { css } from 'lit';\ncss`${box.mode}`;",
+        Boxed::Known,
+    );
     let shared = "import { base } from './base';\nimport { css } from 'lit';\n\
                   const make = () => ({ list: base.plugins, get grow() { this.list.push('x'); return 0; } });\n\
                   export function touch() { return css`${make()}`; }";
@@ -1600,7 +1651,11 @@ fn a_getter_calling_a_method_on_this_changes_what_the_method_changes() {
             "box.prod;",
             Boxed::Mode,
         ),
-        ("get isProd() { return this.lookup() === 'p'; }", "box.isProd;", Boxed::Changed),
+        (
+            "get isProd() { return this.lookup() === 'p'; }",
+            "box.isProd;",
+            Boxed::Changed,
+        ),
         (
             reading,
             "box.read = function () { this.list.push('x'); return 'p'; };\nbox.isProd;",
