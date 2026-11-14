@@ -17,6 +17,9 @@ categories = ["development-tools"]
 [features]
 # Typed facts from the TypeScript checker of tsrs (`skif-js-types`, ADR 0043).
 type-aware = ["dep:skif-js-types"]
+# Plain pointers in tsrs instead of its fixed address-space reservation (ADR 0044); only has an effect with
+# `type-aware`.
+plain-ptrs = ["skif-js-types?/plain-ptrs"]
 
 [dependencies]
 globset.workspace = true

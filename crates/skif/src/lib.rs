@@ -93,6 +93,8 @@
 //! | --- | --- | --- |
 //! | `manifest` | yes | the built-in rules: manifest rules, version and semver group policies and catalog rules |
 //! | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table (`Linter` adds it to the built-in rules) |
+//! | `type-aware` | no | type-aware analysis with the TypeScript checker of tsrs (implies `js-analysis`) |
+//! | `plain-ptrs` | no | plain pointers in tsrs instead of its fixed address-space reservation; only with `type-aware` |
 //! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
 //! | `report` | no | the renderers (human, JSON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
