@@ -5,7 +5,9 @@ description: Teach AI agents skif with its agent skill, use skif from agents thr
 
 skif runs as a server for the tools you write code with. The servers and watch mode are part of the `skif` binary;
 nothing else to install. The design is recorded in
-[ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md).
+[ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md). The servers and
+watch mode analyse without the TypeScript type checker, as `--no-type-aware` does, so their member findings are the
+name-based ones ([ADR 0043](https://github.com/Goldziher/skif/blob/main/adrs/0043-type-aware-analysis-on-tsrs.md)).
 
 ## Agent skill
 

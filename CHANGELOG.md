@@ -25,6 +25,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`[js] type-aware`** (default `true`), per workspace in `[js.workspaces."<dir>"]`, the flag `--no-type-aware` of
+  the lint run, `skif baseline write` and `prune` and `skif explain-usage`, and the npm option `noTypeAware`: member
+  reads are resolved with the TypeScript type checker, which is slower and gives more accurate member findings; turning
+  it off is faster and less accurate for member findings. The flag overrides every workspace table. The language
+  server, `skif mcp` and `--watch` run without types
+  ([ADR 0043](adrs/0043-type-aware-analysis-on-tsrs.md)).
+- **Type-aware coverage in the report**: the JSON report carries a `type-aware` object (`enabled`, `engine` and each
+  package's `dir`, `name`, `state` `typed`, `partial` or `untyped`, `reason` and `untyped-files`), SARIF carries it in
+  the run's `properties`, and the human output prints one `types:` line before the summary when a package is partial
+  or untyped. `type-aware` is a reserved top-level key of the JSON document, so `render_json_with` rejects an extra
+  member of that name. The library exposes it as `Report::type_aware` (`TypeAwareSummary`, `TypeAwarePackage`,
+  `TypeAwareState`).
 - **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
   from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
   `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production
