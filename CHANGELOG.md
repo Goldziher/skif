@@ -70,8 +70,10 @@ All notable changes to this project are documented here. The format follows
   anchors `files` and `./` patterns at its own directory), naming that directory and the `$ROOT/` prefix, and about a
   `packages` pattern of a file in the root that matches no package. A pattern is warned about only when it selects
   nothing at every root of the run that reads it.
+- `skif migrate --output <FILE>` writes the `files` of the `[[overrides]]` it writes with `$ROOT/` when `FILE` is not in
+  the project directory ([#239](https://github.com/Goldziher/skif/issues/239)).
 - **Public API** ([#239](https://github.com/Goldziher/skif/issues/239)): `OverrideScope::idle_patterns` and
-  `IdleReason` of `skif-config`.
+  `IdleReason` of `skif-config`, and `Options::with_root_anchored` of `skif-migrate`.
 
 ### Changed
 

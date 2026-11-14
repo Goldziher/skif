@@ -82,6 +82,9 @@ pub struct Options {
     /// Write `[rules] stale-js-config = "error"` for knip's `treatConfigHintsAsErrors`. Without it the rule is
     /// written as `warn`, because skif's hints differ from knip's and `error` could fail a project knip passed.
     pub strict_hints: bool,
+    /// Write the path patterns of `[[overrides]]` from the root, with `$ROOT/`: a file written outside the project
+    /// directory anchors its patterns at its own directory, where they would select nothing.
+    pub root_anchored: bool,
 }
 
 impl Options {
@@ -105,6 +108,13 @@ impl Options {
     #[must_use]
     pub const fn with_strict_hints(mut self, strict_hints: bool) -> Self {
         self.strict_hints = strict_hints;
+        self
+    }
+
+    /// Writes the path patterns of `[[overrides]]` with `$ROOT/`, for an output file outside the project directory.
+    #[must_use]
+    pub const fn with_root_anchored(mut self, root_anchored: bool) -> Self {
+        self.root_anchored = root_anchored;
         self
     }
 }

@@ -348,6 +348,16 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
     })
 }
 
+/// Whether `--output` names a file outside `root` itself, whose override patterns must then be written from the root
+/// with `$ROOT/`: a pattern relative to the file would select nothing.
+fn written_elsewhere(args: &MigrateArgs, root: &Path) -> Result<bool, CliError> {
+    let Some(output) = args.output.as_deref().filter(|output| *output != Path::new("-")) else {
+        return Ok(false);
+    };
+    let output = std::path::absolute(output).map_err(|error| CliError::io("cannot resolve", output, &error))?;
+    Ok(output.parent() != Some(root))
+}
+
 fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliError> {
     let root = std::path::absolute(&args.path).map_err(|error| CliError::io("cannot resolve", &args.path, &error))?;
     if !root.is_dir() {
@@ -373,7 +383,8 @@ fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliErro
     };
     let options = Options::new(profile)
         .with_known_rules(known_rules()?)
-        .with_strict_hints(args.strict_hints);
+        .with_strict_hints(args.strict_hints)
+        .with_root_anchored(written_elsewhere(args, &root)?);
     let migration = migrate(&inputs, &options).map_err(migrate_error)?;
     let plan = plan_output(args, &root, &migration)?;
     if let Some(target) = &plan.target {
