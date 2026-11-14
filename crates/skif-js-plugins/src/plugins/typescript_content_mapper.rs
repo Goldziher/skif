@@ -1,6 +1,6 @@
 //! TypeScript Content Mapper: the command `package.json#typescript.contentMapper.exec` runs is a script.
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, shell_word};
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 
@@ -23,18 +23,7 @@ impl Plugin for TypescriptContentMapper {
         let Some(exec) = config.value.get("exec").and_then(ConfigValue::as_array) else {
             return Vec::new();
         };
-        let words: Option<Vec<String>> = exec
-            .iter()
-            .map(|word| {
-                word.as_str().map(|word| {
-                    if word.is_empty() || word.contains(|c: char| c.is_whitespace() || "'\"$`\\".contains(c)) {
-                        format!("'{}'", word.replace('\'', r"'\''"))
-                    } else {
-                        word.to_owned()
-                    }
-                })
-            })
-            .collect();
+        let words: Option<Vec<String>> = exec.iter().map(|word| word.as_str().map(shell_word)).collect();
         words
             .filter(|words| !words.is_empty())
             .map(|words| PluginInput::Script(words.join(" ")))

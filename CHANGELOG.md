@@ -34,6 +34,9 @@ All notable changes to this project are documented here. The format follows
   makes a listing of a package's sources that shares the texts it reads with another listing, and
   `WorkspaceListing::package_sources` of `skif-js` makes one that shares them with the run's other packages.
 
+- **Public API** ([#97](https://github.com/Goldziher/skif/issues/97)): `skif-js-syntax` exports `is_plain_word`,
+  `shell_quote` and `shell_word`, which quote a word of a command line as the command plugins do.
+
 ### Changed
 
 - **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): `--watch` scans the tree on up to four
@@ -77,6 +80,9 @@ All notable changes to this project are documented here. The format follows
 - **`unlisted-binaries`, `unused-files`**: a short flag group whose letters all take a value reads as those flags, the
   last taking the next word, as Node.js reads `node -pe "require('./package.json').version"`: the code is no file
   and loads no package ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: every word of a command array (moonrepo `command`, `typescript.contentMapper.exec`) that is
+  not a plain word is quoted the same way, so a word such as `&&` or `#` is an argument instead of shell syntax
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
 - **`unlisted-binaries`**: a command substitution runs in the directory of the command that holds it, after a `cd` or
   a workflow step's `working-directory`, instead of where the text starts: `SUITE=$(pnpm exec tsx x.ts)` in a step
   with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root

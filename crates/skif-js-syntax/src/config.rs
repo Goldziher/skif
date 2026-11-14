@@ -1962,19 +1962,14 @@ pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
     let file = arguments.first()?.as_str().filter(|file| is_plain_word(file))?;
     let mut words = vec![file.to_owned()];
     if let Some(ConfigValue::Array(items)) = arguments.get(1) {
-        words.extend(items.iter().map_while(ConfigValue::as_str).map(|word| {
-            if is_plain_word(word) {
-                word.to_owned()
-            } else {
-                single_quoted(word)
-            }
-        }));
+        words.extend(items.iter().map_while(ConfigValue::as_str).map(shell_word));
     }
     Some(words.join(" "))
 }
 
 /// Whether a shell reads `word` as itself: one word, without quotes, expansions or operators.
-fn is_plain_word(word: &str) -> bool {
+#[must_use]
+pub fn is_plain_word(word: &str) -> bool {
     !word.is_empty()
         && word
             .chars()
@@ -1982,8 +1977,20 @@ fn is_plain_word(word: &str) -> bool {
 }
 
 /// `text` single-quoted, so that a shell reads it as part of one word whatever it holds.
-fn single_quoted(text: &str) -> String {
+#[must_use]
+pub fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// `word` as one shell word: as it is when it is a plain word ([`is_plain_word`]), single-quoted ([`shell_quote`])
+/// otherwise.
+#[must_use]
+pub fn shell_word(word: &str) -> String {
+    if is_plain_word(word) {
+        word.to_owned()
+    } else {
+        shell_quote(word)
+    }
 }
 
 /// The command of a `(command line, options)` call such as `execSync('tsc -b', { cwd })`, in the directory its `cwd`
@@ -2027,7 +2034,7 @@ pub fn place_file_dir(command: &str, file: &str) -> String {
     let quoted = if dir.is_empty() {
         ".".to_owned()
     } else {
-        single_quoted(dir)
+        shell_quote(dir)
     };
     command.replace(FILE_DIR, &quoted)
 }
