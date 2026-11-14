@@ -137,6 +137,11 @@ fn names_package_file(value: &str) -> bool {
     names && parts.next().is_some_and(|file| !file.is_empty())
 }
 
+/// The file a `url()` value names, without the query or fragment after it (`a.eot?#iefix`, `sprite.svg#icon`).
+fn without_query(value: &str) -> &str {
+    value.find(['?', '#']).map_or(value, |at| &value[..at])
+}
+
 /// Whether `segment` can be a package scope or name: no path step, no interpolation and no URL syntax.
 fn is_package_segment(segment: &str) -> bool {
     !segment.is_empty()
@@ -271,7 +276,10 @@ impl Scanner<'_> {
         } else {
             self.text.get(from..close).map(|value| value.trim().to_owned())
         };
-        if let Some(specifier) = value.filter(|value| names_package_file(value)) {
+        if let Some(specifier) = value
+            .map(|value| without_query(&value).to_owned())
+            .filter(|value| names_package_file(value))
+        {
             self.found.push(Found {
                 specifier,
                 start,
@@ -494,13 +502,16 @@ mod tests {
                       .b { background: url(~legacy-icons/sprite.svg); }\n\
                       .c { background: url(\"./img.png\"), url(images/bg.png), url(\"@/assets/a.png\"); }\n\
                       .d { background: url(~/x.png), url(\"@scope\"), url(\"@scope/pkg\"), url(@{var}/x.png); }\n\
-                      .e { background: url(https://x.test/a.png); }";
+                      .e { background: url(https://x.test/a.png); }\n\
+                      @font-face { src: url(\"@fontsource/inter/files/a.eot?#iefix\"), url(~icons/sprite.svg#home); }";
         assert_eq!(
             specifiers("a.css", source),
             [
                 "@ibm/plex/Mono/fonts/a.woff2",
                 "@scope/pkg/img.png",
-                "legacy-icons/sprite.svg"
+                "legacy-icons/sprite.svg",
+                "@fontsource/inter/files/a.eot",
+                "icons/sprite.svg"
             ]
         );
         let info = parse_stylesheet(Path::new("a.css"), ".a { b: url(\"@s/p/x.png\"); }");
