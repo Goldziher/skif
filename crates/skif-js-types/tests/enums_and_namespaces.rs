@@ -90,6 +90,10 @@ fn an_enum_that_escapes_is_used_as_a_whole() {
             "a spread",
             "import { Color } from './colors';\n\nexport const copy = { ...Color };\n",
         ),
+        (
+            "a shorthand property",
+            "import { Color } from './colors';\n\nexport const palette = { Color };\n",
+        ),
     ] {
         assert_case(
             case,
