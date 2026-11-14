@@ -496,6 +496,15 @@ struct Queued {
 }
 
 impl Collector<'_, '_> {
+    /// Whether the config `from` lies below a `node_modules` directory of the workspace: a file of an installed
+    /// package, not of the workspace.
+    fn is_installed_config(&self, from: &Path) -> bool {
+        from.strip_prefix(self.ctx.dir)
+            .unwrap_or(from)
+            .components()
+            .any(|component| component.as_os_str() == "node_modules")
+    }
+
     /// Whether `from` is a config of another package below the workspace, whose `paths`, `baseUrl` and output
     /// directories apply to that package's files only (a `tsconfig` `references` entry points into a sub-project).
     fn belongs_to_other_package(&self, from: &Path) -> bool {
@@ -588,8 +597,11 @@ impl Collector<'_, '_> {
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),
                 PluginInput::ConfigFile(path) => {
                     // A config inside a package's `node_modules` directory (`./node_modules/pkg/base.json`) needs
-                    // that package, whether or not it is installed.
-                    if let Some(name) = below_node_modules(&path).and_then(package_name) {
+                    // that package, whether or not it is installed, when the workspace's own config names it: what an
+                    // installed config extends is that package's dependency.
+                    if !self.is_installed_config(from)
+                        && let Some(name) = below_node_modules(&path).and_then(package_name)
+                    {
                         let named_by = self.named_by(from, config, &name);
                         self.dependency(DepRef::new(name, &named_by, false, config.is_some()));
                     }
