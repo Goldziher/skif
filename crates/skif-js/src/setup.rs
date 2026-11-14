@@ -83,6 +83,7 @@ struct Configured {
     ignore_unresolved: Vec<String>,
     ignore_members: Vec<String>,
     include_entry_exports: Option<bool>,
+    type_aware: Option<bool>,
     ignore_exports_used_in_file: Option<IgnoreExportsUsedInFile>,
     paths: IndexMap<String, Vec<String>>,
 }
@@ -156,6 +157,7 @@ impl From<&JsWorkspace> for Configured {
             ignore_unresolved: names(&workspace.ignore_unresolved),
             ignore_members: names(&workspace.ignore_members),
             include_entry_exports: workspace.include_entry_exports,
+            type_aware: workspace.type_aware,
             ignore_exports_used_in_file: workspace.ignore_exports_used_in_file.clone(),
             paths: workspace.paths.clone(),
         }
@@ -180,6 +182,7 @@ impl Configured {
         self.ignore_unresolved.extend(root.ignore_unresolved);
         self.ignore_members.extend(root.ignore_members);
         self.include_entry_exports = root.include_entry_exports.or(self.include_entry_exports);
+        self.type_aware = root.type_aware.or(self.type_aware);
         self.ignore_exports_used_in_file = root
             .ignore_exports_used_in_file
             .or(self.ignore_exports_used_in_file.take());
@@ -416,6 +419,8 @@ pub(crate) struct PackageSetup {
     pub user_patterns: UserPatterns,
     /// Whether unused exports of entry files are reported (`include-entry-exports`, workspace over top level).
     pub include_entry_exports: bool,
+    /// Whether member reads are resolved with the TypeScript type checker (`type-aware`, workspace over top level).
+    pub type_aware: bool,
     /// Which exports used in their own file are not reported.
     pub used_in_file: IgnoreExportsUsedInFile,
     /// Packages referenced by plugins and by scripts.
@@ -516,6 +521,8 @@ pub(crate) struct Setup {
     /// its `dependencies` and `peerDependencies`, and type-only imports use no package.
     pub strict: bool,
     pub include_entry_exports: bool,
+    /// `[js] type-aware`: member reads are resolved with the TypeScript type checker unless a workspace turns it off.
+    pub type_aware: bool,
     /// `[js] include-fixtures`: files in fixture directories are reported as unused like any other.
     pub include_fixtures: bool,
     /// `[js] ignore-exports-used-in-file`.
@@ -1110,6 +1117,7 @@ impl Setup {
                 ignore_members: Listed::new(&user.ignore_members, production),
                 user_patterns,
                 include_entry_exports: user.include_entry_exports.unwrap_or(js.include_entry_exports),
+                type_aware: user.type_aware.unwrap_or(js.type_aware),
                 used_in_file: user
                     .ignore_exports_used_in_file
                     .unwrap_or_else(|| js.ignore_exports_used_in_file.clone()),
@@ -1157,6 +1165,7 @@ impl Setup {
             isolate_workspaces: js.isolated(),
             strict: js.strict,
             include_entry_exports: js.include_entry_exports,
+            type_aware: js.type_aware,
             include_fixtures: js.include_fixtures,
             used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,
@@ -1280,6 +1289,11 @@ impl Setup {
     pub(crate) fn includes_entry_exports(&self, id: PackageId) -> bool {
         self.package(id)
             .map_or(self.include_entry_exports, |setup| setup.include_entry_exports)
+    }
+
+    /// Whether member reads of package `id` are resolved with the TypeScript type checker.
+    pub(crate) fn type_aware(&self, id: PackageId) -> bool {
+        self.package(id).map_or(self.type_aware, |setup| setup.type_aware)
     }
 
     /// Whether an export of package `id` that is used in its own file is left unreported.
