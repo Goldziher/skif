@@ -451,6 +451,43 @@ fn imports_inside_declare_module_bodies_are_imports() {
 }
 
 #[test]
+fn reexports_inside_declare_module_bodies_are_type_imports_but_no_exports() {
+    let info = parse(
+        "types.d.ts",
+        "declare module 'commander' {\n  export * from '@commander-js/extra-typings';\n}\n\
+         declare module 'compiled/is' {\n  export { isElement as is } from 'react-is';\n  \
+         export type { Kind } from 'kinds';\n}\n",
+    );
+    assert_eq!(imported(&info, "@commander-js/extra-typings"), ["*"]);
+    assert_eq!(imported(&info, "react-is"), ["isElement"]);
+    assert_eq!(imported(&info, "kinds"), ["Kind"]);
+    let kinds: Vec<ImportKind> = info.imports.iter().map(|import| import.kind).collect();
+    // The block declares types only, so what it re-exports is a type-only import.
+    assert_eq!(kinds, [ImportKind::TypeOnly; 3]);
+    let types: Vec<bool> = info
+        .imports
+        .iter()
+        .flat_map(|import| &import.names)
+        .map(|name| name.is_type)
+        .collect();
+    assert_eq!(types, [true; 3]);
+    assert!(info.exports.is_empty(), "{:?}", info.exports);
+    assert_eq!(info.ambient_modules, ["commander", "compiled/is"]);
+}
+
+#[test]
+fn relative_reexports_inside_declare_module_bodies_are_no_imports() {
+    let info = parse(
+        "types.d.ts",
+        "declare module 'kit' {\n  export * from './local';\n  export { a } from '../up';\n  \
+         export * from '/abs/types';\n  export * from 'kit-types';\n}\n",
+    );
+    let specifiers: Vec<&str> = info.imports.iter().map(|import| import.specifier.as_str()).collect();
+    assert_eq!(specifiers, ["kit-types"]);
+    assert!(info.exports.is_empty(), "{:?}", info.exports);
+}
+
+#[test]
 fn declare_module_in_a_module_file_is_an_augmentation() {
     let info = parse(
         "next-auth.d.ts",

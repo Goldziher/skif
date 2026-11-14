@@ -2466,6 +2466,7 @@ dependencies = [
  "indexmap",
  "memchr",
  "proptest",
+ "rayon",
  "regex",
  "serde_json",
  "skif-config",

@@ -1185,6 +1185,90 @@ fn packages_loaded_and_binaries_run_in_another_directory_are_credited_to_the_pac
     assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
 }
 
+/// A command substitution in a workflow step with a `working-directory` runs in that directory: a binary it runs is
+/// credited to the package there, while one a step without it runs is judged at the root.
+#[test]
+fn a_substitution_in_a_step_runs_in_the_working_directory_of_the_step() {
+    let root = manifest(&format!(r#""name":"root","private":true,{PNPM}"#));
+    let workflow = "name: ci\non: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: |\n          SUITE=$(pnpm exec subtool resolve.ts)\n          echo \"$SUITE\"\n        \
+                    working-directory: packages/web\n      \
+                    - run: echo $(pnpm exec subtool2)\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        (
+            "packages/web/package.json",
+            r#"{"name":"web","private":true,"main":"index.js","devDependencies":{"subtool":"1.0.0","subtool2":"1.0.0"}}"#,
+        ),
+        ("packages/web/index.js", "module.exports = 1;\n"),
+        ("packages/web/resolve.ts", "export const suite = 'baseline';\n"),
+        (".github/workflows/ci.yml", workflow),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        [".github/workflows/ci.yml: subtool2"],
+        "{diagnostics:#?}"
+    );
+}
+
+/// A member's file that spawns the binary link it resolves (`execa(require.resolve('.bin/jscodeshift'))`) runs a binary
+/// of the member, which lists it, also when the root lists execa too; a binary a file of the root runs is still judged
+/// at the root.
+#[test]
+fn a_member_file_that_spawns_a_resolved_binary_link_runs_a_binary_of_the_member() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/release.mjs","devDependencies":{{"execa":"9.0.0"}}"#
+    ));
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        (
+            "packages/codemod/package.json",
+            r#"{"name":"codemod","version":"1.0.0","bin":{"codemod":"bin/transform.js"},"dependencies":{"execa":"9.0.0","jscodeshift":"17.0.0"}}"#,
+        ),
+        (
+            "packages/codemod/bin/transform.js",
+            "const { execa } = require('execa');\nconst exe = require.resolve('.bin/jscodeshift');\n\
+             execa(exe, ['-t', 'x']);\n",
+        ),
+        (
+            "scripts/release.mjs",
+            "import { execa } from 'execa';\nawait execa('changeset', ['publish']);\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["scripts/release.mjs: changeset"],
+        "{diagnostics:#?}"
+    );
+}
+
+/// A `package.json` that only sets the module format of `scripts/` makes no member of it: the binary a script there
+/// runs with execa is judged at the root, which does not list it.
+#[test]
+fn a_script_below_a_package_json_that_only_sets_the_type_runs_a_binary_of_the_root() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/release.mjs","devDependencies":{{"execa":"9.0.0"}}"#
+    ));
+    let files = [
+        ("package.json", root.as_str()),
+        ("scripts/package.json", r#"{"type":"module"}"#),
+        (
+            "scripts/release.mjs",
+            "import { execa } from 'execa';\nawait execa('changeset', ['publish']);\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["scripts/release.mjs: changeset"],
+        "{diagnostics:#?}"
+    );
+}
+
 /// A binary that a script, a workflow step or a source file runs after `cd` into another workspace package that does
 /// not provide it is reported at the command, naming the package it runs in. A script of that package, which a package
 /// manager run there runs, is no binary.

@@ -13,7 +13,7 @@ old one.
 | 0003 | [Library API and Embedding](0003-library-api-and-embedding.md) | accepted |
 | 0004 | [Configuration Model and Layering](0004-configuration-model-and-layering.md) | accepted |
 | 0005 | [The `[js]` Table, Ignore Lists and Suppression Reasons](0005-the-js-table-ignore-lists-and-suppression-reasons.md) | accepted |
-| 0006 | [Workspace Discovery, Roots and Multi-Root Runs](0006-workspace-discovery-roots-and-multi-root-runs.md) | accepted |
+| 0006 | [Workspace Discovery, Roots and Multi-Root Runs](0006-workspace-discovery-roots-and-multi-root-runs.md) | accepted, superseded in part by [0034](0034-build-sources-handed-to-a-nested-root.md) |
 | 0007 | [Specifier and Semver Model](0007-specifier-and-semver-model.md) | accepted |
 | 0008 | [Rule and Diagnostic Model, Rule Ids and Severities](0008-rule-and-diagnostic-model-rule-ids-and-severities.md) | accepted |
 | 0009 | [Fixes, Edits and `package.json` Formatting: Structural Operations, Returned Plans and Safety by Move](0009-fixes-edits-and-package-json-formatting.md) | accepted |
@@ -38,7 +38,8 @@ old one.
 | 0028 | [Editors, Agents and Git Hooks: `skif mcp`, `skif lsp`, `--watch`, the Agent Skill and the Hooks](0028-editors-agents-and-git-hooks.md) | accepted |
 | 0029 | [Performance, Caching and Benchmarks: A Content-Keyed Module Cache and Published Numbers From a Pinned Runner](0029-performance-caching-and-benchmarks.md) | accepted |
 | 0030 | [Supported Versions and the End-to-End Matrix: Upstream End of Life, Tested Layouts](0030-supported-versions-and-the-end-to-end-matrix.md) | accepted |
-| 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted |
+| 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted, superseded in part by [0034](0034-build-sources-handed-to-a-nested-root.md) |
 | 0032 | [Nx and Lerna (and Pruned Output Trees): Projects as Scopes, Lerna as Facts, Layouts Recognised by Shape](0032-nx-and-lerna-and-pruned-output-trees.md) | accepted |
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
+| 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
 | 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |

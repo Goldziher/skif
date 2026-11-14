@@ -32,6 +32,7 @@ fn resolve(files: &[(&str, &str)], dependencies: &[&str], id: &str) -> PluginOut
         nx: None,
         globs: &GlobCache::new(),
         sources: None,
+        members: &[],
     };
     resolve_plugins(&ctx)
         .into_iter()

@@ -5,6 +5,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins_in};
+use skif_workspace::Workspace;
 
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
@@ -331,6 +332,16 @@ fn dir_below(dir: &str, package_dir: &str) -> Option<String> {
     dir.strip_prefix(package_dir)?.strip_prefix('/').map(str::to_owned)
 }
 
+/// The directories of the members of `workspace` below `package_dir`, relative to it: their sources are theirs.
+fn members_below(workspace: &Workspace, package_dir: &str) -> Vec<String> {
+    workspace
+        .iter()
+        .filter(|(_, member)| !member.is_root)
+        .filter_map(|(_, member)| dir_below(&member.dir.to_string_lossy().replace('\\', "/"), package_dir))
+        .filter(|relative| !relative.is_empty())
+        .collect()
+}
+
 impl InputSource for PluginSource {
     fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
         let package = request.package;
@@ -350,6 +361,8 @@ impl InputSource for PluginSource {
         );
         let modules = ConfigModules::new(request.fs, request.workspace);
         let sources = request.listing.package_sources(request.workspace, &dir);
+        let package_dir = package.dir.to_string_lossy().replace('\\', "/");
+        let members = members_below(request.workspace, &package_dir);
         let context = PluginContext {
             dir: &dir,
             is_root: package.is_root,
@@ -363,9 +376,9 @@ impl InputSource for PluginSource {
             nx: None,
             globs: request.listing.globs(),
             sources: Some(&sources),
+            members: &members,
         };
         // The Nx projects are those the source walk reaches, listed once for every package of the run.
-        let package_dir = package.dir.to_string_lossy().replace('\\', "/");
         let projects = || -> Vec<(String, bool)> {
             request
                 .listing
@@ -427,20 +440,20 @@ mod tests {
         }
     }
 
-    /// The packages of one run share the texts of their sources: the root package, which depends on `execa`, reads
-    /// the script of a member, and the member, which inherits `execa`, finds the command in it without reading it
+    /// The packages of one run share the texts of their sources: the root package, which depends on `pino`, reads
+    /// the logger of a member, and the member, which inherits `pino`, finds the transport in it without reading it
     /// again.
     #[test]
     fn the_packages_of_a_run_read_a_shared_source_file_once() {
         let memory = MemoryFs::new()
             .with_file(
                 "/ws/package.json",
-                r#"{"name":"r","workspaces":["packages/*"],"devDependencies":{"execa":"9.0.0"}}"#,
+                r#"{"name":"r","workspaces":["packages/*"],"dependencies":{"pino":"9.0.0"}}"#,
             )
             .with_file("/ws/packages/a/package.json", r#"{"name":"a"}"#)
             .with_file(
-                "/ws/packages/a/scripts/release.ts",
-                r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+                "/ws/packages/a/src/logger.ts",
+                r#"import pino from "pino"; export const logger = pino({ transport: { target: "pino-pretty" } });"#,
             );
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &memory).unwrap();
@@ -461,16 +474,12 @@ mod tests {
                 listing: &listing,
             })
         };
-        let script = Path::new("/ws/packages/a/scripts/release.ts");
-        let reads = || fs.reads.lock().unwrap().get(script).copied();
+        let logger = Path::new("/ws/packages/a/src/logger.ts");
+        let reads = || fs.reads.lock().unwrap().get(logger).copied();
         let _ = inputs("r", ".");
-        assert_eq!(reads(), Some(1), "the root package reads the member's script");
+        assert_eq!(reads(), Some(1), "the root package reads the member's logger");
         let member = inputs("a", "packages/a");
-        assert!(
-            member.binaries.contains(&"changeset".to_owned()),
-            "{:?}",
-            member.binaries
-        );
+        assert_eq!(member.dependencies, ["pino-pretty"]);
         assert_eq!(reads(), Some(1), "the member takes the text the root package read");
     }
 

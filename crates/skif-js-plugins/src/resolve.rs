@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::{HashMap, HashSet};
-use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
+use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir, shell_quote};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
 use crate::files::{Listing, find_files, list_files};
@@ -23,7 +23,9 @@ use crate::scopes::{NxProjects, ScopeShared, merge, rebase, scope_dir, within_pa
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
 use crate::sources::PackageSources;
-use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
+use crate::support::{
+    below_node_modules, is_relative, join_lexically, join_rel, looks_like_file, package_name, path_within,
+};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
 
@@ -182,8 +184,10 @@ fn run_in_scopes(
             || PackageSources::new(&dir),
             |package| PackageSources::within(&dir, package),
         );
+        let scope_members = members_within(ctx.members, scope);
         let scope_ctx = PluginContext {
             sources: Some(&scope_sources),
+            members: &scope_members,
             ..shared.context(ctx, &dir)
         };
         let files = list_files(ctx.fs, &dir);
@@ -206,6 +210,14 @@ fn run_in_scopes(
             merge(outputs[index].get_or_insert_with(PluginOutput::default), found);
         }
     }
+}
+
+/// The directories of `members` below `scope`, relative to it.
+fn members_within(members: &[String], scope: &str) -> Vec<String> {
+    members
+        .iter()
+        .filter_map(|member| path_within(member, scope).filter(|inside| !inside.is_empty()))
+        .collect()
 }
 
 /// How the plugin of `spec` is enabled in a scope whose context is `scope_ctx`, as far as the scope's files do not
@@ -496,6 +508,15 @@ struct Queued {
 }
 
 impl Collector<'_, '_> {
+    /// Whether the config `from` lies below a `node_modules` directory of the workspace: a file of an installed
+    /// package, not of the workspace.
+    fn is_installed_config(&self, from: &Path) -> bool {
+        from.strip_prefix(self.ctx.dir)
+            .unwrap_or(from)
+            .components()
+            .any(|component| component.as_os_str() == "node_modules")
+    }
+
     /// Whether `from` is a config of another package below the workspace, whose `paths`, `baseUrl` and output
     /// directories apply to that package's files only (a `tsconfig` `references` entry points into a sub-project).
     fn belongs_to_other_package(&self, from: &Path) -> bool {
@@ -587,6 +608,15 @@ impl Collector<'_, '_> {
                 }),
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),
                 PluginInput::ConfigFile(path) => {
+                    // A config inside a package's `node_modules` directory (`./node_modules/pkg/base.json`) needs
+                    // that package, whether or not it is installed, when the workspace's own config names it: what an
+                    // installed config extends is that package's dependency.
+                    if !self.is_installed_config(from)
+                        && let Some(name) = below_node_modules(&path).and_then(package_name)
+                    {
+                        let named_by = self.named_by(from, config, &name);
+                        self.dependency(DepRef::new(name, &named_by, false, config.is_some()));
+                    }
                     if depth < MAX_CONFIG_DEPTH && self.ctx.fs.is_file(&join_lexically(self.ctx.dir, &path)) {
                         self.queue.push_back(Queued {
                             path,
@@ -756,7 +786,7 @@ impl Collector<'_, '_> {
     /// entries there, and the binaries and packages it names carry the directory, as after `cd`.
     fn script_at(&mut self, dir: &str, text: &str, from: &Path, optional: bool) {
         // A line of its own, so that a script that starts with a comment or a shebang still follows it.
-        let cd = format!("cd '{}'\n", dir.replace('\'', r"'\''"));
+        let cd = format!("cd {}\n", shell_quote(dir));
         let mut texts = vec![text.to_owned()];
         texts.extend(flag_values(text, &["cdk"], &["-a", "--app"]));
         for text in texts {
@@ -1075,6 +1105,7 @@ mod tests {
             nx: None,
             globs: &GLOBS,
             sources: None,
+            members: &[],
         }
     }
 
@@ -1192,6 +1223,7 @@ mod tests {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         let configs = ConfigCache::default();
         let mut collector = Collector {
@@ -1247,6 +1279,7 @@ mod tests {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         let arguments = [
@@ -1312,6 +1345,7 @@ mod tests {
             nx: None,
             globs: &GlobCache::new(),
             sources: None,
+            members: &[],
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         for key in ["testIgnore", "watchExclude", "excludeFiles"] {

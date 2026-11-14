@@ -88,6 +88,9 @@ pub struct JsAnalysis<'a> {
     pub(crate) config_hints: Vec<ConfigHint>,
     /// Files plugins name as entries that are no file of this analysis, absolute; see [`Self::other_project_files`].
     other_root_entries: Vec<PathBuf>,
+    /// Files plugins name as build sources that are no file of this analysis, absolute and sorted; see
+    /// [`Self::other_project_build_sources`].
+    other_root_build_sources: Vec<PathBuf>,
     /// Why a script or a bin stub makes a file an entry, for the entry files whose path does not tell it.
     pub(crate) entry_origins: HashMap<PathBuf, EntryReason>,
     /// The packages that own a file another root of a multi-root run imports, which may import their `exports`
@@ -151,6 +154,8 @@ pub(crate) struct Caches<'c> {
     pub modules: Option<&'c ModuleParser<'c>>,
     /// Files, relative to the workspace root, that other roots of the run import as entries.
     pub extra_entries: &'c [PathBuf],
+    /// Files, relative to the workspace root, that other roots of the run name as build sources.
+    pub extra_build_sources: &'c [PathBuf],
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -539,12 +544,13 @@ impl<'a> JsAnalysis<'a> {
                 indexes: &IndexCache::default(),
                 modules: None,
                 extra_entries: &[],
+                extra_build_sources: &[],
             },
         )
     }
 
     /// Like [`build`](Self::build), reading the git index and parse results through `caches`, with the extra entries
-    /// other roots of the run import.
+    /// and build sources other roots of the run hand this one.
     pub(crate) fn build_cached(
         workspace: &'a Workspace,
         config: &Config,
@@ -557,6 +563,7 @@ impl<'a> JsAnalysis<'a> {
             indexes: cache,
             modules,
             extra_entries,
+            extra_build_sources,
         } = *caches;
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
@@ -599,13 +606,14 @@ impl<'a> JsAnalysis<'a> {
                 workspace,
                 &setup,
                 &candidates,
-                (extra_entries, sequential),
+                (extra_entries, extra_build_sources, sequential),
                 published,
             )
         });
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
-        let other_root_entries = found.other_roots;
+        let other_root_entries = found.other_root_entries;
+        let other_root_build_sources = found.other_root_build_sources;
         let entry_origins = found.origins;
         let config_hints = {
             let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
@@ -708,6 +716,7 @@ impl<'a> JsAnalysis<'a> {
             judged_ignore_files,
             config_hints,
             other_root_entries,
+            other_root_build_sources,
             entry_origins,
             imported_by_other_roots,
             listed_from_index,
@@ -810,11 +819,12 @@ impl<'a> JsAnalysis<'a> {
     /// Below the root are the files of projects of their own ([`Module::foreign`], such as a nested root) that a
     /// module of this workspace imports, that a script runs, or that a plugin names as an entry (a workflow step's
     /// `node build/report.ts`). Only the files its own code reaches directly: what those import is for the owning
-    /// project to follow, so that a multi-root run makes these, and only these, its entries.
+    /// project to follow, so that a multi-root run makes these, and only these, its entries. The files a plugin names
+    /// as build sources are [`Self::other_project_build_sources`] instead.
     ///
     /// Outside the root are every module the graph reached there (`../tools/detect.ts` and what it imports in
-    /// turn), as the graph follows them, and the files a plugin names there; installed code is left out. A multi-root
-    /// run counts them as used by the root that owns them, which was linted without this code.
+    /// turn), as the graph follows them, and the files a plugin names there as entries; installed code is left out. A
+    /// multi-root run counts them as used by the root that owns them, which was linted without this code.
     #[must_use]
     pub fn other_project_files(&self) -> Vec<PathBuf> {
         let root = &self.workspace.root;
@@ -847,6 +857,15 @@ impl<'a> JsAnalysis<'a> {
         }
         files.extend(self.other_root_entries.iter().cloned());
         files.into_iter().collect()
+    }
+
+    /// The files of other projects that a plugin names as build sources (a Bazel `srcs` of a root `BUILD` file naming
+    /// a file of a nested root), absolute and sorted. A multi-root run hands those below the root to the root that
+    /// owns them as build sources, which are used and whose imports are followed but whose exports are judged, and
+    /// counts those outside the root as used by the root that owns them.
+    #[must_use]
+    pub fn other_project_build_sources(&self) -> Vec<PathBuf> {
+        self.other_root_build_sources.clone()
     }
 
     /// The analysed packages whose entry files are not all known, with every reason and the scope left unjudged

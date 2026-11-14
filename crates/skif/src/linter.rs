@@ -57,6 +57,8 @@ pub struct RunOptions<'a> {
     config_path: Option<&'a Path>,
     /// Files of this workspace that other roots of the same run import, relative to the workspace root.
     extra_entries: &'a [PathBuf],
+    /// Files of this workspace that other roots of the same run name as build sources, relative to the workspace root.
+    extra_build_sources: &'a [PathBuf],
 }
 
 impl<'a> RunOptions<'a> {
@@ -95,6 +97,17 @@ impl<'a> RunOptions<'a> {
     #[must_use]
     pub const fn with_extra_entries(mut self, files: &'a [PathBuf]) -> Self {
         self.extra_entries = files;
+        self
+    }
+
+    /// Makes `files`, relative to the workspace root, build sources of the JS analysis: the files of this workspace
+    /// that other roots of the same run name as build sources (a Bazel `srcs` of an outer root's `BUILD` file), as
+    /// listed in their reports' [`Report::other_project_build_sources`]. They are used and their imports are followed,
+    /// as with [`with_extra_entries`](Self::with_extra_entries), but they are no entries, so their unused exports are
+    /// reported. A file that is also an entry stays one. Files the analysis does not own are left out.
+    #[must_use]
+    pub const fn with_extra_build_sources(mut self, files: &'a [PathBuf]) -> Self {
+        self.extra_build_sources = files;
         self
     }
 
@@ -431,6 +444,7 @@ impl Linter {
         }
         run_options = run_options
             .with_extra_entries(options.extra_entries)
+            .with_extra_build_sources(options.extra_build_sources)
             .with_index_cache(&self.indexes);
         // The rules that read a lockfile or patch files read them through the file system this linter was built with.
         if let Some(cache) = self.cache.as_deref() {

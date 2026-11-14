@@ -1953,27 +1953,44 @@ pub(crate) fn imported_calls_in(
 }
 
 /// The command line of a `(file, [arguments])` call such as `spawn('eslint', ['.'])`: the file and its literal
-/// arguments, a computed argument left out. `None` when the file or a literal argument is not a plain word, because
-/// dropping it would change what the command means.
+/// arguments up to the first computed one, which ends it, as a literal after it may be the value of a flag the computed
+/// one is or take the place of a file it names (`spawn('node', [script, 'My App'])` runs no `My App`). A literal
+/// argument that is not a plain word (SQL, a sentence, `a && b`) is single-quoted, as the call hands it to the program
+/// as one word without a shell. `None` when the file is not a plain word.
 #[must_use]
 pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
-    let is_safe = |word: &str| {
-        !word.is_empty()
-            && word
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | ',' | ':' | '/' | '=' | '+' | '~' | '-'))
-    };
-    let file = arguments.first()?.as_str().filter(|file| is_safe(file))?;
-    let mut words = vec![file];
+    let file = arguments.first()?.as_str().filter(|file| is_plain_word(file))?;
+    let mut words = vec![file.to_owned()];
     if let Some(ConfigValue::Array(items)) = arguments.get(1) {
-        for word in items.iter().filter_map(ConfigValue::as_str) {
-            if !is_safe(word) {
-                return None;
-            }
-            words.push(word);
-        }
+        words.extend(items.iter().map_while(ConfigValue::as_str).map(shell_word));
     }
     Some(words.join(" "))
+}
+
+/// Whether a shell reads `word` as itself: one word, without quotes, expansions or operators.
+#[must_use]
+pub fn is_plain_word(word: &str) -> bool {
+    !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | ',' | ':' | '/' | '=' | '+' | '~' | '-'))
+}
+
+/// `text` single-quoted, so that a shell reads it as part of one word whatever it holds.
+#[must_use]
+pub fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// `word` as one shell word: as it is when it is a plain word ([`is_plain_word`]), single-quoted ([`shell_quote`])
+/// otherwise.
+#[must_use]
+pub fn shell_word(word: &str) -> String {
+    if is_plain_word(word) {
+        word.to_owned()
+    } else {
+        shell_quote(word)
+    }
 }
 
 /// The command of a `(command line, options)` call such as `execSync('tsc -b', { cwd })`, in the directory its `cwd`
@@ -2017,7 +2034,7 @@ pub fn place_file_dir(command: &str, file: &str) -> String {
     let quoted = if dir.is_empty() {
         ".".to_owned()
     } else {
-        format!("'{}'", dir.replace('\'', r"'\''"))
+        shell_quote(dir)
     };
     command.replace(FILE_DIR, &quoted)
 }

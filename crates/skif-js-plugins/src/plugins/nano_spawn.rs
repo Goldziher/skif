@@ -5,7 +5,7 @@ use skif_js_syntax::extract_command_calls;
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::execa::safe_command;
-use crate::support::sources_containing;
+use crate::support::own_sources_containing;
 
 /// The `nano-spawn` plugin.
 pub struct NanoSpawn;
@@ -27,7 +27,7 @@ impl Plugin for NanoSpawn {
 
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
-        for (source, text) in sources_containing(cx, "nano-spawn") {
+        for (source, text) in own_sources_containing(cx, "nano-spawn") {
             let path = cx.dir.join(&source);
             for call in extract_command_calls(&text, &path, &["nano-spawn"], &[]) {
                 if call.export == "default" && call.template.is_none() {
