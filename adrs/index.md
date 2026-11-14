@@ -41,3 +41,4 @@ old one.
 | 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted |
 | 0032 | [Nx and Lerna (and Pruned Output Trees): Projects as Scopes, Lerna as Facts, Layouts Recognised by Shape](0032-nx-and-lerna-and-pruned-output-trees.md) | accepted |
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
+| 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |
