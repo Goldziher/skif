@@ -1154,7 +1154,7 @@ impl Setup {
         global || package
     }
 
-    /// Whether the enum or namespace member `name` in package `id` is on an `ignore-members` list.
+    /// Whether the enum, namespace or class member `name` in package `id` is on an `ignore-members` list.
     pub(crate) fn ignores_member(&self, id: PackageId, name: &str) -> bool {
         self.global_ignore_members.is_match(name)
             || self

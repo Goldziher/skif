@@ -230,6 +230,58 @@ fn ignored_member_reached_from_the_root_snapshot() {
     insta::assert_json_snapshot!("ignored_member", Run::new("ignored-member", "").lint());
 }
 
+/// knip's `class-members` fixture (knip 5.88.1): the members its test reports, except `AbstractClass.implemented`,
+/// which skif keeps used because `ExtendedClass` declares the same name and a module reads it (ADR 0042). The members
+/// React's `Component` declares (`render`, `componentDidMount`), `private` members and the members of an implemented
+/// interface are not judged.
+#[test]
+fn class_members_follow_knips_fixture() {
+    let diagnostics = Run::new("class-members", "").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-class-members"),
+        [
+            "iterator-generator.ts: AbstractClassGen.unimplemented",
+            "members.ts: MyClass.unused",
+            "members.ts: MyComponentClass.bUnusedPublic",
+            "members.ts: MyComponentClass.bWriteOnlyPublic",
+            "members.ts: MyComponentClass.cWriteOnlyPublic",
+            "members.ts: MyComponentClass.cUnusedProp",
+            "members.ts: MyComponentClass.dUnusedMember",
+            "members.ts: MyComponentClass.eUnusedStatic",
+            "members.ts: MyComponentClass.unusedGetter",
+            "members.ts: MyComponentClass.unusedSetter",
+        ]
+    );
+    insta::assert_json_snapshot!("class_members", found(&diagnostics, "unused-class-members"));
+}
+
+/// With `include-entry-exports`, the classes of the entry file are judged too: `Parent.unusedMemberInEntry`, as in
+/// knip's second test of the fixture.
+#[test]
+fn class_members_of_entry_files_with_include_entry_exports() {
+    let diagnostics = Run::new("class-members", "[js]\ninclude-entry-exports = true\n").lint();
+    let found = found(&diagnostics, "unused-class-members");
+    assert!(found.contains(&"index.ts: Parent.unusedMemberInEntry".to_owned()), "{found:?}");
+    assert_eq!(found.len(), 11, "{found:?}");
+}
+
+#[test]
+fn removing_an_unused_class_member_takes_its_line() {
+    let diagnostics = Run::new("class-members", "").lint();
+    let diagnostic = only(&diagnostics, "unused-class-members", "MyClass.unused");
+    let fix = fix_of(diagnostic);
+    assert_eq!(fix.safety, FixSafety::Unsafe);
+    let [FixOp::Text { path, edit, .. }] = fix.ops.as_slice() else {
+        panic!("one text edit expected, got {:?}", fix.ops);
+    };
+    let source = fs::read_to_string(fixture_dir("class-members").join(path)).unwrap();
+    let fixed = apply_text_edits(&source, std::slice::from_ref(edit)).unwrap();
+    assert!(
+        fixed.contains("export class MyClass {\n  static displayName = 1;\n}\n"),
+        "{fixed}"
+    );
+}
+
 /// mastra's `factory-ui`: `vite.config.ts` sets `root: "src"`, so Vite serves `src/index.html`, whose `/boot.tsx` is
 /// `src/boot.tsx`. Only `src/orphan.ts` is unused.
 #[test]

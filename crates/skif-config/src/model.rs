@@ -2057,7 +2057,7 @@ pub struct Js {
     pub ignore_workspaces: Vec<IgnoreItem>,
     /// Exports that other code in the same file uses are not reported: `true` for every kind, or a table of kinds.
     pub ignore_exports_used_in_file: IgnoreExportsUsedInFile,
-    /// Enum and namespace member names (globs or regular expressions) never reported as unused.
+    /// Enum, namespace and class member names (globs or regular expressions) never reported as unused.
     pub ignore_members: Vec<IgnoreItem>,
     /// Analyse production code only.
     pub production: bool,
@@ -2476,7 +2476,7 @@ pub struct JsWorkspace {
     /// Exports used in their own file that are not reported in this workspace; unset inherits `[js]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_exports_used_in_file: Option<IgnoreExportsUsedInFile>,
-    /// Enum and namespace member names never reported as unused in this workspace.
+    /// Enum, namespace and class member names never reported as unused in this workspace.
     pub ignore_members: Vec<IgnoreItem>,
     /// Module aliases as in a `tsconfig` `paths` map: `{ "alias/*" = ["./target/*"] }`, targets relative to the workspace.
     pub paths: IndexMap<String, Vec<String>>,
