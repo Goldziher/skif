@@ -606,6 +606,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dragonbox_ecma"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd8e701084c37e7ef62d3f9e453b618130cbc0ef3573847785952a3ac3f746bf"
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -940,9 +946,9 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "icu_collections"
-version = "2.4.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe090a42a0d3140fed8c63263ed1fecc02422cb2f4bfe55cd8de2de1b8e105dd"
+checksum = "fa68d21081c4a05d5a901a1c62add574c77048b6a1c67be3b50ce0b60d4ca513"
 dependencies = [
  "displaydoc",
  "potential_utf",
@@ -968,9 +974,9 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_fallback"
-version = "2.4.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "406e9ae5b95d8aa37db6293405931b766a6172d1848daee22d70eb44aa78a43c"
+checksum = "251af8e57c9400e3eb58242fe5b8b1152b2a64fdf4cf632f923c38ccee6f2fa9"
 dependencies = [
  "icu_locale_core",
  "icu_locale_fallback_data",
@@ -982,9 +988,50 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_fallback_data"
-version = "2.4.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3632ebbd0c5c3637ba1a40bdf8288f2cb9d2268e73441a69d5fc73d7cfbaa87c"
+checksum = "decf2a22ec8fa68f1a0c1129a3f8583f8f8bc24e8b9ccbe98ead99f62a4dc3a8"
+
+[[package]]
+name = "icu_normalizer"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12f9cf5f235641ed274641dd81c3f28d870e276763d0797aeeab72317b1c646f"
+dependencies = [
+ "icu_collections",
+ "icu_normalizer_data",
+ "icu_properties",
+ "icu_provider",
+ "smallvec",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_normalizer_data"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1563da1ed3e0b3bf3d74c9b85917ac9c56464d2f57242270c09c9e752f8021a0"
+
+[[package]]
+name = "icu_properties"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e7ca276ad3145661a65914e6daf131ca5120cd3dcee8f8f3214b8875184a148"
+dependencies = [
+ "displaydoc",
+ "icu_collections",
+ "icu_locale_core",
+ "icu_properties_data",
+ "icu_provider",
+ "zerotrie",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_properties_data"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e590f038c1464a96894fd6d10127e90a8be4509f56ff7ecef851b15cee0b7caa"
 
 [[package]]
 name = "icu_provider"
@@ -1005,9 +1052,9 @@ dependencies = [
 
 [[package]]
 name = "icu_segmenter"
-version = "2.4.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61b195dc605f81aa181bec9b3bd14e26cc71b903e4644f6af578ca9772c7a710"
+checksum = "82d07aafccd67af15d02512a6adf5896fbc5ed00f2e99b471d2efa14016db3db"
 dependencies = [
  "icu_collections",
  "icu_locale_fallback",
@@ -1016,15 +1063,14 @@ dependencies = [
  "potential_utf",
  "smallvec",
  "utf8_iter",
- "zerotrie",
  "zerovec",
 ]
 
 [[package]]
 name = "icu_segmenter_data"
-version = "2.4.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "913a7d294ad056474749152107309fdee3ec17d2482d1ab70fdc61a81c64b9a3"
+checksum = "ae293c039020f9ec10710af98d29ce6aa2051486638b49c9a6409f3b4a9e98ad"
 
 [[package]]
 name = "ignore"
@@ -2452,6 +2498,7 @@ dependencies = [
  "skif-core",
  "skif-js-plugins",
  "skif-js-syntax",
+ "skif-js-types",
  "skif-lint",
  "skif-specifier",
  "skif-workspace",
@@ -2496,6 +2543,21 @@ dependencies = [
  "siphasher",
  "skif-core",
  "thiserror",
+]
+
+[[package]]
+name = "skif-js-types"
+version = "0.5.0"
+dependencies = [
+ "skif-core",
+ "thiserror",
+ "tsrs_ast",
+ "tsrs_checker",
+ "tsrs_compiler",
+ "tsrs_core",
+ "tsrs_scanner",
+ "tsrs_tsoptions",
+ "tsrs_vfs",
 ]
 
 [[package]]
@@ -2602,6 +2664,12 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "smallbitvec"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b0e903ee191d8f7a8fbf0d712c3a1699d19e04ceba5ad1eb673053c7d938a09"
 
 [[package]]
 name = "smallvec"
@@ -2901,6 +2969,322 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsrs_ast"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0d96e81e9665762b36be46d75f85500cd577feed96db27e2b80a8493d560647"
+dependencies = [
+ "bitflags",
+ "hashbrown 0.17.1",
+ "memchr",
+ "rustc-hash",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_spanmap",
+]
+
+[[package]]
+name = "tsrs_astnav"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc9bd772196f37f0674c97781cb7c57bd987ed8da8f6f843e42f6695957b2632"
+dependencies = [
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_scanner",
+]
+
+[[package]]
+name = "tsrs_binder"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8326646f58e0058b385b5a4ff51ff3f946dd56eefa49be6283ccc1419b76ec22"
+dependencies = [
+ "bitflags",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_scanner",
+]
+
+[[package]]
+name = "tsrs_checker"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "beedf9560f881186712e15838fb0c0a597e4c1673aa6b4eabf63ce1f627c2dbd"
+dependencies = [
+ "bitflags",
+ "hashbrown 0.17.1",
+ "rustc-hash",
+ "smallbitvec",
+ "smallvec",
+ "tsrs_ast",
+ "tsrs_astnav",
+ "tsrs_binder",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_module",
+ "tsrs_modulespecifiers",
+ "tsrs_parser",
+ "tsrs_printer",
+ "tsrs_pseudochecker",
+ "tsrs_scanner",
+ "tsrs_tsoptions",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "tsrs_compiler"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac1ce43f3defab251bdc08c33e2509ace54c39875282464e8a12fd100d2bf5eb"
+dependencies = [
+ "rayon",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_binder",
+ "tsrs_checker",
+ "tsrs_contentmapper",
+ "tsrs_core",
+ "tsrs_declarations",
+ "tsrs_diagnostics",
+ "tsrs_module",
+ "tsrs_modulespecifiers",
+ "tsrs_parser",
+ "tsrs_printer",
+ "tsrs_scanner",
+ "tsrs_sourcemap",
+ "tsrs_spanmap",
+ "tsrs_transformers",
+ "tsrs_tsoptions",
+ "tsrs_vfs",
+]
+
+[[package]]
+name = "tsrs_contentmapper"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c40fdc7316e0f06ed26ed3361feb603c2db000c620fa9dfce19b826fe3639a6"
+dependencies = [
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_ipc",
+ "tsrs_parser",
+ "tsrs_spanmap",
+ "tsrs_tsoptions",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "tsrs_core"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac6d8eaf70908bd9aa27418f019a88db3a32c7c44675dcc4e32d3c0be9d57156"
+dependencies = [
+ "dragonbox_ecma",
+ "hashbrown 0.17.1",
+ "icu_normalizer",
+ "indexmap",
+ "libc",
+ "memchr",
+ "num-bigint",
+ "num-traits",
+ "rustc-hash",
+ "simdutf8",
+ "unicode-id-start",
+]
+
+[[package]]
+name = "tsrs_declarations"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96f9bbaa30b1ab48bb826ff9b5e9d49e33081013104e64927ced692ebe6d7009"
+dependencies = [
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_checker",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_modulespecifiers",
+ "tsrs_printer",
+ "tsrs_scanner",
+ "tsrs_transformers",
+ "tsrs_tsoptions",
+]
+
+[[package]]
+name = "tsrs_diagnostics"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9945b4f868f05baf49bd92a2622805d4bfae09d97ec2c6baf488e304a03dd3f0"
+dependencies = [
+ "rustc-hash",
+]
+
+[[package]]
+name = "tsrs_ipc"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bdce05c9550598a2923dd45c3ef8cc8e3121e838301083d7faf1bae6dfe4513"
+dependencies = [
+ "rustc-hash",
+ "tsrs_core",
+]
+
+[[package]]
+name = "tsrs_module"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa655d08b5fe375dc71635c94d774e143f4aa09c383c7e867857d9c58d5a6646"
+dependencies = [
+ "bitflags",
+ "hashbrown 0.17.1",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_vfs",
+]
+
+[[package]]
+name = "tsrs_modulespecifiers"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eccd670fd9b5d1888996750d3478c28c891c261ec7f14f0b8c8225454e245068"
+dependencies = [
+ "regex",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_module",
+ "tsrs_tsoptions",
+]
+
+[[package]]
+name = "tsrs_parser"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90e97f08166b1b064d3dd962c2ba569523e26d1235813342513ad783884bc90a"
+dependencies = [
+ "bitflags",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_scanner",
+]
+
+[[package]]
+name = "tsrs_printer"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a840b00f5ca4adb048adc701b4f74a9a94c48123c85d8b5628fbe0bdf70b71d7"
+dependencies = [
+ "bitflags",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_scanner",
+ "tsrs_sourcemap",
+]
+
+[[package]]
+name = "tsrs_pseudochecker"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3135f5b25a831b5d647c1a0af262afc4f0bbe6c98937206c76994cf04b470c90"
+dependencies = [
+ "tsrs_ast",
+ "tsrs_core",
+]
+
+[[package]]
+name = "tsrs_scanner"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc8f58c3d0e2d62b2c24d91e45949e080adad8f777e8d462b1063d3cb1282421"
+dependencies = [
+ "bitflags",
+ "memchr",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_diagnostics",
+]
+
+[[package]]
+name = "tsrs_sourcemap"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "153880d469f9895e974d62335c254dda618aad9b44fee1c8a718dddd8612db29"
+dependencies = [
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_scanner",
+]
+
+[[package]]
+name = "tsrs_spanmap"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2ceb0abd017b4f0c60f7a7d6f16ba96af048196313e45e3db3a75980e8c187e"
+dependencies = [
+ "bitflags",
+ "tsrs_core",
+]
+
+[[package]]
+name = "tsrs_transformers"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69712ecc6a53dd9a3def3cdb8c8a8a2c21d3f366ba19764f8c1c606163dfc9be"
+dependencies = [
+ "bitflags",
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_binder",
+ "tsrs_checker",
+ "tsrs_core",
+ "tsrs_printer",
+ "tsrs_scanner",
+ "tsrs_tsoptions",
+]
+
+[[package]]
+name = "tsrs_tsoptions"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64c8b11b7d2eb3ab2c0cfc5fd4517e710a1b3748ccae3f77e5e3983633012e51"
+dependencies = [
+ "rustc-hash",
+ "tsrs_ast",
+ "tsrs_core",
+ "tsrs_diagnostics",
+ "tsrs_module",
+ "tsrs_parser",
+ "tsrs_scanner",
+ "tsrs_vfs",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "tsrs_vfs"
+version = "7.1.0-beta.tsrs1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28c7f6b63a944bcb97f5f8cc54de1bc82ea81948e6cfc3393acabc587b199c0b"
+dependencies = [
+ "bitflags",
+ "rayon",
+ "rustc-hash",
+ "rustix",
+ "tsrs_core",
+]
+
+[[package]]
 name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2908,9 +3292,9 @@ checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicode-id-start"
-version = "1.5.0"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0825d2e09dcae814a4273c1e1435979d414ede25b2ee235b1545da6682483765"
+checksum = "b8f73150333cb58412db36f2aca8f2875b013049705cc77b94ded70a1ab1f5da"
 
 [[package]]
 name = "unicode-ident"
@@ -3349,6 +3733,12 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "yaml_serde"

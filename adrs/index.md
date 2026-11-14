@@ -50,3 +50,7 @@ old one.
 | 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted |
 | 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
 | 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |
+| 0043 | [Type-Aware Analysis on tsrs: On by Default, Switchable, Untyped Where a Project Has No Types](0043-type-aware-analysis-on-tsrs.md) | proposed |
+| 0044 | [tsrs Dependency Policy: One Crate, Exact Pins, and the Process-Level Constraints of the Checker](0044-tsrs-dependency-policy.md) | proposed |
+| 0045 | [Typed Member Semantics: What a Typed Read Credits, and the `type-resolved` Deviation](0045-typed-member-semantics.md) | proposed |
+| 0046 | [Performance Budget and Benchmarks With Types](0046-performance-budget-with-types.md) | proposed |
