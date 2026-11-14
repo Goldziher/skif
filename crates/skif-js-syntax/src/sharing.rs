@@ -23,7 +23,8 @@
 //! of a call as the parameter at its place, and its name stands for what it returns, so `const r = set(cfg)` shares
 //! with `cfg` only what `set` returns of its parameter, and a fresh object it returns shares nothing with what it is
 //! given. The name of any other function the module declares stands for both what its parameters take and what it
-//! returns.
+//! returns, but a change of what a parameter takes does not reach what it returns: a call gives that, and the function
+//! does not return it unless it says so (`return options`).
 //!
 //! A call whose effect is not known (a function the module or a library declares, a `new` of a class other than a
 //! builtin one, a list or string method on an object not known to be a list or string) may change every object it is
@@ -556,6 +557,18 @@ struct Link {
     /// does not make again ([`Sharing::writes_modules`]). A link of what the name of a function the module declares
     /// holds (`f.cache = base`, `add.bind(null, base)`) is no such link, as the function keeps it for every call.
     loading: bool,
+    ends: Ends,
+}
+
+/// What the ends of a [`Link`] stand for of a function the module declares, whose name stands for what a call of it
+/// returns and for what its parameters take.
+#[derive(Default, Clone, Copy)]
+struct Ends {
+    /// Whether `a`, and whether `b`, stands there for what a call of the function it names returns: the function in
+    /// its definition (`return config`), or what holds a call of it (`const r = create()`).
+    returned: [bool; 2],
+    /// Whether `b` is a name a parameter of the function `a` binds, which takes what a call gives it.
+    parameter: bool,
 }
 
 /// A part of a binding that a value may hold or share: `symbol` at `keys` (`cfg.test`), found at `at` in the value.
@@ -570,6 +583,8 @@ struct Held {
     /// Whether `symbol` is a function the module declares that the value holds what a call of it returns of
     /// (`create()`), not the function itself.
     result: bool,
+    /// Whether `symbol` is a name a parameter of the function the value is binds ([`Refs::parameters`]).
+    parameter: bool,
 }
 
 /// Where the visitor of [`Sharing`] is.
@@ -1625,6 +1640,7 @@ impl Sharing<'_> {
                             b: Place::of(list),
                             join: Join::Within,
                             loading,
+                            ends: Ends::default(),
                         });
                     } else {
                         self.hold(&Place::of(name), false, of_receiver.clone());
@@ -1919,6 +1935,10 @@ impl Sharing<'_> {
                 },
                 join: if exact { item.join } else { Join::Within },
                 loading,
+                ends: Ends {
+                    returned: [self.context.defining && !item.parameter, item.result],
+                    parameter: item.parameter,
+                },
             });
         }
     }
@@ -1939,6 +1959,10 @@ impl Sharing<'_> {
                 },
                 join: Join::Within,
                 loading,
+                ends: Ends {
+                    returned: [pair[0].result, pair[1].result],
+                    parameter: false,
+                },
             });
         }
     }
@@ -2088,6 +2112,7 @@ impl Sharing<'_> {
                     b: Place::of(root),
                     join: Join::Within,
                     loading: false,
+                    ends: Ends::default(),
                 });
             }
         }
@@ -2144,6 +2169,7 @@ impl Sharing<'_> {
             b: Place::of(root),
             join: Join::Within,
             loading: false,
+            ends: Ends::default(),
         }));
         base
     }
@@ -2198,10 +2224,16 @@ impl Sharing<'_> {
     /// were changed, which through a [`Join::Within`] link would stand for a change of all they hold (a new key of what
     /// `make()` returns reaching all a function returning `make().grow` returns, and from it all `make` returns). A
     /// change that one found there covers, but for the link that one came by, has the covering one followed back too.
+    /// Nor is a change that reaches a function from a name one of its parameters binds followed to what a call of it
+    /// returns ([`Ends`]): the name takes what a call gives (`function create({ production })`), not what it returns,
+    /// so a change of it reaches the arguments of the calls but not the objects the function makes and returns. A
+    /// change that one found there covers, but for that, has the covering one followed to those too.
     fn reach_of(&self, links_of: &HashMap<SymbolId, Vec<usize>>, symbol: SymbolId, origin: &Write) -> Reach {
         let mut seen = vec![(symbol, origin.clone())];
         // For each place of `seen`, the link it was reached by and the side of it the change is not followed to.
         let mut back: Vec<Option<(usize, usize)>> = vec![None];
+        // For each place of `seen`, whether it was reached from a name a parameter of the function there binds.
+        let mut taken = vec![false];
         let mut by_symbol: HashMap<SymbolId, Vec<usize>> = HashMap::default();
         by_symbol.entry(symbol).or_default().push(0);
         let mut queue = vec![0];
@@ -2210,7 +2242,10 @@ impl Sharing<'_> {
             for &index in links_of.get(&at).map_or(&[][..], Vec::as_slice) {
                 let link = &self.links[index];
                 for (side, (from, to)) in [(&link.a, &link.b), (&link.b, &link.a)].into_iter().enumerate() {
-                    if from.symbol != at || back[place] == Some((index, side)) {
+                    if from.symbol != at
+                        || back[place] == Some((index, side))
+                        || (taken[place] && link.ends.returned[side])
+                    {
                         continue;
                     }
                     let Some(mut next) = through(from, to, link.join, &write) else {
@@ -2220,16 +2255,17 @@ impl Sharing<'_> {
                         next = Write::contents(next.keys[..MAX_KEYS].to_vec());
                     }
                     let came = Some((index, 1 - side));
+                    let from_parameter = side == 1 && link.ends.parameter;
                     let known = by_symbol.entry(to.symbol).or_default();
                     let covering = known.iter().copied().filter(|&other| seen[other].1.covers(&next));
-                    if covering
-                        .clone()
-                        .any(|other| back[other].is_none() || back[other] == came)
-                    {
+                    if covering.clone().any(|other| {
+                        (back[other].is_none() || back[other] == came) && (!taken[other] || from_parameter)
+                    }) {
                         continue;
                     }
                     if let Some(other) = covering.clone().next() {
                         back[other] = None;
+                        taken[other] &= from_parameter;
                         queue.push(other);
                         continue;
                     }
@@ -2242,6 +2278,7 @@ impl Sharing<'_> {
                     queue.push(seen.len());
                     seen.push((to.symbol, next));
                     back.push(came);
+                    taken.push(from_parameter);
                 }
             }
         }
@@ -2279,6 +2316,7 @@ impl Sharing<'_> {
                 },
                 join: Join::Same,
                 loading: false,
+                ends: Ends::default(),
             });
         }
         let mut origins: Vec<(SymbolId, Write)> = Vec::new();
@@ -2493,6 +2531,7 @@ impl Sharing<'_> {
                 b: Place::of(pair[1]),
                 join: Join::Within,
                 loading: false,
+                ends: Ends::default(),
             });
         }
         for (index, &a) in imports.iter().enumerate() {
@@ -2503,6 +2542,7 @@ impl Sharing<'_> {
                         b,
                         join: Join::Same,
                         loading: false,
+                        ends: Ends::default(),
                     });
                 }
             }
@@ -2926,6 +2966,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                                     b: Place::of(list),
                                     join: Join::Within,
                                     loading,
+                                    ends: Ends::default(),
                                 });
                             }
                             None => self.hold(&Place::of(name), false, held.clone()),
@@ -3260,6 +3301,7 @@ impl Refs<'_> {
                 at: Vec::new(),
                 join: Join::of(exact),
                 result: false,
+                parameter: true,
             }));
     }
 
@@ -3291,6 +3333,7 @@ impl Refs<'_> {
                 at: self.at.clone(),
                 join,
                 result,
+                parameter: false,
             });
         }
     }

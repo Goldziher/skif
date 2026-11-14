@@ -2237,6 +2237,21 @@ fn a_factory_destructuring_its_parameter_keeps_the_config_known_past_a_change_of
     }
 }
 
+/// A call that may change what a name the factory's parameter binds holds changes what a call of the factory gives
+/// it, not the config the factory builds and returns: the config holds only the keys the factory writes.
+#[test]
+fn a_change_of_what_a_factory_parameter_takes_leaves_the_config_it_returns_known() {
+    for parameter in ["{ production }", "[production]", "production"] {
+        let value = factory_config(parameter, "[]", "Plugin(production);");
+        assert_eq!(keys(&value), ["entry", "plugins"], "{parameter}: {value:?}");
+        assert_eq!(
+            get(&value, &["entry"]),
+            &ConfigValue::Object(vec![("bundle".to_owned(), s("./lib/entry.js"))]),
+            "{parameter}: {value:?}"
+        );
+    }
+}
+
 /// A `const` that holds a string shares no object, so giving it to a call that may change what it is given does not
 /// make an alias that also reads it one the evaluator cannot follow: the change through the alias is applied.
 #[test]
