@@ -4930,6 +4930,20 @@ fn execa_and_nano_spawn_leave_out_the_arguments_from_a_computed_one_on() {
     assert!(nano_spawn.entries.is_empty(), "{:?}", nano_spawn.entries);
 }
 
+/// `node -pe` prints the code it runs, which is no file and loads no package.
+#[test]
+fn nano_spawn_reads_node_print_and_eval_as_code() {
+    let files = [(
+        "scripts/version.mjs",
+        r#"import spawn from "nano-spawn";
+        await spawn("node", ["-pe", "require('./package.json').version"]);"#,
+    )];
+    let results = resolve(&files, &["nano-spawn"]);
+    let out = output(&results, "nano-spawn");
+    assert!(out.entries.is_empty(), "{:?}", out.entries);
+    assert!(deps(out).is_empty(), "{:?}", deps(out));
+}
+
 #[test]
 fn azure_pipelines_script_steps_and_templates() {
     let results = resolve(
