@@ -2184,6 +2184,59 @@ fn a_pure_call_leaves_the_config_holding_its_result_known() {
     );
 }
 
+/// The config an exported factory that destructures its parameter builds and returns, with `plugins` as its list of
+/// plugins and `statement` run before it returns the config.
+fn factory_config(parameter: &str, plugins: &str, statement: &str) -> ConfigValue {
+    extract(
+        "webpack.config.js",
+        &format!(
+            "const Plugin = require('plugin');\n\
+             function createConfig({parameter}) {{\n  \
+               const config = {{ entry: {{ bundle: './lib/entry.js' }}, plugins: {plugins} }};\n  \
+               {statement}\n  \
+               return config;\n\
+             }}\n\
+             module.exports = createConfig;"
+        ),
+    )
+}
+
+/// The keys of an object, spread keys among them.
+fn keys(value: &ConfigValue) -> Vec<&str> {
+    match value {
+        ConfigValue::Object(entries) => entries.iter().map(|(key, _)| key.as_str()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// A callback the pass does not follow (`Boolean`) may change the imported plugin a list it filters holds, and so the
+/// config's `plugins`, what the factory returns and the names its destructured parameter takes, which the factory
+/// stands for too. That change does not come back from those names to all the factory returns: the config holds only
+/// the keys the factory writes, its entries known. Given to a call that may change it, the config may hold any key.
+#[test]
+fn a_factory_destructuring_its_parameter_keeps_the_config_known_past_a_change_of_its_plugins() {
+    for (parameter, plugins) in [
+        ("{ production }", "[Plugin].filter(Boolean)"),
+        ("{ production }", "[Plugin({ open: false })].filter(Boolean)"),
+        (
+            "{ production }",
+            "[new Plugin({ template: 'public/index.html' }), production && new Other()].filter(Boolean)",
+        ),
+        ("[production]", "[Plugin].filter(Boolean)"),
+        ("{ production } = {}", "[Plugin].filter(Boolean)"),
+    ] {
+        let value = factory_config(parameter, plugins, "");
+        assert_eq!(keys(&value), ["entry", "plugins"], "{parameter} {plugins}: {value:?}");
+        assert_eq!(
+            get(&value, &["entry"]),
+            &ConfigValue::Object(vec![("bundle".to_owned(), s("./lib/entry.js"))]),
+            "{parameter} {plugins}: {value:?}"
+        );
+        let changed = factory_config(parameter, plugins, "Plugin(config);");
+        assert!(open(&changed), "{parameter} {plugins}: {changed:?}");
+    }
+}
+
 /// A `const` that holds a string shares no object, so giving it to a call that may change what it is given does not
 /// make an alias that also reads it one the evaluator cannot follow: the change through the alias is applied.
 #[test]
