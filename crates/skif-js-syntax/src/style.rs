@@ -142,13 +142,14 @@ fn without_query(value: &str) -> &str {
     value.find(['?', '#']).map_or(value, |at| &value[..at])
 }
 
-/// Whether `segment` can be a package scope or name: no path step, no interpolation and no URL syntax.
+/// Whether `segment` can be an npm package scope or name: lowercase letters, digits, `-`, `_` and `.`, not starting
+/// with `.` or `_`. A path step, interpolation, URL syntax and a capitalised alias directory (`~Assets`) are not.
 fn is_package_segment(segment: &str) -> bool {
     !segment.is_empty()
-        && !segment.starts_with('.')
+        && !segment.starts_with(['.', '_'])
         && segment
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 const fn is_ident(byte: u8) -> bool {
@@ -503,7 +504,9 @@ mod tests {
                       .c { background: url(\"./img.png\"), url(images/bg.png), url(\"@/assets/a.png\"); }\n\
                       .d { background: url(~/x.png), url(\"@scope\"), url(\"@scope/pkg\"), url(@{var}/x.png); }\n\
                       .e { background: url(https://x.test/a.png); }\n\
-                      @font-face { src: url(\"@fontsource/inter/files/a.eot?#iefix\"), url(~icons/sprite.svg#home); }";
+                      @font-face { src: url(\"@fontsource/inter/files/a.eot?#iefix\"), url(~icons/sprite.svg#home); }\n\
+                      .f { background: url(~Assets/a.png), url(\"@Scope/pkg/a.png\"), url(~_private/a.png); }\n\
+                      .g { background: url(\"@scope/.hidden/a.png\"), url(~my_icons.v2/a.svg); }";
         assert_eq!(
             specifiers("a.css", source),
             [
@@ -511,7 +514,8 @@ mod tests {
                 "@scope/pkg/img.png",
                 "legacy-icons/sprite.svg",
                 "@fontsource/inter/files/a.eot",
-                "icons/sprite.svg"
+                "icons/sprite.svg",
+                "my_icons.v2/a.svg"
             ]
         );
         let info = parse_stylesheet(Path::new("a.css"), ".a { b: url(\"@s/p/x.png\"); }");
