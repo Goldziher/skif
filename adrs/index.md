@@ -43,3 +43,4 @@ old one.
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
 | 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
 | 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |
+| 0038 | [`paths` Before Packages: TypeScript's Order for Mappings Named Like a Dependency](0038-paths-before-packages.md) | accepted |
