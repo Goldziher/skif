@@ -2226,8 +2226,9 @@ impl Sharing<'_> {
     /// change that one found there covers, but for the link that one came by, has the covering one followed back too.
     /// Nor is a change that reaches a function from a name one of its parameters binds followed to what a call of it
     /// returns ([`Ends`]): the name takes what a call gives (`function create({ production })`), not what it returns,
-    /// so a change of it reaches the arguments of the calls but not the objects the function makes and returns. A
-    /// change that one found there covers, but for that, has the covering one followed to those too.
+    /// so a change of it reaches the arguments of the calls but not the objects the function makes and returns. Nor
+    /// does a change found there so cover one that reaches the function otherwise (`return config` of a `config` that
+    /// holds the name), which is followed on its own: the wider one, followed on, would reach those objects in full.
     fn reach_of(&self, links_of: &HashMap<SymbolId, Vec<usize>>, symbol: SymbolId, origin: &Write) -> Reach {
         let mut seen = vec![(symbol, origin.clone())];
         // For each place of `seen`, the link it was reached by and the side of it the change is not followed to.
@@ -2257,15 +2258,18 @@ impl Sharing<'_> {
                     let came = Some((index, 1 - side));
                     let from_parameter = side == 1 && link.ends.parameter;
                     let known = by_symbol.entry(to.symbol).or_default();
-                    let covering = known.iter().copied().filter(|&other| seen[other].1.covers(&next));
-                    if covering.clone().any(|other| {
-                        (back[other].is_none() || back[other] == came) && (!taken[other] || from_parameter)
-                    }) {
+                    let covering = known
+                        .iter()
+                        .copied()
+                        .filter(|&other| (!taken[other] || from_parameter) && seen[other].1.covers(&next));
+                    if covering
+                        .clone()
+                        .any(|other| back[other].is_none() || back[other] == came)
+                    {
                         continue;
                     }
                     if let Some(other) = covering.clone().next() {
                         back[other] = None;
-                        taken[other] &= from_parameter;
                         queue.push(other);
                         continue;
                     }
