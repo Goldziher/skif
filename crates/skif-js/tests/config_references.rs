@@ -613,7 +613,7 @@ fn a_package_named_only_on_an_environment_gated_branch_is_optional() {
     ));
     assert_eq!(found(&listed, "unlisted-dependencies"), none());
     assert_eq!(
-        found(&listed, "unused-dependencies"),
+        found(&listed, "unused-dev-dependencies"),
         ["packages/app/package.json: idle-kit"]
     );
 }
