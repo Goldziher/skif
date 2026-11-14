@@ -38,9 +38,10 @@
 //! an installed package it does not follow ([`Imports::is_installed`]: not one of the workspace nor an alias of a
 //! project directory) and a merge that copies ([`copies`]) and `Object.assign`,
 //! beyond its first argument, as changing nothing; the first two keep nothing they are given in another argument
-//! either. A loop name, a callback parameter and a name a destructuring assigns share with what they take, but for the element a callback
-//! or a loop over a `const` list or object of primitive values (or its `Object.entries`) takes when no change reaches
-//! it, and a write in a class body is one the evaluator does not follow.
+//! either, nor call a function they are given with anything of the module, so the parameters of the callback of a
+//! `define…` helper share nothing. A loop name, a callback parameter and a name a destructuring assigns share with
+//! what they take, but for the element a callback or a loop over a `const` list or object of primitive values (or its
+//! `Object.entries`) takes when no change reaches it, and a write in a class body is one the evaluator does not follow.
 //!
 //! The bindings of the modules the evaluator follows are linked to each other, as two exports, of one module or of two,
 //! may be the same object or hold one another; one that is a part of another (`default` of a namespace import and the
@@ -3139,7 +3140,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
             }
             None => self.mutate_arguments(&it.arguments),
         }
-        self.callbacks(it.callee.get_inner_expression(), &it.arguments);
+        // A call that keeps what it is given apart calls a function it is given with nothing of the module: the
+        // callback of a `define…` helper (`defineConfig((env) => ({ … }))`) takes what the tool passes.
+        if !self.keeps_apart(it) {
+            self.callbacks(it.callee.get_inner_expression(), &it.arguments);
+        }
         let receiver = it
             .callee
             .get_inner_expression()
