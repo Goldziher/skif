@@ -92,14 +92,14 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "skif_macos_arm64",
-    url = "https://github.com/Goldziher/skif/releases/download/v0.4.0/skif-aarch64-apple-darwin.tar.gz",
+    url = "https://github.com/Goldziher/skif/releases/download/v0.5.0/skif-aarch64-apple-darwin.tar.gz",
     sha256 = "<the archive's line in checksums.txt>",
     build_file_content = 'exports_files(["skif"])',
 )
 
 http_archive(
     name = "skif_linux_x86_64",
-    url = "https://github.com/Goldziher/skif/releases/download/v0.4.0/skif-x86_64-unknown-linux-musl.tar.gz",
+    url = "https://github.com/Goldziher/skif/releases/download/v0.5.0/skif-x86_64-unknown-linux-musl.tar.gz",
     sha256 = "<the archive's line in checksums.txt>",
     build_file_content = 'exports_files(["skif"])',
 )
@@ -219,7 +219,7 @@ skif needs no Bazel build, so CI can run it outside Bazel, before or after the b
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0.4
+- uses: Goldziher/skif@v0.5
 ```
 
 ## Recipes

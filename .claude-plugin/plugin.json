@@ -1,7 +1,7 @@
 {
   "name": "skif",
   "description": "Lint JavaScript and TypeScript monorepo dependencies with skif: workspace, manifest, version and catalog rules, and unused or unlisted dependencies, files and exports, with format-preserving fixes.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": {
     "name": "Na'aman Hirschfeld",
     "email": "nhirschfeld@gmail.com",
@@ -15,7 +15,7 @@
   "mcpServers": {
     "skif": {
       "command": "npx",
-      "args": ["-y", "skif-cli@0.4.0", "mcp"]
+      "args": ["-y", "skif-cli@0.5.0", "mcp"]
     }
   }
 }

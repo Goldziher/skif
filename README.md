@@ -48,7 +48,7 @@ GitHub Action:
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0.4
+- uses: Goldziher/skif@v0.5
   with:
     fail-on-warnings: true
 ```
@@ -58,7 +58,7 @@ pre-commit or prek (needs neither Rust nor Node):
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/skif
-    rev: v0.4.0 # use the latest release tag
+    rev: v0.5.0 # use the latest release tag
     hooks:
       - id: skif       # lints manifests, skipping JS analysis
       - id: skif-fix   # optional: also applies safe fixes

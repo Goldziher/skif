@@ -9,8 +9,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
 ### Breaking changes
 
+- **Public API**: `cargo-semver-checks` against the 0.4.0 crates on crates.io reports
+  `semver requires new major version` for `skif-core` (`constructible_struct_adds_field`: `Tokens.empty_commands`),
+  `skif-js-syntax` (`enum_marked_non_exhaustive` and `enum_no_repr_variant_discriminant_changed`: `ImportKind`) and
+  `skif-js-plugins` (`constructible_struct_adds_field`: `PluginContext.members`); the bullets below also list the
+  breaks it does not flag.
 - **Public API**: `skif-js-syntax`'s `ImportKind` gains `Resolve` (`enum_variant_added`) and is `#[non_exhaustive]`,
   so a `match` on it outside the crate needs a wildcard arm, and later kinds are no longer a breaking change
   ([#225](https://github.com/Goldziher/skif/issues/225)).
