@@ -84,7 +84,7 @@ tsrs_tsoptions = "=7.1.0-beta.tsrs1"
 tsrs_vfs = "=7.1.0-beta.tsrs1"
 unicode-width = "0.2.3"
 # `skif update` only (ADR 0026): blocking HTTP with rustls on ring and gzip; roots from the OS store.
-ureq = { version = "3.5.1", default-features = false, features = ["rustls-no-provider", "gzip"] }
+ureq = { version = "3.5.2", default-features = false, features = ["rustls-no-provider", "gzip"] }
 which = "8.0.6"
 yaml_serde = "0.10"
 yamlpatch = "1.32"

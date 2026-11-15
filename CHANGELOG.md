@@ -185,6 +185,14 @@ All notable changes to this project are documented here. The format follows
   the workflow frees disk space for the installs before it builds
   ([ADR 0041](adrs/0041-benchmarks-on-large-repositories.md)).
 
+- **Benchmarks with types**: `skif-bench run` times every corpus repository and the module graph case with types (the
+  default) and with `--no-type-aware`, and measures each mode's peak RSS with `/usr/bin/time`. `summary.json` (schema
+  7) records `peak_rss_bytes` and `type_aware_budget_checks`; `summary.md` and the published tables show both modes,
+  labelled "types on (default)" and "types off". `--check-budget` fails a run that breaks the type-aware budget (types
+  on at most 3x types off on the largest repository and 2x in the median, at most 4 GiB peak RSS, at most 5 s on the
+  10,000-file graph, at least 5x faster than knip), and the `bench` workflow passes it
+  ([#244](https://github.com/Goldziher/skif/issues/244)).
+
 - **Comparison harness**: `published-source` covers the sources a published `node` `bin` stub loads and the files a
   published source re-exports; `non-member-project` covers a nested root's default-entry re-exports and, with
   `skipped-directory`, exports, types, duplicates and enum and namespace members only skif reports whose importers lie
@@ -296,6 +304,20 @@ All notable changes to this project are documented here. The format follows
 - `unlisted-binaries`: the `claude` CLI is a machine binary, as the Bazel launchers are, and as knip's global
   binaries have it: a script or a source file that runs it no longer reports it while `ignore-global-binaries` is on.
   A listed `@anthropic-ai/claude-code` still provides it ([#243](https://github.com/Goldziher/skif/issues/243)).
+- `unlisted-dependencies`: the `resolve` of a `createRequire` given another location than the file itself
+  (`createRequire(join(otherPackage, 'package.json')).resolve('pkg/data.json')`) names no import: Node.js resolves the
+  specifier from that location, so the package is the dependency of the package there. Only `import.meta.url`,
+  `import.meta.filename` and `__filename` make the call resolve from the file. Before, the package was reported as an
+  unlisted dependency of the file's package. The parse cache schema is raised
+  ([ADR 0061](adrs/0061-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+- `unlisted-dependencies`: the `cliPackageName` of a `@rushstack/heft-storybook-plugin` task no longer has to be listed
+  by the project: the plugin resolves it from the storykit package, whose dependency it is. A listing in the project
+  is still used; the `storykitPackageName` is still required
+  ([ADR 0061](adrs/0061-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+- `unlisted-dependencies`, `unused-dependencies`: the stylesheet a `tailwindcss --input` (`-i`) script compiles is an
+  entry, so the packages its `@import`s name are used, and reported when no manifest lists them, as knip has it.
+  Before, such a stylesheet was not read unless a module imported it
+  ([#242](https://github.com/Goldziher/skif/issues/242)).
 - `unused-dependencies`, `unused-dev-dependencies`: the `next` plugin names `react` and `react-dom` for a package
   without a `next.config` only when the package depends on `next` itself. A package that inherits the plugin from the
   root's `next` (a test fixture package of the workspace) is judged by its own uses of React. Before, its `react` was
