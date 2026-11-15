@@ -257,6 +257,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-dependencies`, `unused-dev-dependencies`: `declare module 'pkg' { … }` in a script (a declaration file
+  without top-level `import` or `export`) no longer uses a listed `pkg`. The block declares the module in place of the
+  package, which then need not be installed, as knip has it; the same block in a module file augments the package and
+  still uses it. Before, a package that only such a declaration named was counted as used.
 - `unused-dev-dependencies`, `unused-dependencies`: the `@types` package of a package that declares its own types
   (`@types/eslint` beside `eslint` 9) is unused also when a used dependency declares that package as a peer, as knip
   has it. TypeScript reads the types the package ships, so the peer counts for neither. Before, the peer rule
