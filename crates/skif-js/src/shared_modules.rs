@@ -273,7 +273,10 @@ mod tests {
         let budget = |modules: &SharedModules, root: &str| modules.parser(Path::new(root)).type_budget().is_some();
         let one = SharedModules::for_run(roots(&["/r/a"]), Some(host())).unwrap();
         assert!(!budget(&one, "/r/a"), "one root has the cores of its own analysis");
-        assert!(!budget(&SharedModules::host(host()), "/r/a"), "a host's cache of one linter");
+        assert!(
+            !budget(&SharedModules::host(host()), "/r/a"),
+            "a host's cache of one linter"
+        );
         for modules in [
             SharedModules::for_run(roots(&["/r/a", "/r/b"]), Some(host())).unwrap(),
             SharedModules::for_run(roots(&["/r/a", "/r/b"]), None).unwrap(),
