@@ -199,7 +199,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "babel": {
       "status": "compared",
@@ -308,7 +308,7 @@
       "tool_errors": 1,
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "cal-com": {
       "status": "compared",
@@ -446,7 +446,7 @@
       "tool_errors": 1,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "create-t3-turbo": {
       "status": "compared",
@@ -480,7 +480,7 @@
       "tool_errors": 2,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "jest": {
       "status": "compared",
@@ -506,7 +506,7 @@
           "both": 1
         },
         "exports": {
-          "skif_only": 12,
+          "skif_only": 0,
           "tool_only": 1,
           "both": 25
         },
@@ -540,10 +540,6 @@
           "skif_only": 0,
           "tool_only": 2
         },
-        "module-object-types": {
-          "skif_only": 1,
-          "tool_only": 0
-        },
         "non-member-project": {
           "skif_only": 0,
           "tool_only": 24
@@ -564,7 +560,7 @@
       "tool_errors": 1,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "mastra": {
       "status": "compared",
@@ -590,7 +586,7 @@
           "both": 35
         },
         "exports": {
-          "skif_only": 21,
+          "skif_only": 19,
           "tool_only": 3,
           "both": 2246
         },
@@ -615,7 +611,7 @@
           "both": 1
         },
         "types": {
-          "skif_only": 6,
+          "skif_only": 5,
           "tool_only": 1,
           "both": 618
         },
@@ -726,7 +722,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "n8n": {
       "status": "compared",
@@ -757,7 +753,7 @@
           "both": 2
         },
         "exports": {
-          "skif_only": 24,
+          "skif_only": 23,
           "tool_only": 35,
           "both": 802
         },
@@ -890,7 +886,7 @@
       "tool_errors": 2,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "next-js": {
       "status": "compared",
@@ -902,13 +898,13 @@
         },
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 19
+          "tool_only": 0,
+          "both": 20
         },
         "devDependencies": {
           "skif_only": 0,
-          "tool_only": 5,
-          "both": 47
+          "tool_only": 2,
+          "both": 50
         },
         "duplicates": {
           "skif_only": 0,
@@ -916,9 +912,9 @@
           "both": 6
         },
         "exports": {
-          "skif_only": 17,
-          "tool_only": 59,
-          "both": 328
+          "skif_only": 3,
+          "tool_only": 60,
+          "both": 327
         },
         "files": {
           "skif_only": 0,
@@ -970,10 +966,10 @@
         },
         "imported-by-knip-unused-file": {
           "skif_only": 0,
-          "tool_only": 56
+          "tool_only": 58
         },
         "in-knip-unused-file": {
-          "skif_only": 178,
+          "skif_only": 167,
           "tool_only": 0
         },
         "knip-config-error": {
@@ -981,7 +977,7 @@
           "tool_only": 4
         },
         "knip-unjudged-manifest": {
-          "skif_only": 426,
+          "skif_only": 432,
           "tool_only": 0
         },
         "non-code-file": {
@@ -1006,7 +1002,7 @@
         },
         "signature-type": {
           "skif_only": 0,
-          "tool_only": 30
+          "tool_only": 29
         },
         "skipped-directory": {
           "skif_only": 0,
@@ -1022,7 +1018,7 @@
         },
         "type-asserted-require": {
           "skif_only": 0,
-          "tool_only": 198
+          "tool_only": 197
         },
         "type-referenced-members": {
           "skif_only": 1,
@@ -1036,7 +1032,7 @@
       "tool_errors": 1,
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "npm-cli": {
       "status": "compared",
@@ -1099,7 +1095,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "nx-examples-integrated": {
       "status": "compared",
@@ -1128,7 +1124,7 @@
       "tool_errors": 1,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "opencode": {
       "status": "compared",
@@ -1249,7 +1245,7 @@
       "tool_errors": 3,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "rules-js": {
       "status": "compared",
@@ -1310,7 +1306,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "rushstack": {
       "status": "compared",
@@ -1323,7 +1319,7 @@
         "devDependencies": {
           "skif_only": 1,
           "tool_only": 3,
-          "both": 229
+          "both": 230
         },
         "exports": {
           "skif_only": 0,
@@ -1410,13 +1406,13 @@
         },
         "used-in-knip-unused-file": {
           "skif_only": 0,
-          "tool_only": 19
+          "tool_only": 18
         }
       },
       "tool_errors": 20,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "tanstack-query": {
       "status": "compared",
@@ -1485,7 +1481,7 @@
       "tool_errors": 18,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "turborepo-examples": {
       "status": "compared",
@@ -1526,7 +1522,7 @@
       },
       "installed": false,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "vercel-examples": {
       "status": "compared",
@@ -1545,11 +1541,6 @@
           "skif_only": 0,
           "tool_only": 0,
           "both": 189
-        },
-        "types": {
-          "skif_only": 2,
-          "tool_only": 0,
-          "both": 0
         }
       },
       "known_deviations": {
@@ -1588,7 +1579,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "vscode": {
       "status": "compared",
@@ -1739,7 +1730,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "vue-core": {
       "status": "compared",
@@ -1809,7 +1800,7 @@
       "tool_errors": 2,
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     }
   }
 }

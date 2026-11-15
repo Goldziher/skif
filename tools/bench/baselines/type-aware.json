@@ -100,7 +100,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "babel": {
       "status": "compared",
@@ -203,7 +203,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "cal-com": {
       "status": "compared",
@@ -311,7 +311,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "create-t3-turbo": {
       "status": "compared",
@@ -339,7 +339,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "jest": {
       "status": "compared",
@@ -402,7 +402,7 @@
         "unused-exports": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 43
+          "both": 31
         },
         "unused-files": {
           "skif_only": 0,
@@ -417,7 +417,7 @@
         "unused-types": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 19
+          "both": 18
         },
         "version-mismatch": {
           "skif_only": 0,
@@ -427,7 +427,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "mastra": {
       "status": "compared",
@@ -550,7 +550,7 @@
         "unused-exports": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 2381
+          "both": 2379
         },
         "unused-files": {
           "skif_only": 0,
@@ -570,7 +570,7 @@
         "unused-types": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 650
+          "both": 649
         },
         "version-mismatch": {
           "skif_only": 0,
@@ -580,7 +580,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "n8n": {
       "status": "compared",
@@ -663,7 +663,7 @@
         "unused-exports": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 923
+          "both": 922
         },
         "unused-files": {
           "skif_only": 0,
@@ -693,7 +693,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "next-js": {
       "status": "compared",
@@ -821,12 +821,12 @@
         "unused-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 146
+          "both": 151
         },
         "unused-dev-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 343
+          "both": 348
         },
         "unused-enum-members": {
           "skif_only": 0,
@@ -836,7 +836,7 @@
         "unused-exports": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 521
+          "both": 495
         },
         "unused-files": {
           "skif_only": 0,
@@ -866,7 +866,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "npm-cli": {
       "status": "compared",
@@ -934,7 +934,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "nx-examples-integrated": {
       "status": "compared",
@@ -957,7 +957,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "opencode": {
       "status": "compared",
@@ -1055,7 +1055,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "rules-js": {
       "status": "compared",
@@ -1138,7 +1138,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "rushstack": {
       "status": "compared",
@@ -1191,7 +1191,7 @@
         "unused-dev-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 230
+          "both": 231
         },
         "unused-exports": {
           "skif_only": 0,
@@ -1216,7 +1216,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "tanstack-query": {
       "status": "compared",
@@ -1279,7 +1279,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "turborepo-examples": {
       "status": "compared",
@@ -1327,7 +1327,7 @@
       },
       "installed": false,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "vercel-examples": {
       "status": "compared",
@@ -1435,7 +1435,7 @@
         "unused-types": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 43
+          "both": 41
         },
         "version-mismatch": {
           "skif_only": 0,
@@ -1445,7 +1445,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "vscode": {
       "status": "compared",
@@ -1583,7 +1583,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     },
     "vue-core": {
       "status": "compared",
@@ -1651,7 +1651,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4c85836a9120"
+      "skif_rev": "4d9cd2d946c0"
     }
   }
 }
