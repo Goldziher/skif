@@ -49,7 +49,7 @@ pub struct TypeFacts {
     /// The engine that produced the facts, with its version (`tsrs 7.1.0-beta.tsrs1`).
     pub engine: &'static str,
     /// The members of each declaration that a typed read reaches, directly or through a base class or an interface
-    /// the declaration implements.
+    /// the declaration implements, or that a subclass inheriting the member implements.
     pub reads: BTreeMap<DeclId, BTreeSet<String>>,
     /// The declarations used as a whole (`keyof C`, `Object.values(E)`, an alias passed on), whose members all count
     /// as used.
