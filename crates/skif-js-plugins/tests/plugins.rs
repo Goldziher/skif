@@ -491,6 +491,27 @@ fn typescript_types_wildcard_names_no_package() {
     assert_eq!(deps(out), BTreeSet::from(["node"]));
 }
 
+/// A declaration file a `tsconfig.json` lists in `files` is an entry, relative to that config; the other files it
+/// lists are not.
+#[test]
+fn typescript_declaration_files_listed_in_files_are_entries() {
+    let results = resolve(
+        &[
+            (
+                "tsconfig.json",
+                r#"{"extends":"./config/tsconfig.base.json","files":["src/index.ts","./types/api.d.ts"]}"#,
+            ),
+            ("config/tsconfig.base.json", r#"{"files":["../types/shared.d.mts"]}"#),
+        ],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    let mut entries = out.production_entries.clone();
+    entries.sort();
+    assert_eq!(entries, ["types/api.d.ts", "types/shared.d.mts"]);
+    assert_eq!(out.entries, out.production_entries);
+}
+
 #[test]
 fn eslint_legacy() {
     let results = resolve(
