@@ -220,7 +220,11 @@ fn visit_call_result(visitor: &mut TypeNames, local: Local<'_, '_>) {
                 } else {
                     visitor.visit_ts_type_annotation(annotation);
                 }
-            } else if !declarator.init.as_ref().is_some_and(|init| visit_value_result(visitor, init)) {
+            } else if !declarator
+                .init
+                .as_ref()
+                .is_some_and(|init| visit_value_result(visitor, init))
+            {
                 visitor.visit_variable_declarator(declarator);
             }
         }
