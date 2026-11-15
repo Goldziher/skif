@@ -380,6 +380,28 @@ fn augmenting_a_listed_package_uses_it() {
     assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: other"]);
 }
 
+/// In a script, `declare module 'dep'` declares the module in place of the package, which then need not be
+/// installed: the declaration does not use it, while the augmentation of a module file does.
+#[test]
+fn declaring_a_listed_package_in_a_script_does_not_use_it() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"dep":"1.0.0","augmented":"1.0.0"}}"#,
+        ),
+        (
+            "src/index.ts",
+            "declare module 'augmented' { interface Options { a: string } }\nexport {};\n",
+        ),
+        (
+            "src/dep.d.ts",
+            "declare module 'dep' {\n  export function run(): void;\n}\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: dep"]);
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+}
+
 #[test]
 fn augmenting_an_unlisted_package_is_not_an_unlisted_import() {
     let diagnostics = lint(&[

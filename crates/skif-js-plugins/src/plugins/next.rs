@@ -65,8 +65,14 @@ impl Plugin for Next {
         out
     }
 
-    fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        framework_dependencies()
+    /// Without a config of its own, a package is a Next.js app only when it depends on `next` itself: one that inherits
+    /// the plugin from an ancestor's `next` does not render with React because of it.
+    fn resolve_without_config(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        if cx.has_dependency("next") {
+            framework_dependencies()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Next.js takes its entries from the file-system router; a config it cannot read can change which files there

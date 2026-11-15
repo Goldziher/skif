@@ -140,7 +140,7 @@ All notable changes to this project are documented here. The format follows
   such a call used no export, and `unused-exports` reported the methods of a worker and the default export of a
   loader. Type exports are still reported unless an importer names them or a used export's signature mentions them.
   `explain-usage` says `resolve: its path, loaded by it: every value export`
-  ([ADR NNNN](adrs/NNNN-resolve-calls-use-the-values-of-the-module.md),
+  ([ADR 0059](adrs/0059-resolve-calls-use-the-values-of-the-module.md),
   [#165](https://github.com/Goldziher/skif/issues/165)).
 - `unused-dev-dependencies` reports a `devDependencies` entry of a package that the same manifest lists in
   `dependencies`, used or not ("is listed in `devDependencies` and in `dependencies`"), with the unsafe fix that
@@ -265,6 +265,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-dependencies`, `unused-dev-dependencies`: the `next` plugin names `react` and `react-dom` for a package
+  without a `next.config` only when the package depends on `next` itself. A package that inherits the plugin from the
+  root's `next` (a test fixture package of the workspace) is judged by its own uses of React. Before, its `react` was
+  counted as used.
+- `unused-dependencies`, `unused-dev-dependencies`: `declare module 'pkg' { … }` in a script (a declaration file
+  without top-level `import` or `export`) no longer uses a listed `pkg`. The block declares the module in place of the
+  package, which then need not be installed, as knip has it; the same block in a module file augments the package and
+  still uses it. Before, a package that only such a declaration named was counted as used.
+- `unused-dev-dependencies`, `unused-dependencies`: the `@types` package of a package that declares its own types
+  (`@types/eslint` beside `eslint` 9) is unused also when a used dependency declares that package as a peer, as knip
+  has it. TypeScript reads the types the package ships, so the peer counts for neither. Before, the peer rule
+  credited the `@types` package.
 - `unused-types`: the exported `Props` interface or type alias of an Astro component is used whenever the component
   is: the Astro compiler types the component's props, and so its default export, with it. Before, `export interface
   Props` in the frontmatter of a component that another file renders was reported unused. The analysis cache is
