@@ -412,7 +412,7 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
   `Report::other_project_build_sources`. Pass those below the root, made relative to the nested root that owns them,
   to `RunOptions::with_extra_build_sources` of its run, and credit those outside it as the files of
   `other_project_files` are; a host that reads only `other_project_files` no longer makes them used
-  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
   [#226](https://github.com/Goldziher/skif/issues/226)).
 
 ### Added
@@ -485,7 +485,7 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
   imports or names as an entry stays an entry. A package of the nested root that such a build source belongs to is no
   longer taken as one another root imports, so `unused-subpath-exports` now judges its `exports` unless an enclosing
   root imports or runs one of its files
-  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
   [#226](https://github.com/Goldziher/skif/issues/226)).
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
