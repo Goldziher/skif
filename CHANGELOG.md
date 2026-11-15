@@ -210,6 +210,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Recursive runs: a `package.json` below another one that holds only `type`, `sideEffects` or `imports` (a
+  `{"type": "commonjs"}` in `scripts/`) is no root of its own, as it makes no project in a single-root run. Before, its
+  directory was linted a second time as a root, and the files the package above runs or imports there were reported
+  unused. `skif-workspace` gains `MARKER_FIELDS` and `is_marker_manifest`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-files`: a worker thread started from a path built from the file's directory
+  (`new Worker(path.join(__dirname, "../workers/slots.worker.js"))`, also `path.resolve`) loads that file as a program
+  of its own, so it and what it imports are no longer reported
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - `unused-files`: `new URL("check.mjs", import.meta.url)` with a bare file name and a code extension names the file
   beside the importer, as URL resolution reads it, so a script another one runs that way is no longer reported
   ([#100](https://github.com/Goldziher/skif/issues/100)).

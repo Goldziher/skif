@@ -1218,7 +1218,9 @@ as used, unless a parameter or local of the same name shadows it; the declaratio
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole, its types included: it runs as a
 program of its own, as an entry does. A bare file name with a code extension (`new URL("worker.mjs", import.meta.url)`)
 names the file beside the importer, as URL resolution reads it; a bare path with a directory is left out, since bundlers
-may read it as a package. A module that a test mocks
+may read it as a package. So is a worker thread started from a path built from the file's directory
+(`new Worker(path.join(__dirname, "../workers/job.js"))`, also `path.resolve`, with string literals after
+`__dirname`); a plain string path is resolved against the working directory at run time and is not followed. A module that a test mocks
 (`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from the syntax tree, so a call written
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. A relative or aliased mock
