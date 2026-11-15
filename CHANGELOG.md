@@ -259,8 +259,9 @@ All notable changes to this project are documented here. The format follows
 - **Type-aware analysis memory**: a TypeScript program gets no more checkers than it has judged files. tsrs creates
   every checker of a program before the walk, each with its own copy of the program's global types, so a program
   with two judged files on four checkers held two checkers that walked nothing; on runs over many small roots these
-  idle checkers were most of the checker memory. Findings do not change
-  ([#244](https://github.com/Goldziher/skif/issues/244)).
+  idle checkers were most of the checker memory. The diagnostics a checker makes while answering are freed with its
+  program; before, they stayed in memory for the rest of the run, so every program added its own. Findings do not
+  change ([#244](https://github.com/Goldziher/skif/issues/244)).
 
 - **`unused-enum-members`, `unused-namespace-members`** with types: a member already used without types is no
   longer asked of the checker, since types only add uses, so reads of its name cost no checker lookup. `explain-usage`
