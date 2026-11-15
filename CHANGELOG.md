@@ -90,7 +90,7 @@ All notable changes to this project are documented here. The format follows
   `knip-dot-ignore` also sets apart what only a hidden file uses, `used-in-knip-unused-file` the peers of a package such
   a file imports, and `imported-by-knip-unused-file` the members such a file reads.
 - **Comparison harness**: more known deviations of the knip comparison, for how knip reads a module
-  ([ADR NNNN](adrs/NNNN-how-knip-reads-a-module.md)): `opaque-dynamic-import`, `dynamic-import-default`,
+  ([ADR 0060](adrs/0060-how-knip-reads-a-module.md)): `opaque-dynamic-import`, `dynamic-import-default`,
   `jest-require-actual`, `spied-namespace`, `enumerated-namespace`, `namespace-re-export`,
   `typescript-commonjs-export`, `node-test-entry`, `ng-package-entry` and `import-type-qualifier`;
   `tsconfig-declaration-file` also sets apart what a declaration entry re-exports, `published-source` what a file

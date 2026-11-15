@@ -517,7 +517,7 @@ why skif has no finding there. See
 [ADR 0053](../../adrs/0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) and
 [ADR 0056](../../adrs/0056-knip-tsconfig-declaration-entries-and-module-object-types.md),
 [ADR 0058](../../adrs/0058-uses-knip-does-not-read.md) and
-[ADR NNNN](../../adrs/NNNN-how-knip-reads-a-module.md).
+[ADR 0060](../../adrs/0060-how-knip-reads-a-module.md).
 
 **Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
 has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no
