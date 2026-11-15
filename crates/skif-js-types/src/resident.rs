@@ -127,7 +127,11 @@ impl TypePrograms {
         let freed = {
             let mut state = lock(&self.registry.state);
             let key = &resident.key;
-            let Some(Entry::Ready { resident: kept, waiting }) = state.entries.get_mut(key) else {
+            let Some(Entry::Ready {
+                resident: kept,
+                waiting,
+            }) = state.entries.get_mut(key)
+            else {
                 return;
             };
             if !Arc::ptr_eq(kept, resident) {

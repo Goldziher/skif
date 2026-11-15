@@ -108,7 +108,11 @@ fn roots_nested_under_the_outer_roots_config_walk_its_one_build_and_keep_their_f
         .iter()
         .map(|analysis| sharing(&workspace, analysis, &programs, &budget))
         .collect();
-    assert_eq!(programs.builds(), 1, "the outer root's program is built once for the run");
+    assert_eq!(
+        programs.builds(),
+        1,
+        "the outer root's program is built once for the run"
+    );
     assert_eq!(programs.kept(), 0, "no program outlives the roots that hold its files");
     let shared: Vec<Vec<(PathBuf, bool)>> = facts.iter().map(walked).collect();
     assert_eq!(
@@ -146,10 +150,17 @@ fn roots_analysed_at_once_wait_for_one_build_of_the_program_they_share() {
             .recv_timeout(std::time::Duration::from_secs(300))
             .expect("the analyses wait for each other's builds")
     });
-    assert_eq!(programs.builds(), 1, "one analysis builds the program, the others wait for it");
+    assert_eq!(
+        programs.builds(),
+        1,
+        "one analysis builds the program, the others wait for it"
+    );
     assert_eq!(programs.kept(), 0);
     assert_eq!(
-        facts.iter().filter(|facts| walked(facts) == [(abs("tsconfig.json"), true)]).count(),
+        facts
+            .iter()
+            .filter(|facts| walked(facts) == [(abs("tsconfig.json"), true)])
+            .count(),
         SIDE_BY_SIDE.len() - 1,
         "every analysis but the one that built it walks the shared build"
     );
@@ -181,7 +192,15 @@ fn a_program_no_other_root_holds_a_file_of_is_freed_after_its_walk() {
     let facts = sharing(&workspace, &analyses[0], &programs, &budget);
     assert_eq!(facts.reads, analyses[0].reads);
     assert_eq!(programs.builds(), 1);
-    assert_eq!(programs.kept(), 0, "the program is freed with the walk of the root that built it");
+    assert_eq!(
+        programs.kept(),
+        0,
+        "the program is freed with the walk of the root that built it"
+    );
     sharing(&workspace, &analyses[0], &programs, &budget);
-    assert_eq!(programs.builds(), 2, "a later analysis that needs the freed program builds it again");
+    assert_eq!(
+        programs.builds(),
+        2,
+        "a later analysis that needs the freed program builds it again"
+    );
 }
