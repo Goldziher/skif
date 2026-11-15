@@ -1,4 +1,4 @@
-//! Docusaurus: pages and docs, and the themes, plugins and presets the config names.
+//! Docusaurus: pages and docs, the themes, plugins and presets the config names, and the sidebars of its docs.
 
 use skif_js_syntax::ConfigValue;
 
@@ -100,6 +100,11 @@ impl Plugin for Docusaurus {
                 }
             }
         }
+        out.extend(
+            sidebar_paths(config.value)
+                .into_iter()
+                .map(|path| PluginInput::ProductionEntry(config.join(path))),
+        );
         if config
             .value
             .get("future")
@@ -110,6 +115,40 @@ impl Plugin for Docusaurus {
         }
         out
     }
+}
+
+/// The preset whose `docs` options set up the main docs instance.
+const CLASSIC_PRESET: &str = "@docusaurus/preset-classic";
+
+/// The plugin each further docs instance is an entry of `plugins` for.
+const DOCS_PLUGIN: &str = "@docusaurus/plugin-content-docs";
+
+/// The `sidebarPath` of each docs instance the config sets up: in the `docs` options of the classic preset and in the
+/// options of each docs plugin. Docusaurus loads it relative to the site directory; `false` turns the sidebar off.
+fn sidebar_paths(config: &ConfigValue) -> Vec<&str> {
+    let mut paths = Vec::new();
+    for (key, kind, module) in [("presets", "preset", CLASSIC_PRESET), ("plugins", "plugin", DOCS_PLUGIN)] {
+        let Some(ConfigValue::Array(items)) = config.get(key) else {
+            continue;
+        };
+        for item in items {
+            let ConfigValue::Array(parts) = item else {
+                continue;
+            };
+            let (Some(name), Some(options)) = (parts.first().and_then(ConfigValue::as_str), parts.get(1)) else {
+                continue;
+            };
+            if name != module && module_name(name, kind) != module {
+                continue;
+            }
+            let docs = if kind == "preset" { options.get("docs") } else { Some(options) };
+            paths.extend(
+                docs.and_then(|docs| docs.get("sidebarPath"))
+                    .and_then(ConfigValue::as_str),
+            );
+        }
+    }
+    paths
 }
 
 /// Expands the shorthand `classic` to `@docusaurus/preset-classic`, `foo` to `docusaurus-plugin-foo` and

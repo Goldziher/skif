@@ -210,6 +210,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: the Docusaurus plugin reads the `sidebarPath` of each docs instance, in the classic preset's `docs`
+  and in each `@docusaurus/plugin-content-docs`, so a sidebars file only the site build loads is no longer reported
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - `unused-files`: a computed relative `require()`, `import()` or resolve call whose last segment has no extension
   reaches the modules Node and bundlers resolve it to: the `index` of a directory (`` require(`./commands/${name}`) ``
   loads `commands/trust/index.js`) and a file with a code extension after a fixed name
