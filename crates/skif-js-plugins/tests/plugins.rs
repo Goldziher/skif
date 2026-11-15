@@ -796,6 +796,55 @@ fn vite_root_moves_index_html_and_rooted_paths() {
     assert!(output(&results, "vite").entries_incomplete);
 }
 
+/// Vite serves its `publicDir` at `/`, so a classic script `index.html` loads from `/static/a.js` may be
+/// `public/static/a.js`; a leading `{{BASE_PATH}}` segment is the base path a server fills in. `publicDir` moves the
+/// directory and `false` turns it off.
+#[test]
+fn vite_index_html_scripts_from_the_public_dir() {
+    let html = r#"<html><script src="/{{BASE_PATH}}/static/init.js"></script><script src="/%BASE%/boot.js"></script><script src="/local.js"></script><script type="module" src="/src/main.ts"></script></html>"#;
+    let files = [
+        ("index.html", html),
+        ("public/static/init.js", "window.init = 1;"),
+        ("public/boot.js", "window.boot = 1;"),
+        ("public/local.js", "window.shadowed = 1;"),
+        ("local.js", "window.local = 1;"),
+        ("src/main.ts", "export {};"),
+        ("assets/static/init.js", "window.moved = 1;"),
+    ];
+    let production = |config: &str| {
+        let mut all: Vec<(&str, &str)> = files.to_vec();
+        all.push(("vite.config.ts", config));
+        let results = resolve(&all, &["vite"]);
+        output(&results, "vite")
+            .production_entries
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<String>>()
+    };
+    let set = |entries: &[&str]| entries.iter().map(|entry| (*entry).to_owned()).collect::<BTreeSet<String>>();
+
+    assert_eq!(
+        production("export default { base: process.env.BASE };"),
+        set(&[
+            "static/init.js",
+            "public/static/init.js",
+            "boot.js",
+            "public/boot.js",
+            "local.js",
+            "public/local.js",
+            "src/main.ts",
+        ])
+    );
+    assert_eq!(
+        production(r#"export default { publicDir: "assets" };"#),
+        set(&["static/init.js", "assets/static/init.js", "boot.js", "local.js", "src/main.ts"])
+    );
+    assert_eq!(
+        production("export default { publicDir: false };"),
+        set(&["static/init.js", "boot.js", "local.js", "src/main.ts"])
+    );
+}
+
 #[test]
 fn vitest() {
     let results = resolve(

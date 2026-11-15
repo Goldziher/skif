@@ -639,20 +639,37 @@ pub(crate) fn html_entries(cx: &PluginContext<'_>, base: &str, file: &str) -> Ve
 /// The scripts the HTML file at `html_path` (relative to the workspace) loads, with `/`-rooted sources resolved
 /// against `base`, the directory the server serves from (Vite's `root`).
 pub(crate) fn html_entries_at(cx: &PluginContext<'_>, base: &str, html_path: &str) -> Vec<PluginInput> {
+    served_html_entries(cx, base, html_path, None)
+}
+
+/// [`html_entries_at`] for a server that also serves `public_dir` (relative to the workspace) at `/`, as Vite serves
+/// its `publicDir`: a `/`-rooted script that is a file in `public_dir` is that file too.
+pub(crate) fn served_html_entries(
+    cx: &PluginContext<'_>,
+    base: &str,
+    html_path: &str,
+    public_dir: Option<&str>,
+) -> Vec<PluginInput> {
     let Ok(html) = cx.fs.read_to_string(&cx.dir.join(html_path)) else {
         return Vec::new();
     };
     let html_dir = html_path.rsplit_once('/').map_or("", |(dir, _)| dir);
     html_script_sources(&html)
         .into_iter()
-        .filter_map(|src| local_script_path(&src, base, html_dir))
+        .flat_map(|src| {
+            let public = public_dir
+                .zip(root_relative(&src))
+                .map(|(dir, rooted)| join_rel(dir, rooted))
+                .filter(|public| cx.fs.is_file(&cx.dir.join(public)));
+            local_script_path(&src, base, html_dir).into_iter().chain(public)
+        })
         .map(PluginInput::ProductionEntry)
         .collect()
 }
 
 /// The path, relative to the workspace, of the local script `src` loaded by the HTML file in `html_dir`. `base` is the
-/// directory a root-relative `src` starts at. `None` for remote URLs and template placeholders (`<% … %>`);
-/// `%PUBLIC_URL%` is the `public` directory.
+/// directory a root-relative `src` starts at ([`root_relative`]). `None` for remote URLs and template placeholders
+/// (`<% … %>`); `%PUBLIC_URL%` is the `public` directory.
 pub(crate) fn local_script_path(src: &str, base: &str, html_dir: &str) -> Option<String> {
     if src.contains("://") || src.starts_with("//") || src.contains("<%") {
         return None;
@@ -660,10 +677,29 @@ pub(crate) fn local_script_path(src: &str, base: &str, html_dir: &str) -> Option
     if let Some(rest) = src.strip_prefix("%PUBLIC_URL%") {
         return Some(join_rel(base, &format!("public/{}", rest.trim_start_matches('/'))));
     }
-    Some(match src.strip_prefix('/') {
-        Some(root_relative) => join_rel(base, root_relative),
+    Some(match root_relative(src) {
+        Some(rooted) => join_rel(base, rooted),
         None => join_rel(html_dir, src),
     })
+}
+
+/// The path of a `/`-rooted script `src` below the served root, past the leading segments that are placeholders a
+/// server fills in with the base path it is deployed at (`/{{BASE_PATH}}/static/a.js` is `static/a.js`).
+fn root_relative(src: &str) -> Option<&str> {
+    let mut rest = src.strip_prefix('/')?;
+    while let Some((segment, tail)) = rest.split_once('/')
+        && is_path_placeholder(segment)
+    {
+        rest = tail;
+    }
+    Some(rest)
+}
+
+/// Whether a path segment is a whole template placeholder: `{{NAME}}` or `%NAME%`.
+fn is_path_placeholder(segment: &str) -> bool {
+    let braces = segment.len() > 4 && segment.starts_with("{{") && segment.ends_with("}}");
+    let percents = segment.len() > 2 && segment.starts_with('%') && segment.ends_with('%');
+    braces || percents
 }
 
 /// The `src` of every `<script>` tag of an HTML document.
