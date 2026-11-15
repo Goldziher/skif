@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -113,6 +113,8 @@ that list the member, the packages below one that does, and the member's own scr
 ### Rush
 
 `rush`, `rushx` and `rush-pnpm` are provided commands in a Rush repository, and a Rush repository is always isolated.
+Rush projects build with Heft and rigs, whose configs the `heft` plugin reads
+([ADR 0015](0015-plugin-model-and-plugin-set.md)).
 
 ### Consequences
 

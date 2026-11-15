@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -9,7 +9,9 @@ decision-makers: ["Na'aman Hirschfeld"]
 ## Context and Problem Statement
 
 skif has to be embeddable without its CLI ([ADR 0003](0003-library-api-and-embedding.md)). It depends on oxc, which is
-heavy, moves fast and is unwanted by most hosts that only need manifest and policy rules. It vendors upstream code that
+heavy, moves fast and is unwanted by most hosts that only need manifest and policy rules, and on tsrs, a pre-release
+port of the TypeScript compiler that needs unsafe code at its boundary
+([ADR 0034](0034-type-aware-analysis-on-tsrs.md)). It vendors upstream code that
 must stay isolated and attributed ([ADR 0007](0007-specifier-and-semver-model.md),
 [ADR 0033](0033-attribution-and-vendoring.md)). It publishes to crates.io next to the other channels of
 [ADR 0027](0027-distribution-and-release.md).
@@ -20,7 +22,7 @@ the code split into crates, how are they published, and what holds the repositor
 
 ## Decision Drivers
 
-* Embedding without the CLI, and manifest and policy rules without oxc
+* Embedding without the CLI, manifest and policy rules without oxc, and JS analysis without tsrs
 * Vendored code isolated in one place
 * Every library crate publishable to crates.io
 * One semver promise, so internal refactors stay cheap
@@ -53,6 +55,7 @@ other crates free to change, and shell checks over the manifests keep the invari
   * `skif-rules`: the manifest, workspace, policy and catalog rules;
   * `skif-js-syntax`: the oxc boundary, source file to skif-owned module facts;
   * `skif-js-plugins`: the plugin model and the plugin table;
+  * `skif-js-types`: the tsrs boundary, judged files and a query in, owned type facts out;
   * `skif-js`: the module graph and the JS rules as a `RuleProvider`;
   * `skif-report`: the renderers;
   * `skif-migrate`: the one-shot configuration translator;
@@ -67,11 +70,17 @@ other crates free to change, and shell checks over the manifests keep the invari
 * The crate graph is acyclic and layered.
 * `skif-core` depends on no workspace crate and on no parser, so every crate can name its types and read files through
   `FileSystem` without pulling in a parser.
-* Only `skif-js-syntax`, `skif-js-plugins` and `skif-js` depend on an oxc crate directly. Every other crate that needs
-  JavaScript syntax (`skif-migrate`) goes through them, and `skif` without default features contains no oxc crate.
+* Only `skif-js-syntax`, `skif-js-plugins`, `skif-js` and the unpublished `skif-bench` depend on an oxc crate directly.
+  Every other crate that needs JavaScript syntax (`skif-migrate`) goes through the JS crates.
+* `skif-js-types` is the only crate that depends on a tsrs crate, and `skif-js` reaches it only behind its
+  `type-aware` feature.
+* `skif` without default features contains no oxc crate and no tsrs crate.
 * Terminal concerns (clap, colour, prompts, file writes, exit codes) live only in `skif-cli`. `skif-node` calls into
   `skif-cli` to run the same command line in process.
 * Rules return fix operations defined in `skif-core`; only the facade's `fix` feature brings in `skif-edit`.
+* `unsafe_code` is forbidden in `[workspace.lints]`. `skif-js-types` and `skif-node` deny it instead: `skif-node` for
+  the Node-API glue that `napi-derive` generates, and `skif-js-types` for the one hand-written unsafe call, which frees
+  a tsrs program at the boundary and is allowed where it is made with its reason beside it.
 
 ### Dependencies
 
@@ -81,6 +90,7 @@ other crates free to change, and shell checks over the manifests keep the invari
   crate resolves exactly the sibling it was built with.
 * The oxc crates use caret ranges, and every oxc crate except `oxc_resolver` names the same release; `oxc_resolver` has
   its own release line ([ADR 0013](0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+* The tsrs crates use exact `=` pins, all to one version ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)).
 * All crates share one version ([ADR 0027](0027-distribution-and-release.md)).
 
 ### Publishing and stability
@@ -111,7 +121,8 @@ other crates free to change, and shell checks over the manifests keep the invari
 with its own tests in `scripts/test-check-scripts.sh`:
 
 * `check-versions.sh`: one version across crates, internal pins, npm packages, hook pins and the pre-commit launcher;
-* `check-pins.sh`: the oxc requirements are caret ranges on one release, and every member dependency is inherited;
+* `check-pins.sh`: the oxc requirements are caret ranges on one release, the tsrs requirements are exact pins to one
+  version, and every member dependency is inherited;
 * `check-headers.sh`: the vendored files carry their attribution headers and `ATTRIBUTIONS.md` keeps its sections
   ([ADR 0033](0033-attribution-and-vendoring.md));
 * `check-package-contents.sh`: each crate's `LICENSE` and `ATTRIBUTIONS.md` equal the root copies and are packaged;
@@ -130,7 +141,9 @@ runs on a schedule. The public-API rule of the facade is checked by a test, not 
 
 ### Consequences
 
-* Good, because a host that wants only manifest and policy rules compiles no JavaScript parser.
+* Good, because a host that wants only manifest and policy rules compiles no JavaScript parser, and a host that wants
+  JS analysis without types compiles no type checker.
+* Good, because the unsafe code skif writes by hand is one call in one crate.
 * Good, because vendored code is physically separate, which keeps licence review to one directory.
 * Good, because one stable crate is a clear semver surface, and internal crates change freely behind it.
 * Good, because the facade's features map onto crate boundaries, so a disabled feature removes whole crates.
@@ -140,12 +153,15 @@ runs on a schedule. The public-API rule of the facade is checked by a test, not 
 * Bad, because published internals invite direct use despite the documentation; the exact `=` pins keep a mismatched set
   from resolving.
 * Bad, because the shell checks read TOML textually and need maintenance when the manifests change shape.
+* Bad, because the benchmark harness on the oxc allowlist makes every oxc upgrade touch `tools/bench` too.
 
 ### Confirmation
 
 * `scripts/check-dependency-tree.sh`, `scripts/check-pins.sh`, `scripts/check-versions.sh`,
   `scripts/check-package-contents.sh` and `scripts/check-headers.sh` pass in the CI `consistency` job, and
-  `scripts/test-check-scripts.sh` proves each of them fails on a broken input.
+  `scripts/test-check-scripts.sh` proves each of them fails on a broken input, among them an oxc or tsrs crate behind
+  `skif` without default features, a crate other than `skif-js-types` that uses tsrs, and a tsrs crate that is not an
+  exact pin or names a second version.
 * `scripts/test-release-scripts.sh` covers the publish order, the crates.io probe (200, 404, 429) and the semver-check
   summary with stub `cargo` and `curl`.
 * The `build` job runs `cargo package --workspace --locked`, which fails for a path dependency without a `version`, and

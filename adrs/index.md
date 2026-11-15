@@ -13,7 +13,7 @@ old one.
 | 0003 | [Library API and Embedding](0003-library-api-and-embedding.md) | accepted |
 | 0004 | [Configuration Model and Layering](0004-configuration-model-and-layering.md) | accepted |
 | 0005 | [The `[js]` Table, Ignore Lists and Suppression Reasons](0005-the-js-table-ignore-lists-and-suppression-reasons.md) | accepted |
-| 0006 | [Workspace Discovery, Roots and Multi-Root Runs](0006-workspace-discovery-roots-and-multi-root-runs.md) | accepted, superseded in part by [0034](0034-build-sources-handed-to-a-nested-root.md) |
+| 0006 | [Workspace Discovery, Roots and Multi-Root Runs](0006-workspace-discovery-roots-and-multi-root-runs.md) | accepted |
 | 0007 | [Specifier and Semver Model](0007-specifier-and-semver-model.md) | accepted |
 | 0008 | [Rule and Diagnostic Model, Rule Ids and Severities](0008-rule-and-diagnostic-model-rule-ids-and-severities.md) | accepted |
 | 0009 | [Fixes, Edits and `package.json` Formatting: Structural Operations, Returned Plans and Safety by Move](0009-fixes-edits-and-package-json-formatting.md) | accepted |
@@ -26,46 +26,19 @@ old one.
 | 0016 | [Config Evaluation and Incomplete Entries: A Sound Static Evaluator and Narrowed Unjudged Scopes](0016-config-evaluation-and-incomplete-entries.md) | accepted |
 | 0017 | [Scripts, Binaries and Working Directories](0017-scripts-binaries-and-working-directories.md) | accepted |
 | 0018 | [Export, Namespace and Member Rules](0018-export-namespace-and-member-rules.md) | accepted |
-| 0019 | [Dependency, Unlisted and Unresolved Findings](0019-dependency-unlisted-and-unresolved-findings.md) | accepted, superseded in part by [0036](0036-packages-named-on-an-environment-gated-branch.md) and [0052](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) |
+| 0019 | [Dependency, Unlisted and Unresolved Findings](0019-dependency-unlisted-and-unresolved-findings.md) | accepted |
 | 0020 | [Templates, Components and Custom Elements](0020-templates-components-and-custom-elements.md) | accepted |
-| 0021 | [knip and syncpack Comparison Harness](0021-knip-and-syncpack-comparison-harness.md) | accepted, amended by [0040](0040-more-known-deviations-of-the-knip-comparison.md) |
+| 0021 | [knip and syncpack Comparison Harness and Its Known Deviations](0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md) | accepted |
 | 0022 | [Reporting and Output Formats](0022-reporting-and-output-formats.md) | accepted |
 | 0023 | [Baselines](0023-baselines.md) | accepted |
 | 0024 | [CLI Contract](0024-cli-contract.md) | accepted |
 | 0025 | [`skif migrate`: A One-Shot Translator From sherif, syncpack and knip](0025-skif-migrate.md) | accepted |
 | 0026 | [`skif update`: Opt-In Registry Updates, the Only Code That Uses the Network](0026-skif-update.md) | accepted |
-| 0027 | [Distribution and Release: One Name, One Version, One Release Workflow](0027-distribution-and-release.md) | accepted, superseded in part by [0045](0045-tsrs-dependency-policy.md) |
+| 0027 | [Distribution and Release: One Name, One Version, One Release Workflow](0027-distribution-and-release.md) | accepted |
 | 0028 | [Editors, Agents and Git Hooks: `skif mcp`, `skif lsp`, `--watch`, the Agent Skill and the Hooks](0028-editors-agents-and-git-hooks.md) | accepted |
-| 0029 | [Performance, Caching and Benchmarks: A Content-Keyed Module Cache and Published Numbers From a Pinned Runner](0029-performance-caching-and-benchmarks.md) | accepted, superseded in part by [0041](0041-benchmarks-on-large-repositories.md) |
+| 0029 | [Performance, Caching, Benchmarks and Budgets: A Content-Keyed Module Cache, Published Numbers From a Pinned Runner and a Type-Aware Budget](0029-performance-caching-benchmarks-and-budgets.md) | accepted |
 | 0030 | [Supported Versions and the End-to-End Matrix: Upstream End of Life, Tested Layouts](0030-supported-versions-and-the-end-to-end-matrix.md) | accepted |
-| 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted, superseded in part by [0034](0034-build-sources-handed-to-a-nested-root.md) and [0049](0049-bazel-test-globs-and-angular-packages.md) |
+| 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted |
 | 0032 | [Nx and Lerna (and Pruned Output Trees): Projects as Scopes, Lerna as Facts, Layouts Recognised by Shape](0032-nx-and-lerna-and-pruned-output-trees.md) | accepted |
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
-| 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
-| 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |
-| 0036 | [Packages Named on an Environment-Gated Branch](0036-packages-named-on-an-environment-gated-branch.md) | accepted |
-| 0037 | [Heft and Rig Packages: Profiles as Configs of the Rig and of the Projects That Name It](0037-heft-and-rig-packages.md) | accepted |
-| 0038 | [`paths` Before Packages: TypeScript's Order for Mappings Named Like a Dependency](0038-paths-before-packages.md) | accepted |
-| 0039 | [Source Command Scans Read the Files the Module Graph Reaches](0039-source-command-scans-read-reached-files.md) | accepted |
-| 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted, superseded in part by [0051](0051-members-whose-users-skif-does-not-read.md) and [0053](0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) |
-| 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
-| 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |
-| 0043 | [Type-Only Class Fields and Constant Element Keys](0043-type-only-class-fields-and-constant-element-keys.md) | accepted |
-| 0044 | [Type-Aware Analysis on tsrs: On by Default, Switchable, Untyped Where a Project Has No Types](0044-type-aware-analysis-on-tsrs.md) | accepted |
-| 0045 | [tsrs Dependency Policy: One Crate, Exact Pins, and the Process-Level Constraints of the Checker](0045-tsrs-dependency-policy.md) | accepted |
-| 0046 | [Typed Member Semantics: What a Typed Read Credits, and the `type-resolved` Deviation](0046-typed-member-semantics.md) | accepted, superseded in part by [0050](0050-knip-comparison-against-the-typed-run.md) |
-| 0047 | [Performance Budget and Benchmarks With Types](0047-performance-budget-with-types.md) | accepted |
-| 0048 | [Dynamic Imports Returned to a Call: Lazy-Component Loaders Read `default`, Other Calls the Whole Module](0048-dynamic-imports-returned-to-a-call.md) | accepted |
-| 0049 | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](0049-bazel-test-globs-and-angular-packages.md) | accepted |
-| 0050 | [Knip Comparison Against the Typed Run](0050-knip-comparison-against-the-typed-run.md) | accepted |
-| 0051 | [Enum and Namespace Members Whose Users skif Does Not Read](0051-members-whose-users-skif-does-not-read.md) | accepted |
-| 0052 | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted, superseded in part by [0057](0057-redundant-dev-entries-and-installed-optional-peers.md) |
-| 0053 | [Plugin Entries of Nested Roots, Published File Loads, and What knip Does Not Read](0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) | accepted |
-| 0054 | [Module Declaration Files Are Modules](0054-module-declaration-files-are-modules.md) | accepted |
-| 0055 | [Exportless Declaration Files That Load a Module Are Entries](0055-exportless-declaration-files-that-load-a-module.md) | accepted |
-| 0056 | [knip's tsconfig Declaration Entries and Its Opaque Module Objects](0056-knip-tsconfig-declaration-entries-and-module-object-types.md) | accepted |
-| 0057 | [Redundant Development Entries, Optional Peers Installed Elsewhere and Types an Installed Config Brings](0057-redundant-dev-entries-and-installed-optional-peers.md) | accepted |
-| 0058 | [Uses knip Does Not Read: Heft Configs, Computed Loads, Type References and Paths knip Skips](0058-uses-knip-does-not-read.md) | accepted |
-| 0059 | [Resolve Calls Use the Values of the Module They Name](0059-resolve-calls-use-the-values-of-the-module.md) | accepted, superseded in part by [0061](0061-packages-another-package-resolves.md) |
-| 0060 | [How knip Reads a Module: Opaque Imports, Spied Namespaces, Namespace Re-exports and Entries It Makes](0060-how-knip-reads-a-module.md) | accepted |
-| 0061 | [Packages Another Package Resolves Are That Package's Dependencies](0061-packages-another-package-resolves.md) | accepted |
+| 0034 | [Type-Aware Analysis on tsrs](0034-type-aware-analysis-on-tsrs.md) | accepted |

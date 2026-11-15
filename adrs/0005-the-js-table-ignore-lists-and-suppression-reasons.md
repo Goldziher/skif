@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -49,9 +49,14 @@ translates mechanically, an unused entry is visible and can fail a run, and a re
   ([ADR 0013](0013-js-analysis-core-oxc-module-graph-and-resolution.md)); `use-public-hoisting`
   ([ADR 0012](0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md)); `ignore-global-binaries`
   ([ADR 0017](0017-scripts-binaries-and-working-directories.md)); plugin options
-  ([ADR 0015](0015-plugin-model-and-plugin-set.md)).
+  ([ADR 0015](0015-plugin-model-and-plugin-set.md)); `type-aware`
+  ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)).
 * `enabled` defaults to `true`, so JS analysis runs wherever the `js-analysis` feature is compiled in; `--no-js`
   overrides it.
+* `type-aware` defaults to `true`, so member reads are resolved with the type checker wherever the `type-aware` feature
+  is compiled in. `[js.workspaces."<dir>"] type-aware` sets it for one workspace, and a workspace that does not set it
+  inherits the top level. It is not accepted in an override's `js`. `--no-type-aware` turns it off at the top level and
+  in every workspace ([ADR 0024](0024-cli-contract.md)).
 
 ### Entries of the name lists
 
@@ -77,7 +82,7 @@ translates mechanically, an unused entry is visible and can fail a run, and a re
 
 * `[js.workspaces."<dir>"]` takes `entry`, `project`, `ignore`, `ignore-files`, `ignore-dependencies`,
   `ignore-binaries`, `ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`,
-  `paths` and `plugins`, with the `extend-` forms.
+  `paths`, `plugins` and `type-aware`, with the `extend-` forms of the lists.
 * A key is a directory or a glob relative to the root, or to the start directory under `--config` in a multi-root run
   ([ADR 0004](0004-configuration-model-and-layering.md)). An exact key beats a glob, and the first glob in file order
   wins. The key `"."` is the root package: its lists replace the top-level `entry` and `project` and add to the other
@@ -187,7 +192,10 @@ for members is decided in [ADR 0018](0018-export-namespace-and-member-rules.md).
   and `strict_and_isolate_workspaces_in_the_configuration_equal_their_flags`.
 * `crates/skif-config/tests/config.rs`: `js_ignore_lists_take_strings_and_tables_with_a_reason`,
   `a_js_ignore_table_with_a_wrong_key_names_it`, `the_first_suppression_without_a_reason_is_named_by_its_key` and
-  `strict_implies_production_and_isolation_and_isolation_implies_neither`.
+  `strict_implies_production_and_isolation_and_isolation_implies_neither`, `defaults_are_sensible` (type-aware on by
+  default), `no_type_aware_wins_over_the_file_and_every_workspace` and `without_no_type_aware_the_file_decides`.
+* `crates/skif-config/tests/layers.rs`: `type_aware_is_layered_with_an_origin`, and
+  `root_scoped_keys_in_an_override_are_scope_errors_with_a_position`, which rejects `type-aware` in an override.
 * `crates/skif-cli/tests/cli.rs`: `require_ignore_reasons_covers_the_js_ignore_lists_and_the_lint_key`.
 
 ## Pros and Cons of the Options

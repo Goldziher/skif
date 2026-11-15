@@ -60,7 +60,7 @@ handful of rule IDs keeps configuration usable while `detail` keeps full precisi
   unfixable on the floating side; ranges rank by the lowest version they admit, so a shorthand never outranks a longer
   range of the same floor; an `npm:` alias is a dependency of its own; packages are read with the package manager's
   workspace semantics ([ADR 0006](0006-workspace-discovery-roots-and-multi-root-runs.md)). The comparison harness
-  classifies these ([ADR 0021](0021-knip-and-syncpack-comparison-harness.md)).
+  classifies these ([ADR 0021](0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 
 ### Scope
 

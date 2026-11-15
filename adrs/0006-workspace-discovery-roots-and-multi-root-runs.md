@@ -1,7 +1,6 @@
 ---
 status: accepted
-superseded-in-part-by: "0034"
-date: 2026-11-13
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -161,14 +160,26 @@ One lint per root, and the uses one root sees in another root's territory are cr
 * A dependency listed only above a root is recorded with the directory of the innermost manifest that lists it, where
   Node.js finds it (`Report::ancestor_dependency_uses`). The innermost run root that holds that manifest drops its
   `unused-dependencies` and `unused-dev-dependencies` findings for the name.
-* A file another root reaches is listed in `Report::other_project_files`: a nested root's file that this root runs or
-  imports, a file a plugin names there, and every module this root's graph reached outside its own directory. A file
-  below the listing root goes to the nested root that owns it as an extra entry; a file outside it is credited, and the
-  owning root drops its `unused-files` finding.
+* A run reports two lists of files of other projects. Both are absolute, sorted and not rendered, and a file can be in
+  both:
+  * `Report::other_project_files` holds the files of other projects that the analysed code imports, that a script runs
+    or that a plugin names as an entry, and every module the graph reached outside the root.
+  * `Report::other_project_build_sources` holds the files of other projects that a plugin names as build sources, such
+    as the `srcs` of a root `BUILD` file ([ADR 0031](0031-bazel.md)).
+* A file of either list below the listing root goes to the innermost root of the run that holds it, made relative to
+  that root, also when other roots lie in between. `skif -r` passes the first list to that root's
+  `RunOptions::with_extra_entries` and the second to `RunOptions::with_extra_build_sources`.
+* A file of either list outside the listing root is credited as used by the root that holds it, and that root drops its
+  `unused-files` finding.
+* The receiving root makes a handed build source a build source: used, its imports followed, its exports judged. A file
+  handed both as an entry and as a build source is an entry.
+* A package that owns a handed entry counts as imported by another root, so `unused-subpath-exports` does not judge its
+  `exports`. A handed build source does not make it so.
 * A file outside the root is followed but not judged (`Module::foreign`); files below `node_modules` are installed code
   and are left out. The packages such a file imports are credited to the manifest at or above that file that lists them.
-* A use of a manifest or file outside every root of the run is dropped. The lint after `--fix` credits the same uses, so
-  the re-lint judges each root as the first lint did. A root linted alone still reports these findings.
+* A use of a manifest or file outside every root of the run is dropped. The lint after `--fix` hands every root the same
+  entries and build sources and credits the same uses, so the re-lint judges each root as the first lint did. A root
+  linted alone still reports these findings.
 
 ### Consequences
 
@@ -177,8 +188,11 @@ One lint per root, and the uses one root sees in another root's territory are cr
 * Good, because `skif .` at the top of a repository of independent projects lints each project once, with its own
   configuration, and a failure in one does not hide the others.
 * Good, because dependencies and files another root uses are not reported unused, and `--fix` does not remove them.
+* Good, because a file an outer `BUILD` file builds from is judged the same whether its directory is a member or a
+  nested root, and each list says what the receiving root makes of its files.
 * Bad, because pnpm's pattern semantics differ from npm and Yarn at rare edges, which skif does not reproduce.
-* Bad, because a host that lints roots itself must apply the crediting, or it reports those findings.
+* Bad, because a host that lints roots itself must route both lists and apply the crediting, or it reports those
+  findings.
 * Bad, because a root linted alone cannot see the uses of the roots around it.
 
 ### Confirmation
@@ -200,8 +214,14 @@ One lint per root, and the uses one root sees in another root's territory are cr
   `fixture_directories_are_not_searched_for_roots_unless_configured`, `a_walk_cut_by_the_depth_limit_says_so`,
   `the_package_manager_field_is_asked_of_workspaces_and_the_outermost_root_only`,
   `a_dependency_only_a_nested_root_uses_is_used_by_the_outer_manifest`,
-  `a_file_a_sibling_root_imports_and_its_dependencies_are_used` and
-  `the_lint_after_fixing_judges_each_root_as_the_first_lint_did`.
+  `a_file_a_sibling_root_imports_and_its_dependencies_are_used`,
+  `the_lint_after_fixing_judges_each_root_as_the_first_lint_did`, `a_bazel_source_of_a_nested_root_is_used_there`,
+  `fixing_keeps_the_bazel_sources_of_a_nested_root` and
+  `a_bazel_source_two_roots_down_is_a_build_source_of_the_innermost_root`.
+* `crates/skif-cli/src/roots.rs`: `route_hands_build_sources_below_to_the_innermost_root_and_credits_those_outside`.
+* `crates/skif-js/tests/fp_resolve.rs`: `a_root_bazel_source_in_a_nested_root_is_a_build_source_of_another_project`,
+  `a_build_source_from_another_root_is_used_and_its_exports_are_judged` and
+  `a_file_handed_as_an_entry_and_a_build_source_is_an_entry`.
 
 ## Pros and Cons of the Options
 
@@ -209,7 +229,9 @@ One lint per root, and the uses one root sees in another root's territory are cr
 
 * Good, because one pattern implementation serves every manager and every rule.
 * Good, because crediting reuses the reports and needs no second analysis of the files a root owns.
+* Good, because one routing serves entries and build sources.
 * Bad, because each report carries the uses it saw elsewhere, which a single-root run does not need.
+* Bad, because a file a plugin names both ways appears in both lists.
 
 ### Reproduce each package manager's pattern semantics exactly
 
