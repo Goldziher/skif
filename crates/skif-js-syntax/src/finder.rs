@@ -19,6 +19,7 @@ use crate::collect::{Ctx, ambient_reexport, collect_import, imported_kind};
 use crate::model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, MockCall, ModuleInfo, is_source_query,
 };
+use crate::semantic::Analysis;
 
 pub(crate) struct Finder<'c, 's> {
     ctx: &'c Ctx<'s>,
@@ -39,6 +40,11 @@ pub(crate) struct Finder<'c, 's> {
     export_names: Option<HashSet<String>>,
     /// The properties of `module.exports = { a, b }`: the binding each names and the span of its identifier.
     cjs_shorthand: Vec<(String, oxc_span::Span)>,
+    /// The scopes of the file, built only when a computed specifier may read a path in `dirname_paths`.
+    analysis: &'c Analysis<'c>,
+    /// The relative specifier of each path built from the file's directory that a declaration holds
+    /// (`const entry = path.resolve(__dirname, "cli/entry.js")`), by the start of its binding.
+    dirname_paths: HashMap<u32, String>,
 }
 
 impl Finder<'_, '_> {
@@ -85,10 +91,19 @@ impl Finder<'_, '_> {
 }
 
 impl<'c, 's> Finder<'c, 's> {
-    pub(crate) fn new(ctx: &'c Ctx<'s>, info: &'c mut ModuleInfo, program: &Program<'_>) -> Self {
+    pub(crate) fn new(
+        ctx: &'c Ctx<'s>,
+        info: &'c mut ModuleInfo,
+        program: &Program<'_>,
+        analysis: &'c Analysis<'c>,
+    ) -> Self {
         let module_file = is_module_file(program);
         info.module_file = module_file;
         info.global_augmentation = module_file && augments_global(program);
+        let mut dirname_paths = DirnamePaths::default();
+        if ctx.src.contains("__dirname") {
+            dirname_paths.visit_program(program);
+        }
         Self {
             pending: HashMap::default(),
             redundant_types: HashSet::default(),
@@ -98,6 +113,8 @@ impl<'c, 's> Finder<'c, 's> {
             mocked_imports: HashSet::default(),
             export_names: None,
             cjs_shorthand: Vec::new(),
+            analysis,
+            dirname_paths: dirname_paths.0,
             ctx,
             info,
         }
@@ -186,6 +203,80 @@ fn template_glob(expr: &Expression<'_>) -> Option<String> {
         .first()
         .is_some_and(|first| first.starts_with("./") || first.starts_with("../"));
     relative.then(|| parts.join("*"))
+}
+
+/// Whether `callee` is `path.join` or `path.resolve` of Node, also as `require("node:path").resolve` or a bare
+/// `join`/`resolve`.
+fn is_path_join(callee: &Expression<'_>) -> bool {
+    let joins = |name: &str| matches!(name, "join" | "resolve");
+    match callee.get_inner_expression() {
+        Expression::Identifier(id) => joins(id.name.as_str()),
+        Expression::StaticMemberExpression(member) => {
+            let object = member.object.get_inner_expression();
+            let path_module = match object {
+                Expression::Identifier(id) => id.name.as_str() == "path",
+                Expression::CallExpression(call) => {
+                    is_ident(&call.callee, "require")
+                        && call
+                            .arguments
+                            .first()
+                            .and_then(Argument::as_expression)
+                            .and_then(static_string)
+                            .is_some_and(|module| matches!(module.as_str(), "path" | "node:path"))
+                }
+                _ => false,
+            };
+            path_module && joins(member.property.name.as_str())
+        }
+        _ => false,
+    }
+}
+
+/// The relative specifier of a path built from the file's directory: `path.join(__dirname, "..", "run.js")` reads
+/// `../run.js`. `None` for any other expression, a computed segment and a segment that starts at the file system
+/// root.
+fn dirname_path(expr: &Expression<'_>) -> Option<String> {
+    let Expression::CallExpression(call) = expr.get_inner_expression() else {
+        return None;
+    };
+    if !is_path_join(&call.callee) {
+        return None;
+    }
+    let (first, rest) = call.arguments.split_first()?;
+    if !first
+        .as_expression()
+        .is_some_and(|first| is_ident(first.get_inner_expression(), "__dirname"))
+    {
+        return None;
+    }
+    let segments: Vec<String> = rest
+        .iter()
+        .map(|segment| segment.as_expression().and_then(static_string))
+        .collect::<Option<_>>()?;
+    if segments.is_empty() || segments.iter().any(|segment| segment.starts_with('/')) {
+        return None;
+    }
+    let path = segments.join("/");
+    Some(if path.starts_with("./") || path.starts_with("../") {
+        path
+    } else {
+        format!("./{path}")
+    })
+}
+
+/// The paths built from the file's directory that variable declarations hold, by the start of their binding.
+#[derive(Default)]
+struct DirnamePaths(HashMap<u32, String>);
+
+impl<'a> Visit<'a> for DirnamePaths {
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let BindingPattern::BindingIdentifier(id) = &it.id
+            && let Some(path) = it.init.as_ref().and_then(dirname_path)
+        {
+            self.0.insert(id.span.start, path);
+        }
+        walk::walk_variable_declarator(self, it);
+    }
 }
 
 /// The test-runner call (`vi.mock`, `jest.requireActual`) that `member` is, if any.
@@ -483,7 +574,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
                 span,
             });
         } else {
-            self.computed_specifier(Some(&it.source), span);
+            self.computed_specifier(Some(&it.source), ImportKind::Dynamic, names, span);
         }
         walk::walk_import_expression(self, it);
     }
@@ -852,7 +943,10 @@ impl Finder<'_, '_> {
                         span: span(),
                     });
                 }
-                None if !it.arguments.is_empty() => self.computed_specifier(first, span()),
+                None if !it.arguments.is_empty() => {
+                    let names = self.pending.remove(&it.span.start);
+                    self.computed_specifier(first, ImportKind::Require, names, span());
+                }
                 None => {}
             },
             Expression::StaticMemberExpression(m) => {
@@ -892,15 +986,33 @@ impl Finder<'_, '_> {
                 call: None,
                 span,
             }),
-            None => self.computed_specifier(specifier, span),
+            None => self.computed_specifier(specifier, ImportKind::Resolve, Some(Vec::new()), span),
         }
     }
 
-    /// A `require`, `import()` or resolve call whose specifier is not a constant: followed as a glob when the source
-    /// narrows it to a directory, and every matching module counts as read in full. Otherwise it is an unknown target.
-    /// A glob whose last segment has no extension also names the `index` of a directory, as Node and bundlers resolve
+    /// A `require`, `import()` or resolve call whose specifier is not a constant. A `const` holding a path built from
+    /// the file's directory (`dirname_path_of`) names its module as a constant would, an import of `kind` with
+    /// `names` (by default the whole namespace). Otherwise the specifier is followed as a glob when the source narrows
+    /// it to a directory, and every matching module counts as read in full, or else it is an unknown target. A glob
+    /// whose last segment has no extension also names the `index` of a directory, as Node and bundlers resolve
     /// `./commands/${name}` to `commands/<name>/index.js`.
-    fn computed_specifier(&mut self, specifier: Option<&Expression<'_>>, span: skif_core::Span) {
+    fn computed_specifier(
+        &mut self,
+        specifier: Option<&Expression<'_>>,
+        kind: ImportKind,
+        names: Option<Vec<ImportedName>>,
+        span: skif_core::Span,
+    ) {
+        if let Some(path) = specifier.and_then(|specifier| self.dirname_path_of(specifier)) {
+            self.info.imports.push(Import {
+                specifier: path,
+                kind,
+                names: names.unwrap_or_else(escaping_namespace),
+                call: None,
+                span,
+            });
+            return;
+        }
         let Some(glob) = specifier.and_then(template_glob) else {
             self.info.unresolved_dynamic.push(span);
             return;
@@ -916,6 +1028,27 @@ impl Finder<'_, '_> {
                 span,
             });
         }
+    }
+
+    /// The path `specifier` holds when it reads a `const` of `dirname_paths` by name, resolved through the
+    /// file's scopes, so a parameter or local of the same name does not count and the call may sit in a nested
+    /// function. The scopes are built only for such a read.
+    fn dirname_path_of(&self, specifier: &Expression<'_>) -> Option<String> {
+        let Expression::Identifier(id) = specifier.get_inner_expression() else {
+            return None;
+        };
+        if self.dirname_paths.is_empty() {
+            return None;
+        }
+        let scoping = self.analysis.scoping();
+        let symbol = id
+            .reference_id
+            .get()
+            .and_then(|reference| scoping.get_reference(reference).symbol_id())?;
+        if !scoping.symbol_flags(symbol).is_const_variable() {
+            return None;
+        }
+        self.dirname_paths.get(&scoping.symbol_span(symbol).start).cloned()
     }
 
     fn glob(&mut self, first: Option<&Expression<'_>>, options: Option<&Expression<'_>>, span: skif_core::Span) {

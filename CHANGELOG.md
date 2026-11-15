@@ -165,6 +165,12 @@ All notable changes to this project are documented here. The format follows
   `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
   only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
   needs re-recording for the new categories.
+- **Comparison harness**: `skif-bench parity --samples <N>` sets how many sample findings the full report keeps per
+  category, known deviation and side (five by default), and `--samples all` lists every one-sided finding.
+- **Comparison harness**: `bazel-build-file` also covers the files the `glob` include patterns of a Bazel test target's
+  `srcs` and `data` match (a `js_test`, or a rule with `testonly = True`, its `exclude` patterns not applied) and the
+  `srcs` and `data` of `ng_project`, as skif's Bazel plugin reads them
+  ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md)).
 
 - **Comparison harness with types**: `skif-bench parity` runs skif twice per repository, with types (the run compared
   with knip) and with `--no-type-aware`. A one-sided finding no other deviation explains is the new `type-resolved`
@@ -230,6 +236,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: a `require()`, `import()` or `require.resolve()` of a `const` that holds a path built from the file's
+  directory (`const entry = require("node:path").resolve(__dirname, "cli/entry.js")`, then `require(entry)`, also in a
+  nested function) loads the file the path names, so it and what it imports are no longer reported. The read is
+  resolved through the file's scopes: a parameter or local of the same name is not followed
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - Recursive runs: a `package.json` below another one that holds only `type`, `sideEffects` or `imports` (a
   `{"type": "commonjs"}` in `scripts/`) is no root of its own, as it makes no project in a single-root run. Before, its
   directory was linted a second time as a root, and the files the package above runs or imports there were reported
