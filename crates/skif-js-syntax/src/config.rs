@@ -514,41 +514,110 @@ pub struct ExtractedConfig {
 /// more ([`ExtractedConfig::environment_variants`]).
 #[must_use]
 pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoader>) -> Option<ExtractedConfig> {
-    let (mut config, undecided) = evaluate_with(source, path, loader, Environment::default())?;
-    if undecided {
-        config.environment_variants = [true, false]
-            .into_iter()
-            .map(|truthy| {
-                evaluate_with(source, path, loader, Environment::assuming(truthy)).map(|(variant, _)| variant.value)
-            })
-            .collect::<Option<Vec<_>>>()
-            .unwrap_or_default();
-    }
-    Some(config)
-}
-
-/// What [`evaluate_config`] finds in `environment`, following imports with `loader` when given, and whether it left a
-/// test on the environment undecided.
-fn evaluate_with(
-    source: &str,
-    path: &Path,
-    loader: Option<&dyn ModuleLoader>,
-    environment: Environment,
-) -> Option<(ExtractedConfig, bool)> {
-    match loader {
-        None => evaluate_config(source, path, None, &environment).map(|config| (config, environment.undecided.get())),
-        Some(loader) => {
-            let modules = Modules::new(loader, path, environment);
-            evaluate_config(source, path, Some(&modules), &modules.environment)
-                .map(|config| (config, modules.environment.undecided.get()))
+    with_config_file(source, path, loader, |file| {
+        let (mut config, undecided) = file.evaluate(Environment::default())?;
+        if undecided {
+            config.environment_variants = [true, false]
+                .into_iter()
+                .map(|truthy| file.evaluate(Environment::assuming(truthy)).map(|(variant, _)| variant.value))
+                .collect::<Option<Vec<_>>>()
+                .unwrap_or_default();
         }
-    }
+        Some(config)
+    })
 }
 
 /// The exported value [`extract_config`] finds with `loader`, following the imports it finds.
 #[must_use]
 pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn ModuleLoader) -> Option<ConfigValue> {
-    evaluate_with(source, path, Some(loader), Environment::default()).map(|(config, _)| config.value)
+    with_config_file(source, path, Some(loader), |file| {
+        file.evaluate(Environment::default()).map(|(config, _)| config.value)
+    })
+}
+
+/// What `then` finds in the config file at `path` with the text `source`, parsed and its top level analysed, following
+/// imports with `loader` when given; `None` when the file does not parse.
+fn with_config_file<R>(
+    source: &str,
+    path: &Path,
+    loader: Option<&dyn ModuleLoader>,
+    then: impl FnOnce(&ConfigFile<'_, '_, '_>) -> Option<R>,
+) -> Option<R> {
+    let modules = loader.map(|loader| Modules::new(loader, path, Environment::default()));
+    crate::with_arena(|allocator| {
+        let program = parse_program(allocator, source, path)?;
+        then(&ConfigFile::new(&program, path, modules.as_ref()))
+    })
+}
+
+/// A config file parsed, with what every evaluation of it starts from: its top-level bindings and the modules it
+/// reaches as the analysis of its top level left them, none evaluated yet.
+///
+/// That analysis asks the modules the config imports what their functions do ([`Modules::facts`]), which in a project
+/// whose configs import its own sources (a plugin importing the package it is a plugin of) is most of the work of an
+/// evaluation. It does not depend on the environment, and neither does the state of the modules it leaves, so each
+/// evaluation in an environment ([`ExtractedConfig::environment_variants`]) starts from a copy of that state
+/// ([`Modules::fork`]) instead of analysing the same modules again; what it finds is what it would find with modules of
+/// its own, as an analysis is a function of the texts and of the loader's answers alone.
+struct ConfigFile<'c, 'p, 'a> {
+    program: &'p Program<'a>,
+    path: &'c Path,
+    top: TopLevel<'p, 'a>,
+    bindings: ModuleBindings,
+    imports: HashMap<String, ImportBinding>,
+    /// The modules the analysis of the top level reached; `None` when imports are not followed.
+    modules: Option<&'c Modules<'c>>,
+}
+
+impl<'c, 'p, 'a> ConfigFile<'c, 'p, 'a> {
+    /// The config file at `path` whose text parsed to `program`, its top level analysed with `modules` when imports are
+    /// followed.
+    fn new(program: &'p Program<'a>, path: &'c Path, modules: Option<&'c Modules<'c>>) -> Self {
+        let top = match modules {
+            Some(modules) => top_level(program, &FollowedImports { modules, from: path }),
+            None => top_level(program, &NoImports),
+        };
+        Self {
+            program,
+            path,
+            top,
+            bindings: module_bindings(program),
+            imports: import_bindings(program),
+            modules,
+        }
+    }
+
+    /// What the file exports in `environment`, with whether a test on the environment was left undecided, following
+    /// imports with a copy of the modules the analysis of the top level left ([`Modules::fork`]).
+    fn evaluate(&self, environment: Environment) -> Option<(ExtractedConfig, bool)> {
+        match self.modules {
+            None => self
+                .evaluate_in(None, &environment)
+                .map(|config| (config, environment.undecided.get())),
+            Some(modules) => {
+                let modules = modules.fork(environment);
+                self.evaluate_in(Some(&modules), &modules.environment)
+                    .map(|config| (config, modules.environment.undecided.get()))
+            }
+        }
+    }
+
+    /// What the file exports in `environment`, following imports with `modules` when given.
+    fn evaluate_in(&self, modules: Option<&Modules<'_>>, environment: &Environment) -> Option<ExtractedConfig> {
+        let file = self.path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        let eval = Evaluator {
+            environment: Some(environment),
+            ..Evaluator::new(&self.top, &self.bindings, &self.imports, file, ".", self.path, modules)
+        };
+        let exported = exported(self.program)?;
+        let value = eval.exported_value(exported, exports_changed(self.program));
+        let call_arguments = eval.exported_call_arguments(exported, &value);
+        Some(ExtractedConfig {
+            value: ConfigValue::from(value),
+            call_arguments: call_arguments.into_iter().map(ConfigValue::from).collect(),
+            environment_variants: Vec::new(),
+        })
+    }
 }
 
 /// How the evaluator takes a test on the environment (`process.env.CI`, `import.meta.env.MODE === 'test'`) whose
@@ -571,6 +640,8 @@ impl Environment {
     }
 }
 
+/// What the config file at `path` with the text `source` exports in `environment`, following imports with `modules`
+/// when given, which also analyse its top level.
 fn evaluate_config(
     source: &str,
     path: &Path,
@@ -579,27 +650,7 @@ fn evaluate_config(
 ) -> Option<ExtractedConfig> {
     crate::with_arena(|allocator| {
         let program = parse_program(allocator, source, path)?;
-        let followed = modules.map(|modules| FollowedImports { modules, from: path });
-        let module_imports: &dyn Imports = match &followed {
-            Some(followed) => followed,
-            None => &NoImports,
-        };
-        let top = top_level(&program, module_imports);
-        let bindings = module_bindings(&program);
-        let imports = import_bindings(&program);
-        let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-        let eval = Evaluator {
-            environment: Some(environment),
-            ..Evaluator::new(&top, &bindings, &imports, file, ".", path, modules)
-        };
-        let exported = exported(&program)?;
-        let value = eval.exported_value(exported, exports_changed(&program));
-        let call_arguments = eval.exported_call_arguments(exported, &value);
-        Some(ExtractedConfig {
-            value: ConfigValue::from(value),
-            call_arguments: call_arguments.into_iter().map(ConfigValue::from).collect(),
-            environment_variants: Vec::new(),
-        })
+        ConfigFile::new(&program, path, modules).evaluate_in(modules, environment)
     })
 }
 
@@ -797,6 +848,33 @@ impl<'l> Modules<'l> {
             environment,
             #[cfg(test)]
             passes: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// A copy of these modules, all they hold as it is now, evaluated in `environment`: what the loader answered and
+    /// what the analyses of modules found are kept, so the copy does not ask or analyse again. A copy made before any
+    /// export is evaluated, as [`ConfigFile::evaluate`] makes one, evaluates as modules of its own would, as nothing
+    /// they hold before an evaluation depends on the environment.
+    fn fork(&self, environment: Environment) -> Self {
+        Self {
+            loader: self.loader,
+            root: self.root.clone(),
+            active: self.active.clone(),
+            loads: self.loads.clone(),
+            evaluations: self.evaluations.clone(),
+            cuts: self.cuts.clone(),
+            values: self.values.clone(),
+            loaded: self.loaded.clone(),
+            changing: self.changing.clone(),
+            pending: self.pending.clone(),
+            shallowest_cut: self.shallowest_cut.clone(),
+            analyses: self.analyses.clone(),
+            replayable: self.replayable.clone(),
+            installed: self.installed.clone(),
+            no_code: self.no_code.clone(),
+            environment,
+            #[cfg(test)]
+            passes: self.passes.clone(),
         }
     }
 
@@ -6061,5 +6139,53 @@ mod tests {
         assert!(hub.changes);
         assert_eq!(hub.results.get("helper"), Some(&Vec::new()));
         assert!(modules.replayable.borrow().is_empty());
+    }
+
+    /// The modules a config's top level was analysed with, copied for an evaluation in each environment, evaluate as
+    /// modules of their own do: the config exports the same, the same test on the environment is left undecided, and
+    /// the analyses are those modules of their own run, every one of them inherited, none run again.
+    #[test]
+    fn a_fork_of_the_analysed_modules_evaluates_as_modules_of_its_own() {
+        let loader = Files::new(&[
+            (
+                "/ws/app/config.ts",
+                "import { make } from './a';\nexport default { name: process.env.CI ? make('ci') : make('local') };",
+            ),
+            (
+                "/ws/app/a.ts",
+                "import { suffix } from './b';\nexport function make(name: string) { suffix(); return name; }\n",
+            ),
+            ("/ws/app/b.ts", "export function suffix() { return 'x'; }\n"),
+        ]);
+        let path = Path::new("/ws/app/config.ts");
+        let source = loader.0[path];
+        let analysed = Modules::new(&loader, path, Environment::default());
+        crate::with_arena(|allocator| {
+            let program = parse_program(allocator, source, path).expect("the config parses");
+            let file = ConfigFile::new(&program, path, Some(&analysed));
+            assert_eq!(passes(&analysed, "a"), [Pass::Ran]);
+            assert_eq!(passes(&analysed, "b"), [Pass::Ran]);
+            let inherited = analysed.passes.borrow().clone();
+            let mut values = Vec::new();
+            for assumed in [None, Some(true), Some(false)] {
+                let environment = || Environment {
+                    assumed,
+                    undecided: Cell::new(false),
+                };
+                let fork = analysed.fork(environment());
+                let forked = file.evaluate_in(Some(&fork), &fork.environment);
+                let own = Modules::new(&loader, path, environment());
+                let alone = evaluate_config(source, path, Some(&own), &own.environment);
+                assert_eq!(forked, alone);
+                assert_eq!(fork.environment.undecided.get(), own.environment.undecided.get());
+                assert_eq!(*fork.passes.borrow(), *own.passes.borrow());
+                assert_eq!(*fork.passes.borrow(), inherited);
+                values.push(forked.expect("config is understood").value);
+            }
+            assert_eq!(
+                values[1..],
+                [obj(vec![("name", s("ci"))]), obj(vec![("name", s("local"))])]
+            );
+        });
     }
 }
