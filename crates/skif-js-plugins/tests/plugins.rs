@@ -2705,6 +2705,32 @@ fn docusaurus() {
     assert_entries(&out.entries, &["local-plugin.js"]);
 }
 
+/// The docs plugin loads the `sidebarPath` of each docs instance, the classic preset's `docs` and every
+/// `@docusaurus/plugin-content-docs`, relative to the site directory; `false` turns the sidebar off.
+#[test]
+fn docusaurus_reads_the_sidebar_of_each_docs_instance() {
+    let config = r#"export default {
+      presets: [["classic", { docs: { path: "content/docs", sidebarPath: "./content/docs/sidebars.js" }, blog: false }]],
+      plugins: [
+        ["@docusaurus/plugin-content-docs", { id: "api", path: "content/api", sidebarPath: "content/api/sidebars.ts" }],
+        ["@docusaurus/plugin-content-docs", { id: "auto", path: "content/auto", sidebarPath: false }],
+        ["@docusaurus/plugin-content-blog", { sidebarPath: "./not-a-docs-sidebar.js" }],
+      ],
+    };"#;
+    let results = resolve(&[("docusaurus.config.ts", config)], &["@docusaurus/core"]);
+    let out = output(&results, "docusaurus");
+    let sidebars: BTreeSet<&str> = out
+        .production_entries
+        .iter()
+        .map(String::as_str)
+        .filter(|entry| entry.contains("sidebar"))
+        .collect();
+    assert_eq!(
+        sidebars,
+        BTreeSet::from(["content/api/sidebars.ts", "content/docs/sidebars.js"])
+    );
+}
+
 /// Docusaurus loads a plugin or theme by the name written when that package resolves, and by its long form
 /// (`@scope/docusaurus-theme-x`) otherwise: a listed package written in full is the dependency, not a long form of it.
 #[test]
