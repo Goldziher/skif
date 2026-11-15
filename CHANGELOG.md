@@ -561,7 +561,7 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
   `unused-files` and `unused-dependencies`. Such an entry in build output that maps to no source file makes its
   package incomplete with the new cause `unmapped-entry`, whose `file` is the entry, instead of being dropped while
   the package was judged; an entry into nothing outside build output is still no entry
-  ([ADR 0035](adrs/0035-plugin-entries-in-build-output.md)).
+  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md)).
 
 ## [0.4.0] - 2026-11-12
 
@@ -1163,7 +1163,7 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
 - **Library API**:
   - `skif`: `Linter::for_targets`, `for_targets_with_cache`, `shared_modules` and `with_shared_modules`
     (`SharedModules`) share one module cache across roots
-    ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md));
+    ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md));
     `settle_shared_config` decides shared `stale-js-config` findings as `skif -r` does; `join_lexical`,
     `Target::retain_ignore` and `Target::locate`; `ignore_matches` lists the findings each `[[ignore]]` entry matches.
   - `skif-lint`: `RunOptions::with_fs` and `LintContext::fs` give rules the host's file system. `skif-rules`:
@@ -1218,7 +1218,7 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
   and refuses a comparison tool in `corpus.toml` that is not pinned to an exact version. `refresh-numbers.mjs` publishes
   only a summary from a GitHub-hosted workflow run of clean checkouts with no `invalid` check, in which no tool exited
   with an error other than a declared knip failure the run matched, and names the harness commit when it differs from
-  the measured one ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md)).
+  the measured one ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 
 ### Changed
 
@@ -1272,7 +1272,7 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
   ([ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)).
 - **Multi-root runs** (`skif -r`) parse a file several roots reach once per run instead of once per root, also without
   `--cache`; `--performance` adds the cache's hits, misses and waits per root
-  ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md),
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md),
   [#144](https://github.com/Goldziher/skif/issues/144)).
 - `--fix` over several roots writes the fixes of every root before it lints again or runs an install step; when a
   later root fails, the earlier roots' install steps are reported as skipped and the run exits `2`
@@ -1345,7 +1345,7 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
   scenario's expectation.
 - `mise run bench:publish` is removed: the published speed tables come from the `bench` workflow and
   `mise run bench:import`; `mise run bench` still measures locally
-  ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md)).
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 
 ### Fixed
 
@@ -1544,12 +1544,12 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
   `--cache-location <DIR>` moves the store; the cache is keyed by each file's name and text and never changes the
   report. `--watch`, `skif lsp` and `skif mcp` keep an in-memory cache for as long as they run. Library hosts pass a
   `ModuleCache` to `Linter::with_module_cache`; `MemoryModuleCache` is the in-process one
-  ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md),
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `skif lsp` lints the editor's unsaved buffers: it takes the full text on every change, lints a project 250
   milliseconds after its last change, and offers fixes for unsaved documents at positions in the buffer, with the
   document version in `documentChanges` when the client supports it. Library hosts overlay buffers on a file system
-  with `BufferFs` ([#44](https://github.com/Goldziher/skif/issues/44), [ADR 0029](adrs/0029-performance-caching-and-benchmarks.md)).
+  with `BufferFs` ([#44](https://github.com/Goldziher/skif/issues/44), [ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 - `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`,
   `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`,
   `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`
@@ -1716,15 +1716,15 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
 - The knip comparison counts knip-only exports, types, namespace exports and types, and enum and namespace members in
   a package skif lists under `incomplete-packages` as `not-judged-by-skif`, as it did for files and dependencies:
   skif does not report them there either
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The knip comparison records the configuration files knip could not load (`ERROR: Error loading`, exit 2) in
   `parity.json`, their number in the baseline and `parity.md`, and counts knip-only findings in their packages as the
   `knip-config-error` deviation instead of as differences; create-t3-turbo and vue-core have such files
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The `fixture-file` deviation of the knip comparison covers only `fixtures` and `__fixtures__`, the directories skif
   does not report; knip-only files below `fixture`, `testdata`, `test_root`, `__testfixtures__` or `*-fixtures`, which
   skif judges, count as differences unless they are test files
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The parity baseline is refreshed for create-t3-turbo, vue-core, tanstack-query, jest, babel, cal-com, mastra,
   vscode, npm-cli and rushstack, and the README's agreement with knip is measured on the nine of them compared. The
   old figures counted babel's fixture files, which skif no longer reports, as shared; n8n, angular, opencode,
@@ -2150,16 +2150,16 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `mise run diff:syncpack` compares its policy findings with a pinned syncpack, on the policy fixtures and a pinned
   corpus of 16 public repositories (`skif-bench corpus fetch`, `mise run corpus:fetch`). Counts are committed under
   `tools/bench/baselines`, `--check` fails on drift, and a weekly `corpus` workflow runs it
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 - **Known deviations in the comparison harness**: `mise run parity` and `mise run diff:syncpack` report intended
   differences from knip and syncpack apart from the one-sided counts (a separate column and section with the reason),
   and `--check` ignores them. syncpack runs with `--dependency-types prod,dev,local` and an empty configuration,
   Rush projects are fed to it as sources and `unresolved-catalog-references` is compared; knip runs with an empty
   configuration (`--repo-knip-config` opts out), enum and namespace members are keyed by member name, noisy stdout
   no longer skips a repository, and `corpus.toml` takes `recursive`, `install-command` and `install-timeout-secs` per
-  repository ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)). The namespace rules are
+  repository ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). The namespace rules are
   compared with the `exports` and `types` items knip reports with a `namespace`, and with `nsExports` and `nsTypes`
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 - **Benchmark targets are enforced**: `skif-bench run` exits non-zero when an ADR 0001 target fails, measures a
   10,000-file module graph, and `mise run bench:publish` writes `tools/bench/results` and refreshes the numbers table.
 - **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the
