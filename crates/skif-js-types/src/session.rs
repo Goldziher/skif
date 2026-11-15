@@ -1205,16 +1205,95 @@ mod tests {
                 "the program starts once the running one gives its threads back"
             );
         });
-        assert_eq!(*lock(&cores.free), 4);
+        assert_eq!(cores.in_use(), 0);
+        assert_eq!(cores.peak(), 3, "the waiting program never ran beside the first");
     }
 
     #[test]
     fn a_program_that_asks_for_more_threads_than_there_are_takes_them_all() {
         let cores = Cores::new(4);
         let all = cores.take(9);
-        assert_eq!(*lock(&cores.free), 0);
+        assert_eq!(cores.in_use(), 4);
         drop(all);
-        assert_eq!(*lock(&cores.free), 4);
+        assert_eq!(cores.in_use(), 0);
+    }
+
+    #[test]
+    fn an_analysis_of_its_own_lets_its_early_programs_wait_for_cores() {
+        let cores = Cores::new(4);
+        let _running = cores.take(4);
+        assert!(
+            matches!(cores.admit_early(9), Some(Admitted::Later)),
+            "an early program of one analysis waits for cores like the others"
+        );
+        assert_eq!(cores.in_use(), 4);
+    }
+
+    #[test]
+    fn a_shared_budget_gives_early_programs_only_free_cores_of_its_early_share() {
+        // A quarter of 8 cores is the early share; the other 6 are for programs of a known plan.
+        let cores = Cores::shared(8);
+        let Some(Admitted::Now(first)) = cores.admit_early(1) else {
+            panic!("a free core of the early share is taken at once");
+        };
+        assert!(
+            cores.admit_early(5).is_none(),
+            "a program asking for more than the early share asks for all of it, and one core of it is held"
+        );
+        let Some(Admitted::Now(second)) = cores.admit_early(1) else {
+            panic!("the last free core of the early share is taken at once");
+        };
+        assert!(cores.admit_early(1).is_none(), "the early share is held");
+        let planned = cores.take(9);
+        assert_eq!(cores.in_use(), 8, "a planned program takes the planned share, whatever the early programs hold");
+        assert_eq!(cores.peak(), 8);
+        assert_eq!(cores.takes(), 3);
+        drop((first, second, planned));
+        assert_eq!(cores.in_use(), 0);
+    }
+
+    #[test]
+    fn a_planned_program_never_waits_for_cores_an_early_program_holds() {
+        let cores = Cores::shared(4);
+        let Some(Admitted::Now(early)) = cores.admit_early(4) else {
+            panic!("the early share of 4 cores is one core");
+        };
+        let (started, waited) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let cores = &cores;
+            scope.spawn(move || {
+                let _taken = cores.take(3);
+                started.send(()).expect("the test waits for the program");
+            });
+            assert!(
+                waited.recv_timeout(Duration::from_secs(30)).is_ok(),
+                "the planned share is free while the early program holds its core"
+            );
+        });
+        drop(early);
+        assert_eq!(cores.peak(), 4);
+    }
+
+    #[test]
+    fn a_shared_budget_too_small_for_an_early_share_starts_no_program_early() {
+        for threads in 1..CORES_PER_PROGRAM {
+            let cores = Cores::shared(threads);
+            assert!(cores.admit_early(1).is_none(), "{threads} cores");
+            drop(cores.take(threads));
+            assert_eq!(cores.peak(), threads, "{threads} cores are all for planned programs");
+        }
+    }
+
+    #[test]
+    fn a_program_holds_a_core_for_each_checker_that_has_a_judged_file() {
+        let cases = [((8, 3), 3), ((4, 100), 4), ((4, 0), 1), ((1, 1), 1)];
+        for ((checkers, judged), expected) in cases {
+            assert_eq!(charge(checkers, judged), expected, "{checkers} checkers, {judged} judged files");
+        }
+    }
+
+    const fn admitted(_position: usize) -> bool {
+        true
     }
 
     fn configs(names: &[&str]) -> Vec<String> {
@@ -1240,47 +1319,62 @@ mod tests {
     fn early_programs_start_until_the_judged_files_are_planned_then_the_rest_of_their_plan() {
         let early = configs(&["a", "b"]);
         let mut queue = Queue::default();
-        assert_eq!(queue.next(&early, Gate::Closed), Next::Early(0));
-        assert_eq!(queue.next(&early, Gate::Closed), Next::Early(1));
+        assert_eq!(queue.next(&early, Gate::Closed, admitted), Next::Early(0));
+        assert_eq!(queue.next(&early, Gate::Closed, admitted), Next::Early(1));
         assert_eq!(
-            queue.next(&early, Gate::Closed),
+            queue.next(&early, Gate::Closed, admitted),
             Next::Wait,
             "every early program has started"
         );
         let judged = configs(&["b", "c", "a", "d"]);
         assert_eq!(
-            queue.next(&early, Gate::Open(&judged)),
+            queue.next(&early, Gate::Open(&judged), admitted),
             Next::Judged(1),
             "`b` started early"
         );
         assert_eq!(
-            queue.next(&early, Gate::Open(&judged)),
+            queue.next(&early, Gate::Open(&judged), admitted),
             Next::Judged(3),
             "`a` started early"
         );
-        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Done);
+        assert_eq!(queue.next(&early, Gate::Open(&judged), admitted), Next::Done);
     }
 
     #[test]
     fn an_early_program_not_started_when_the_judged_files_are_planned_starts_from_their_plan() {
         let early = configs(&["a", "b"]);
         let mut queue = Queue::default();
-        assert_eq!(queue.next(&early, Gate::Closed), Next::Early(0));
+        assert_eq!(queue.next(&early, Gate::Closed, admitted), Next::Early(0));
         let judged = configs(&["a", "b"]);
-        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Judged(1));
-        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Done);
+        assert_eq!(queue.next(&early, Gate::Open(&judged), admitted), Next::Judged(1));
+        assert_eq!(queue.next(&early, Gate::Open(&judged), admitted), Next::Done);
     }
 
     #[test]
     fn nothing_starts_once_the_analysis_is_given_up() {
         let early = configs(&["a"]);
         let mut queue = Queue::default();
-        assert_eq!(queue.next(&early, Gate::Abandoned), Next::Done);
+        assert_eq!(queue.next(&early, Gate::Abandoned, admitted), Next::Done);
         assert_eq!(
-            queue.next(&early, Gate::Closed),
+            queue.next(&early, Gate::Closed, admitted),
             Next::Early(0),
             "the early program had not started"
         );
+    }
+
+    #[test]
+    fn an_early_program_refused_cores_starts_from_the_judged_files_plan() {
+        let early = configs(&["a", "b"]);
+        let mut queue = Queue::default();
+        assert_eq!(
+            queue.next(&early, Gate::Closed, |_| false),
+            Next::Wait,
+            "a program refused cores waits for the judged files' plan"
+        );
+        assert_eq!(queue.next(&early, Gate::Closed, admitted), Next::Early(0), "and is still queued");
+        let judged = configs(&["a", "b"]);
+        assert_eq!(queue.next(&early, Gate::Open(&judged), |_| false), Next::Judged(1));
+        assert_eq!(queue.next(&early, Gate::Open(&judged), admitted), Next::Done);
     }
 
     #[test]
