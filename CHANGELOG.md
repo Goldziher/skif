@@ -210,6 +210,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: a `require()`, `import()` or `require.resolve()` of a `const` that holds a path built from the file's
+  directory (`const entry = require("node:path").resolve(__dirname, "cli/entry.js")`, then `require(entry)`, also in a
+  nested function) loads the file the path names, so it and what it imports are no longer reported. The read is
+  resolved through the file's scopes: a parameter or local of the same name is not followed
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - Recursive runs: a `package.json` below another one that holds only `type`, `sideEffects` or `imports` (a
   `{"type": "commonjs"}` in `scripts/`) is no root of its own, as it makes no project in a single-root run. Before, its
   directory was linted a second time as a root, and the files the package above runs or imports there were reported

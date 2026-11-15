@@ -216,12 +216,12 @@ fn parse_block_in(
     };
     let collected = collect::collect(&ctx, &ret.program, &mut info);
     classes::mark(&ctx, &ret.program, &mut info);
-    let mut finder = finder::Finder::new(&ctx, &mut info, &ret.program);
+    // One semantic analysis serves every pass below that needs scopes; it is built only if one does.
+    let analysis = semantic::Analysis::new(&ret.program);
+    let mut finder = finder::Finder::new(&ctx, &mut info, &ret.program, &analysis);
     finder.visit_program(&ret.program);
     let cjs_shorthand = finder.into_cjs_shorthand();
     info.imports.sort_by_key(|i| i.span.start);
-    // One semantic analysis serves every pass below that needs scopes; it is built only if one does.
-    let analysis = semantic::Analysis::new(&ret.program);
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
         members::track(&ret.program, &analysis, &mut info, &excluded, base);
