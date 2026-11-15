@@ -335,6 +335,31 @@ pub(crate) fn is_module_resolve(call: &CallExpression<'_>) -> bool {
         }
 }
 
+/// Whether a resolve call ([`is_module_resolve`]) resolves from the file it is written in. The `resolve` of a
+/// `createRequire(location)` call resolves from `location`, which names this file only as `import.meta.url`,
+/// `import.meta.filename` or `__filename`; any other location (`join(dir, 'package.json')` of another package) makes
+/// the specifier one that package resolves, so it names no module of this file.
+fn resolves_from_this_file(call: &CallExpression<'_>) -> bool {
+    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+        return true;
+    };
+    let Expression::CallExpression(factory) = member.object.get_inner_expression() else {
+        return true;
+    };
+    match factory
+        .arguments
+        .first()
+        .and_then(Argument::as_expression)
+        .map(Expression::get_inner_expression)
+    {
+        Some(Expression::Identifier(id)) => id.name.as_str() == "__filename",
+        Some(Expression::StaticMemberExpression(location)) => {
+            is_import_meta(&location.object) && matches!(location.property.name.as_str(), "url" | "filename")
+        }
+        _ => false,
+    }
+}
+
 fn is_module_exports(member: &StaticMemberExpression<'_>) -> bool {
     is_ident(&member.object, "module") && member.property.name.as_str() == "exports"
 }
@@ -928,7 +953,9 @@ impl Finder<'_, '_> {
         let ctx = self.ctx;
         let span = || ctx.span(it.span);
         if is_module_resolve(it) {
-            self.resolve_call(first, span());
+            if resolves_from_this_file(it) {
+                self.resolve_call(first, span());
+            }
             return;
         }
         match &it.callee {
