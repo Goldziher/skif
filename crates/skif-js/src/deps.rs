@@ -2219,7 +2219,12 @@ impl DependencyUsage {
             if UNPAIRED_TYPES.contains(&typed.as_str()) {
                 return Some(Credit::UnpairedTypes);
             }
-            if referenced.contains_key(typed) && !self.ships_types(Listed::Package(id), typed) {
+            // TypeScript reads the types a package declares itself, so its `@types` package is unused, also as the
+            // peer of a used host, as in knip's `DependencyDeputy`.
+            if self.ships_types(Listed::Package(id), typed) {
+                return None;
+            }
+            if referenced.contains_key(typed) {
                 return Some(Credit::TypesOf(typed.clone()));
             }
         }
