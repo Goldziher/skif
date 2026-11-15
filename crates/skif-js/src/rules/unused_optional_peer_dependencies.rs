@@ -39,9 +39,11 @@ impl JsRule for UnusedOptionalPeerDependencies {
             };
             for (name, value) in meta {
                 let optional = value.get("optional").and_then(Value::as_bool).unwrap_or(false);
+                // Only the configuration's ignore lists silence the finding: a plugin reference that may be absent,
+                // such as a package the bundler keeps external, does not install the package for the tests.
                 if !optional
                     || !analysis.dependencies.was_imported(id, name)
-                    || analysis.ignores_dependency(id, name)
+                    || analysis.user_ignores_dependency(id, name)
                     || analysis
                         .dependencies
                         .installs_for_development(analysis.workspace, id, name)

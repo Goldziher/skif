@@ -375,6 +375,37 @@ fn compiler_options_of_an_installed_base_config_are_used_by_the_extending_packag
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
 }
 
+/// A package a bundler keeps external (tsdown `deps.neverBundle`) is a reference that may be absent, which installs
+/// nothing: an optional peer the code imports and no manifest installs is still reported, unless an
+/// `ignore-dependencies` entry of the configuration names it.
+#[test]
+fn an_optional_peer_a_bundler_keeps_external_is_reported_unless_the_configuration_ignores_it() {
+    let files = [
+        ("package.json", r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#),
+        (
+            "packages/blob/package.json",
+            r#"{"name":"@acme/blob","version":"1.0.0","type":"module","main":"src/index.ts","scripts":{"build":"tsdown"},"devDependencies":{"tsdown":"0.23.1"},"peerDependencies":{"@acme/identity":"^4.0.0"},"peerDependenciesMeta":{"@acme/identity":{"optional":true}}}"#,
+        ),
+        (
+            "packages/blob/tsdown.config.ts",
+            "import { defineConfig } from 'tsdown';\nexport default defineConfig({ entry: ['src/index.ts'], deps: { neverBundle: ['@acme/identity'] } });\n",
+        ),
+        (
+            "packages/blob/src/index.ts",
+            "export async function credential() {\n  const identity = await import('@acme/identity');\n  return identity;\n}\n",
+        ),
+    ];
+    assert_eq!(
+        found(&lint(&files), "unused-optional-peer-dependencies"),
+        ["packages/blob/package.json: @acme/identity"]
+    );
+    let toml = "[js]\nignore-dependencies = [\"@acme/identity\"]\n";
+    assert_eq!(
+        found(&lint_with(&files, toml), "unused-optional-peer-dependencies"),
+        none()
+    );
+}
+
 /// A config that git ignores is generated (`.nuxt/tsconfig.json`) and not judged; `[js] include-fixtures` judges a
 /// config in a fixture directory like any other.
 #[test]
