@@ -279,7 +279,10 @@ fn a_namespace_placed_in_an_object_literal_uses_every_value_export() {
         ),
     ] {
         let index = format!("{import}export class Node {{\n  methods = {{ listSearch }};\n}}\n");
-        let diagnostics = lint_files(&[PACKAGE, ("index.ts", index.as_str()), ("barrel.ts", barrel), SHAPES], "");
+        let diagnostics = lint_files(
+            &[PACKAGE, ("index.ts", index.as_str()), ("barrel.ts", barrel), SHAPES],
+            "",
+        );
         assert_eq!(
             found(&diagnostics, "unused-namespace-exports"),
             none(),
