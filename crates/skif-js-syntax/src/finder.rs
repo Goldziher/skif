@@ -86,11 +86,14 @@ impl Finder<'_, '_> {
 
 impl<'c, 's> Finder<'c, 's> {
     pub(crate) fn new(ctx: &'c Ctx<'s>, info: &'c mut ModuleInfo, program: &Program<'_>) -> Self {
+        let module_file = is_module_file(program);
+        info.module_file = module_file;
+        info.global_augmentation = module_file && augments_global(program);
         Self {
             pending: HashMap::default(),
             redundant_types: HashSet::default(),
             indexed_types: HashMap::default(),
-            module_file: is_module_file(program),
+            module_file,
             component_decorators: component_decorator_names(info),
             mocked_imports: HashSet::default(),
             export_names: None,
@@ -996,6 +999,16 @@ fn static_query(value: &Expression<'_>) -> Option<String> {
         }
     }
     Some(parameters.join("&"))
+}
+
+/// A top-level `declare global { … }` or `export as namespace X`, which in a module file declare globals.
+fn augments_global(program: &Program<'_>) -> bool {
+    program.body.iter().any(|statement| {
+        matches!(
+            statement,
+            Statement::TSGlobalDeclaration(_) | Statement::TSNamespaceExportDeclaration(_)
+        )
+    })
 }
 
 /// TypeScript's test for a module file: a top-level `import`, `export` or `import x = require(…)`. In a script,

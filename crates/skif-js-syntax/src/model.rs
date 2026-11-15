@@ -596,6 +596,13 @@ pub struct ModuleInfo {
     /// exist already and declares nothing on its own.
     #[serde(default)]
     pub augmented_modules: Vec<String>,
+    /// The file is a module by TypeScript's test: a top-level `import`, `export` or `import x = require(…)`. Without
+    /// one it is a script, whose declarations are global.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub module_file: bool,
+    /// A module file that adds to the global scope with a top-level `declare global { … }` or `export as namespace X`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub global_augmentation: bool,
     /// The command lines the file runs through `node:child_process` (`execSync('tsc -b')`, `spawn('eslint', ['.'])`),
     /// in source order without duplicates; only literal commands. They are parsed like the scripts of `package.json`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -644,6 +651,15 @@ impl ModuleInfo {
     /// Removal edits of every export that has one, in source order.
     pub fn removal_ranges(&self) -> impl Iterator<Item = &Removal> {
         self.exports.iter().filter_map(|e| e.removal.as_ref())
+    }
+
+    /// Whether the file declares something for every file of a program without being imported: a script (no
+    /// [`ModuleInfo::module_file`]), or a module file that augments the global scope
+    /// ([`ModuleInfo::global_augmentation`]) or another module ([`ModuleInfo::augmented_modules`]). TypeScript applies
+    /// such a declaration file wherever it compiles it; the exports of any other module are used only through imports.
+    #[must_use]
+    pub fn declares_without_import(&self) -> bool {
+        !self.module_file || self.global_augmentation || !self.augmented_modules.is_empty()
     }
 
     /// The file starts with the `"use client"` directive: a React Server Components client boundary whose exports
@@ -750,6 +766,8 @@ impl ModuleInfo {
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
         self.ambient_modules.extend(other.ambient_modules);
         self.augmented_modules.extend(other.augmented_modules);
+        self.module_file |= other.module_file;
+        self.global_augmentation |= other.global_augmentation;
         self.parse_diagnostics.extend(other.parse_diagnostics);
         self.fatal |= other.fatal;
     }
