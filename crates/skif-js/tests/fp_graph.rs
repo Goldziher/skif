@@ -458,6 +458,33 @@ fn a_computed_relative_specifier_reaches_the_files_it_can_name() {
 }
 
 #[test]
+fn a_computed_relative_specifier_without_an_extension_reaches_directory_modules() {
+    let diagnostics = lint(&[
+        ("package.json", r#"{"name":"app","private":true,"main":"lib/index.js"}"#),
+        (
+            "lib/index.js",
+            "module.exports = (name, lang) => [require(`./commands/${name}`), require(`./locales/${lang}/messages`)];\n",
+        ),
+        ("lib/commands/login.js", "module.exports = 1;\n"),
+        // `./commands/trust` loads the directory's index, as Node resolves it.
+        ("lib/commands/trust/index.ts", "export { list } from './list';\n"),
+        ("lib/commands/trust/list.ts", "export const list = 1;\n"),
+        // A glob segment does not cross a directory: nothing names this file.
+        ("lib/commands/trust/stray.js", "module.exports = 2;\n"),
+        ("lib/locales/en/messages.js", "module.exports = {};\n"),
+        ("lib/locales/de/messages/index.js", "module.exports = {};\n"),
+        ("lib/locales/de/other.js", "module.exports = {};\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "lib/commands/trust/stray.js: lib/commands/trust/stray.js",
+            "lib/locales/de/other.js: lib/locales/de/other.js"
+        ]
+    );
+}
+
+#[test]
 fn a_style_block_of_a_component_resolves_sass_partials() {
     let diagnostics = lint(&[
         ("package.json", r#"{"name":"app","private":true,"main":"src/App.vue"}"#),
