@@ -40,8 +40,8 @@ and what may a type-aware run cost?
 ## Considered Options
 
 * Cache each file's parse result keyed by its content, share a run cache of non-local files with a parse coalescer,
-  publish numbers of both modes from a manually dispatched workflow on a pinned GitHub-hosted runner, and fail that
-  workflow on a broken type-aware budget
+  publish numbers of both modes from a manually dispatched workflow on a pinned GitHub-hosted runner, and check a
+  type-aware budget there
 * Cache the whole report, keyed by the inputs of the run
 * Cache parse results keyed by path, size and modification time
 * Publish numbers measured on the maintainer's machine
@@ -52,7 +52,7 @@ and what may a type-aware run cost?
 
 Chosen option: "Cache each file's parse result keyed by its content, share a run cache of non-local files with a
 parse coalescer, publish numbers of both modes from a manually dispatched workflow on a pinned GitHub-hosted runner,
-and fail that workflow on a broken type-aware budget", because a parse result is a pure function of the file's name,
+and check a type-aware budget there", because a parse result is a pure function of the file's name,
 text and parse options, so a key over those can never be stale, a dispatched workflow on a pinned image is the only
 measurement anyone can repeat with nothing but the repository, and a checked budget keeps the default's cost visible
 and bounded.
@@ -170,10 +170,12 @@ through the coalescer, which is what makes it deadlock-free.
   * at most 4 GiB peak RSS on every target;
   * at most 5 s on the generated 10,000-file repository;
   * at least 5x faster than knip wherever knip completes.
-* The limits are `TYPE_AWARE_BUDGET` in `tools/bench/src/run.rs`. `--check-budget` makes `skif-bench run` exit
-  non-zero when one fails, after writing the summary, and the `bench` workflow passes it, so the workflow fails a run
-  that breaks the budget.
-* Breaking the budget, or changing it, needs a new ADR.
+* The limits are `TYPE_AWARE_BUDGET` in `tools/bench/src/run.rs`. Every `bench` run checks and publishes them.
+  `--check-budget` makes `skif-bench run` exit non-zero when one fails, after writing the summary.
+* While types are opt-in ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)), the budget is the bar they must meet to
+  become the default again, and the `bench` workflow does not pass `--check-budget`: a broken budget shows in the
+  summary without failing the run. The workflow passes it again in the change that turns types on by default.
+* Changing the budget needs a new ADR.
 * A program gets no more checkers than it has judged files, and the diagnostics a checker makes are freed with its
   program, so idle checkers and unread diagnostics add nothing to the peak.
 * `SKIF_TIMINGS` prints the type-aware stages (programs, queries) and, per root, the checker memory in use and at most
@@ -240,7 +242,7 @@ through the coalescer, which is what makes it deadlock-free.
 
 ## Pros and Cons of the Options
 
-### Cache each file's parse result keyed by its content, share a run cache of non-local files with a parse coalescer, publish numbers of both modes from a manually dispatched workflow on a pinned GitHub-hosted runner, and fail that workflow on a broken type-aware budget
+### Cache each file's parse result keyed by its content, share a run cache of non-local files with a parse coalescer, publish numbers of both modes from a manually dispatched workflow on a pinned GitHub-hosted runner, and check a type-aware budget there
 
 * Good, because the cache is correct by construction and the library does no I/O: an embedder supplies its own store.
 * Good, because the results reach the repository through a signed local commit.

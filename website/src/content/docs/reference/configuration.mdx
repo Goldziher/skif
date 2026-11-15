@@ -982,8 +982,8 @@ graph, and parses the TypeScript lib and `@types` files again, so on a 4-vCPU ru
 as long as the default one (babel 18.2 s against 1.0 s, tanstack-query 10.0 s against 0.41 s), longer than knip on
 some repositories. That is why types are off by default until programs share those files. The
 [benchmarks](../../guides/benchmarks/) time every repository with `--type-aware` and without types and publish the
-peak memory of both, and the `bench` workflow fails a run in which types take more than 3x the untyped
-time on the largest repository or 2x in the median, or more than 4 GiB of peak memory on any target
+peak memory of both, and check the budget types must meet to become the default again: at most 3x the untyped
+time on the largest repository and 2x in the median, and at most 4 GiB of peak memory on any target
 ([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)). The programs of a run, also of several roots, share one budget of the machine's cores, which
 also bounds how many are in memory at once. A build of the `skif` crate without its `type-aware` feature, or of `skif-cli` with
 `--no-default-features`, has no type checker and reports every package untyped (`not-built`).

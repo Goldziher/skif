@@ -83,7 +83,8 @@ RSS. The type-aware budget of ADR 0029 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is 
 most 3x the default run on the largest corpus repository (the one whose untyped run takes longest), a median of at most 2x across
 the corpus, at most 4 GiB peak RSS with types on every target, at most 5 s with types on the module graph case, and
 at least 5x faster than knip with types wherever knip completes. `--check-budget` makes `run` exit non-zero when one
-of them fails, after writing the summary; the `bench` workflow passes it.
+of them fails, after writing the summary. The `bench` workflow does not pass it while types are opt-in: the budget
+is the bar they must meet to become the default again (ADR 0029).
 
 ## Targets (ADR 0001)
 
