@@ -73,8 +73,12 @@ binary use or tool configuration that skif reads uses the package.
 `duplicate-exports` are about the module graph inside the project.
 
 - Run `skif explain-usage <file>#<export>`; the `verdict` is `public`, `used`, `unused` or `not-judged`.
-- For a class member run `skif explain-usage <file>#<Class>.<member>`: it lists the files that read the name (any
-  object counts) or says why the member is not judged. A name read on an unrelated object keeps a member used.
+- For a class member run `skif explain-usage <file>#<Class>.<member>` (also `<Enum>.<member>` and
+  `<Namespace>.<member>`): it names the typed read that reaches the member, the files whose reads of the name were
+  credited without types, or why the member is not judged. With types (the default) only a read that reaches the
+  member keeps it used; where the checker does not cover a file or cannot type a receiver, a read of the name on any
+  object still does. The `type-aware` object of the JSON report says which packages were typed. Confirm a member
+  finding with `explain-usage` rather than by turning types off.
 - An export that is public API of a published package is used from outside: tag it `@public` in its JSDoc, or add an
   `ignore-tags` option to `unused-exports` for a project-specific tag.
 - Remove with `skif --fix-unsafe --fix-type exports,types` (also `enumMembers`, `namespaceMembers`). Some findings
