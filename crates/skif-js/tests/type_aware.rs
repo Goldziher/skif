@@ -107,6 +107,37 @@ fn typed_reads_leave_a_same_named_member_of_another_class_unused() {
     );
 }
 
+#[test]
+fn a_read_through_an_interface_keeps_the_member_an_implementing_class_inherits_used() {
+    let files = [
+        PACKAGE,
+        TSCONFIG,
+        (
+            "src/cell.ts",
+            "export interface ICell {\n  getRange(): number;\n}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n\n  \
+             getSize(): number {\n    return 2;\n  }\n}\n\n\
+             export class CodeCell extends BaseCell implements ICell {}\n",
+        ),
+        (
+            "src/index.ts",
+            "import type { ICell } from './cell';\nimport { BaseCell, CodeCell } from './cell';\n\n\
+             export function f(c: ICell): number {\n  return c.getRange();\n}\n\n\
+             export const make = (): BaseCell => new CodeCell();\n",
+        ),
+    ];
+    assert_eq!(
+        class_findings(&files, ""),
+        ["src/cell.ts: BaseCell.getSize"],
+        "`c.getRange()` reaches `BaseCell.getRange` through `CodeCell`, and nothing reads `getSize`"
+    );
+    assert_eq!(
+        class_findings(&files, TYPES_OFF),
+        ["src/cell.ts: BaseCell.getSize"],
+        "by name, `getRange` is read and `getSize` is not"
+    );
+}
+
 /// The forms of a default-exported class in `src/lib.ts` with members `render` and `paint`, by the name a finding
 /// gives the class.
 const DEFAULT_CLASSES: [(&str, &str); 6] = [
