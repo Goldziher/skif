@@ -19,6 +19,7 @@ import {
   mebibytes,
   parityAgreement,
   provenance,
+  readmeClaims,
   replaceBlock,
   speedClaim,
   summaryProblems,
@@ -559,6 +560,20 @@ test("the claims leave knip out when it fails on every repository", () => {
   assert.match(benchClaims(matched), /^- \*\*2\.1–7\.5x faster than sherif\*\* for manifest/);
 });
 
+test("the README claims are the comparison guide's, each linking to the speed tables of the benchmarks page", () => {
+  const claims = benchClaims(summary()).split("\n");
+  const readme = readmeClaims(summary()).split("\n");
+  const page = "https://goldziher.github.io/skif/guides/benchmarks/#speed";
+  assert.deepEqual(readme.slice(0, 3), [
+    `- [**8.1x faster than knip**](${page}) for dead-code analysis, on 1 pinned public repository.`,
+    `- [**2.1–3.9x faster than sherif**](${page}) for manifest and workspace checks (\`skif --no-js\`), on 1 pinned ` +
+      "public repository and 1 generated workspace of 500 packages.",
+    `- [**5.7–29.7x faster than syncpack**](${page}) for version-policy checks (\`skif --no-js\`), on 1 pinned ` +
+      "public repository and 1 generated workspace of 500 packages.",
+  ]);
+  assert.deepEqual(readme.slice(3), claims.slice(3));
+});
+
 test("a speed claim rounds every ratio down and says where skif was slower", () => {
   assert.equal(speedClaim("t", [1.99, 2.09]), "**1.9–2.0x faster than t**");
   assert.equal(speedClaim("t", [7.0, 7.09]), "**7.0x faster than t**");
@@ -655,7 +670,11 @@ test("a baseline from an older harness is a problem", () => {
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 /** The files refresh-numbers.mjs rewrites, relative to the repository root. */
-const TARGETS = ["website/src/content/docs/guides/comparison.mdx", "website/src/content/docs/guides/benchmarks.mdx"];
+const TARGETS = [
+  "website/src/content/docs/guides/comparison.mdx",
+  "website/src/content/docs/guides/benchmarks.mdx",
+  "README.md",
+];
 
 /** A temporary tree holding a copy of the script, the files it rewrites and the parity baseline; returns its root. */
 function scriptTree(t) {
@@ -722,11 +741,14 @@ test("a summary with a matched knip failure is written into every speed block", 
   writeFileSync(file, JSON.stringify(matched));
   const run = runScript(root, "--bench", "--summary", file);
   assert.equal(run.status, 0, run.stderr);
-  const [comparison, page] = contents(root).map((bytes) => bytes.toString("utf8"));
+  const [comparison, page, readme] = contents(root).map((bytes) => bytes.toString("utf8"));
   assert.ok(page.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), page);
   assert.ok(page.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), page);
   assert.ok(page.includes("| create-t3-turbo | 33 ms | 30 ms | 1.1x | 300 MiB | 200 MiB |\n"), page);
   const claim = "\n- **8.1x faster than knip** for dead-code analysis";
   assert.ok(comparison.includes(`{/* bench:claims:start */}${claim}`), comparison);
   assert.ok(comparison.includes("it fails on create-t3-turbo.\n"), comparison);
+  const linked =
+    "\n- [**8.1x faster than knip**](https://goldziher.github.io/skif/guides/benchmarks/#speed) for dead-code";
+  assert.ok(readme.includes(`<!-- bench:claims:start -->${linked}`), readme);
 });

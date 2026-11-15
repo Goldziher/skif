@@ -1,6 +1,6 @@
 // Rewrites the generated number blocks of the docs from the committed results:
 //   --bench   tools/bench/results/summary.json (a bench workflow run's, which `mise run bench:import` downloads) into
-//             the speed tables of the benchmarks page and the headline claims of the comparison guide;
+//             the speed tables of the benchmarks page and the headline claims of the comparison guide and the README;
 //   --parity  tools/bench/baselines/parity.json (written by `skif-bench parity --write-baseline`) into the agreement
 //             table of the benchmarks page.
 // Without either flag both are refreshed, and the speed blocks are left as they are while no run has been imported
@@ -349,6 +349,9 @@ const names = (items) =>
 const repositories = (n) => `${n} pinned public ${n === 1 ? "repository" : "repositories"}`;
 const workspaces = (n) => `${n} generated ${n === 1 ? "workspace" : "workspaces"}`;
 
+/** The benchmarks page the README's claims link to. */
+const BENCHMARKS_PAGE = "https://goldziher.github.io/skif/guides/benchmarks/";
+
 /** The headline claims of the comparison guide, from the same medians as the compact tables. */
 export function benchClaims(summary) {
   const corpus = summary.targets.filter((target) => target.kind === "corpus");
@@ -386,6 +389,11 @@ export function benchClaims(summary) {
       `measured on ${date(summary.measured_at)}.`,
   );
   return lines.join("\n");
+}
+
+/** The headline claims of the README: those of the comparison guide, each linking to the benchmarks page's speed tables. */
+export function readmeClaims(summary) {
+  return benchClaims(summary).replace(/^- (\*\*[^*\n]+\*\*)/gmu, `- [$1](${BENCHMARKS_PAGE}#speed)`);
 }
 
 const CATEGORY_NAMES = {
@@ -497,7 +505,8 @@ function main() {
   const guides = join(repo, "website", "src", "content", "docs", "guides");
   const comparison = join(guides, "comparison.mdx");
   const benchmarks = join(guides, "benchmarks.mdx");
-  const files = new Map([comparison, benchmarks].map((file) => [file, readFileSync(file, "utf8")]));
+  const readme = join(repo, "README.md");
+  const files = new Map([comparison, benchmarks, readme].map((file) => [file, readFileSync(file, "utf8")]));
   const update = (file, name, body, mdx = false) => {
     files.set(file, replaceBlock(files.get(file), name, mdx ? mdxText(body) : body, { mdx, file }));
   };
@@ -510,6 +519,7 @@ function main() {
     problems.push(...found.map((problem) => `${options.summary}: ${problem}`));
     if (found.length === 0) {
       update(comparison, "bench:claims", benchClaims(summary), true);
+      update(readme, "bench:claims", readmeClaims(summary));
       update(benchmarks, "bench:summary", benchSummary(summary), true);
       update(benchmarks, "bench:numbers", benchDetail(summary), true);
     }
