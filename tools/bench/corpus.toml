@@ -194,6 +194,8 @@ entry = [
   "src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateTokenizationWorker.workerMain.ts",
   "src/vs/workbench/workbench.desktop.main.ts",
   "src/vs/workbench/workbench.web.main.internal.ts",
+  # scripts/test-integration.sh runs these through the test runner by suffix; nothing imports them.
+  "src/**/*.integrationTest.ts",
 ]
 notes = "Very large application tree; extensions/copilot is a nested root with its own workspace."
 
