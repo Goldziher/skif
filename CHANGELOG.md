@@ -89,6 +89,13 @@ All notable changes to this project are documented here. The format follows
   `installed-main`, `type-referenced-members`, `knip-node-modules-name`, `raw-glob-read` and `typescript-twin`;
   `knip-dot-ignore` also sets apart what only a hidden file uses, `used-in-knip-unused-file` the peers of a package such
   a file imports, and `imported-by-knip-unused-file` the members such a file reads.
+- **Comparison harness**: more known deviations of the knip comparison, for how knip reads a module
+  ([ADR NNNN](adrs/NNNN-how-knip-reads-a-module.md)): `opaque-dynamic-import`, `dynamic-import-default`,
+  `jest-require-actual`, `spied-namespace`, `enumerated-namespace`, `namespace-re-export`,
+  `typescript-commonjs-export`, `node-test-entry`, `ng-package-entry` and `import-type-qualifier`;
+  `tsconfig-declaration-file` also sets apart what a declaration entry re-exports, `published-source` what a file
+  published as it is re-exports, `type-asserted-require` takes a template literal and `module-object-values` a
+  namespace re-export used as a whole, and the harness resolves a workspace subpath into unbuilt output to its source.
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
   `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
   `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it,
