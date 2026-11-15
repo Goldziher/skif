@@ -416,6 +416,14 @@ fn note_timings(root: &std::path::Path, timings: &skif_js_types::TypeTimings) {
         timings.early,
         timings.threads
     ));
+    if let Some(peak) = skif_js_types::arena_peak_bytes() {
+        skif_core::timing::note(format_args!(
+            "js types {}: checker arenas {} MiB in use, {} MiB at most so far (process-wide)",
+            root.display(),
+            skif_js_types::arena_bytes_in_use() >> 20,
+            peak >> 20
+        ));
+    }
     for program in timings.slowest(SLOWEST_PROGRAMS) {
         skif_core::timing::note(format_args!(
             "js types {}: program {}: {} judged of {} files, {} checkers, build {} ms, queries {} ms",
