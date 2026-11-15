@@ -1,4 +1,4 @@
-//! The type coverage of a package, from what happened to each of its judged files (ADR 0044).
+//! The type coverage of a package, from what happened to each of its judged files (ADR 0034).
 
 use std::path::Path;
 

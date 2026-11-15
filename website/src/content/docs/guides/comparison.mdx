@@ -124,8 +124,8 @@ under [Parity with knip](#parity-with-knip).
    checker cannot settle, a read of a property of the member's name on any object counts. It leaves alone the members
    of decorated classes, of classes that extend an unknown class and of interfaces declared elsewhere, where knip
    judged them by their references
-   ([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md),
-   [ADR 0046](https://github.com/Goldziher/skif/blob/main/adrs/0046-typed-member-semantics.md)).
+   ([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md),
+   [ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ### Fixing, adoption and configuration
 
@@ -274,7 +274,7 @@ package's own `dependencies` and `devDependencies`. The `types` that a `tsconfig
 Heft rig profile) finds in its own `typeRoots` come with that config's package, so they do not make the extending
 package use its optional peer `@types/node`. knip credits `webpack-cli` for every webpack config, and `webpack` as its
 peer; skif judges both by the scripts, commands and imports that run them
-([ADR 0057](https://github.com/Goldziher/skif/blob/main/adrs/0057-redundant-dev-entries-and-installed-optional-peers.md)).
+([ADR 0019](https://github.com/Goldziher/skif/blob/main/adrs/0019-dependency-unlisted-and-unresolved-findings.md)).
 
 A package with a reached `.svelte` file uses `svelte`, the compiler of its components; knip credits `svelte` only
 where a file or a configuration names it. skif reads the exports of a component's module script
@@ -304,7 +304,7 @@ is not an `unresolved-imports` finding, so unresolved imports compare with knip'
 the module by it: a worker pool (`new Worker(require.resolve("./worker"))`), a bundler loader, a plugin host. In skif
 the call keeps the file it names in use, a package it names is a used dependency, and the value exports of the module
 are used, as for a `require()` that binds nothing; `unused-types` reports its types that nothing else imports
-([ADR 0059](https://github.com/Goldziher/skif/blob/main/adrs/0059-resolve-calls-use-the-values-of-the-module.md)).
+([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 knip makes such a file an entry, so it reports neither.
 
 skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file; knip reports one that nothing
@@ -315,8 +315,7 @@ namespace`) or another module (`declare module "x"`), or that exports nothing an
 publishes it (`types`, `typings`, the `types` condition of `exports`), a `tsconfig.json` lists it in `files` or an
 `entry` glob names it. Otherwise it is judged like a TypeScript module once a module imports it, so `unused-types`
 and `unused-exports` report what no importer uses
-([ADR 0054](https://github.com/Goldziher/skif/blob/main/adrs/0054-module-declaration-files-are-modules.md),
-[ADR 0055](https://github.com/Goldziher/skif/blob/main/adrs/0055-exportless-declaration-files-that-load-a-module.md)).
+([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 knip makes every declaration file that the `tsconfig.json` of a workspace compiles (its `include` and `files`) an
 entry, so it reports no export or type of one and reads its imports even when nothing imports it: in a workspace
 whose `tsconfig.json` includes `src/**/*`, knip judges none of the `.d.ts` files there that skif judges.
@@ -333,7 +332,7 @@ A lazy-component loader that returns an `import()` (`lazy(() => import("./Page")
 both tools, and `.then((m) => m.Page)` inside it uses `Page`. A function returning an `import()` passed to any other
 call (`wrapLazy(() => import("./Page"))`) keeps the whole module used in skif, since that call may read any export,
 and `skif explain-usage` names the call; knip counts it as a use of `default` and reports the named exports
-([ADR 0048](https://github.com/Goldziher/skif/blob/main/adrs/0048-dynamic-imports-returned-to-a-call.md)).
+([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 
 A use of a module object as a whole (a namespace passed around, spread, indexed with a computed key or named in
 `typeof ns`, and `require("./m")` or `import("./m")`) reaches the values of the module only. In skif it uses every value
@@ -359,7 +358,7 @@ installed packages and workspace members, also for the `paths` of `[js.workspace
 leads into the package's own sources uses no listed dependency. With the `paths` of `knip.json`, knip tries the
 package first and reports the local file by `unused-files`; with tsconfig `paths` it reaches the local file but
 counts the listed dependency as used. skif reports that dependency by `unused-dependencies` instead
-([ADR 0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
+([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 
 Both tools report a package that a tool config names and no manifest lists (a `tsconfig` `extends`, an Oxlint or
 ESLint plugin, a Prisma generator) at the config. knip reads some of them as files to resolve, so one with an unscoped

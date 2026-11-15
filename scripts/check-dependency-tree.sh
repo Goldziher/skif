@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Fails unless the dependency layering of ADR 0002, ADR 0013 and ADR 0045 holds:
+# Fails unless the dependency layering of ADR 0002 holds:
 #   - `skif` without default features pulls in no oxc crate and no tsrs crate;
 #   - `skif-core` depends on no other workspace crate;
-#   - oxc crates are reachable only through skif-js-syntax, skif-js-plugins and skif-js;
+#   - oxc crates are reachable only through skif-js-syntax, skif-js-plugins, skif-js and the unpublished skif-bench;
 #   - tsrs crates are reachable only through skif-js-types.
 #
 # Usage: scripts/check-dependency-tree.sh

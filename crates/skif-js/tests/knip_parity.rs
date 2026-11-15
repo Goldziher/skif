@@ -253,7 +253,7 @@ const LAZY_FILES: [(&str, &str); 6] = [
 ];
 
 /// `lazy` of React and `next/dynamic` read only the export the loader resolves to, as knip counts them; an import
-/// returned to any other call keeps the namespace in use, since that call may read any export (ADR 0048).
+/// returned to any other call keeps the namespace in use, since that call may read any export (ADR 0018).
 #[test]
 fn a_lazy_component_loader_uses_only_the_export_it_renders() {
     let diagnostics = lint_files(&LAZY_FILES);

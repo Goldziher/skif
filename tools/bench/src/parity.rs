@@ -399,7 +399,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 58] = [
     },
     Deviation {
         id: PATHS_BEFORE_PACKAGES,
-        reason: "skif reports these dependencies as unused, or knip reports these files as unused, where a file of the workspace imports the dependency's package by a specifier that the `paths` of the importer's TypeScript configuration map to a file of the same workspace, which exists: skif follows TypeScript, which resolves the import through `paths` before it looks for the package, so the import uses that file and not the dependency (ADR 0038); knip credits the dependency and does not use the file. A mapping into another workspace member or into `node_modules` is an import of that package and stays compared. The harness finds such imports in the files whose configuration sets `paths` and whose workspace manifest lists the package",
+        reason: "skif reports these dependencies as unused, or knip reports these files as unused, where a file of the workspace imports the dependency's package by a specifier that the `paths` of the importer's TypeScript configuration map to a file of the same workspace, which exists: skif follows TypeScript, which resolves the import through `paths` before it looks for the package, so the import uses that file and not the dependency (ADR 0013); knip credits the dependency and does not use the file. A mapping into another workspace member or into `node_modules` is an import of that package and stays compared. The harness finds such imports in the files whose configuration sets `paths` and whose workspace manifest lists the package",
     },
     Deviation {
         id: WHOLE_ENUM_USE,
@@ -415,7 +415,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 58] = [
     },
     Deviation {
         id: TYPE_RESOLVED,
-        reason: "skif with types (its default, the run compared here) and skif with `--no-type-aware` disagree on these findings: skif reports them only with types, or knip reports them and only skif without types does too. Types settle which declaration a read reaches, so a typed read credits only the members TypeScript treats as the same (ADR 0046), while knip credits by name. Counted only where no other deviation explains the finding and only with the untyped pass (`--no-untyped-pass` turns it off); the per-rule counts of both modes are in `type-aware.json`",
+        reason: "skif with types (its default, the run compared here) and skif with `--no-type-aware` disagree on these findings: skif reports them only with types, or knip reports them and only skif without types does too. Types settle which declaration a read reaches, so a typed read credits only the members TypeScript treats as the same (ADR 0034), while knip credits by name. Counted only where no other deviation explains the finding and only with the untyped pass (`--no-untyped-pass` turns it off); the per-rule counts of both modes are in `type-aware.json`",
     },
     Deviation {
         id: KNIP_DOT_IGNORE,
@@ -427,7 +427,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 58] = [
     },
     Deviation {
         id: TSCONFIG_DECLARATION_FILE,
-        reason: "knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the `tsconfig.json` of one of its workspaces compiles a production entry: the files its `files` lists and its `include` globs select (everything below the configuration's directory when it sets neither), less its `exclude` globs, `node_modules` and the `outDir`, as knip reads the configuration and those it `extends`. The exports of an entry are public and its imports are read. skif judges a module declaration file like any module, an entry only when something else makes it one (ADR 0054, ADR 0055). Set apart: the exports, types and members skif reports in such a declaration file, and the exports and types skif reports that such a file re-exports through `export … from` and `export *`, followed through the files in between (next.js's `route-modules/*/module.compiled.d.ts`, `export * from './module'`), which are public for knip as re-exports of an entry; the unlisted dependencies and unresolved imports knip reports in one that no code file of the checkout imports (relative, through the importer's tsconfig `paths` or as a subpath of a workspace package, by its stem with or without a built extension), whose imports skif never reads; and the unused files only skif reports that such a declaration file reaches by relative imports, directly or through other files only skif reports unused, which knip reaches from the entry",
+        reason: "knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the `tsconfig.json` of one of its workspaces compiles a production entry: the files its `files` lists and its `include` globs select (everything below the configuration's directory when it sets neither), less its `exclude` globs, `node_modules` and the `outDir`, as knip reads the configuration and those it `extends`. The exports of an entry are public and its imports are read. skif judges a module declaration file like any module, an entry only when something else makes it one (ADR 0013). Set apart: the exports, types and members skif reports in such a declaration file, and the exports and types skif reports that such a file re-exports through `export … from` and `export *`, followed through the files in between (next.js's `route-modules/*/module.compiled.d.ts`, `export * from './module'`), which are public for knip as re-exports of an entry; the unlisted dependencies and unresolved imports knip reports in one that no code file of the checkout imports (relative, through the importer's tsconfig `paths` or as a subpath of a workspace package, by its stem with or without a built extension), whose imports skif never reads; and the unused files only skif reports that such a declaration file reaches by relative imports, directly or through other files only skif reports unused, which knip reaches from the entry",
     },
     Deviation {
         id: MODULE_OBJECT_TYPES,
@@ -435,7 +435,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 58] = [
     },
     Deviation {
         id: HEFT_CONFIG,
-        reason: "knip reports these dependencies as unused, and skif's `heft` plugin credits them (ADR 0037): a Heft config of the project (`config/heft.json`, `config/rig.json`, `config/jest.config.json`, ...) or of a rig's profile (`profiles/<profile>/` of the rig itself or of the installed rig `config/rig.json` names) names them, or they are peers of a package so named. knip has no Heft plugin. The harness runs skif's plugin resolver for each project that owns such a finding and takes what the `heft` plugin references, and what any plugin references from a file of a rig profile (the `tslib` an `importHelpers` of a profile's `tsconfig-base.json` needs)",
+        reason: "knip reports these dependencies as unused, and skif's `heft` plugin credits them (ADR 0015): a Heft config of the project (`config/heft.json`, `config/rig.json`, `config/jest.config.json`, ...) or of a rig's profile (`profiles/<profile>/` of the rig itself or of the installed rig `config/rig.json` names) names them, or they are peers of a package so named. knip has no Heft plugin. The harness runs skif's plugin resolver for each project that owns such a finding and takes what the `heft` plugin references, and what any plugin references from a file of a rig profile (the `tslib` an `importHelpers` of a profile's `tsconfig-base.json` needs)",
     },
     Deviation {
         id: TYPE_ASSERTED_REQUIRE,
@@ -3551,7 +3551,7 @@ fn own_paths_keys(unlisted: &BTreeSet<String>, resolver: &Resolver<'_>, read: &S
 /// TypeScript configuration map to a file of the same workspace ([`Resolver::paths_target`]), where `<manifest>` is
 /// the `package.json` of that workspace and lists the package, and that file: TypeScript resolves such an import
 /// through `paths` before it looks for the package, so skif counts it as a use of the file and not of the dependency
-/// (ADR 0038). A mapping into another workspace is an import of that package. Only files whose configuration sets
+/// (ADR 0013). A mapping into another workspace is an import of that package. Only files whose configuration sets
 /// `paths` and whose text holds the literal start of one of its patterns are parsed.
 fn paths_before_packages(
     files: &[String],
@@ -4062,7 +4062,7 @@ fn namespace_reexport_object_credits(
         .collect()
 }
 
-/// `<manifest>|<package>` for every dependency of the projects in `dirs` that skif's Heft support credits (ADR 0037),
+/// `<manifest>|<package>` for every dependency of the projects in `dirs` that skif's Heft support credits (ADR 0015),
 /// with the peers of those ([`with_peer_credits`]): in a project where the `heft` plugin is enabled, what it references
 /// ([`project_plugins`]), and what any plugin references from a file of a rig profile ([`in_rig_profile`]), such as the
 /// `tslib` an `importHelpers` of a profile's `tsconfig-base.json` needs. `manifest` reads the `package.json` of a
@@ -4521,7 +4521,7 @@ fn type_referenced_members(
 }
 
 /// The facts of the known deviations that follow from how knip reads a module where skif reads it otherwise
-/// (ADR 0060). Each credit is `<file>|<export>` (`<file>|*` for every export of the file), followed through the
+/// (ADR 0021). Each credit is `<file>|<export>` (`<file>|*` for every export of the file), followed through the
 /// `export … from` and `export *` re-exports of the files in between ([`follow_reexports`]).
 #[derive(Default)]
 struct KnipReadSets {
@@ -5596,7 +5596,7 @@ fn rules_js_build_files<'b>(
 /// (`js_test`, or a rule with `testonly = True`) also names the files of `files` below the `BUILD` file's directory
 /// that the include patterns of a `glob` of its `srcs` or `data` match, relative to that directory, without applying
 /// its `exclude` patterns. A `glob` of any other target, one inside `select` and a label of another package name none,
-/// as in skif's plugin (ADR 0049).
+/// as in skif's plugin (ADR 0031).
 fn bazel_sources(
     build_files: &[(String, String)],
     files: &[String],

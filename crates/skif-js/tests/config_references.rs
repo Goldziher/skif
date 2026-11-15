@@ -786,7 +786,7 @@ fn lint_owned(files: &[(String, String)]) -> Vec<Diagnostic> {
 }
 
 /// A coverage provider a shared config names only when an environment variable turns coverage on is an optional
-/// reference (ADR 0036): the app calling the factory without listing it has no unlisted dependency, and an app that
+/// reference (ADR 0016): the app calling the factory without listing it has no unlisted dependency, and an app that
 /// lists it uses it.
 #[test]
 fn a_package_named_only_on_an_environment_gated_branch_is_optional() {

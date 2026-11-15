@@ -236,7 +236,7 @@ the files they import that only knip reports as unused. An import one tool repor
 unresolved counts as agreement. A repository whose knip run is not a valid comparison is named and left out of the
 sums. skif is compared as it runs by default, with types, and runs a second time with `--no-type-aware`: a finding
 only one mode reports, where knip does not side with the typed run, is counted apart as `type-resolved`
-([ADR 0046](https://github.com/Goldziher/skif/blob/main/adrs/0046-typed-member-semantics.md)), and the findings of each
+([ADR 0021](https://github.com/Goldziher/skif/blob/main/adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)), and the findings of each
 mode per rule are recorded in `tools/bench/baselines/type-aware.json`. Reading the disagreements found false findings on both sides
 ([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 The remaining differences, and what each tool reports differently, are in the
@@ -296,7 +296,7 @@ declaration says so (`timed = true`) and the run is published with its time and 
 
 The workflow runs only when dispatched, on a pinned GitHub-hosted runner image (`ubuntu-24.04` or
 `ubuntu-24.04-arm`), and builds skif and the harness with `--locked` and the `rust-version` of their `Cargo.toml`
-([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-and-benchmarks.md)).
+([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
 two runs of the same image may land on different CPU models (the summary names the one it got). Read the ratios
 against knip, sherif and syncpack, which share the machine and its noise, rather than the absolute times.

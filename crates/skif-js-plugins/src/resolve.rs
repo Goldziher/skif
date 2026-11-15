@@ -1115,7 +1115,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
 /// `inputs`, what `reader` read from `config`, with each package it requires that the reading of one of `variants`
 /// does not require made optional: `variants` are the value of `config` with every test on the environment the
 /// evaluator cannot decide taken as true, then as false, so such a package is named only on a branch the environment
-/// chooses (ADR 0036). It still credits a manifest listing it, but no manifest needs to list it.
+/// chooses (ADR 0016). It still credits a manifest listing it, but no manifest needs to list it.
 fn environment_gated(
     reader: &dyn Plugin,
     config: &ConfigAst<'_>,

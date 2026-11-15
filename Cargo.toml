@@ -73,8 +73,8 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 toml = { version = "1.2.1", features = ["preserve_order"] }
 toml_edit = "0.25.19"
-# The TypeScript checker behind type-aware analysis (ADR 0044), only through skif-js-types. Pre-release crates move
-# together and only at an exact version (ADR 0045).
+# The TypeScript checker behind type-aware analysis (ADR 0034), only through skif-js-types. Pre-release crates move
+# together and only at an exact version (ADR 0034).
 tsrs_ast = "=7.1.0-beta.tsrs1"
 tsrs_checker = "=7.1.0-beta.tsrs1"
 tsrs_compiler = "=7.1.0-beta.tsrs1"
@@ -105,7 +105,7 @@ too_many_lines = "allow"
 # Issues are returned boxed as trait objects by design.
 unnecessary_box_returns = "allow"
 
-# Panics unwind so that a failure inside the type checker falls back to the untyped analysis (ADR 0045).
+# Panics unwind so that a failure inside the type checker falls back to the untyped analysis (ADR 0027).
 [profile.release]
 lto = "thin"
 codegen-units = 1

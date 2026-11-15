@@ -483,7 +483,7 @@ fn bundling(entry: &str) -> [(&'static str, String); 4] {
 }
 
 /// A plugin entry in build output that maps back to no source file hides what the bundle reaches, so the package's
-/// entries are incomplete and name the entry (ADR 0035).
+/// entries are incomplete and name the entry (ADR 0016).
 #[test]
 fn a_plugin_entry_in_build_output_without_a_source() {
     let files = bundling("'lib-esm', 'entry.js'");

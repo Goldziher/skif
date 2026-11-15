@@ -1,4 +1,4 @@
-//! `unused-class-members` (ADR 0042): which members of used exported classes count as read, which are not judged,
+//! `unused-class-members` (ADR 0018): which members of used exported classes count as read, which are not judged,
 //! and the `explain-usage` evidence for one member.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

@@ -15,9 +15,9 @@ include = ["/src/**", "/benches/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/A
 categories = ["development-tools"]
 
 [features]
-# Typed facts from the TypeScript checker of tsrs (`skif-js-types`, ADR 0044).
+# Typed facts from the TypeScript checker of tsrs (`skif-js-types`, ADR 0034).
 type-aware = ["dep:skif-js-types"]
-# Plain pointers in tsrs instead of its fixed address-space reservation (ADR 0045); only has an effect with
+# Plain pointers in tsrs instead of its fixed address-space reservation (ADR 0034); only has an effect with
 # `type-aware`.
 plain-ptrs = ["skif-js-types?/plain-ptrs"]
 

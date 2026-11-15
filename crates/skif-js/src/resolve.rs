@@ -1288,7 +1288,7 @@ impl ModuleResolver {
             .filter(|name| self.members.contains_key(name.as_str()))
             .cloned();
         // `paths` win over an installed package or a workspace member of the same name, as they do for TypeScript
-        // (ADR 0038), and over the lookup directories and aliases a `tsconfig.json` or `jsconfig.json` declares; a
+        // (ADR 0013), and over the lookup directories and aliases a `tsconfig.json` or `jsconfig.json` declares; a
         // mapping whose targets are all missing falls through to them.
         if let Some(found) = self.through_paths(kind, importer, specifier) {
             return self.aliased(found, member_name, (importer, specifier));

@@ -39,7 +39,7 @@ pub(crate) struct EntryFiles {
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused, with the
     /// reason: those that publish build output or bin files none of which maps back to a source file
     /// ([`IncompleteCause::UnmappedPublished`]), those a tool configuration gives an entry in build output that maps
-    /// back to no source file ([`IncompleteCause::UnmappedEntry`], ADR 0035), and those with no source file at or below
+    /// back to no source file ([`IncompleteCause::UnmappedEntry`], ADR 0016), and those with no source file at or below
     /// their directory other than a package manager's install hook (`.pnpmfile.cjs`), no other entry and no script,
     /// whose manifest only lists what code elsewhere installs it for ([`IncompleteCause::NoEntries`]). A published path
     /// or a plugin entry that names no file at all ([`names_no_file`]) is no entry and does not make a package's
@@ -372,7 +372,7 @@ impl EntryContext<'_> {
     /// The plugin entries of the package that name one file in the package that is neither a file nor a directory, as
     /// a bundler's `lib-esm/entry.js` does: the source files behind those that are build output, mapped as a published
     /// path is ([`map_published`]), and, absolute, those that are build output ([`should_have_source`], not
-    /// [`names_no_file`]) with no source behind them, whose entries are unknown (ADR 0035). One that names nothing at
+    /// [`names_no_file`]) with no source behind them, whose entries are unknown (ADR 0016). One that names nothing at
     /// all stays no entry, as a published path into nothing does (ADR 0016).
     fn missing_plugin_entries(&self, package: &Package, package_setup: &PackageSetup) -> (Vec<PathBuf>, Vec<PathBuf>) {
         let dir = &package_setup.dir;
