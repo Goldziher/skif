@@ -392,7 +392,7 @@ Two known deviations on skif's side follow from how knip reads a file:
   `export const a = importedA` for a re-export of the import and records no alias of a re-export, so it sees no
   duplicate; skif counts every name that holds the one value. The harness reads the aliases with skif's parser.
 
-One more follows from what knip makes an entry:
+Two more follow from what knip makes an entry and how it credits a module object:
 
 - `tsconfig-declaration-file`: knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the
   `tsconfig.json` of one of its workspaces compiles a production entry, whose exports are public and whose imports it
@@ -407,6 +407,12 @@ One more follows from what knip makes an entry:
   extension when no source file takes the specifier; and the unused files only skif reports that such a file reaches by
   relative imports, directly or through other files only skif reports unused (the files angular's
   `*_isolated.golden.d.ts` compliance files import).
+- `module-object-types`: a type only skif reports in a file that an import in a code file of the checkout uses as a
+  whole module object (`import()`, `require`, a namespace used as a whole), directly or through `export … from` and
+  `export *` re-exports. knip records such a use as opaque and credits every export, types included; skif's whole use
+  counts the module's values only (ADR 0018). cal-com's `crm.apps.generated.ts` maps each app to
+  `import("./<app>/lib/CrmService")`, so the `CrmService` types are skif's only. Only the files that hold `import(`,
+  `require(` or `* as ` are parsed.
 
 `non-member-project`, `published-source`, `published-file` and `entry-module-duplicate` check where a finding is, not
 why skif has no finding there. npm's `lib/commands` files that skif reaches through a computed `require` in
