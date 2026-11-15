@@ -57,6 +57,9 @@ if (!isolated.report) fail("noConfig produced no report: " + JSON.stringify(isol
 const untyped = await addon.lintAsync(fixture, { noTypeAware: true });
 if (!untyped.report) fail("noTypeAware produced no report: " + JSON.stringify(untyped.error));
 
+const typed = await addon.lintAsync(fixture, { typeAware: true });
+if (!typed.report) fail("typeAware produced no report: " + JSON.stringify(typed.error));
+
 const noFile = await addon.lintAsync(fixture, { config: missing + "/skif.toml" });
 if (noFile.report || !noFile.error) fail("a missing config file did not fail: " + JSON.stringify(noFile));
 
