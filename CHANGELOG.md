@@ -266,6 +266,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unlisted-binaries`: the `claude` CLI is a machine binary, as the Bazel launchers are, and as knip's global
+  binaries have it: a script or a source file that runs it no longer reports it while `ignore-global-binaries` is on.
+  A listed `@anthropic-ai/claude-code` still provides it ([#243](https://github.com/Goldziher/skif/issues/243)).
 - `unused-dependencies`, `unused-dev-dependencies`: the `next` plugin names `react` and `react-dom` for a package
   without a `next.config` only when the package depends on `next` itself. A package that inherits the plugin from the
   root's `next` (a test fixture package of the workspace) is judged by its own uses of React. Before, its `react` was
