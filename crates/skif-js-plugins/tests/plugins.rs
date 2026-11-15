@@ -1160,6 +1160,18 @@ fn next_without_config_still_has_router_entries() {
     assert!(output(&results, "next").entries.iter().any(|e| e.contains("pages/**")));
 }
 
+/// React is a dependency of a package that depends on `next` itself, not of one that only inherits the plugin from an
+/// ancestor that lists `next`.
+#[test]
+fn next_without_config_names_react_only_for_a_package_that_depends_on_next() {
+    let own = resolve(&[], &["next"]);
+    assert_deps(output(&own, "next"), &["react", "react-dom"]);
+    let inherited = resolve_inheriting(&[], &["react"], &["next"], false, &IndexMap::new());
+    let out = output(&inherited, "next");
+    assert_absent(out, &["react", "react-dom"]);
+    assert!(out.entries.iter().any(|e| e.contains("pages/**")), "{:?}", out.entries);
+}
+
 #[test]
 fn storybook() {
     let results = resolve(
