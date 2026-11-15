@@ -58,6 +58,15 @@ impl Plugin for Typescript {
                 out.push(PluginInput::ConfigFile(config.join(&file)));
             }
         }
+        // A declaration file listed by name is part of the program, whether or not a module imports it.
+        out.extend(
+            value
+                .get("files")
+                .map_or_default(strings)
+                .into_iter()
+                .filter(|file| is_declaration_file(file))
+                .map(|file| PluginInput::ProductionEntry(config.join(file))),
+        );
         let Some(options) = value.get("compilerOptions") else {
             return out;
         };
