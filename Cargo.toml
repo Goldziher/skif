@@ -76,9 +76,12 @@ toml_edit = "0.25.19"
 # The TypeScript checker behind type-aware analysis (ADR 0034), only through skif-js-types. Pre-release crates move
 # together and only at an exact version (ADR 0034).
 tsrs_ast = "=7.1.0-beta.tsrs1"
+tsrs_binder = "=7.1.0-beta.tsrs1"
 tsrs_checker = "=7.1.0-beta.tsrs1"
 tsrs_compiler = "=7.1.0-beta.tsrs1"
+tsrs_contentmapper = "=7.1.0-beta.tsrs1"
 tsrs_core = "=7.1.0-beta.tsrs1"
+tsrs_diagnostics = "=7.1.0-beta.tsrs1"
 tsrs_scanner = "=7.1.0-beta.tsrs1"
 tsrs_tsoptions = "=7.1.0-beta.tsrs1"
 tsrs_vfs = "=7.1.0-beta.tsrs1"

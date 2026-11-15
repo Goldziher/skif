@@ -160,6 +160,8 @@ pub struct TypeTimings {
     pub threads: usize,
     /// Every built or shared program the analysis walked, in the order of their configs.
     pub per_program: Vec<ProgramTiming>,
+    /// The lib and `node_modules` declaration files the programs this analysis built read, by how each got them.
+    pub shared_files: SharedFileCounts,
 }
 
 impl TypeTimings {
@@ -172,6 +174,20 @@ impl TypeTimings {
         programs.truncate(count);
         programs
     }
+}
+
+/// How the programs got the files they share with the other programs of the run (the bundled lib files and the
+/// declaration files below `node_modules`), one count per file a program read: each is parsed and bound once for the
+/// run, the first time a program reads it, and reused by every later program.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SharedFileCounts {
+    /// Files a program read, parsed and bound for the run.
+    pub parsed: usize,
+    /// Files a program took parsed and bound from the run.
+    pub reused: usize,
+    /// Files a program parsed for itself alone, because the thread that loaded them was in a checker's memory scope.
+    pub unshared: usize,
 }
 
 /// How long one program took, with its size and the checkers it ran on.

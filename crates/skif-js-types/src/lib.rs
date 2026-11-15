@@ -13,6 +13,7 @@ mod programs;
 mod query;
 mod resident;
 mod session;
+mod shared_files;
 mod vfs;
 
 use std::num::NonZeroUsize;
@@ -25,8 +26,8 @@ use skif_core::FileSystem;
 
 pub use error::TypeError;
 pub use facts::{
-    CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, TypeFacts, TypeQuery,
-    TypeTimings,
+    CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, SharedFileCounts,
+    TypeFacts, TypeQuery, TypeTimings,
 };
 pub use resident::TypePrograms;
 pub use session::{PendingTypes, TypeBudget};
@@ -63,7 +64,8 @@ pub struct TypeInput<'a> {
     pub threads: Option<NonZeroUsize>,
     /// The cores the analyses of the run share; `None` for cores of the analysis's own.
     pub budget: Option<&'a TypeBudget>,
-    /// The programs the analyses of the run share; `None` to build every program for this analysis alone.
+    /// The programs the analyses of the run share, with their lib and `node_modules` declaration files; `None` to
+    /// build every program for this analysis alone, whose programs then share those files among themselves.
     pub programs: Option<&'a TypePrograms>,
     /// Set by the host to stop the analysis.
     pub cancel: Option<&'a AtomicBool>,
@@ -142,7 +144,8 @@ pub struct TypeBuild {
     pub threads: Option<NonZeroUsize>,
     /// The cores the analyses of the run share; `None` for cores of the analysis's own.
     pub budget: Option<TypeBudget>,
-    /// The programs the analyses of the run share; `None` to build every program for this analysis alone.
+    /// The programs the analyses of the run share, with their lib and `node_modules` declaration files; `None` to
+    /// build every program for this analysis alone, whose programs then share those files among themselves.
     pub programs: Option<TypePrograms>,
 }
 

@@ -26,7 +26,9 @@ pub(crate) struct BomFiles {
 }
 
 impl BomFiles {
-    fn record(&self, file_name: &str) {
+    /// Records that the text of `file_name` starts with a byte order mark: read through this file system, or read
+    /// through another analysis's and shared with this one.
+    pub(crate) fn record(&self, file_name: &str) {
         self.files
             .write()
             .unwrap_or_else(PoisonError::into_inner)
