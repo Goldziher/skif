@@ -76,7 +76,10 @@ fn early_files_other_than_the_judged_ones_give_the_facts_of_the_judged_files() {
     let cases = [
         ("the judged files", judged.to_vec()),
         ("every file", all.clone()),
-        ("an unjudged program and part of a judged one", vec![first_files(&all[0], 1), all[2].clone()]),
+        (
+            "an unjudged program and part of a judged one",
+            vec![first_files(&all[0], 1), all[2].clone()],
+        ),
         ("no file", Vec::new()),
     ];
     let expected = analyzed(&generated, &judged);
@@ -89,7 +92,11 @@ fn early_files_other_than_the_judged_ones_give_the_facts_of_the_judged_files() {
     let expected = without_timings(expected);
     for (case, early) in cases {
         let facts = after_early_build(&generated, early, &judged);
-        assert_eq!(configs(&facts), [config(0), config(1)], "{case}: only judged programs are walked");
+        assert_eq!(
+            configs(&facts),
+            [config(0), config(1)],
+            "{case}: only judged programs are walked"
+        );
         assert_eq!(without_timings(facts), expected, "{case}");
     }
 }
@@ -115,9 +122,8 @@ fn a_build_cancelled_before_the_query_is_cancelled() {
     let generated = generated_programs(&PROGRAM_SIZES);
     let cancel = AtomicBool::new(true);
     let build = TypeBuild::new(generated.workspace.fs(), abs(""), generated.packages.clone()).with_threads(threads());
-    let result = std::thread::scope(|scope| {
-        start(scope, build, Some(&cancel)).finish(&generated.packages, &generated.query)
-    });
+    let result =
+        std::thread::scope(|scope| start(scope, build, Some(&cancel)).finish(&generated.packages, &generated.query));
     assert!(matches!(result, Err(TypeError::Cancelled)), "{result:?}");
 }
 
@@ -126,9 +132,7 @@ fn a_given_tsconfig_that_cannot_be_read_fails_the_finish() {
     let generated = generated_programs(&PROGRAM_SIZES);
     let build = TypeBuild::new(generated.workspace.fs(), abs(""), generated.packages.clone())
         .with_tsconfig_override(PathBuf::from("missing.json"));
-    let result = std::thread::scope(|scope| {
-        start(scope, build, None).finish(&generated.packages, &generated.query)
-    });
+    let result = std::thread::scope(|scope| start(scope, build, None).finish(&generated.packages, &generated.query));
     assert!(
         matches!(&result, Err(TypeError::Config { path, .. }) if path == &PathBuf::from("missing.json")),
         "{result:?}"
