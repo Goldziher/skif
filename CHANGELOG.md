@@ -181,6 +181,23 @@ All notable changes to this project are documented here. The format follows
   fall back to the untyped analysis. A panic that ends a run still exits 2, prints its message to stderr and, with
   `--format json`, writes one `internal` error document ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 
+### Performance
+
+- **Type-aware analysis**: the TypeScript programs start building while the module graph is built, from the
+  configs of the discovered files of the packages that want types; their queries still wait for the graph, and a
+  program no judged file needs is freed unwalked. The files placed while planning the early programs are not
+  searched again once the judged files are known. Findings do not depend on which programs started early. A
+  sequential run keeps building them after the graph. `SKIF_TIMINGS` names the time the analysis waited once the
+  graph was done and how many programs started before it ([ADR 0047](adrs/0047-performance-budget-with-types.md)).
+
+- **`unused-enum-members`, `unused-namespace-members`** with types: a member already used without types is no
+  longer asked of the checker, since types only add uses, so reads of its name cost no checker lookup. `explain-usage`
+  shows `read` as `false` in the typed evidence of such a member; the verdict is unchanged.
+
+- **`skif-js-types`**: `start` with a `TypeBuild` builds the programs before the query is known, and
+  `PendingTypes::finish` returns the facts `analyze` gives for the judged files it is handed. `TypeTimings` gains
+  `waited` and `early`.
+
 ### Fixed
 
 - Files reached only through framework and build entry points are no longer `unused-files`, so the class members
