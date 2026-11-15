@@ -11,6 +11,7 @@ mod members;
 mod owner;
 mod programs;
 mod query;
+mod resident;
 mod session;
 mod vfs;
 
@@ -27,6 +28,7 @@ pub use facts::{
     CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, TypeFacts, TypeQuery,
     TypeTimings,
 };
+pub use resident::TypePrograms;
 pub use session::{PendingTypes, TypeBudget};
 
 /// The engine and version recorded in [`TypeFacts::engine`].
@@ -61,6 +63,8 @@ pub struct TypeInput<'a> {
     pub threads: Option<NonZeroUsize>,
     /// The cores the analyses of the run share; `None` for cores of the analysis's own.
     pub budget: Option<&'a TypeBudget>,
+    /// The programs the analyses of the run share; `None` to build every program for this analysis alone.
+    pub programs: Option<&'a TypePrograms>,
     /// Set by the host to stop the analysis.
     pub cancel: Option<&'a AtomicBool>,
 }
@@ -77,6 +81,7 @@ impl<'a> TypeInput<'a> {
             query,
             threads: None,
             budget: None,
+            programs: None,
             cancel: None,
         }
     }
@@ -99,6 +104,14 @@ impl<'a> TypeInput<'a> {
     #[must_use]
     pub fn with_budget(mut self, budget: &'a TypeBudget) -> Self {
         self.budget = Some(budget);
+        self
+    }
+
+    /// Walks the programs `programs` holds built already and shares those it builds with the other analyses of the
+    /// run.
+    #[must_use]
+    pub fn with_programs(mut self, programs: &'a TypePrograms) -> Self {
+        self.programs = Some(programs);
         self
     }
 
@@ -129,6 +142,8 @@ pub struct TypeBuild {
     pub threads: Option<NonZeroUsize>,
     /// The cores the analyses of the run share; `None` for cores of the analysis's own.
     pub budget: Option<TypeBudget>,
+    /// The programs the analyses of the run share; `None` to build every program for this analysis alone.
+    pub programs: Option<TypePrograms>,
 }
 
 impl TypeBuild {
@@ -142,6 +157,7 @@ impl TypeBuild {
             tsconfig_override: None,
             threads: None,
             budget: None,
+            programs: None,
         }
     }
 
@@ -166,6 +182,14 @@ impl TypeBuild {
         self
     }
 
+    /// Walks the programs `programs` holds built already and shares those it builds with the other analyses of the
+    /// run.
+    #[must_use]
+    pub fn with_programs(mut self, programs: TypePrograms) -> Self {
+        self.programs = Some(programs);
+        self
+    }
+
     /// The input over the packages of the build for `query`, without cancellation.
     fn input<'a>(&'a self, query: &'a TypeQuery) -> TypeInput<'a> {
         TypeInput {
@@ -176,6 +200,7 @@ impl TypeBuild {
             query,
             threads: self.threads,
             budget: self.budget.as_ref(),
+            programs: self.programs.as_ref(),
             cancel: None,
         }
     }
@@ -204,7 +229,8 @@ pub fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
     session::analyze(input)
 }
 
-/// The bytes of tsrs's arenas in use now, for tests that check repeated analyses give their memory back.
+/// The bytes of tsrs's arenas in use now, for tests that check repeated analyses give their memory back and for the
+/// host's timings.
 ///
 /// With compressed pointers (the default on unix) these are the chunks of the process-wide reservation that are
 /// handed out, on every thread; with `plain-ptrs` only the calling thread's arena is counted.
@@ -214,6 +240,14 @@ pub fn arena_bytes_in_use() -> usize {
     tsrs_core::ptr::reserve_stats().map_or_else(tsrs_core::ptr::arena_used_bytes, |(in_use, _)| in_use)
 }
 
+/// The most bytes of tsrs's arenas in use at once in the process so far, for the host's timings; `None` with
+/// `plain-ptrs`, where only the calling thread's arena is counted.
+#[doc(hidden)]
+#[must_use]
+pub fn arena_peak_bytes() -> Option<usize> {
+    tsrs_core::ptr::reserve_stats().map(|(_, peak)| peak)
+}
+
 const _: () = {
     const fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<TypeFacts>();
@@ -221,4 +255,5 @@ const _: () = {
     assert_send_sync::<TypeError>();
     assert_send_sync::<TypeBuild>();
     assert_send_sync::<TypeBudget>();
+    assert_send_sync::<TypePrograms>();
 };

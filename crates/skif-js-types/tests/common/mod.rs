@@ -366,3 +366,71 @@ pub fn generated_programs(classes: &[u32]) -> Generated {
         reads,
     }
 }
+
+/// One analysis of a run over several roots: its root, the packages it judges and its query, with the reads it should
+/// yield.
+pub struct RootAnalysis {
+    /// The root, absolute.
+    pub root: PathBuf,
+    /// The root's one package, judging every file of the root.
+    pub packages: Vec<TypePackage>,
+    /// The classes of the root, in the shape of [`generated`].
+    pub query: TypeQuery,
+    /// The typed reads of the root's classes, numbered as its query numbers them.
+    pub reads: BTreeMap<DeclId, BTreeSet<String>>,
+}
+
+/// A run over `roots`, `(dir, classes)` pairs relative to [`ROOT`] (`""` for [`ROOT`] itself), each holding that many
+/// classes in the shape of [`generated`] below `<dir>/src` and no config of its own: one `tsconfig.json` at [`ROOT`]
+/// includes the `src` directory of every root, as a repository's root config includes the files of roots nested in
+/// it, so every root's judged files go to that one program.
+pub fn roots_under_one_tsconfig(roots: &[(&str, u32)]) -> (Workspace, Vec<RootAnalysis>) {
+    let include: Vec<String> = roots
+        .iter()
+        .map(|(dir, _)| format!("\"{}\"", below(dir, "src")))
+        .collect();
+    let tsconfig = TSCONFIG.replace(r#"["src"]"#, &format!("[{}]", include.join(", ")));
+    let mut files = vec![("tsconfig.json".to_owned(), tsconfig)];
+    let mut analyses = Vec::new();
+    for (index, &(dir, classes)) in roots.iter().enumerate() {
+        let one = generated(classes);
+        let decls = one
+            .query
+            .decls
+            .into_iter()
+            .map(|decl| {
+                let rel = decl.file.strip_prefix(ROOT).unwrap().to_owned();
+                DeclQuery {
+                    file: abs(dir).join(rel),
+                    ..decl
+                }
+            })
+            .collect();
+        let mut judged = Vec::new();
+        for (rel, text) in one.workspace.files {
+            if rel == "tsconfig.json" {
+                continue;
+            }
+            let rel = below(dir, &rel);
+            judged.push(rel.clone());
+            files.push((rel, text));
+        }
+        let judged: Vec<&str> = judged.iter().map(String::as_str).collect();
+        analyses.push(RootAnalysis {
+            root: abs(dir),
+            packages: vec![package(dir, &format!("r{index}"), &judged)],
+            query: query(decls),
+            reads: one.reads,
+        });
+    }
+    (Workspace::from_owned(files), analyses)
+}
+
+/// `rel` below the directory `dir` relative to [`ROOT`].
+fn below(dir: &str, rel: &str) -> String {
+    if dir.is_empty() {
+        rel.to_owned()
+    } else {
+        format!("{dir}/{rel}")
+    }
+}

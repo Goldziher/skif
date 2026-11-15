@@ -146,7 +146,8 @@ pub struct TypeTimings {
     /// Walking the files and asking the checker, summed over the programs as [`TypeTimings::programs`] is.
     pub queries: Duration,
     /// Waiting for cores before building, summed over the programs as [`TypeTimings::programs`] is: on a
-    /// [`TypeBudget`](crate::TypeBudget) the analyses of a run share, the time a program waited for other analyses'.
+    /// [`TypeBudget`](crate::TypeBudget) the analyses of a run share, the time a program waited for other analyses';
+    /// with [`TypePrograms`](crate::TypePrograms), also the time it waited for another analysis to build it.
     pub cores_waited: Duration,
     /// The wall time from the start of the first program to the end of the last.
     pub wall: Duration,
@@ -157,7 +158,7 @@ pub struct TypeTimings {
     pub early: usize,
     /// The threads the programs shared.
     pub threads: usize,
-    /// Every built program, in the order of their configs.
+    /// Every built or shared program the analysis walked, in the order of their configs.
     pub per_program: Vec<ProgramTiming>,
 }
 
@@ -185,10 +186,12 @@ pub struct ProgramTiming {
     pub files: usize,
     /// The checkers skif gave it; tsrs makes no more than the program has files.
     pub checkers: usize,
-    /// Reading its config, building and binding it.
+    /// Reading its config, building and binding it; zero when another analysis of the run built it.
     pub build: Duration,
     /// Walking its judged files on its checkers.
     pub query: Duration,
+    /// Whether another analysis of the run built it, for this one to walk ([`TypePrograms`](crate::TypePrograms)).
+    pub shared: bool,
 }
 
 impl ProgramTiming {
@@ -212,6 +215,7 @@ mod tests {
             checkers: 1,
             build: Duration::from_millis(build),
             query: Duration::from_millis(query),
+            shared: false,
         }
     }
 

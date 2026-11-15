@@ -96,6 +96,14 @@ All notable changes to this project are documented here. The format follows
   `tsconfig-declaration-file` also sets apart what a declaration entry re-exports, `published-source` what a file
   published as it is re-exports, `type-asserted-require` takes a template literal and `module-object-values` a
   namespace re-export used as a whole, and the harness resolves a workspace subpath into unbuilt output to its source.
+- **Comparison harness**: more known deviations of the knip comparison, for how knip reads a dependency, an import or
+  a command ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)): `module-augmentation`,
+  `jest-mock-specifier`, `nextra-resolve-alias`, `expo-updates`, `shared-config-reference`,
+  `shell-template-directory`, `nested-vitest-setup`, `gitignored-import`, `passthrough-command`, `bun-file-argument`,
+  `command-directory`, `optional-peer-host` and `required-child-process`; `non-member-project` also sets apart an
+  unlisted dependency inside a member or listed by a manifest between the file and its workspace, `data-uri` the name
+  knip cuts a `data:` specifier to, `own-tsconfig-paths` a missing `paths` target git ignores, `heft-config` an
+  unresolved import of a rig profile, and `bazel-build-file` an unresolved import of a `BUILD` output.
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
   `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
   `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it,
@@ -263,6 +271,26 @@ All notable changes to this project are documented here. The format follows
   early only when cores of that share are free. Findings do not change. `SKIF_TIMINGS` names the time the programs of
   a root waited for cores. Library hosts share a `TypeBudget` of `skif-js-types` between analyses with
   `TypeBuild::with_budget` and `TypeInput::with_budget`.
+
+- **Type-aware analysis of nested roots** (`--recursive`, several paths): a TypeScript program the judged files of
+  several roots go to is built once for the run instead of once per root. A root nested in another without a
+  `tsconfig.json` of its own places its files in the outer root's config, as TypeScript does, so every such root
+  built the whole outer program again to walk one or two files; on next.js that was the 3,638-file root program,
+  built again by each of the nested test roots. A built program is now kept, after the walk of the root that built
+  it, while a root of the run that holds one of its files has not been linted, and each of those roots walks its
+  files on that build; a root that needs a program another root is building waits for that build. Findings do not
+  change. `SKIF_TIMINGS` names a program another root built. Library hosts share a `TypePrograms` of `skif-js-types`
+  between analyses with `TypeBuild::with_programs` and `TypeInput::with_programs`; `ProgramTiming` gains `shared`
+  ([#245](https://github.com/Goldziher/skif/issues/245)).
+
+- **Type-aware analysis memory**: a TypeScript program gets no more checkers than it has judged files. tsrs creates
+  every checker of a program before the walk, each with its own copy of the program's global types, so a program
+  with two judged files on four checkers held two checkers that walked nothing. The diagnostics a checker makes while answering are freed with its
+  program; before, they stayed in memory for the rest of the run, so every program added its own. Findings do not
+  change ([#244](https://github.com/Goldziher/skif/issues/244)).
+
+- **`SKIF_TIMINGS`**: the type-aware stage prints the checker memory in use and at most so far per root
+  ([#244](https://github.com/Goldziher/skif/issues/244)).
 
 - **`unused-enum-members`, `unused-namespace-members`** with types: a member already used without types is no
   longer asked of the checker, since types only add uses, so reads of its name cost no checker lookup. `explain-usage`

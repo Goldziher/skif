@@ -520,6 +520,51 @@ and `export *` re-exports of the files in between:
   (`import('./x').Name`, also `.Name.Member`). skif's parser reads a use of `Name`; knip records an import of the
   module for its side effects (vscode's `electron-browser` types).
 
+More follow from how knip reads a dependency, an import or a command where skif reads it otherwise. Each one mirrors
+a rule of knip 6 and is decided from the files the harness reads (skif's parser, the manifests and installed
+manifests, git's ignore rules and the `BUILD` outputs), not from a list of findings:
+
+- `module-augmentation`: an unlisted dependency only knip reports that a `declare module 'x'` of a module file
+  augments (jest's `expect`). knip records the augmentation as an import; skif does not.
+- `jest-mock-specifier`: an unlisted dependency only knip reports that the first argument of a `jest.mock`,
+  `jest.doMock`, `jest.unmock`, `jest.dontMock`, `jest.requireActual`, `jest.requireMock` or
+  `jest.createMockFromModule` names (cal-com's `googleapis`). knip's Jest visitor records the specifier; skif reads a
+  mock as no use of a dependency.
+- `nextra-resolve-alias`: an unlisted dependency or unresolved import only knip reports in a `next.config.*` that
+  imports `nextra` and does not hold the specifier (cal-com's docs). knip's Next.js plugin reads the
+  `turbopack.resolveAlias` nextra adds.
+- `expo-updates`: `expo-updates` unlisted only by knip at an Expo app configuration (`app.json`, `app.config.*`).
+  knip's Expo plugin names it for every app that does not set `updates.enabled` to `false`.
+- `shared-config-reference`: an unresolved import of a package only knip reports in a file that does not hold the
+  specifier and imports a package whose manifest lists it (n8n's `@n8n/stylelint-config`); knip executes the
+  configuration and records what the shared one loads.
+- `shell-template-directory`: an unresolved relative import only knip reports that a Bun shell template
+  (`` $` ``) of the file runs and that resolves from the file's project directory, where the command runs, and not
+  from the file's own (opencode's scripts).
+- `nested-vitest-setup`: an unresolved import only knip reports in a Vitest or Vite configuration that a nested
+  configuration below it quotes and resolves from its own directory (mastra's packages).
+- `gitignored-import`: an unresolved import only knip reports of a relative file that does not exist and that git
+  ignores (cal-com's generated `packages/kysely/types.ts`). skif's resolver takes such a target for generated code.
+- `passthrough-command`: an unlisted binary only knip reports that a command skif passes through names (`watch`).
+- `bun-file-argument`: an unlisted binary only knip reports that is a file argument of `bun` (opencode's
+  `imports.mjs`).
+- `command-directory`: an unlisted binary only knip reports of a command that runs in another directory: after `cd`,
+  with `pnpm -C`, `--dir` or `--dir=`, or under a workflow step's `working-directory`, or one whose directory is
+  computed (`$…`, absolute or above the root). knip reads a step's `working-directory` and no job or workflow
+  `defaults`; skif reads both and resolves the binary where the command runs.
+- `optional-peer-host`: an unlisted dependency only skif reports that a workspace package at or above the file names
+  in `peerDependencies` with `peerDependenciesMeta.<name>.optional` true (n8n's `@vitest/coverage-v8`, cal-com's
+  `jsdom`). knip's dependency deputy counts a host's peers as present.
+- `required-child-process`: an unlisted binary only skif reports in a code file that loads `child_process` with
+  `require` and imports it statically nowhere (cal-com's `sentry-cli`, vscode's `sqlite3`). knip reads the commands of
+  `child_process` from static imports only.
+
+These widen deviations above: `non-member-project` also covers an unlisted dependency in a file inside one of knip's
+members, or that a manifest between the file and its workspace lists; `data-uri` also covers the name knip cuts a
+`data:` specifier to (`data`); `own-tsconfig-paths` also covers a `paths` target that does not exist and that git
+ignores (vscode's `.build/typings`); `heft-config` also covers an unresolved import of a rig profile; and
+`bazel-build-file` also covers an unresolved import of a file a `BUILD` file's `outs`, `out` or `stdout` produces.
+
 `non-member-project`, `published-source`, `published-file` and `entry-module-duplicate` check where a finding is, not
 why skif has no finding there. See
 [ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md).
