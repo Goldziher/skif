@@ -23,7 +23,7 @@
 //!   links and merged symbols are tables of the checker keyed by node or symbol, in the checker's region) and write
 //!   into symbols they create (transient ones), never into a parsed file or a bound symbol. The writes into a file a
 //!   checker does make are those it already makes concurrently with the other checkers of its program: the lazily
-//!   computed caches of the file (JSDoc, line map, name table), each set once from the file's text alone, and a
+//!   computed caches of the file (`JSDoc`, line map, name table), each set once from the file's text alone, and a
 //!   symbol's or node's id, set once by compare-and-swap from a process-wide counter. tsrs allocates those caches in
 //!   the region that owns the file (`SourceFile::owner_region`, `enter_owner`), found through the region registry:
 //!   registering the file's region keeps them there, whichever checker fills them, instead of in the region that
