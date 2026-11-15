@@ -297,11 +297,16 @@ types. knip reports none of them.
 skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file; knip reports one that nothing
 imports. A declaration file that applies without an import is an entry: a script (no top-level `import` or `export`),
 whose declarations are global, or a module file that augments the global scope (`declare global`, `export as
-namespace`) or another module (`declare module "x"`). Any other declaration file is a module, an entry only when
-`package.json` publishes it (`types`, `typings`, the `types` condition of `exports`), a `tsconfig.json` lists it in
-`files` or an `entry` glob names it. Otherwise it is judged like a TypeScript module once a module imports it, so
-`unused-types` and `unused-exports` report what no importer uses, as knip does
-([ADR 0054](https://github.com/Goldziher/skif/blob/main/adrs/0054-module-declaration-files-are-modules.md)).
+namespace`) or another module (`declare module "x"`), or that exports nothing and loads a module for its effect
+(`import "x"`, `/// <reference path>`). Any other declaration file is a module, an entry only when `package.json`
+publishes it (`types`, `typings`, the `types` condition of `exports`), a `tsconfig.json` lists it in `files` or an
+`entry` glob names it. Otherwise it is judged like a TypeScript module once a module imports it, so `unused-types`
+and `unused-exports` report what no importer uses
+([ADR 0054](https://github.com/Goldziher/skif/blob/main/adrs/0054-module-declaration-files-are-modules.md),
+[ADR NNNN](https://github.com/Goldziher/skif/blob/main/adrs/NNNN-exportless-declaration-files-that-load-a-module.md)).
+knip makes every declaration file that the `tsconfig.json` of a workspace compiles (its `include` and `files`) an
+entry, so it reports no export or type of one and reads its imports even when nothing imports it: in a workspace
+whose `tsconfig.json` includes `src/**/*`, knip judges none of the `.d.ts` files there that skif judges.
 
 A namespace passed as an argument is a use of the whole module in both tools, with one exception in skif: a
 test-runner spy with a literal member name (`vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")`, Jasmine's `spyOn(ns, "a")`)
