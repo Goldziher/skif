@@ -256,18 +256,21 @@ impl ExportUsage {
                         all: name.escapes,
                     };
                     match &name.kind {
-                        ImportedKind::Default => {
+                        ImportedKind::Default if !binds_module_exports(&graph.module(target).info) => {
                             queue.push_back(Task::Name(target, "default", access, Via::Named));
                         }
                         ImportedKind::Named(export) => {
                             queue.push_back(Task::Name(target, export, access, Via::Named));
                         }
+                        // The default import of a `CommonJS` module is its `module.exports` object, read like a
+                        // namespace.
+                        //
                         // A namespace without a local binding that does not escape (a bare `typeof import("x")`)
                         // reads no member, so it credits nothing. A member read only through its own members
                         // (`ns.E.A`) uses those, otherwise all of it. A namespace used as a whole is the module
                         // object, which holds the values only: its types are used only when read by name
                         // (`ns.Type`), or when the importer exports the namespace, whose importers can read any.
-                        ImportedKind::Namespace => {
+                        ImportedKind::Default | ImportedKind::Namespace => {
                             if name.escapes && exports_binding(&module.info, name) {
                                 queue.push_back(Task::All(target));
                             } else {
@@ -443,6 +446,12 @@ pub(crate) const fn credits_no_export(kind: ImportKind) -> bool {
 /// holds the values of the module and none of its types.
 pub(crate) const fn loads_module_value(kind: ImportKind) -> bool {
     matches!(kind, ImportKind::Dynamic | ImportKind::Require)
+}
+
+/// Whether a default import of the module `info` binds its `module.exports` object, as `esModuleInterop` and bundlers
+/// do for a `CommonJS` module without a `default` export: its properties are then read like the members of a namespace.
+pub(crate) fn binds_module_exports(info: &ModuleInfo) -> bool {
+    info.has_cjs_exports && !info.exports.iter().any(|export| export.name == "default")
 }
 
 /// Whether the module `info` exports the binding of the imported `name` itself (`export default ns`, `export = ns`),
