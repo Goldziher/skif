@@ -13804,8 +13804,8 @@ vi.mock("mocked-package");
         );
     }
 
-    /// Asserts the deviation [`dependency_reads`] finds for each `(side, category, key)` of `cases`, each one-sided on
-    /// its side, in a checkout of `sources` (the manifests among them, [`manifests_in`]) with these workspace members,
+    /// Asserts the deviation [`dependency_reads`] finds for each `(side, category, key)` of `cases`, each judged alone
+    /// as the one finding of its side, in a checkout of `sources` (the manifests among them, [`manifests_in`]) with these workspace members,
     /// where git ignores the paths at or below those of `ignored`.
     fn assert_dependency_reads(
         sources: &BTreeMap<&str, &str>,
@@ -13830,28 +13830,20 @@ vi.mock("mocked-package");
             .map(|(path, source)| ((*path).to_owned(), (*source).to_owned()))
             .collect();
         let outputs = bazel_outputs(&build_files, &is_file, &read);
-        let (mut skif, mut knip) = (Keys::new(), Keys::new());
-        for (side, category, key, _) in cases {
-            let keys = match side {
-                Side::Skif => &mut skif,
-                Side::Tool => &mut knip,
-            };
-            keys.entry((*category).to_owned())
-                .or_default()
-                .insert((*key).to_owned());
-        }
-        let reads = dependency_reads(
-            (&skif, &knip),
-            &DependencyCheckout {
-                layout: &layout,
-                resolver: &resolver,
-                files: &files,
-                read: &read,
-                is_ignored: &is_ignored,
-                bazel_outputs: &outputs,
-            },
-        );
+        let checkout = DependencyCheckout {
+            layout: &layout,
+            resolver: &resolver,
+            files: &files,
+            read: &read,
+            is_ignored: &is_ignored,
+            bazel_outputs: &outputs,
+        };
         for (side, category, key, expected) in cases {
+            let finding = Keys::from([((*category).to_owned(), BTreeSet::from([(*key).to_owned()]))]);
+            let reads = match side {
+                Side::Skif => dependency_reads((&finding, &Keys::new()), &checkout),
+                Side::Tool => dependency_reads((&Keys::new(), &finding), &checkout),
+            };
             assert_eq!(
                 reads.deviation(*side, category, key),
                 *expected,
