@@ -85,7 +85,9 @@ cd skif
 cargo build --release
 ```
 
-The binary is `target/release/skif`.
+The binary is `target/release/skif`. It includes the type checker for type-aware analysis (the default `type-aware`
+feature of `skif-cli`); `cargo build --release --no-default-features -p skif-cli` builds one that always analyses
+without types.
 
 ## Supported versions
 

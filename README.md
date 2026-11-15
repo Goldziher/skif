@@ -3,7 +3,7 @@
 
 <h1 align="center"><img src="docs/media/skif-banner.svg" alt="skif: dependency linter for JavaScript and TypeScript monorepos" width="820"></h1>
 
-npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · format-preserving fixes
+npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · type-aware · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
 [![npm](https://img.shields.io/npm/v/skif-cli?style=flat-square)](https://www.npmjs.com/package/skif-cli)
@@ -17,15 +17,28 @@ npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · format-preservi
 
 ---
 
-skif is a dependency linter for JavaScript and TypeScript repositories, written in Rust. It reads tool configurations statically and runs no
-project code while linting, and its fixes keep key order, indentation and comments. `skif migrate` translates an
-existing sherif, syncpack and knip setup in one step.
+skif is a dependency linter for JavaScript and TypeScript repositories, written in Rust. One binary and one
+`skif.toml` cover what sherif (monorepo and manifest rules), syncpack (version and catalog policies) and knip (unused
+files, exports and dependencies) check. The dead-code analysis parses with [oxc](https://oxc.rs) and, by default,
+resolves member reads with the TypeScript type checker of [tsrs](https://github.com/oxc-project/tsrs). skif reads tool
+configurations statically and runs no project code while linting, its fixes keep key order, indentation and comments,
+and `skif migrate` translates an existing sherif, syncpack and knip setup in one step.
 
 ## Performance
 
-skif is built to be fast. The [benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/) compares it with
-knip, sherif and syncpack on pinned public repositories and generated workspaces, and gives the workflow run the numbers
-come from, the methodology, the accuracy on seeded defects and the agreement with knip on real repositories.
+<!-- bench:claims:start -->
+- [**6.0–9.0x faster than knip**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 7.7x) for dead-code analysis, on 3 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core.
+- [**1.2–8.3x faster than sherif**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 4.4x) for manifest and workspace checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+- [**6.3–20.0x faster than syncpack**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 10.2x) for version-policy checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+
+skif 0.5.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted runner, measured on 2026-11-14.
+<!-- bench:claims:end -->
+
+The knip numbers time a whole skif run as it runs by default; the sherif and syncpack numbers time `skif --no-js`,
+which runs the manifest and policy rules those tools cover. Each claim links to the
+[benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/), which gives the tables per repository and
+workspace, the workflow run the numbers come from, the methodology, the accuracy on seeded defects and the agreement
+with knip on real repositories.
 
 ## Installation
 
@@ -94,7 +107,15 @@ git root, so one organisation file applies to every project below it. See the
 - **Dead-code analysis on [oxc](https://oxc.rs)**: unused files, exports, types, enum, namespace and class members
   and `package.json` subpaths; unused, unlisted and unresolved dependencies and binaries; duplicate exports; circular
   imports. Vue, Svelte, Astro, MDX and Marko files are read, and 213 plugins read the configuration of common tools.
-  `skif explain-usage` says why a file, export or dependency counts as used.
+  `skif explain-usage` says why a file, export, member or dependency counts as used.
+- **Type-aware analysis**: where a package has a `tsconfig.json` or `jsconfig.json`, the TypeScript checker of tsrs
+  resolves each member read to the declaration it reaches, also through a base class or an implemented interface. A
+  read `a.dispose()` then keeps only the `dispose` of `a`'s class out of `unused-class-members`, not every `dispose`
+  of the project, and `unused-enum-members` and `unused-namespace-members` also count reads through an alias or
+  `this`. It is on by default in the CLI and the npm package and costs time and memory: the bench workflow fails a run
+  in which types take more than 3x the untyped time on the largest repository or more than 4 GiB of peak memory.
+  `--no-type-aware` or `[js] type-aware = false` turns it off. A package without types keeps the name-based analysis,
+  and the report names it ([type-aware analysis](https://goldziher.github.io/skif/reference/configuration/#js)).
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
   roots, Rush, [Turborepo, Nx and Lerna](https://goldziher.github.io/skif/guides/turborepo-nx-lerna/), and
   [Bazel with rules_js](https://goldziher.github.io/skif/guides/bazel/).
@@ -102,10 +123,11 @@ git root, so one organisation file applies to every project below it. See the
   `package.json` layout.
 - **CI output**: human, JSON, SARIF, GitHub annotations, GitLab Code Quality, compact, Markdown and CODEOWNERS
   reports, several in one run, with stable rule ids and documented exit codes.
-- **Editors and agents**: watch mode, a language server, an MCP server and an
+- **Editors and agents**: watch mode, a language server, an MCP server (all three without types, for now) and an
   [agent skill](https://goldziher.github.io/skif/guides/editors-and-agents/#agent-skill).
-- **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own, and the npm package exports `lint`,
-  `lintAsync` and `run`. See the [library guide](https://goldziher.github.io/skif/guides/library/).
+- **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own and puts the JS analysis and the type
+  checker behind its `js-analysis` and `type-aware` features, and the npm package exports `lint`, `lintAsync` and
+  `run`. See the [library guide](https://goldziher.github.io/skif/guides/library/).
 
 ## Support
 
@@ -114,6 +136,7 @@ git root, so one organisation file applies to every project below it. See the
 | Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun |
 | Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) |
 | Runtime | Native binary, or through npm on Node.js 22, 24, 26 and Bun 1.x |
+| Type checker | tsrs 7.1.0-beta.tsrs1, a Rust port of the TypeScript 7 checker, for packages with a `tsconfig.json` or `jsconfig.json` |
 | Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 (Windows not on npm) |
 
 Versions per package manager and operating system are under

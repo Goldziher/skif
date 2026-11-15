@@ -12,8 +12,9 @@ measured is under [Methodology](#methodology).
 
 ## Speed
 
-Full skif runs are timed against knip, and `skif --no-js`, which skips the JS analysis, against sherif and syncpack,
-on the [pinned public repositories](https://github.com/Goldziher/skif/blob/main/tools/bench/corpus.toml) with their
+Full skif runs are timed against knip, as skif runs by default, with type-aware analysis ("types on"), and again
+with `--no-type-aware` ("types off"), each with its peak memory. `skif --no-js`, which skips the JS analysis, is timed
+against sherif and syncpack. All of them run on the [pinned public repositories](https://github.com/Goldziher/skif/blob/main/tools/bench/corpus.toml) with their
 dependencies installed and on generated workspaces. Absolute times depend on the machine; the ratios are the result.
 On npm-cli knip runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it. On the
 large repositories (angular, vscode, n8n and next-js) both tools run with the configuration of the
@@ -54,7 +55,11 @@ Mean and median of every timed command on every target of the same run, with the
 skif's, and the speed targets that [ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md)
 sets: manifest and policy rules on 500 packages in under 50 ms, the JS analysis at least 5x faster than knip on the same
 tree, and parsing and building the module graph of 10,000 files in under 2 s. The graph target times a whole `skif`
-run, which also runs every JS rule, so it is an upper bound.
+run, which also runs every JS rule, so it is an upper bound. The same tables check the type-aware budget of
+[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md):
+types on at most 3x types off on the largest repository and 2x in the median, at most 4 GiB of peak memory with types
+on every target, at most 5 s with types on the 10,000-file graph, and at least 5x faster than knip with types. A run
+that breaks the budget fails the workflow, so it cannot be imported.
 
 {/* bench:numbers:start */}
 **generated: 50 packages (pnpm)**
@@ -252,14 +257,14 @@ command-line invocations, process start-up included, on three kinds of targets:
 | Target | Contents | Tools timed |
 | --- | --- | --- |
 | Generated workspaces | 50, 500 and 2000 packages, pnpm layout, 5% issue rate, seed 1 | `skif --no-js`, `sherif`, `syncpack lint` |
-| Module graph | 10,000 TypeScript files in 100 packages | `skif` |
-| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
+| Module graph | 10,000 TypeScript files in 100 packages | `skif`, `skif --no-type-aware` |
+| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-type-aware`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
 skif runs as `skif . --format json --no-install`, with `--no-js` for the manifest and policy rows, with
 `--recursive` where a repository sets `recursive` (babel, vscode, next-js) and, where it sets
 `bench-knip-config = "parity"`, with a `--config` that adds the entry files the agreement comparison gives both tools,
 while knip gets that comparison's configuration in place of the repository's own; the working directory is the
-target. Non-zero exits are
+target. Both skif modes then run once more under `/usr/bin/time` for their peak resident set size. Non-zero exits are
 ignored, since a linter exits 1 when it finds something; a run that exits above 1 or by a signal is an error, since its
 time may be that of a partial run.
 
