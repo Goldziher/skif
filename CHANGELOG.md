@@ -254,6 +254,11 @@ All notable changes to this project are documented here. The format follows
   `types`, `jsxImportSource` and `plugins` name, are uses of the extending package's manifest, so a listed `tslib` is no
   longer `unused-dependencies`. The installed config itself is still not judged
   ([#99](https://github.com/Goldziher/skif/issues/99)).
+- A bundler alias `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }`) that a
+  shared config factory of another workspace package builds is judged against the package whose Vite, Vitest, webpack
+  or Next.js config calls the factory, as the bundler resolves it from that package's files: listed there, it is used
+  and no longer `unlisted-dependencies` at the factory's module. `skif-js-plugins` gains
+  `PluginInput::ImporterDependency` for such a package ([#96](https://github.com/Goldziher/skif/issues/96)).
 
 ## [0.5.0] - 2026-11-14
 

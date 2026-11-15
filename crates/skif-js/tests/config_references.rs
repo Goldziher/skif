@@ -556,6 +556,50 @@ fn packages_an_imported_shared_config_names_are_charged_to_its_package() {
     assert_eq!(found(&diagnostics, "unused-dependencies"), none());
 }
 
+/// A bundler alias `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }`) is resolved
+/// from the files the package reading the config bundles, so it is judged against that package even when a shared
+/// config factory of another package builds the alias: listed by the reader, it is used there and unlisted nowhere;
+/// listed by no one, it is unlisted at the reading config.
+#[test]
+fn an_alias_replacement_from_a_shared_config_factory_is_judged_against_the_reader() {
+    let files = |app_dependencies: &str| {
+        vec![
+            (
+                "package.json".to_owned(),
+                r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#.to_owned(),
+            ),
+            (
+                "packages/app/package.json".to_owned(),
+                format!(
+                    r#"{{"name":"@x/app","private":true,"type":"module","main":"src/index.ts","dependencies":{{{app_dependencies}}},"devDependencies":{{"@x/vite-config":"workspace:*","vite":"6.0.0"}}}}"#
+                ),
+            ),
+            (
+                "packages/app/vite.config.ts".to_owned(),
+                "import { defineConfig } from 'vite';\nimport { vendorAliases } from '@x/vite-config';\nexport default defineConfig({ resolve: { alias: [...vendorAliases()] } });\n".to_owned(),
+            ),
+            ("packages/app/src/index.ts".to_owned(), "export const a = 1;\n".to_owned()),
+            (
+                "packages/vite-config/package.json".to_owned(),
+                r#"{"name":"@x/vite-config","private":true,"type":"module","main":"index.ts","devDependencies":{"vite":"6.0.0"}}"#.to_owned(),
+            ),
+            (
+                "packages/vite-config/index.ts".to_owned(),
+                "import type { Alias } from 'vite';\nexport const vendorAliases = (): Alias[] => [{ find: 'stream', replacement: 'stream-browserify' }];\n".to_owned(),
+            ),
+        ]
+    };
+    let listed = lint_owned(&files(r#""stream-browserify":"3.0.0""#));
+    assert_eq!(found(&listed, "unlisted-dependencies"), none(), "{listed:#?}");
+    assert_eq!(found(&listed, "unused-dependencies"), none(), "{listed:#?}");
+    let unlisted = lint_owned(&files(""));
+    assert_eq!(
+        found(&unlisted, "unlisted-dependencies"),
+        ["packages/app/vite.config.ts: stream-browserify"],
+        "{unlisted:#?}"
+    );
+}
+
 /// A shared config spread into a config whose key extends a member of it (`plugins: [...base.plugins, 'x']`): what the
 /// shared config names stays judged against its package, and only what the importing config adds is its own.
 #[test]

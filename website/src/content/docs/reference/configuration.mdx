@@ -1014,7 +1014,11 @@ when `process.env.COVERAGE_ENABLED === 'true'` makes `@vitest/coverage-v8` a use
 unlisted in none. skif reads such a config with every test on the environment taken as true, then as false, and a
 package named in both readings, or under a test that reads something else (`existsSync('.coverage')`), is reported
 as before ([ADR 0036](https://github.com/Goldziher/skif/blob/main/adrs/0036-packages-named-on-an-environment-gated-branch.md)).
-A config that imports the package it names is reported once, for the import.
+A config that imports the package it names is reported once, for the import. What a config takes from a module of
+another workspace package (an imported shared config) is judged against that package, except a bundler alias
+`replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }` of Vite, Vitest, webpack or
+Next.js): the bundler resolves it from the files it bundles, so it is judged against the package whose config is read,
+however the alias is built.
 
 A `tsconfig` compiler option (`types`, `jsxImportSource`, `plugins`, `importHelpers`) applies to each package that
 reads the config, so a shared base config is satisfied when its owner or the package extending it lists the package;
