@@ -487,13 +487,11 @@ fn assemble(
                         reads,
                         whole,
                         unresolved,
-                        ancestry,
+                        implementations,
                     } = walked.facts;
                     found.reads.extend(reads);
                     found.whole.extend(whole);
-                    for (class, ancestors) in ancestry {
-                        found.ancestry.entry(class).or_default().extend(ancestors);
-                    }
+                    found.implementations.extend(implementations);
                     if !unresolved.is_empty() {
                         unresolved_names
                             .entry(plan.files[walked.file].path.clone())

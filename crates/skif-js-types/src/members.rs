@@ -1,12 +1,12 @@
 //! The declarations skif asks about and how what the checker found credits their members (ADR 0046): a read credits
 //! the member of the declaration it lands on, and a read of a base class's or an interface's member also credits the
-//! members of the asked classes that override or implement it.
+//! member each class that extends or implements it has under that name: its own, or the one it inherits.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::vfs::tsrs_path;
-use crate::{DeclId, DeclKind, TypeQuery};
+use crate::{DeclId, TypeQuery};
 
 /// A declaration named as oxc names it: its file as tsrs names files and the UTF-8 byte offset of its name in skif's
 /// text of the file (past the closing brace of an anonymous default class, [`crate::DeclQuery::name_start`]).
@@ -26,10 +26,18 @@ impl DeclKey {
 }
 
 /// A read of `name` that the checker resolved to a member of the declaration `owner`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct MemberRead {
     pub(crate) owner: DeclKey,
     pub(crate) name: String,
+}
+
+/// A class that extends or implements the owner of `member` has that member as the member of the asked declaration
+/// `provider`: its own, an override, or one it inherits from a base class further up.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Implementation {
+    pub(crate) member: MemberRead,
+    pub(crate) provider: DeclKey,
 }
 
 /// The declarations of a [`TypeQuery`], by key.
@@ -42,7 +50,6 @@ pub(crate) struct Candidates {
 
 #[derive(Debug)]
 struct Candidate {
-    kind: DeclKind,
     members: skif_core::HashSet<String>,
 }
 
@@ -58,7 +65,6 @@ impl Candidates {
                 .push(id);
             candidates.names.extend(decl.members.iter().cloned());
             candidates.decls.push(Candidate {
-                kind: decl.kind,
                 members: decl.members.iter().cloned().collect(),
             });
         }
@@ -80,13 +86,9 @@ impl Candidates {
         self.by_key.get(key).map_or(&[], Vec::as_slice)
     }
 
-    /// Whether `key` is an asked class, whose base classes and interfaces the walk collects.
-    pub(crate) fn is_class(&self, key: &DeclKey) -> bool {
-        self.at(key).iter().any(|&id| self.kind(id) == Some(DeclKind::Class))
-    }
-
-    fn kind(&self, id: DeclId) -> Option<DeclKind> {
-        self.candidate(id).map(|candidate| candidate.kind)
+    /// Whether some declaration at `key` is asked about.
+    pub(crate) fn is_asked(&self, key: &DeclKey) -> bool {
+        self.by_key.contains_key(key)
     }
 
     fn candidate(&self, id: DeclId) -> Option<&Candidate> {
@@ -104,8 +106,8 @@ impl Candidates {
 pub(crate) struct Found {
     pub(crate) reads: Vec<MemberRead>,
     pub(crate) whole: Vec<DeclKey>,
-    /// Per asked class, the base classes and interfaces it extends or implements, transitively.
-    pub(crate) ancestry: BTreeMap<DeclKey, BTreeSet<DeclKey>>,
+    /// The members of base classes and interfaces that classes have as members of asked declarations.
+    pub(crate) implementations: BTreeSet<Implementation>,
 }
 
 /// The credited members and the declarations used as a whole.
@@ -117,19 +119,22 @@ pub(crate) struct Credits {
 
 /// Credits what `found` holds to the declarations of `candidates`.
 pub(crate) fn credit(candidates: &Candidates, found: &Found) -> Credits {
-    let mut descendants: skif_core::HashMap<&DeclKey, Vec<DeclId>> = skif_core::HashMap::default();
-    for (class, ancestors) in &found.ancestry {
-        for &id in candidates.at(class) {
-            for ancestor in ancestors {
-                descendants.entry(ancestor).or_default().push(id);
-            }
-        }
+    let mut providers: skif_core::HashMap<&MemberRead, Vec<&DeclKey>> = skif_core::HashMap::default();
+    for implementation in &found.implementations {
+        providers
+            .entry(&implementation.member)
+            .or_default()
+            .push(&implementation.provider);
     }
     let mut credits = Credits::default();
     for read in &found.reads {
         let direct = candidates.at(&read.owner).iter();
-        let inherited = descendants.get(&read.owner).into_iter().flatten();
-        for &id in direct.chain(inherited) {
+        let provided = providers
+            .get(read)
+            .into_iter()
+            .flatten()
+            .flat_map(|&provider| candidates.at(provider));
+        for &id in direct.chain(provided) {
             if candidates.has_member(id, &read.name) {
                 credits.reads.entry(id).or_default().insert(read.name.clone());
             }
@@ -147,7 +152,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::DeclQuery;
+    use crate::{DeclKind, DeclQuery};
 
     fn decl(file: &str, name_start: u32, kind: DeclKind, members: &[&str]) -> DeclQuery {
         DeclQuery {
@@ -166,6 +171,13 @@ mod tests {
         MemberRead {
             owner: key(file, name_start),
             name: name.to_owned(),
+        }
+    }
+
+    fn implementation(owner: (&str, u32), name: &str, provider: (&str, u32)) -> Implementation {
+        Implementation {
+            member: read(owner.0, owner.1, name),
+            provider: key(provider.0, provider.1),
         }
     }
 
@@ -213,24 +225,49 @@ mod tests {
 
     #[test]
     fn a_read_through_a_base_or_an_interface_credits_the_overriding_members() {
-        let base = key("/ws/base.ts", 13);
-        let interface = key("/ws/disposable.ts", 17);
         let found = Found {
             reads: vec![
                 read("/ws/base.ts", 13, "render"),
                 read("/ws/disposable.ts", 17, "dispose"),
             ],
-            ancestry: BTreeMap::from([(key("/ws/child.ts", 13), BTreeSet::from([base, interface]))]),
+            implementations: BTreeSet::from([
+                implementation(("/ws/base.ts", 13), "render", ("/ws/child.ts", 13)),
+                implementation(("/ws/disposable.ts", 17), "dispose", ("/ws/child.ts", 13)),
+            ]),
             ..Found::default()
         };
         assert_eq!(reads(&credit(&candidates(), &found)), [(2, vec!["dispose", "render"])]);
     }
 
     #[test]
+    fn a_read_through_an_interface_credits_the_member_a_class_inherits_from_an_asked_base() {
+        let found = Found {
+            reads: vec![read("/ws/disposable.ts", 17, "dispose")],
+            implementations: BTreeSet::from([implementation(("/ws/disposable.ts", 17), "dispose", ("/ws/a.ts", 13))]),
+            ..Found::default()
+        };
+        assert_eq!(reads(&credit(&candidates(), &found)), [(0, vec!["dispose"])]);
+    }
+
+    #[test]
+    fn an_implementation_credits_only_the_member_read_and_only_when_the_provider_declares_it() {
+        let found = Found {
+            reads: vec![read("/ws/disposable.ts", 17, "dispose")],
+            implementations: BTreeSet::from([
+                implementation(("/ws/disposable.ts", 17), "size", ("/ws/a.ts", 13)),
+                implementation(("/ws/disposable.ts", 17), "dispose", ("/ws/e.ts", 12)),
+                implementation(("/ws/other.ts", 17), "dispose", ("/ws/b.ts", 13)),
+            ]),
+            ..Found::default()
+        };
+        assert_eq!(credit(&candidates(), &found), Credits::default());
+    }
+
+    #[test]
     fn an_asked_base_class_credits_its_own_member_and_the_overrides() {
         let found = Found {
             reads: vec![read("/ws/a.ts", 13, "dispose")],
-            ancestry: BTreeMap::from([(key("/ws/child.ts", 13), BTreeSet::from([key("/ws/a.ts", 13)]))]),
+            implementations: BTreeSet::from([implementation(("/ws/a.ts", 13), "dispose", ("/ws/child.ts", 13))]),
             ..Found::default()
         };
         assert_eq!(
@@ -253,8 +290,8 @@ mod tests {
         let candidates = candidates();
         assert!(candidates.is_member_name("dispose") && candidates.is_member_name("Green"));
         assert!(!candidates.is_member_name("length"));
-        assert!(candidates.is_class(&key("/ws/child.ts", 13)));
-        assert!(!candidates.is_class(&key("/ws/e.ts", 12)));
+        assert!(candidates.is_asked(&key("/ws/child.ts", 13)) && candidates.is_asked(&key("/ws/e.ts", 12)));
+        assert!(!candidates.is_asked(&key("/ws/base.ts", 13)));
         assert!(Candidates::new(&TypeQuery::default()).is_empty());
     }
 }
