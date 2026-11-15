@@ -138,3 +138,28 @@ fn a_given_tsconfig_that_cannot_be_read_fails_the_finish() {
         "{result:?}"
     );
 }
+
+#[test]
+fn analyses_that_fill_every_thread_of_the_global_pool_finish() {
+    use rayon::prelude::*;
+    let generated = generated_programs(&PROGRAM_SIZES);
+    // Twice as many analyses as the global pool has threads, one per task: every thread of the pool runs one and waits
+    // for its plan, as a host does with one analysis per root.
+    let analyses = rayon::current_num_threads() * 2;
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::scope(|outer| {
+        outer.spawn(|| {
+            let facts: Vec<TypeFacts> = (0..analyses)
+                .into_par_iter()
+                .with_max_len(1)
+                .map(|_| after_early_build(&generated, generated.packages.clone(), &generated.packages))
+                .collect();
+            done.send(facts.len()).unwrap();
+        });
+        assert_eq!(
+            finished.recv_timeout(std::time::Duration::from_secs(300)),
+            Ok(analyses),
+            "the analyses wait for each other's threads"
+        );
+    });
+}

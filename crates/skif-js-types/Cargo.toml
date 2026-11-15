@@ -15,6 +15,7 @@ readme = "README.md"
 include = ["/src/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
 [dependencies]
+rayon.workspace = true
 skif-core.workspace = true
 thiserror.workspace = true
 tsrs_ast.workspace = true
