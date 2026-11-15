@@ -151,7 +151,9 @@ fn a_command_keeps_the_known_text_of_a_template_with_unknown_substitutions() {
         extract_property_commands(source, path, "command"),
         [
             ConfigValue::OneOf(vec![
-                s(&format!("bun run build && bun e2e/serve.ts --port {TEMPLATE_SUBSTITUTION}")),
+                s(&format!(
+                    "bun run build && bun e2e/serve.ts --port {TEMPLATE_SUBSTITUTION}"
+                )),
                 s(&format!("bun run dev -- --port {TEMPLATE_SUBSTITUTION} --strictPort")),
             ]),
             s(&format!("{TEMPLATE_SUBSTITUTION} start")),
