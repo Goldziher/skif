@@ -49,9 +49,9 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
   prints nothing and writes no files. When the lint cannot run it throws an `Error` with `kind` and, when there is one,
   `path` properties, the fields `lintAsync` returns in `error`. It blocks the event loop, so use `lintAsync` in a server. `{ config: "path/to/skif.toml" }`
   uses that file (and the files it extends) instead of discovering configuration files, like `--config`, and
-  `{ noConfig: true }` reads none, like `--no-config`. `{ noTypeAware: true }` resolves member reads without the
-  TypeScript type checker, like `--no-type-aware`: types are on by default, and turning them off is faster and less
-  accurate for member findings.
+  `{ noConfig: true }` reads none, like `--no-config`. `{ typeAware: true }` resolves member reads with the
+  TypeScript type checker, like `--type-aware`: more accurate member findings, and slower. Types are off by default;
+  `{ noTypeAware: true }` keeps them off, like `--no-type-aware`, over a configuration that turns them on.
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
   cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`). Both
   functions read the configuration file the way the command line does.

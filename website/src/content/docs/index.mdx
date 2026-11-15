@@ -41,8 +41,9 @@ bun workspaces.
         dependencies, unused files and exports.
     </Card>
     <Card title="Type-aware member analysis" icon="puzzle">
-        Where a package has a `tsconfig.json`, the TypeScript checker of tsrs resolves each member read, so
-        unused class, enum and namespace members are judged by the declaration a read reaches, not by name.
+        With `--type-aware`, where a package has a `tsconfig.json`, the TypeScript checker of tsrs resolves each
+        member read, so unused class, enum and namespace members are judged by the declaration a read reaches, not
+        by name.
     </Card>
     <Card title="Safe autofixes" icon="approve-check">
         Format-preserving edits keep key order, indentation and comments. skif never executes project code.

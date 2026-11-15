@@ -19,7 +19,7 @@ npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · type-aware · f
 
 skif is a dependency linter for JavaScript and TypeScript repositories, written in Rust. One binary and one
 `skif.toml` cover what sherif (monorepo and manifest rules), syncpack (version and catalog policies) and knip (unused
-files, exports and dependencies) check. The dead-code analysis parses with [oxc](https://oxc.rs) and, by default,
+files, exports and dependencies) check. The dead-code analysis parses with [oxc](https://oxc.rs) and, with `--type-aware`,
 resolves member reads with the TypeScript type checker of [tsrs](https://github.com/oxc-project/tsrs). skif reads tool
 configurations statically and runs no project code while linting, its fixes keep key order, indentation and comments,
 and `skif migrate` translates an existing sherif, syncpack and knip setup in one step.
@@ -112,10 +112,10 @@ git root, so one organisation file applies to every project below it. See the
   resolves each member read to the declaration it reaches, also through a base class or an implemented interface. A
   read `a.dispose()` then keeps only the `dispose` of `a`'s class out of `unused-class-members`, not every `dispose`
   of the project, and `unused-enum-members` and `unused-namespace-members` also count reads through an alias or
-  `this`. It is on by default in the CLI and the npm package and costs time and memory: the bench workflow fails a run
-  in which types take more than 3x the untyped time on the largest repository or more than 4 GiB of peak memory.
-  `--no-type-aware` or `[js] type-aware = false` turns it off. A package without types keeps the name-based analysis,
-  and the report names it ([type-aware analysis](https://goldziher.github.io/skif/reference/configuration/#js)).
+  `this`. It is off by default in the CLI and the npm package, since it costs time and memory: every TypeScript
+  program parses the lib and `@types` files again, and on a 4-vCPU runner a typed run takes 3 to 25 times as long
+  as the default one. `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
+  name-based analysis, and the report names it ([type-aware analysis](https://goldziher.github.io/skif/reference/configuration/#js)).
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
   roots, Rush, [Turborepo, Nx and Lerna](https://goldziher.github.io/skif/guides/turborepo-nx-lerna/), and
   [Bazel with rules_js](https://goldziher.github.io/skif/guides/bazel/).

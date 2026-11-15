@@ -120,7 +120,7 @@ under [Parity with knip](#parity-with-knip).
 7. knip's plugins load configuration files such as `vite.config.ts` with jiti, and knip exits `2` when one fails to
    load.
 8. knip 5 resolved each read with TypeScript's language service. skif resolves reads with the TypeScript checker of
-   tsrs where a package has a `tsconfig.json` (`type-aware`, on by default); without types, and for every read the
+   tsrs where a package has a `tsconfig.json` (`type-aware`, off by default); without types, and for every read the
    checker cannot settle, a read of a property of the member's name on any object counts. It leaves alone the members
    of decorated classes, of classes that extend an unknown class and of interfaces declared elsewhere, where knip
    judged them by their references
