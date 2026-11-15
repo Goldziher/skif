@@ -633,178 +633,6 @@ impl<'a> JsAnalysis<'a> {
             });
         }
         let links = take_file_links(fs.as_ref(), &workspace.root, &mut candidates);
-        let entries_of = |setup: &Setup| {
-            timing::phase(phase("entries"), || {
-                let published = Disk {
-                    fs: disk.as_ref(),
-                    gitignore: !config.js.no_gitignore,
-                };
-                entry_files(
-                    fs.as_ref(),
-                    workspace,
-                    setup,
-                    &candidates,
-                    (extra_entries, extra_build_sources, sequential),
-                    published,
-                )
-            })
-        };
-        let resolver_of = |setup: &Setup| {
-            timing::phase(phase("resolver"), || {
-                ModuleResolver::new(Arc::clone(fs), workspace, setup)
-            })
-        };
-        let graph_of =
-            |setup: &Setup, resolver: &ModuleResolver, found: &EntryFiles, known: &HashMap<PathBuf, Arc<str>>| {
-                let inputs = Inputs {
-                    fs: fs.as_ref(),
-                    resolver,
-                    root: &workspace.root,
-                    candidates: &candidates,
-                    links: &links,
-                    setup,
-                    sequential,
-                    modules,
-                    known_texts: known,
-                };
-                timing::phase(phase("graph (read, parse, resolve)"), || {
-                    graph::build(&inputs, &found.files, &found.build_sources)
-                })
-            };
-        let mut found = entries_of(&setup);
-        setup.mark_entries_incomplete(&found.unknown);
-        let mut resolver = resolver_of(&setup);
-        let mut graph = graph_of(&setup, &resolver, &found, &HashMap::default());
-        // The plugins that search source files read those the graph reaches, as knip does. The commands they find
-        // can run files that become entries, which the graph is built again to reach; it reaches more files each
-        // time, so the search stops once a graph reaches no new file or what it finds adds no file to the graph.
-        let mut reached: Vec<Option<WorkspaceInputs>> = vec![None; workspace.iter().count()];
-        for _ in 0..MAX_REACHED_ROUNDS {
-            if !setup.scans_reached_sources() {
-                break;
-            }
-            let found_now = timing::phase(phase("reached sources"), || {
-                setup.reached_inputs(workspace, fs.as_ref(), sources, &graph, sequential)
-            });
-            if found_now == reached {
-                break;
-            }
-            let grows = grows_graph(&reached, &found_now);
-            setup = setup.with_reached(workspace, config, fs, sequential, &found_now);
-            reached = found_now;
-            if !grows {
-                setup.mark_entries_incomplete(&found.unknown);
-                break;
-            }
-            found = entries_of(&setup);
-            setup.mark_entries_incomplete(&found.unknown);
-            resolver = resolver_of(&setup);
-            let known: HashMap<PathBuf, Arc<str>> = graph
-                .kept_texts()
-                .iter()
-                .map(|(id, text)| (graph.module(*id).abs.clone(), Arc::clone(text)))
-                .collect();
-            graph = graph_of(&setup, &resolver, &found, &known);
-        }
-        graph.release_texts();
-        let entries = found.files;
-        let other_root_entries = found.other_root_entries;
-        let other_root_build_sources = found.other_root_build_sources;
-        let entry_origins = found.origins;
-        let config_hints = {
-            let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
-            config_hints(&HintInputs {
-                workspace,
-                config,
-                setup: &setup,
-                candidates: &candidates,
-                entries: &entry_set,
-                provided: &found.provided,
-                disk: disk.as_ref(),
-            })
-        };
-        graph::report_timings(&workspace.root);
-        setup.widen_incomplete_scopes(&graph);
-        let exports = timing::phase(phase("exports"), || {
-            ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
-        });
-        let mut dependencies = timing::phase(phase("dependencies"), || {
-            DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref(), sequential)
-        });
-        mark_foreign_paths(&resolver, &graph, &mut dependencies);
-
-        let ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules));
-        let outside_graph: HashSet<String> = candidates
-            .iter()
-            .filter(|candidate| graph.id_of(&candidate.abs).is_none())
-            .map(|candidate| candidate.rel.clone())
-            .collect();
-        let unreached: Vec<&Candidate> = candidates
-            .iter()
-            .filter(|candidate| graph.id_of(&candidate.abs).is_none())
-            .filter(|candidate| !is_declaration_file(&candidate.rel))
-            .filter(|candidate| {
-                let Some(package) = setup.package(candidate.owner) else {
-                    return false;
-                };
-                let Some(in_package) = relative(&candidate.abs, &package.dir) else {
-                    return false;
-                };
-                package.judges(&in_package)
-                    && package.project.is_match(&in_package)
-                    && !package.ignore.matches_any(&in_package)
-                    && !setup.global_ignore.matches_any(&candidate.rel)
-                    && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))
-            })
-            // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
-            .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
-            .collect();
-        let ignores_file = |candidate: &Candidate| {
-            setup.global_ignore_files.matches_any(&candidate.rel)
-                || setup.package(candidate.owner).is_some_and(|package| {
-                    relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
-                })
-        };
-        let judged_patterns = judged_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref());
-        let judged_ignore_files = judged_ignore_files(workspace, config, &setup, &unreached, disk.as_ref());
-        let unused_files = unreached
-            .iter()
-            .filter(|candidate| !ignores_file(candidate))
-            .map(|candidate| UnusedFile {
-                path: PathBuf::from(&candidate.rel),
-                owner: candidate.owner,
-            })
-            .collect();
-        let unused_export_memo = graph.modules().iter().map(|_| OnceLock::new()).collect();
-        let imported_by_other_roots = extra_entries
-            .iter()
-            .filter_map(|entry| graph.id_of(&workspace.root.join(entry)))
-            .map(|id| graph.module(id).owner)
-            .collect();
-        let mut analysis = Self {
-            workspace,
-            graph,
-            exports,
-            dependencies,
-            unused_files,
-            ambient_modules,
-            outside_graph,
-            setup,
-            enabled_rules: None,
-            config_path: None,
-            judged_patterns,
-            judged_ignore_files,
-            config_hints,
-            other_root_entries,
-            other_root_build_sources,
-            entry_origins,
-            imported_by_other_roots,
-            listed_from_index,
-            task_only_members,
-            unused_export_memo,
-            types: TypeState::Off(OffReason::Unneeded),
-            type_summary: None,
-        };
         // The checker reads the real file system, as `tsc` would: a gitignored declaration file or an installed
         // package the git index leaves out still types the program.
         let run = TypeRun {
@@ -813,8 +641,184 @@ impl<'a> JsAnalysis<'a> {
             cancel,
             wanted: types,
         };
-        (analysis.types, analysis.type_summary) = types_bridge::run(&analysis, &run);
-        analysis
+        std::thread::scope(|scope| {
+            // The programs build beside the graph; their queries wait for it.
+            let early_types = types_bridge::start(scope, workspace, &setup, &candidates, &run);
+            let entries_of = |setup: &Setup| {
+                timing::phase(phase("entries"), || {
+                    let published = Disk {
+                        fs: disk.as_ref(),
+                        gitignore: !config.js.no_gitignore,
+                    };
+                    entry_files(
+                        fs.as_ref(),
+                        workspace,
+                        setup,
+                        &candidates,
+                        (extra_entries, extra_build_sources, sequential),
+                        published,
+                    )
+                })
+            };
+            let resolver_of = |setup: &Setup| {
+                timing::phase(phase("resolver"), || {
+                    ModuleResolver::new(Arc::clone(fs), workspace, setup)
+                })
+            };
+            let graph_of =
+                |setup: &Setup, resolver: &ModuleResolver, found: &EntryFiles, known: &HashMap<PathBuf, Arc<str>>| {
+                    let inputs = Inputs {
+                        fs: fs.as_ref(),
+                        resolver,
+                        root: &workspace.root,
+                        candidates: &candidates,
+                        links: &links,
+                        setup,
+                        sequential,
+                        modules,
+                        known_texts: known,
+                    };
+                    timing::phase(phase("graph (read, parse, resolve)"), || {
+                        graph::build(&inputs, &found.files, &found.build_sources)
+                    })
+                };
+            let mut found = entries_of(&setup);
+            setup.mark_entries_incomplete(&found.unknown);
+            let mut resolver = resolver_of(&setup);
+            let mut graph = graph_of(&setup, &resolver, &found, &HashMap::default());
+            // The plugins that search source files read those the graph reaches, as knip does. The commands they find
+            // can run files that become entries, which the graph is built again to reach; it reaches more files each
+            // time, so the search stops once a graph reaches no new file or what it finds adds no file to the graph.
+            let mut reached: Vec<Option<WorkspaceInputs>> = vec![None; workspace.iter().count()];
+            for _ in 0..MAX_REACHED_ROUNDS {
+                if !setup.scans_reached_sources() {
+                    break;
+                }
+                let found_now = timing::phase(phase("reached sources"), || {
+                    setup.reached_inputs(workspace, fs.as_ref(), sources, &graph, sequential)
+                });
+                if found_now == reached {
+                    break;
+                }
+                let grows = grows_graph(&reached, &found_now);
+                setup = setup.with_reached(workspace, config, fs, sequential, &found_now);
+                reached = found_now;
+                if !grows {
+                    setup.mark_entries_incomplete(&found.unknown);
+                    break;
+                }
+                found = entries_of(&setup);
+                setup.mark_entries_incomplete(&found.unknown);
+                resolver = resolver_of(&setup);
+                let known: HashMap<PathBuf, Arc<str>> = graph
+                    .kept_texts()
+                    .iter()
+                    .map(|(id, text)| (graph.module(*id).abs.clone(), Arc::clone(text)))
+                    .collect();
+                graph = graph_of(&setup, &resolver, &found, &known);
+            }
+            graph.release_texts();
+            let entries = found.files;
+            let other_root_entries = found.other_root_entries;
+            let other_root_build_sources = found.other_root_build_sources;
+            let entry_origins = found.origins;
+            let config_hints = {
+                let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
+                config_hints(&HintInputs {
+                    workspace,
+                    config,
+                    setup: &setup,
+                    candidates: &candidates,
+                    entries: &entry_set,
+                    provided: &found.provided,
+                    disk: disk.as_ref(),
+                })
+            };
+            graph::report_timings(&workspace.root);
+            setup.widen_incomplete_scopes(&graph);
+            let exports = timing::phase(phase("exports"), || {
+                ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
+            });
+            let mut dependencies = timing::phase(phase("dependencies"), || {
+                DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref(), sequential)
+            });
+            mark_foreign_paths(&resolver, &graph, &mut dependencies);
+
+            let ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules));
+            let outside_graph: HashSet<String> = candidates
+                .iter()
+                .filter(|candidate| graph.id_of(&candidate.abs).is_none())
+                .map(|candidate| candidate.rel.clone())
+                .collect();
+            let unreached: Vec<&Candidate> = candidates
+                .iter()
+                .filter(|candidate| graph.id_of(&candidate.abs).is_none())
+                .filter(|candidate| !is_declaration_file(&candidate.rel))
+                .filter(|candidate| {
+                    let Some(package) = setup.package(candidate.owner) else {
+                        return false;
+                    };
+                    let Some(in_package) = relative(&candidate.abs, &package.dir) else {
+                        return false;
+                    };
+                    package.judges(&in_package)
+                        && package.project.is_match(&in_package)
+                        && !package.ignore.matches_any(&in_package)
+                        && !setup.global_ignore.matches_any(&candidate.rel)
+                        && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))
+                })
+                // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
+                .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
+                .collect();
+            let ignores_file = |candidate: &Candidate| {
+                setup.global_ignore_files.matches_any(&candidate.rel)
+                    || setup.package(candidate.owner).is_some_and(|package| {
+                        relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
+                    })
+            };
+            let judged_patterns = judged_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref());
+            let judged_ignore_files = judged_ignore_files(workspace, config, &setup, &unreached, disk.as_ref());
+            let unused_files = unreached
+                .iter()
+                .filter(|candidate| !ignores_file(candidate))
+                .map(|candidate| UnusedFile {
+                    path: PathBuf::from(&candidate.rel),
+                    owner: candidate.owner,
+                })
+                .collect();
+            let unused_export_memo = graph.modules().iter().map(|_| OnceLock::new()).collect();
+            let imported_by_other_roots = extra_entries
+                .iter()
+                .filter_map(|entry| graph.id_of(&workspace.root.join(entry)))
+                .map(|id| graph.module(id).owner)
+                .collect();
+            let mut analysis = Self {
+                workspace,
+                graph,
+                exports,
+                dependencies,
+                unused_files,
+                ambient_modules,
+                outside_graph,
+                setup,
+                enabled_rules: None,
+                config_path: None,
+                judged_patterns,
+                judged_ignore_files,
+                config_hints,
+                other_root_entries,
+                other_root_build_sources,
+                entry_origins,
+                imported_by_other_roots,
+                listed_from_index,
+                task_only_members,
+                unused_export_memo,
+                types: TypeState::Off(OffReason::Unneeded),
+                type_summary: None,
+            };
+            (analysis.types, analysis.type_summary) = types_bridge::run(&analysis, &run, early_types);
+            analysis
+        })
     }
 
     /// Whether `name` is a workspace member that nothing can import or run: its `package.json` names no `main`,

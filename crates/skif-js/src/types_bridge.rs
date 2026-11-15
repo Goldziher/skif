@@ -7,13 +7,16 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::thread::Scope;
 
 use skif_core::{FileSystem, HashMap, TypeAwarePackage, TypeAwareState, TypeAwareSummary};
 use skif_js_syntax::Export;
-use skif_workspace::{Package, PackageId};
+use skif_workspace::{Package, PackageId, Workspace};
 
 use crate::analysis::JsAnalysis;
+use crate::discover::Candidate;
 use crate::graph::{Module, ModuleId};
+use crate::setup::Setup;
 
 /// Why an analysis has no typed facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +131,91 @@ pub(crate) struct TypeRun<'r> {
     pub wanted: bool,
 }
 
+/// The programs started before the module graph ([`start`]): `None` when the run asks no types, runs sequentially or
+/// has no package that wants them, and always in a build without the checker.
+pub(crate) struct EarlyTypes<'scope> {
+    #[cfg(feature = "type-aware")]
+    pending: Option<skif_js_types::PendingTypes<'scope>>,
+    #[cfg(not(feature = "type-aware"))]
+    _scope: std::marker::PhantomData<&'scope ()>,
+}
+
+impl EarlyTypes<'_> {
+    const fn none() -> Self {
+        Self {
+            #[cfg(feature = "type-aware")]
+            pending: None,
+            #[cfg(not(feature = "type-aware"))]
+            _scope: std::marker::PhantomData,
+        }
+    }
+}
+
+/// Starts building, on threads of `scope`, the programs of the discovered files `candidates` of the packages that want
+/// types, so the programs build beside the module graph; [`run`] hands them the judged files and the query once the
+/// graph is done. A sequential run builds them after the graph.
+pub(crate) fn start<'scope, 'env>(
+    scope: &'scope Scope<'scope, 'env>,
+    workspace: &Workspace,
+    setup: &Setup,
+    candidates: &[Candidate],
+    inputs: &TypeRun<'env>,
+) -> EarlyTypes<'scope> {
+    if !inputs.wanted || inputs.sequential {
+        return EarlyTypes::none();
+    }
+    started(scope, workspace, setup, candidates, inputs)
+}
+
+#[cfg(not(feature = "type-aware"))]
+fn started<'scope>(
+    _scope: &'scope Scope<'scope, '_>,
+    _workspace: &Workspace,
+    _setup: &Setup,
+    _candidates: &[Candidate],
+    _inputs: &TypeRun<'_>,
+) -> EarlyTypes<'scope> {
+    EarlyTypes::none()
+}
+
+#[cfg(feature = "type-aware")]
+fn started<'scope, 'env>(
+    scope: &'scope Scope<'scope, 'env>,
+    workspace: &Workspace,
+    setup: &Setup,
+    candidates: &[Candidate],
+    inputs: &TypeRun<'env>,
+) -> EarlyTypes<'scope> {
+    use skif_js_types::{TypeBuild, TypePackage};
+
+    let mut by_package: HashMap<PackageId, Vec<std::path::PathBuf>> = HashMap::default();
+    for candidate in candidates {
+        by_package.entry(candidate.owner).or_default().push(candidate.abs.clone());
+    }
+    let root = &workspace.root;
+    let packages: Vec<TypePackage> = workspace
+        .iter()
+        .filter(|(id, _)| setup.package(*id).is_some() && setup.type_aware(*id))
+        .filter_map(|(id, package)| {
+            Some(TypePackage {
+                dir: root.join(&package.dir),
+                name: package.name.clone(),
+                files: by_package.remove(&id)?,
+            })
+        })
+        .collect();
+    if packages.is_empty() {
+        return EarlyTypes::none();
+    }
+    let mut build = TypeBuild::new(Arc::clone(inputs.fs), root.clone(), packages);
+    if let Some(tsconfig) = &setup.root_tsconfig {
+        build = build.with_tsconfig_override(tsconfig.clone());
+    }
+    EarlyTypes {
+        pending: Some(skif_js_types::start(scope, build, inputs.cancel)),
+    }
+}
+
 /// A package whose modules the analysis judges, with whether its configuration asks for types.
 struct Analysed<'a> {
     package: &'a Package,
@@ -187,9 +275,13 @@ fn summary_without_types(packages: &[Analysed<'_>], reason: OffReason) -> TypeAw
     )
 }
 
-/// Asks the checker about `analysis` and returns the facts with the run's coverage summary; the summary is `None`
-/// when no rule of the run reads typed facts.
-pub(crate) fn run(analysis: &JsAnalysis<'_>, inputs: &TypeRun<'_>) -> (TypeState, Option<TypeAwareSummary>) {
+/// Asks the checker about `analysis`, on the programs `early` started when it started any, and returns the facts with
+/// the run's coverage summary; the summary is `None` when no rule of the run reads typed facts.
+pub(crate) fn run(
+    analysis: &JsAnalysis<'_>,
+    inputs: &TypeRun<'_>,
+    early: EarlyTypes<'_>,
+) -> (TypeState, Option<TypeAwareSummary>) {
     if !inputs.wanted {
         return (TypeState::Off(OffReason::Unneeded), None);
     }
@@ -200,7 +292,7 @@ pub(crate) fn run(analysis: &JsAnalysis<'_>, inputs: &TypeRun<'_>) -> (TypeState
             Some(summary_without_types(&packages, OffReason::Disabled)),
         );
     }
-    checked(analysis, inputs, &packages)
+    checked(analysis, inputs, &packages, early)
 }
 
 #[cfg(not(feature = "type-aware"))]
@@ -208,6 +300,7 @@ fn checked(
     _analysis: &JsAnalysis<'_>,
     _inputs: &TypeRun<'_>,
     packages: &[Analysed<'_>],
+    _early: EarlyTypes<'_>,
 ) -> (TypeState, Option<TypeAwareSummary>) {
     (
         TypeState::Off(OffReason::NotBuilt),
@@ -220,6 +313,7 @@ fn checked(
     analysis: &JsAnalysis<'_>,
     inputs: &TypeRun<'_>,
     packages: &[Analysed<'_>],
+    early: EarlyTypes<'_>,
 ) -> (TypeState, Option<TypeAwareSummary>) {
     use std::num::NonZeroUsize;
 
@@ -246,8 +340,9 @@ fn checked(
     if let Some(cancel) = inputs.cancel {
         input = input.with_cancel(cancel);
     }
-    let result = skif_core::timing::phase(format_args!("js types {}", root.display()), || {
-        skif_js_types::analyze(&input)
+    let result = skif_core::timing::phase(format_args!("js types {}", root.display()), || match early.pending {
+        Some(pending) => pending.finish(&typed_packages, &query),
+        None => skif_js_types::analyze(&input),
     });
     let facts = match result {
         Ok(facts) => facts,
@@ -271,20 +366,24 @@ fn checked(
 const SLOWEST_PROGRAMS: usize = 5;
 
 /// With timings on, the type-aware stages of the analysis at `root`: planning, the build and query times summed over
-/// the programs beside the wall time, and the slowest programs with their sizes and checkers.
+/// the programs beside the wall time and the time the analysis waited for them once the graph was done, and the
+/// slowest programs with their sizes and checkers.
 #[cfg(feature = "type-aware")]
 fn note_timings(root: &std::path::Path, timings: &skif_js_types::TypeTimings) {
     if !skif_core::timing::enabled() {
         return;
     }
     skif_core::timing::note(format_args!(
-        "js types {}: planning {} ms, programs {} ms, queries {} ms (summed), wall {} ms, {} programs, {} threads",
+        "js types {}: planning {} ms, programs {} ms, queries {} ms (summed), wall {} ms, waited {} ms, {} programs \
+         ({} started before the graph was done), {} threads",
         root.display(),
         timings.planning.as_millis(),
         timings.programs.as_millis(),
         timings.queries.as_millis(),
         timings.wall.as_millis(),
+        timings.waited.as_millis(),
         timings.per_program.len(),
+        timings.early,
         timings.threads
     ));
     for program in timings.slowest(SLOWEST_PROGRAMS) {
