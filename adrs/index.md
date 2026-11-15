@@ -47,7 +47,7 @@ old one.
 | 0037 | [Heft and Rig Packages: Profiles as Configs of the Rig and of the Projects That Name It](0037-heft-and-rig-packages.md) | accepted |
 | 0038 | [`paths` Before Packages: TypeScript's Order for Mappings Named Like a Dependency](0038-paths-before-packages.md) | accepted |
 | 0039 | [Source Command Scans Read the Files the Module Graph Reaches](0039-source-command-scans-read-reached-files.md) | accepted |
-| 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted, superseded in part by [0051](0051-members-whose-users-skif-does-not-read.md) and [NNNN](NNNN-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) |
+| 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted, superseded in part by [0051](0051-members-whose-users-skif-does-not-read.md) and [0053](0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) |
 | 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
 | 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |
 | 0043 | [Type-Only Class Fields and Constant Element Keys](0043-type-only-class-fields-and-constant-element-keys.md) | accepted |
@@ -60,4 +60,4 @@ old one.
 | 0050 | [Knip Comparison Against the Typed Run](0050-knip-comparison-against-the-typed-run.md) | accepted |
 | 0051 | [Enum and Namespace Members Whose Users skif Does Not Read](0051-members-whose-users-skif-does-not-read.md) | accepted |
 | 0052 | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted |
-| NNNN | [Plugin Entries of Nested Roots, Published File Loads, and What knip Does Not Read](NNNN-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) | accepted |
+| 0053 | [Plugin Entries of Nested Roots, Published File Loads, and What knip Does Not Read](0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) | accepted |
