@@ -185,6 +185,14 @@ All notable changes to this project are documented here. The format follows
   the workflow frees disk space for the installs before it builds
   ([ADR 0041](adrs/0041-benchmarks-on-large-repositories.md)).
 
+- **Benchmarks with types**: `skif-bench run` times every corpus repository and the module graph case with types (the
+  default) and with `--no-type-aware`, and measures each mode's peak RSS with `/usr/bin/time`. `summary.json` (schema
+  7) records `peak_rss_bytes` and `type_aware_budget_checks`; `summary.md` and the published tables show both modes,
+  labelled "types on (default)" and "types off". `--check-budget` fails a run that breaks the type-aware budget (types
+  on at most 3x types off on the largest repository and 2x in the median, at most 4 GiB peak RSS, at most 5 s on the
+  10,000-file graph, at least 5x faster than knip), and the `bench` workflow passes it
+  ([#244](https://github.com/Goldziher/skif/issues/244)).
+
 - **Comparison harness**: `published-source` covers the sources a published `node` `bin` stub loads and the files a
   published source re-exports; `non-member-project` covers a nested root's default-entry re-exports and, with
   `skipped-directory`, exports, types, duplicates and enum and namespace members only skif reports whose importers lie
