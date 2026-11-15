@@ -566,6 +566,7 @@ pub struct ParseIssue {
 /// Everything skif needs to know about one source file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[allow(clippy::struct_excessive_bools, reason = "independent facts about one file")]
 pub struct ModuleInfo {
     /// Module references, in source order.
     pub imports: Vec<Import>,
