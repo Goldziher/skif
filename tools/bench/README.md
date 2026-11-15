@@ -161,8 +161,9 @@ Profile with `cargo build --profile profiling` (release plus debug symbols, no s
 For each repository and issue type the report gives the number of findings only skif reports, only knip reports, and
 both report. The keys are approximations (a duplicate export is keyed by its names, an unused export by file and
 name), so the numbers measure drift and where the tools model things differently, not correctness. The full report
-with a few sample keys per side is `target/bench-results/parity.json` and `parity.md`; samples name files of the
-corpus repositories and are never committed.
+with sample keys per side is `target/bench-results/parity.json` and `parity.md`: five per category, known deviation
+and side, or as many as `--samples <N>` asks for, and every one-sided finding with `--samples all`, which lists all the
+files only one tool reports in a repository. Samples name files of the corpus repositories and are never committed.
 
 **Types.** skif runs twice per repository: with types, its default, and again with `--no-type-aware`. The typed run is
 the one compared with knip ([ADR 0050](../../adrs/0050-knip-comparison-against-the-typed-run.md)). A one-sided finding

@@ -155,6 +155,8 @@ All notable changes to this project are documented here. The format follows
   `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
   only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
   needs re-recording for the new categories.
+- **Comparison harness**: `skif-bench parity --samples <N>` sets how many sample findings the full report keeps per
+  category, known deviation and side (five by default), and `--samples all` lists every one-sided finding.
 - **Comparison harness**: `bazel-build-file` also covers the files the `glob` include patterns of a Bazel test target's
   `srcs` and `data` match (a `js_test`, or a rule with `testonly = True`, its `exclude` patterns not applied) and the
   `srcs` and `data` of `ng_project`, as skif's Bazel plugin reads them
