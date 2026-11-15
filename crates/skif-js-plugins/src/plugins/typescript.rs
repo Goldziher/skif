@@ -62,13 +62,18 @@ impl Plugin for Typescript {
             return out;
         };
         // `types: ["node"]` loads the types of `node`, which `@types/node` provides as well; `vitest/globals` those of
-        // `vitest`. TypeScript 6 reads `*` as every package of the type roots, which names none.
+        // `vitest`. TypeScript 6 reads `*` as every package of the type roots, which names none, and types an installed
+        // config finds in its own `typeRoots` come with that config's package.
         if let Some(types) = options.get("types") {
             let roots = local_type_roots(options, config);
             out.extend(
                 strings(types)
                     .into_iter()
-                    .filter(|name| name.trim() != "*" && !in_type_root(cx, &roots, name))
+                    .filter(|name| {
+                        name.trim() != "*"
+                            && !in_type_root(cx, &roots, name)
+                            && !installed_with_config(options, config, cx, name)
+                    })
                     .filter_map(package_name)
                     .map(|name| compiler_dependency(name, true)),
             );
@@ -129,10 +134,37 @@ fn local_type_roots(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<String
 
 /// Whether one of `roots` holds the types `name` loads: a directory with an `index.d.ts` or a `package.json`.
 fn in_type_root(cx: &PluginContext<'_>, roots: &[String], name: &str) -> bool {
-    roots.iter().any(|root| {
-        let dir = cx.dir.join(join_rel(root, name));
-        cx.fs.is_file(&dir.join("index.d.ts")) || cx.fs.is_file(&dir.join("package.json"))
-    })
+    roots.iter().any(|root| holds_types(cx, root, name))
+}
+
+/// Whether the directory `root`, relative to the package, holds the types `name` loads.
+fn holds_types(cx: &PluginContext<'_>, root: &str, name: &str) -> bool {
+    let dir = cx.dir.join(join_rel(root, name));
+    cx.fs.is_file(&dir.join("index.d.ts")) || cx.fs.is_file(&dir.join("package.json"))
+}
+
+/// Whether `config` is installed (below a `node_modules` directory, such as a rig profile) and the first of its
+/// `typeRoots` that holds the types `name` loads is one of its own install rather than one of the project reading
+/// it (`${configDir}`, taken as the package directory): TypeScript loads them from there, so they come with the
+/// config's package and need no listing of the project.
+fn installed_with_config(
+    options: &ConfigValue,
+    config: &ConfigAst<'_>,
+    cx: &PluginContext<'_>,
+    name: &str,
+) -> bool {
+    if !config.base.split('/').any(|part| part == "node_modules") {
+        return false;
+    }
+    let roots = options.get("typeRoots").map_or_default(strings);
+    let first = roots.into_iter().find_map(|root| {
+        let (dir, project) = match root.strip_prefix("${configDir}") {
+            Some(rest) => (join_rel("", rest.trim_start_matches('/')), true),
+            None => (config.join(root), false),
+        };
+        holds_types(cx, &dir, name).then_some(project)
+    });
+    first == Some(false)
 }
 
 /// `compilerOptions.baseUrl` and `paths`.
