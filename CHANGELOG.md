@@ -162,7 +162,7 @@ All notable changes to this project are documented here. The format follows
   header records the mode (`mode`), and `tools/bench/baselines/type-aware.json` holds the typed-versus-untyped counts,
   recorded with `--write-baseline` and checked with `--check`. `--no-untyped-pass` skips the second run; no baseline
   is recorded that way. Both baselines need recording
-  ([ADR 0046](adrs/0046-typed-member-semantics.md), [ADR NNNN](adrs/NNNN-knip-comparison-against-the-typed-run.md)).
+  ([ADR 0046](adrs/0046-typed-member-semantics.md), [ADR 0050](adrs/0050-knip-comparison-against-the-typed-run.md)).
 
 - **Performance** ([#233](https://github.com/Goldziher/skif/issues/233)): the `execa`, `zx` and `nano-spawn` plugins
   read the commands of the source files the module graph reaches, as knip does, from the texts the graph already
