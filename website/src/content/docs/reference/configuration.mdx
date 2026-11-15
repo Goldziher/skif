@@ -1018,7 +1018,11 @@ A config that imports the package it names is reported once, for the import.
 
 A `tsconfig` compiler option (`types`, `jsxImportSource`, `plugins`, `importHelpers`) applies to each package that
 reads the config, so a shared base config is satisfied when its owner or the package extending it lists the package;
-an `ignore-dependencies` entry of the extending package silences it too. A `types` entry is satisfied by the package it
+an `ignore-dependencies` entry of the extending package silences it too. This holds for a config the package extends
+through its own `node_modules` (`"extends": "./node_modules/<rig>/profiles/app/tsconfig-base.json"`, and what that
+profile extends): TypeScript merges the chain into the package's options, so the `tslib` that an installed profile's
+`importHelpers` needs is a use of the extending package's manifest. The installed config is not judged, so nothing is
+reported there when the package does not list it. A `types` entry is satisfied by the package it
 names or its `@types` package: `types: ["cypress"]` with `cypress` listed at the root needs nothing more, and
 `@cloudflare/workers-types` or `@types/node` name themselves. `types: ["*"]` names no package: it keeps every `@types`
 package visible, so a globals-only one such as `@types/chrome` counts as used. A config without `types` keeps them all

@@ -248,6 +248,12 @@ All notable changes to this project are documented here. The format follows
   names from config values. A config with such a test is evaluated three times
   ([ADR 0036](adrs/0036-packages-named-on-an-environment-gated-branch.md),
   [#229](https://github.com/Goldziher/skif/issues/229)).
+- A compiler option of a `tsconfig` that a package extends through its own `node_modules`
+  (`"extends": "./node_modules/<rig>/profiles/app/tsconfig-base.json"`, and what that profile extends in turn) applies
+  to the package, as TypeScript merges the chain: the `tslib` that its `importHelpers` needs, and the packages its
+  `types`, `jsxImportSource` and `plugins` name, are uses of the extending package's manifest, so a listed `tslib` is no
+  longer `unused-dependencies`. The installed config itself is still not judged
+  ([#99](https://github.com/Goldziher/skif/issues/99)).
 
 ## [0.5.0] - 2026-11-14
 

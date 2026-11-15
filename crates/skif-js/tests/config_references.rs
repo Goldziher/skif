@@ -322,6 +322,55 @@ fn compiler_options_of_a_shared_base_config_are_satisfied_by_the_extending_packa
     assert_eq!(found(&lint_with(&files, toml), "unlisted-dependencies"), none());
 }
 
+/// A compiler option of a config the package extends through its own `node_modules` (a rig profile,
+/// `./node_modules/@acme/web-rig/profiles/app/tsconfig-base.json`, itself extending another installed rig) applies to
+/// the package, as TypeScript merges the chain: the `tslib` that `importHelpers` needs is used by the extending
+/// package that lists it. The installed config is not judged, so a package that does not list it is not reported
+/// there.
+#[test]
+fn compiler_options_of_an_installed_base_config_are_used_by_the_extending_package() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.0.0"}}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@acme/app","version":"1.0.0","main":"src/index.ts","dependencies":{"tslib":"2.8.1"},"devDependencies":{"@acme/web-rig":"1.0.0"}}"#,
+        ),
+        (
+            "packages/app/tsconfig.json",
+            r#"{"extends":"./node_modules/@acme/web-rig/profiles/app/tsconfig-base.json"}"#,
+        ),
+        (
+            "packages/app/node_modules/@acme/web-rig/profiles/app/tsconfig-base.json",
+            r#"{"extends":"../../node_modules/@acme/heft-web-rig/profiles/app/tsconfig-base.json","compilerOptions":{"target":"es2017"}}"#,
+        ),
+        (
+            "packages/app/node_modules/@acme/web-rig/node_modules/@acme/heft-web-rig/profiles/app/tsconfig-base.json",
+            r#"{"compilerOptions":{"module":"esnext","target":"es5","importHelpers":true}}"#,
+        ),
+        ("packages/app/src/index.ts", "export const a = 1;\n"),
+        (
+            "packages/lib/package.json",
+            r#"{"name":"@acme/lib","version":"1.0.0","main":"src/index.ts","devDependencies":{"@acme/web-rig":"1.0.0"}}"#,
+        ),
+        (
+            "packages/lib/tsconfig.json",
+            r#"{"extends":"./node_modules/@acme/web-rig/profiles/app/tsconfig-base.json"}"#,
+        ),
+        (
+            "packages/lib/node_modules/@acme/web-rig/profiles/app/tsconfig-base.json",
+            r#"{"compilerOptions":{"importHelpers":true}}"#,
+        ),
+        ("packages/lib/src/index.ts", "export const b = 1;\n"),
+    ];
+    let diagnostics = lint(&files);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
+}
+
 /// A config that git ignores is generated (`.nuxt/tsconfig.json`) and not judged; `[js] include-fixtures` judges a
 /// config in a fixture directory like any other.
 #[test]
