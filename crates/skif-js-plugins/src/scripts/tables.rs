@@ -1000,6 +1000,16 @@ pub(super) static RUNNERS: &[Runner] = &[
         subcommands: &[],
         files: Files::None,
     },
+    // The Tailwind CLI compiles the stylesheet `--input` names, whose `@import`s it resolves, as knip reads it.
+    Runner {
+        names: &["tailwindcss"],
+        value_flags: &["o", "output", "c", "config", "content", "cwd"],
+        dep_flags: &[],
+        file_flags: &["i", "input"],
+        exec_flags: &[],
+        subcommands: &[],
+        files: Files::None,
+    },
 ];
 
 pub(super) fn runner(name: &str) -> Option<&'static Runner> {

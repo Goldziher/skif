@@ -276,6 +276,10 @@ All notable changes to this project are documented here. The format follows
   by the project: the plugin resolves it from the storykit package, whose dependency it is. A listing in the project
   is still used; the `storykitPackageName` is still required
   ([ADR NNNN](adrs/NNNN-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+- `unlisted-dependencies`, `unused-dependencies`: the stylesheet a `tailwindcss --input` (`-i`) script compiles is an
+  entry, so the packages its `@import`s name are used, and reported when no manifest lists them, as knip has it.
+  Before, such a stylesheet was not read unless a module imported it
+  ([#242](https://github.com/Goldziher/skif/issues/242)).
 - `unused-dependencies`, `unused-dev-dependencies`: the `next` plugin names `react` and `react-dom` for a package
   without a `next.config` only when the package depends on `next` itself. A package that inherits the plugin from the
   root's `next` (a test fixture package of the workspace) is judged by its own uses of React. Before, its `react` was
