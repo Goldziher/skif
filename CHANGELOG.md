@@ -128,6 +128,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `unused-dev-dependencies` reports a `devDependencies` entry of a package that the same manifest lists in
+  `dependencies`, used or not ("is listed in `devDependencies` and in `dependencies`"), with the unsafe fix that
+  removes it: the production entry installs the package for development as well. knip reports it too
+  ([ADR NNNN](adrs/NNNN-redundant-dev-entries-and-installed-optional-peers.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)).
+
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
 
 - **Type-aware scheduling**: the programs with the most judged files are built first, and a program gets checkers in
@@ -210,6 +216,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-optional-peer-dependencies` ([ADR NNNN](adrs/NNNN-redundant-dev-entries-and-installed-optional-peers.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)):
+  - An optional peer that the root or a containing package lists in `dependencies`, `devDependencies` or
+    `optionalDependencies` is installed for the member too, as for any other use outside `isolate-workspaces`, and is
+    no longer reported there.
+  - A package a bundler keeps external (tsdown `deps.neverBundle`) no longer silences the finding; only the
+    `ignore-dependencies` lists of the configuration do.
+  - The `types` of a `tsconfig` a package extends through `node_modules` (a Heft rig profile) that the first of that
+    config's own `typeRoots` holding them finds in the rig's install come with the rig: they no longer make the
+    extending package use its optional peer `@types/node`, so it is not told to install it.
 - `unused-files`: a Playwright `webServer.command` that the config computes is read, so the file it runs is no longer
   reported and the binaries it runs are judged. Each branch of a condition the config cannot decide counts, and in a
   template literal a substitution whose value is not known (a port from the environment) reads as a shell variable

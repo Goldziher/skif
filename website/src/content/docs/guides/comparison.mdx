@@ -265,6 +265,17 @@ file, such as a tooling, asset or style package. Such a dependency orders tasks 
 dependencies), and knip reports it. A member with one of those fields or a source file is judged as before; when it
 is listed only to order tasks, add it to `ignore-dependencies` with a `reason`.
 
+Both tools report a `devDependencies` entry of a package that the same manifest lists in `dependencies`, used or
+not: the production entry installs it for development as well. skif says so in the message ("is listed in
+`devDependencies` and in `dependencies`"). An optional peer dependency that the code uses counts as installed in skif
+when the package lists it in `optionalDependencies`, or when the root or a containing package lists it in
+`dependencies`, `devDependencies` or `optionalDependencies` (outside `isolate-workspaces`); knip asks only the
+package's own `dependencies` and `devDependencies`. The `types` that a `tsconfig` extended through `node_modules` (a
+Heft rig profile) finds in its own `typeRoots` come with that config's package, so they do not make the extending
+package use its optional peer `@types/node`. knip credits `webpack-cli` for every webpack config, and `webpack` as its
+peer; skif judges both by the scripts, commands and imports that run them
+([ADR NNNN](https://github.com/Goldziher/skif/blob/main/adrs/NNNN-redundant-dev-entries-and-installed-optional-peers.md)).
+
 A package with a reached `.svelte` file uses `svelte`, the compiler of its components; knip credits `svelte` only
 where a file or a configuration names it. skif reads the exports of a component's module script
 (`<script context="module">`, `<script module>`) and reports the unused ones; the exports of the instance `<script>`
