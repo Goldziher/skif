@@ -421,17 +421,14 @@ mod asked {
     pub(super) type DeclKeys = HashMap<(ModuleId, u32), DeclId>;
 
     /// Adds the declaration at `name_start` of `module` with `members` to `query`, merging the members of a
-    /// declaration two exports stand for (`export { E, E as F }` of one enum).
+    /// declaration two exports stand for (`export { E, E as F }` of one enum). The declaration is asked about even
+    /// without members: the checker still finds its uses as a whole.
     fn add(
         query: &mut TypeQuery,
         keys: &mut DeclKeys,
         (module, name_start, kind): (&Module, u32, DeclKind),
-        members: impl Iterator<Item = String>,
+        members: Vec<String>,
     ) {
-        let members: Vec<String> = members.collect();
-        if members.is_empty() {
-            return;
-        }
         let next = DeclId(u32::try_from(query.decls.len()).unwrap_or(u32::MAX));
         let id = *keys.entry((module.id, name_start)).or_insert(next);
         if id == next {
@@ -453,8 +450,8 @@ mod asked {
     }
 
     /// The declarations whose members the rules judge: every used exported class with the members it does not
-    /// exempt (ADR 0042), and every used enum and namespace export with its untagged members (ADR 0018). Private
-    /// names (`#count`) are left to their own module, as without types.
+    /// exempt (ADR 0042), and every used enum and namespace export with its untagged members (ADR 0018) that are not
+    /// used without types. Private names (`#count`) are left to their own module, as without types.
     pub(super) fn build_query(analysis: &JsAnalysis<'_>) -> (TypeQuery, DeclKeys) {
         let mut query = TypeQuery::default();
         let mut keys = DeclKeys::default();
@@ -466,13 +463,16 @@ mod asked {
                         continue;
                     };
                     let facts = ClassFacts::of(analysis, module, export, shape, &exposed);
-                    let members = shape
+                    let members: Vec<String> = shape
                         .members
                         .iter()
                         .filter(|member| !member.name.starts_with('#'))
                         .filter(|member| exemption(analysis, module, shape, &facts, member).is_none())
-                        .map(|member| member.name.clone());
-                    add(&mut query, &mut keys, (module, name_start, DeclKind::Class), members);
+                        .map(|member| member.name.clone())
+                        .collect();
+                    if !members.is_empty() {
+                        add(&mut query, &mut keys, (module, name_start, DeclKind::Class), members);
+                    }
                 }
             }
             if !analysis.reports_exports_of(module) {
@@ -490,10 +490,19 @@ mod asked {
                 if analysis.is_tagged_public(export) || !analysis.exports.is_used(module.id, &export.name) {
                     continue;
                 }
-                let members = JsAnalysis::members_of(export)
+                let mut judged = JsAnalysis::members_of(export)
                     .iter()
                     .filter(|member| !analysis.exempts_tags(&member.tags))
-                    .map(|member| member.name.clone());
+                    .peekable();
+                if judged.peek().is_none() {
+                    continue;
+                }
+                // Types only add uses (ADR 0044): a member used without types is used whatever the checker finds, so
+                // only the others are asked about, which spares the checker the reads of their names.
+                let members = judged
+                    .filter(|member| !analysis.member_used_without_types(module, export, member))
+                    .map(|member| member.name.clone())
+                    .collect();
                 add(&mut query, &mut keys, (module, name_start, kind), members);
             }
         }
