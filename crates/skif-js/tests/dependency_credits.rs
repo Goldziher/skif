@@ -191,10 +191,7 @@ fn the_types_package_of_a_typed_peer_of_a_used_host_is_unused() {
             "node_modules/eslint/package.json",
             r#"{"name":"eslint","version":"9.0.0","types":"lib/types/index.d.ts"}"#,
         ),
-        (
-            "node_modules/eslint/lib/types/index.d.ts",
-            "export namespace Rule {}\n",
-        ),
+        ("node_modules/eslint/lib/types/index.d.ts", "export namespace Rule {}\n"),
         (
             "node_modules/lint-utils/package.json",
             r#"{"name":"lint-utils","version":"1.0.0","main":"index.js","peerDependencies":{"eslint":">=8"}}"#,
