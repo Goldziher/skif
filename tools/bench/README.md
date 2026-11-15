@@ -165,7 +165,7 @@ with a few sample keys per side is `target/bench-results/parity.json` and `parit
 corpus repositories and are never committed.
 
 **Types.** skif runs twice per repository: with types, its default, and again with `--no-type-aware`. The typed run is
-the one compared with knip ([ADR NNNN](../../adrs/NNNN-knip-comparison-against-the-typed-run.md)). A one-sided finding
+the one compared with knip ([ADR 0050](../../adrs/0050-knip-comparison-against-the-typed-run.md)). A one-sided finding
 that no other known deviation explains is the `type-resolved` known deviation when skif reports it only with types, or
 when knip reports it and only the untyped run does too: types settle which declaration a read reaches, while knip
 credits by name ([ADR 0046](../../adrs/0046-typed-member-semantics.md)). `parity.md` adds a "Typed versus untyped"
