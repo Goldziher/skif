@@ -7,6 +7,9 @@
 //! [`PendingTypes::finish`] plans the judged files, then walks them or, when no judged file needs it, is freed
 //! unwalked. Which programs start early depends on timing, so nothing that shapes a fact does: a program gets the
 //! checkers the early plan gives it whether it starts early or not, and the walks read the judged files alone.
+//!
+//! The analyses of a run over many roots can share their cores ([`TypeBudget`]), so that together they build and
+//! check no more programs at once than one analysis does.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
@@ -54,6 +57,7 @@ pub(crate) fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
         packages: input.packages.to_vec(),
         tsconfig_override: input.tsconfig_override.map(std::path::Path::to_path_buf),
         threads: input.threads,
+        budget: input.budget.cloned(),
     };
     std::thread::scope(|scope| start(scope, build, input.cancel).finish(input.packages, input.query))
 }
@@ -65,11 +69,16 @@ pub(crate) fn start<'scope, 'env>(
     cancel: Option<&'env AtomicBool>,
 ) -> PendingTypes<'scope> {
     let (fs, boms) = vfs::tsrs_fs(Arc::clone(&build.fs));
+    let cores = build.budget.as_ref().map_or_else(
+        || Arc::new(Cores::new(cores_of(build.threads))),
+        |budget| Arc::clone(&budget.cores),
+    );
     let shared = Arc::new(Shared {
         cwd: vfs::tsrs_path(&build.root),
         fs,
         boms,
         pool: types_pool(build.threads),
+        cores,
         build,
         planned: Slot::default(),
         judged: Slot::default(),
@@ -138,6 +147,7 @@ impl PendingTypes<'_> {
             tsconfig_override: build.tsconfig_override.as_deref(),
             query,
             threads: build.threads,
+            budget: build.budget.as_ref(),
             cancel: self.cancel,
         };
         let handed = self.hand_over(&input);
@@ -230,6 +240,8 @@ struct Shared {
     /// the host that block. `None` when the pool cannot be started: tsrs then
     /// uses the global pool.
     pool: Option<rayon::ThreadPool>,
+    /// The cores the programs check on: the analysis's own, or those of the run's [`TypeBudget`].
+    cores: Arc<Cores>,
 }
 
 impl Shared {
@@ -245,14 +257,18 @@ impl Shared {
 /// The rayon pool of one analysis, a thread per core. Only tsrs's own work runs on it, never a wait for a plan or for
 /// cores: a pool thread that waits inside tsrs takes other queued jobs, so a job that blocks would block it too.
 fn types_pool(threads: Option<NonZeroUsize>) -> Option<rayon::ThreadPool> {
-    let cores = threads
-        .or_else(|| std::thread::available_parallelism().ok())
-        .map_or(1, NonZeroUsize::get);
     rayon::ThreadPoolBuilder::new()
-        .num_threads(cores)
+        .num_threads(cores_of(threads))
         .thread_name(|index| format!("skif-types-{index}"))
         .build()
         .ok()
+}
+
+/// `threads`, or every core of the machine.
+fn cores_of(threads: Option<NonZeroUsize>) -> usize {
+    threads
+        .or_else(|| std::thread::available_parallelism().ok())
+        .map_or(1, NonZeroUsize::get)
 }
 
 /// A value one thread puts once and others wait for.
@@ -469,7 +485,6 @@ fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Coordinated {
         early: &early,
         cancel,
         single_threaded: parallelism.single_threaded,
-        cores: Cores::new(parallelism.threads),
         queue: Mutex::default(),
         outcomes: Mutex::default(),
         regions: Mutex::default(),
@@ -530,9 +545,7 @@ struct Parallelism {
 
 impl Parallelism {
     fn new(threads: Option<NonZeroUsize>, programs: usize) -> Self {
-        let threads = threads
-            .or_else(|| std::thread::available_parallelism().ok())
-            .map_or(1, NonZeroUsize::get);
+        let threads = cores_of(threads);
         let at_once = (threads / CORES_PER_PROGRAM).clamp(1, programs.max(1));
         let even = (threads / at_once).max(1);
         let machine =
@@ -583,47 +596,206 @@ impl Schedule {
     }
 }
 
-/// The threads not handed to a program's checkers yet. A program starts once its checkers fit, so the programs that
-/// run at once never hold more checkers than the analysis has threads, and a program that takes most of them runs
-/// with few others beside it, which bounds the memory they hold together.
+/// The cores of a run that several analyses share: each analysis takes its programs' checkers from them instead of
+/// cores of its own, so that a run over many roots builds and checks no more programs at once than one analysis
+/// does, and holds no more of them in memory. Give the same budget (or a clone, which shares it) to every analysis of
+/// the run with [`TypeBuild::with_budget`](crate::TypeBuild::with_budget) or
+/// [`TypeInput::with_budget`](crate::TypeInput::with_budget). The facts do not depend on it.
+#[derive(Clone)]
+pub struct TypeBudget {
+    cores: Arc<Cores>,
+}
+
+impl TypeBudget {
+    /// A budget of `threads` cores; `None` for every core of the machine.
+    #[must_use]
+    pub fn new(threads: Option<NonZeroUsize>) -> Self {
+        Self {
+            cores: Arc::new(Cores::shared(cores_of(threads))),
+        }
+    }
+
+    /// The cores of the budget.
+    #[must_use]
+    pub fn threads(&self) -> usize {
+        self.cores.threads
+    }
+
+    /// The most cores the analyses held at once, for tests that check the budget holds.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn peak(&self) -> usize {
+        self.cores.peak()
+    }
+
+    /// How many programs took cores from the budget, for tests that check every program does.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn takes(&self) -> usize {
+        self.cores.takes()
+    }
+}
+
+impl std::fmt::Debug for TypeBudget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TypeBudget")
+            .field("threads", &self.cores.threads)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The cores not handed to a program's checkers yet. A program starts once its checkers fit, so the programs that
+/// run at once never hold more checkers than there are cores, and a program that takes most of them runs with few
+/// others beside it, which bounds the memory they hold together.
+///
+/// The cores of one analysis ([`Cores::new`]) are only its own programs'. Those a run's analyses share
+/// ([`Cores::shared`]) must never be waited for by a program that waits for its host: a program built before its
+/// analysis's judged files are planned waits for its host to plan them, and the host's thread can be running
+/// another analysis meanwhile (a rayon thread that waits runs other jobs), whose host would then wait for cores held
+/// by a program waiting for that thread. So a program waits for shared cores only once its judged files are planned,
+/// when it no longer waits for its host; an early program takes cores only of a share kept for early programs, only
+/// when they are free ([`Cores::admit_early`]), and nothing ever waits for those.
 struct Cores {
     threads: usize,
-    free: Mutex<usize>,
+    /// The cores of `threads` that only early programs take, without waiting; `None` for the cores of one analysis,
+    /// whose early programs wait for cores like the others.
+    early: Option<usize>,
+    held: Mutex<Held>,
     returned: Condvar,
 }
 
+/// The cores held now, and the most held at once.
+#[derive(Debug, Default)]
+struct Held {
+    /// By programs of a known plan or, for one analysis, by every program.
+    planned: usize,
+    /// By early programs of a shared budget.
+    early: usize,
+    peak: usize,
+    /// The programs that took cores.
+    takes: usize,
+}
+
+impl Held {
+    fn took(&mut self) {
+        self.peak = self.peak.max(self.planned + self.early);
+        self.takes += 1;
+    }
+}
+
+/// How an early program gets its cores.
+enum Admitted<'a> {
+    /// It waits for them before it builds, with the other programs of its analysis.
+    Later,
+    /// It holds them.
+    Now(Taken<'a>),
+}
+
 impl Cores {
+    /// The cores of one analysis.
     fn new(threads: usize) -> Self {
+        Self::with_early(threads, None)
+    }
+
+    /// The cores the analyses of a run share, a quarter of them kept for early programs as for one program built at
+    /// once ([`CORES_PER_PROGRAM`]); fewer than that keep none, and no program starts early.
+    fn shared(threads: usize) -> Self {
+        Self::with_early(threads, Some(threads / CORES_PER_PROGRAM))
+    }
+
+    fn with_early(threads: usize, early: Option<usize>) -> Self {
         Self {
             threads,
-            free: Mutex::new(threads),
+            early,
+            held: Mutex::default(),
             returned: Condvar::new(),
         }
     }
 
-    /// Waits until `count` threads are free (all of them, when `count` is more) and holds them until the guard drops.
+    /// The cores programs of a known plan take.
+    fn planned(&self) -> usize {
+        self.threads - self.early.unwrap_or(0)
+    }
+
+    /// Waits until `count` cores are free (all those of programs of a known plan, when `count` is more) and holds
+    /// them until the guard drops. Of shared cores, only a program whose judged files are planned waits.
     fn take(&self, count: usize) -> Taken<'_> {
-        let count = count.min(self.threads);
-        let mut free = lock(&self.free);
-        while *free < count {
-            free = self.returned.wait(free).unwrap_or_else(PoisonError::into_inner);
+        let planned = self.planned();
+        let count = count.min(planned);
+        let mut held = lock(&self.held);
+        while held.planned + count > planned {
+            held = self.returned.wait(held).unwrap_or_else(PoisonError::into_inner);
         }
-        *free -= count;
-        Taken { cores: self, count }
+        held.planned += count;
+        held.took();
+        Taken {
+            cores: self,
+            count,
+            early: false,
+        }
+    }
+
+    /// How a program started before its judged files are planned gets its `count` cores (all of the early share,
+    /// when `count` is more): later with [`Cores::take`] for the cores of one analysis; at once of the early share
+    /// of shared cores when that many are free, and not at all when they are not.
+    fn admit_early(&self, count: usize) -> Option<Admitted<'_>> {
+        let Some(share) = self.early else {
+            return Some(Admitted::Later);
+        };
+        let count = count.min(share);
+        let mut held = lock(&self.held);
+        if count == 0 || held.early + count > share {
+            return None;
+        }
+        held.early += count;
+        held.took();
+        Some(Admitted::Now(Taken {
+            cores: self,
+            count,
+            early: true,
+        }))
+    }
+
+    fn peak(&self) -> usize {
+        lock(&self.held).peak
+    }
+
+    fn takes(&self) -> usize {
+        lock(&self.held).takes
+    }
+
+    #[cfg(test)]
+    fn in_use(&self) -> usize {
+        let held = lock(&self.held);
+        held.planned + held.early
     }
 }
 
-/// Threads taken from [`Cores`], given back on drop.
+/// Cores taken from [`Cores`], given back on drop.
 struct Taken<'a> {
     cores: &'a Cores,
     count: usize,
+    early: bool,
 }
 
 impl Drop for Taken<'_> {
     fn drop(&mut self) {
-        *lock(&self.cores.free) += self.count;
+        let mut held = lock(&self.cores.held);
+        if self.early {
+            held.early -= self.count;
+        } else {
+            held.planned -= self.count;
+        }
+        drop(held);
         self.cores.returned.notify_all();
     }
+}
+
+/// The cores a program on `checkers` checkers with `judged` judged files holds: a checker that owns none of its
+/// judged files walks nothing, so one for each checker up to the judged files, and at least one.
+fn charge(checkers: usize, judged: usize) -> usize {
+    checkers.min(judged).max(1)
 }
 
 /// What became of one program.
@@ -644,6 +816,8 @@ struct BuiltProgram {
     checkers: usize,
     build: Duration,
     query: Duration,
+    /// Waiting for its cores.
+    cores_waited: Duration,
     /// Whether the program started from the early plan.
     early: bool,
 }
@@ -685,15 +859,17 @@ enum Next {
     Early(usize),
     /// Build the program at this position of [`Judged::order`].
     Judged(usize),
-    /// Wait for the judged files' plan: every early program has started.
+    /// Wait for the judged files' plan: every early program has started, or the next one has no cores.
     Wait,
     /// End: every program has started.
     Done,
 }
 
 impl Queue {
-    /// The next program to start, of the `early` configs or, once the gate is open, of the judged files' plan.
-    fn next(&mut self, early: &[String], gate: Gate<'_>) -> Next {
+    /// The next program to start, of the `early` configs or, once the gate is open, of the judged files' plan. An
+    /// early program starts only when `admit` lets the one at its position have its cores; otherwise it stays queued
+    /// and the thread waits for the judged files' plan.
+    fn next(&mut self, early: &[String], gate: Gate<'_>, admit: impl FnOnce(usize) -> bool) -> Next {
         match gate {
             Gate::Abandoned => Next::Done,
             Gate::Open(order) => {
@@ -710,6 +886,9 @@ impl Queue {
                 let Some(config) = early.get(self.early) else {
                     return Next::Wait;
                 };
+                if !admit(self.early) {
+                    return Next::Wait;
+                }
                 let position = self.early;
                 self.early += 1;
                 self.started.insert(config.clone());
@@ -728,7 +907,6 @@ struct Session<'a> {
     early: &'a Early,
     cancel: Option<&'a AtomicBool>,
     single_threaded: bool,
-    cores: Cores,
     queue: Mutex<Queue>,
     /// The outcome of each program of the judged files' plan, by its index there.
     outcomes: Mutex<BTreeMap<usize, Outcome>>,
@@ -777,10 +955,18 @@ impl Session<'_> {
                 Some(None) => Gate::Abandoned,
                 Some(Some(judged)) => Gate::Open(&judged.order),
             };
-            let next = lock(&self.queue).next(&self.early.configs, gate);
+            let mut admitted = None;
+            let next = lock(&self.queue).next(&self.early.configs, gate, |position| {
+                admitted = self.shared.cores.admit_early(self.early.checkers[position]);
+                admitted.is_some()
+            });
             match next {
                 Next::Early(position) => {
-                    self.start(&self.early.configs[position], self.early.checkers[position], None);
+                    let held = match admitted {
+                        Some(Admitted::Now(taken)) => Some(taken),
+                        Some(Admitted::Later) | None => None,
+                    };
+                    self.start(&self.early.configs[position], self.early.checkers[position], None, held);
                 }
                 Next::Judged(position) => {
                     let Some(Some(judged)) = judged else {
@@ -789,7 +975,7 @@ impl Session<'_> {
                     let index = judged.schedule.order[position];
                     let checkers = judged.schedule.checkers[index];
                     let config = judged.plan.programs[index].config.clone();
-                    self.start(&config, checkers, Some((judged, index)));
+                    self.start(&config, checkers, Some((judged, index)), None);
                 }
                 Next::Wait => {
                     self.shared.judged.wait();
@@ -801,11 +987,12 @@ impl Session<'_> {
         lock(&self.regions).push(region);
     }
 
-    /// Runs the program of `config` on `checkers` checkers once that many threads are free, and keeps its outcome
-    /// for its program of the judged files' plan: `target`, or the one with its config once that plan is known.
-    fn start(&self, config: &str, checkers: usize, target: Option<Target>) {
+    /// Runs the program of `config` on `checkers` checkers with the cores it `held` already or once they are free,
+    /// and keeps its outcome for its program of the judged files' plan: `target`, or the one with its config once
+    /// that plan is known.
+    fn start(&self, config: &str, checkers: usize, target: Option<Target>, held: Option<Taken<'_>>) {
         let early = target.is_none();
-        let outcome = self.build_and_walk(config, checkers, target.clone(), early);
+        let outcome = self.build_and_walk(config, checkers, target.clone(), held, early);
         let Some(outcome) = outcome else {
             return;
         };
@@ -814,16 +1001,36 @@ impl Session<'_> {
         }
     }
 
-    fn build_and_walk(&self, config: &str, checkers: usize, target: Option<Target>, early: bool) -> Option<Outcome> {
+    fn build_and_walk(
+        &self,
+        config: &str,
+        checkers: usize,
+        target: Option<Target>,
+        held: Option<Taken<'_>>,
+        early: bool,
+    ) -> Option<Outcome> {
         if self.cancelled() {
             return Some(Outcome::Cancelled);
         }
-        let _taken = self.cores.take(checkers);
+        let waiting = Instant::now();
+        // Without cores held, the program is of the judged files' plan, or an early one of an analysis's own cores
+        // ([`Cores::admit_early`]): waiting for them cannot wait for a host.
+        let _taken = held.unwrap_or_else(|| {
+            let count = target
+                .as_ref()
+                .map_or(checkers, |(judged, index)| charge(checkers, judged.plan.programs[*index].files.len()));
+            self.shared.cores.take(count)
+        });
+        let cores_waited = waiting.elapsed();
         if self.cancelled() {
             return Some(Outcome::Cancelled);
         }
-        panic::catch_unwind(AssertUnwindSafe(|| self.run_program(config, checkers, target, early)))
-            .unwrap_or(Some(Outcome::Failed))
+        let mut outcome = panic::catch_unwind(AssertUnwindSafe(|| self.run_program(config, checkers, target, early)))
+            .unwrap_or(Some(Outcome::Failed));
+        if let Some(Outcome::Built(built)) = &mut outcome {
+            built.cores_waited = cores_waited;
+        }
+        outcome
     }
 
     /// The program of the judged files' plan with `config`, once the plan is known; `None` when no judged file needs
@@ -958,6 +1165,7 @@ impl Session<'_> {
             checkers,
             build,
             query,
+            cores_waited: Duration::ZERO,
             early,
         }))
     }
@@ -988,6 +1196,7 @@ fn assemble(
             Outcome::Built(built) => {
                 timings.programs += built.build;
                 timings.queries += built.query;
+                timings.cores_waited += built.cores_waited;
                 timings.early += usize::from(built.early);
                 timings.per_program.push(ProgramTiming {
                     config: PathBuf::from(&program.config),
