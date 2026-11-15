@@ -264,6 +264,42 @@ fn a_computed_specifier_without_an_extension_also_names_a_directory_index() {
 }
 
 #[test]
+fn a_const_path_built_from_dirname_names_the_module_it_loads() {
+    let source = "const entry = require('node:path').resolve(__dirname, 'cli/entry.js');\n\
+                  const up = path.join(__dirname, '..', 'lib', 'run.js');\n\
+                  const tpl = join(__dirname, 'tpl.hbs');\n\
+                  module.exports = (process) => validate(process, () => require(entry));\n\
+                  async function load() { return import(up); }\n\
+                  require.resolve(tpl);\n";
+    let info = parse("lib/cli.js", source);
+    let got: Vec<_> = info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect();
+    assert_eq!(
+        got,
+        [
+            ("node:path", ImportKind::Require),
+            ("./cli/entry.js", ImportKind::Require),
+            ("../lib/run.js", ImportKind::Dynamic),
+            ("./tpl.hbs", ImportKind::Resolve),
+        ]
+    );
+    assert_eq!(info.unresolved_dynamic.len(), 0);
+}
+
+#[test]
+fn a_path_variable_that_is_not_a_const_dirname_path_stays_unresolved() {
+    let source = "let reassigned = path.join(__dirname, 'a.js');\n\
+                  const fromCwd = path.join(process.cwd(), 'b.js');\n\
+                  const computed = path.join(__dirname, name);\n\
+                  const absolute = path.resolve(__dirname, '/c.js');\n\
+                  const entry = path.resolve(__dirname, 'd.js');\n\
+                  function shadowed(entry) { return require(entry); }\n\
+                  require(reassigned); require(fromCwd); require(computed); require(absolute); require(other);\n";
+    let info = parse("a.js", source);
+    assert_eq!(info.imports, [] as [skif_js_syntax::Import; 0]);
+    assert_eq!(info.unresolved_dynamic.len(), 6);
+}
+
+#[test]
 fn computed_relative_resolve_specifiers_are_globs() {
     let info = parse(
         "a.mjs",
