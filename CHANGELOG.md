@@ -155,6 +155,15 @@ All notable changes to this project are documented here. The format follows
   only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
   needs re-recording for the new categories.
 
+- **Comparison harness with types**: `skif-bench parity` runs skif twice per repository, with types (the run compared
+  with knip) and with `--no-type-aware`. A one-sided finding no other deviation explains is the new `type-resolved`
+  known deviation when skif reports it only with types, or when knip reports it and only the untyped run does too.
+  `parity.md` and `parity.json` give each rule's typed and untyped findings and those only one run has, the baseline
+  header records the mode (`mode`), and `tools/bench/baselines/type-aware.json` holds the typed-versus-untyped counts,
+  recorded with `--write-baseline` and checked with `--check`. `--no-untyped-pass` skips the second run; no baseline
+  is recorded that way. Both baselines need recording
+  ([ADR 0046](adrs/0046-typed-member-semantics.md), [ADR NNNN](adrs/NNNN-knip-comparison-against-the-typed-run.md)).
+
 - **Performance** ([#233](https://github.com/Goldziher/skif/issues/233)): the `execa`, `zx` and `nano-spawn` plugins
   read the commands of the source files the module graph reaches, as knip does, from the texts the graph already
   read, instead of every source file of each package that lists or inherits the library. A member that inherits a
