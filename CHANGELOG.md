@@ -183,6 +183,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-types` and `unused-exports` no longer report an export that a used export's inferred signature takes from a
+  top-level declaration of its file: in `export const useEntity = () => useContext(EntityContext)` the type
+  `EntityContext` was created with, a type predicate passed to a call (`items.filter(isItem)`), the parameters of a
+  called local function without a return type and the return type of one with it, and the result of a method called
+  on a local object literal, followed transitively. An argument passed inside a function body and anything below an
+  explicit return type do not count, as they are not part of the signature
+  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md), [#165](https://github.com/Goldziher/skif/issues/165)).
 - Files reached only through framework and build entry points are no longer `unused-files`, so the class members
   only they read are no longer `unused-class-members`
   ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md), [#240](https://github.com/Goldziher/skif/issues/240)):

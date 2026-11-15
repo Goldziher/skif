@@ -92,6 +92,35 @@ fn types_reached_through_a_chain_of_used_signatures_are_used() {
 }
 
 #[test]
+fn types_an_inferred_signature_takes_from_local_declarations_are_used() {
+    let diagnostics = lint(&[
+        PACKAGE,
+        (
+            "src/index.ts",
+            "import { useEntity, items, resolve } from './context';\nconsole.log(useEntity(), items, resolve([]));\n",
+        ),
+        (
+            "src/context.ts",
+            "import { createContext, useContext } from 'react';\n\
+             export type EntityContextType = { expanded: boolean };\n\
+             const EntityContext = createContext<EntityContextType>({ expanded: false });\n\
+             export const useEntity = () => useContext(EntityContext);\n\
+             export interface Item { id: string }\n\
+             function isItem(value: unknown): value is Item { return value !== null; }\n\
+             export const items = [1, 2].filter(isItem);\n\
+             export type Named = { id: string };\n\
+             function unique(list: readonly Named[]) { return list[0]; }\n\
+             export function resolve(list: never[]) { return unique(list); }\n\
+             export type Hidden = { id: string };\n\
+             const held = createContext<Hidden>({ id: '' });\n\
+             export function run() { useContext(held); }\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-types"), ["src/context.ts: Hidden"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/context.ts: run"]);
+}
+
+#[test]
 fn signature_cycles_end_and_a_used_name_keeps_the_types_its_declarations_name() {
     let diagnostics = lint(&[
         PACKAGE,

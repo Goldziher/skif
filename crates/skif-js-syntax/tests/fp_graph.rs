@@ -303,6 +303,86 @@ fn signature_references_follow_the_first_import_binding_and_exported_containers_
 }
 
 #[test]
+fn signature_references_follow_the_local_declarations_an_inferred_signature_calls_or_passes() {
+    type Expected<'a> = &'a [(&'a str, &'a [&'a str])];
+    let cases: &[(&str, &str, Expected<'_>)] = &[
+        (
+            "an identifier passed to a call names the types of its declaration",
+            "export type Ctx = { a: string };\nconst Context = createContext<Ctx>({ a: '' });\n\
+             export const useCtx = () => useContext(Context);\n",
+            &[("Ctx", &["useCtx"]), ("useCtx", &[])],
+        ),
+        (
+            "a type predicate passed to a call is part of the result",
+            "export interface Item { id: string }\n\
+             function isItem(value: unknown): value is Item { return value !== null; }\n\
+             export const items = [1, 2].filter(isItem);\n",
+            &[("Item", &["items"]), ("items", &[])],
+        ),
+        (
+            "a called local function without a return type names its parameters",
+            "export type Named = { id: string };\n\
+             function unique(items: readonly Named[]) { return items[0]; }\n\
+             export function resolve(list: never[]) { return unique(list); }\n",
+            &[("Named", &["resolve"]), ("resolve", &[])],
+        ),
+        (
+            "a called local function with a return type names only that type",
+            "export type Param = { id: string };\nexport type Out = { id: string };\n\
+             function convert(p: Param): Out { return p; }\n\
+             export const converted = convert({ id: '' });\n",
+            &[("Param", &[]), ("Out", &["converted"]), ("converted", &[])],
+        ),
+        (
+            "a method called on a local object literal names its result",
+            "export type Row = { id: string };\n\
+             const store = { read: (): Row => ({ id: '' }) };\n\
+             export const row = store.read();\n",
+            &[("Row", &["row"]), ("row", &[])],
+        ),
+        (
+            "declarations are followed transitively",
+            "export type Deep = { id: string };\nconst inner = make<Deep>();\nconst outer = wrap(inner);\n\
+             export const value = read(outer);\n",
+            &[("Deep", &["value"]), ("value", &[])],
+        ),
+        (
+            "an argument inside a function body is not followed",
+            "export type Hidden = { id: string };\nconst held = make<Hidden>();\n\
+             export function run() { consume(held); }\n",
+            &[("Hidden", &[]), ("run", &[])],
+        ),
+        (
+            "a call through an unknown member is not followed",
+            "export type Kept = { id: string };\nconst holder = make<Kept>();\n\
+             export const got = () => holder.get();\n",
+            &[("Kept", &[]), ("got", &[])],
+        ),
+        (
+            "a declaration is not followed from an explicit return type",
+            "export type Inside = { id: string };\nconst source = make<Inside>();\n\
+             export const typed = (): string => read(source);\n",
+            &[("Inside", &[]), ("typed", &[])],
+        ),
+    ];
+    for (case, source, expected) in cases {
+        let info = parse("a.ts", source);
+        let containing: Vec<(&str, Vec<&str>)> = info
+            .exports
+            .iter()
+            .map(|export| {
+                (
+                    export.name.as_str(),
+                    export.referenced_in.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        let expected: Vec<(&str, Vec<&str>)> = expected.iter().map(|(name, within)| (*name, within.to_vec())).collect();
+        assert_eq!(containing, expected, "{case}");
+    }
+}
+
+#[test]
 fn members_read_by_name_in_the_declaring_file_are_recorded() {
     let info = parse(
         "a.ts",
