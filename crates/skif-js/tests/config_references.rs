@@ -367,7 +367,11 @@ fn compiler_options_of_an_installed_base_config_are_used_by_the_extending_packag
     ];
     let diagnostics = lint(&files);
     assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
-    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
 }
 
