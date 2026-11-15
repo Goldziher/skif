@@ -1079,8 +1079,11 @@ impl Session<'_> {
         // Referenced projects contribute their sources, as editors and tsrs-lint read them.
         options.use_source_of_project_reference = true;
         options.regions = Some(Arc::clone(&loader_regions));
-        // The checkers' memory goes back with the program.
+        // The checkers' memory goes back with the program, the diagnostics they make while answering included:
+        // without a region of their own those go to the arena of the thread that made them, which is never freed,
+        // so every program of a run would add its diagnostics. No diagnostic is read.
         options.checker_regions = true;
+        options.checker_diagnostic_regions = true;
         if single_threaded {
             options.single_threaded = Tristate::True;
         }
