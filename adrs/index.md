@@ -61,3 +61,4 @@ old one.
 | 0051 | [Enum and Namespace Members Whose Users skif Does Not Read](0051-members-whose-users-skif-does-not-read.md) | accepted |
 | 0052 | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted |
 | 0053 | [Plugin Entries of Nested Roots, Published File Loads, and What knip Does Not Read](0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) | accepted |
+| NNNN | [Module Declaration Files Are Modules](NNNN-module-declaration-files-are-modules.md) | accepted |
