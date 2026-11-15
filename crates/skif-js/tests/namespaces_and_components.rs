@@ -369,6 +369,41 @@ fn members_read_in_component_templates_count_as_used() {
     }
 }
 
+/// `main` imports the component `src/Card.astro` by its default export, or names the file without using it.
+fn astro_props_run(main: &str) -> Vec<Diagnostic> {
+    lint_files(
+        &[
+            ("package.json", r#"{"name":"app","private":true,"main":"src/main.ts"}"#),
+            ("src/main.ts", main),
+            (
+                "src/Card.astro",
+                "---\nexport interface Props {\n  title: string;\n}\nexport type Size = number;\nconst { title } = Astro.props as Props;\n---\n<h1>{title}</h1>\n",
+            ),
+        ],
+        "",
+    )
+}
+
+#[test]
+fn the_props_type_of_an_astro_component_its_importers_use_is_used() {
+    let diagnostics = astro_props_run("import Card from './Card.astro';\nexport const card = Card;\n");
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["src/Card.astro: Size"],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn the_props_type_of_an_astro_component_nothing_uses_is_reported() {
+    let diagnostics = astro_props_run("import './Card.astro';\n");
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["src/Card.astro: Props", "src/Card.astro: Size"],
+        "{diagnostics:#?}"
+    );
+}
+
 #[test]
 fn a_component_that_does_not_read_the_namespace_in_its_template_reports_it() {
     let diagnostics = component_run(

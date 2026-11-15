@@ -1140,7 +1140,8 @@ parse is read token by token, which can only make an import look more used. Noth
 Imports of one script block count as used when another block reads them. In a `.svelte` file only the module script
 (`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) declares exports: `export let` and the other
 exports of the instance `<script>` are props and instance accessors, which `unused-exports` does not judge. A reached
-`.svelte` file uses the `svelte` package its package lists.
+`.svelte` file uses the `svelte` package its package lists. The `Props` interface or type alias an Astro frontmatter
+exports types the component's props, so it is used whenever the component, its default export, is.
 
 `.mdx` files are read without an MDX compiler: their top-level `import` and `export` statements (at the first column,
 outside frontmatter and fenced code, as MDX delimits them) are analysed as JavaScript with JSX, and the prose is

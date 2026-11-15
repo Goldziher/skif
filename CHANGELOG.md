@@ -257,6 +257,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-types`: the exported `Props` interface or type alias of an Astro component is used whenever the component
+  is: the Astro compiler types the component's props, and so its default export, with it. Before, `export interface
+  Props` in the frontmatter of a component that another file renders was reported unused. The analysis cache is
+  invalidated ([#165](https://github.com/Goldziher/skif/issues/165)).
 - `unused-files`: a classic script that a Vite `index.html` loads from the public directory
   (`<script src="/static/init.js">` for `public/static/init.js`) is an entry. The `vite` and `vitest` plugins look up
   a `/`-rooted script in `publicDir` (`public` by default) as well as below the root, and skip leading path segments
