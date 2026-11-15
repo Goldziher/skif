@@ -4,7 +4,10 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, extract_method_calls, extract_property_calls, extract_property_values};
+use skif_js_syntax::{
+    ConfigValue, TEMPLATE_SUBSTITUTION, extract_method_calls, extract_property_calls, extract_property_commands,
+    extract_property_values,
+};
 
 fn s(v: &str) -> ConfigValue {
     ConfigValue::String(v.to_string())
@@ -129,4 +132,36 @@ fn a_local_that_shadows_a_top_level_binding_is_unknown() {
             ConfigValue::Array(vec![s("src/main.ts")]),
         ]
     );
+}
+
+/// A command line read as shell text keeps the parts of a template literal that are known: an unknown substitution is
+/// [`TEMPLATE_SUBSTITUTION`], which the shell reads as a variable, while the same property read as a value is unknown.
+#[test]
+fn a_command_keeps_the_known_text_of_a_template_with_unknown_substitutions() {
+    let source = r#"
+        const port = process.env.PORT;
+        const built = !!process.env.CI;
+        const command = built
+          ? `bun run build && bun e2e/serve.ts --port ${port}`
+          : `bun run dev -- --port ${port} --strictPort`;
+        export default defineConfig({ webServer: { command }, other: { command: `${tool()} start` } });
+    "#;
+    let path = Path::new("playwright.config.ts");
+    assert_eq!(
+        extract_property_commands(source, path, "command"),
+        [
+            ConfigValue::OneOf(vec![
+                s(&format!(
+                    "bun run build && bun e2e/serve.ts --port {TEMPLATE_SUBSTITUTION}"
+                )),
+                s(&format!("bun run dev -- --port {TEMPLATE_SUBSTITUTION} --strictPort")),
+            ]),
+            s(&format!("{TEMPLATE_SUBSTITUTION} start")),
+        ]
+    );
+    assert_eq!(
+        extract_property_values(source, path, "command"),
+        [ConfigValue::Unknown, ConfigValue::Unknown]
+    );
+    assert_eq!(extract_property_commands("x({", path, "command"), []);
 }
