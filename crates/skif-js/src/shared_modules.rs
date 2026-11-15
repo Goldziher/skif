@@ -24,8 +24,8 @@ pub struct SharedModules {
     /// The roots of the run when the cache is the run's own, which holds only the files that are not local to the
     /// root parsing them; `None` for a host's cache, which holds every file.
     roots: Option<Arc<[PathBuf]>>,
-    /// Present when several roots are linted: the cores their type-aware analyses share, so that the roots linted at
-    /// once build no more programs together than one root does.
+    /// Present when several roots are linted: the cores their type-aware analyses share, so that the programs of the
+    /// roots linted at once hold no more cores together than the machine has.
     types: Option<SharedBudget>,
 }
 

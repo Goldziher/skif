@@ -8,8 +8,8 @@
 //! unwalked. Which programs start early depends on timing, so nothing that shapes a fact does: a program gets the
 //! checkers the early plan gives it whether it starts early or not, and the walks read the judged files alone.
 //!
-//! The analyses of a run over many roots can share their cores ([`TypeBudget`]), so that together they build and
-//! check no more programs at once than one analysis does.
+//! The analyses of a run over many roots can share their cores ([`TypeBudget`]), so that their programs together hold
+//! no more cores than there are.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
@@ -597,9 +597,9 @@ impl Schedule {
 }
 
 /// The cores of a run that several analyses share: each analysis takes its programs' checkers from them instead of
-/// cores of its own, so that a run over many roots builds and checks no more programs at once than one analysis
-/// does, and holds no more of them in memory. Give the same budget (or a clone, which shares it) to every analysis of
-/// the run with [`TypeBuild::with_budget`](crate::TypeBuild::with_budget) or
+/// cores of its own, so that the programs of a run over many roots together hold no more cores than the budget has,
+/// which also bounds how many programs are in memory at once. Give the same budget (or a clone, which shares it) to
+/// every analysis of the run with [`TypeBuild::with_budget`](crate::TypeBuild::with_budget) or
 /// [`TypeInput::with_budget`](crate::TypeInput::with_budget). The facts do not depend on it.
 #[derive(Clone)]
 pub struct TypeBudget {
