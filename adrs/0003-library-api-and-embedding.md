@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -42,6 +42,9 @@ process, tested against an in-memory file system, and cannot edit a file relativ
 
 * Every crate except `skif-cli` behaves as a pure function of its inputs. None of them exits the process, panics on user
   input, prints, prompts, reads the environment, the working directory or global state, or writes files.
+* The one recorded exception to "no environment input" is the type checker: the `TSRS_*` and `RAYON_NUM_THREADS`
+  variables a user sets reach tsrs. skif passes the lib path and the checker count explicitly, and it never sets or
+  clears these variables ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)).
 * The library prints only into a timing sink the host installs; the phase timings are off otherwise. The CLI reads
   `SKIF_TIMINGS` and `--performance` and installs the sink.
 * Every root path is explicit. Every path in a diagnostic or an edit is relative to the workspace root the caller
@@ -78,7 +81,13 @@ The `skif` crate is the embedding surface:
 * `js-analysis`, `fix`, `yaml-fix` (implies `fix`), `report`, `schema` and `update` (implies `manifest` and `fix`) are
   opt-in.
 * `js-analysis` is off by default so that a host that pins its own oxc is never forced onto skif's.
-* The CLI enables every feature.
+* `type-aware` (implies `js-analysis`) adds the type checker of
+  [ADR 0034](0034-type-aware-analysis-on-tsrs.md). It is off by default for the same reason as `js-analysis`, and a
+  build without it reports every package untyped with the reason `not-built`.
+* `plain-ptrs` makes tsrs use plain pointers instead of its fixed address-space reservation. A host whose address space
+  holds reservations of its own, such as Node.js, enables it. It has an effect only with `type-aware`.
+* The CLI enables every feature except `plain-ptrs`, `type-aware` through its own default feature, so it keeps tsrs's
+  reservation. The npm addon enables `type-aware` and `plain-ptrs` ([ADR 0027](0027-distribution-and-release.md)).
 
 ### Third-party types in the public API
 
@@ -104,6 +113,8 @@ The `skif` crate is the embedding surface:
   threaded through a type.
 * Bad, because the `FileSystem` trait is public API and adds an indirection to every read.
 * Bad, because keeping oxc out of the API costs a conversion pass in `skif-js-syntax`.
+* Bad, because a user's `TSRS_*` or `RAYON_NUM_THREADS` variable can change a typed run, which skif cannot prevent
+  without setting the environment itself.
 * Bad, because the source scan that checks the allow-list misses a leak behind a type alias or macro output; review of a
   re-export stays the backstop.
 
@@ -118,6 +129,9 @@ The `skif` crate is the embedding surface:
   `MemoryFs`.
 * `crates/skif/tests/threads.rs`: `one_thread_runs_discovery_and_graph_building_on_the_calling_thread`.
 * `crates/skif-workspace/tests/memory.rs`: `discover_with_fs_never_consults_the_current_directory`.
+* The CI `features` job checks and tests `skif` with no feature and with each feature except `type-aware` and
+  `plain-ptrs` alone, and `scripts/check-dependency-tree.sh` fails when `skif` without default features pulls in a tsrs
+  crate.
 
 ## Pros and Cons of the Options
 

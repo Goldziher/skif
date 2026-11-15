@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -26,6 +26,7 @@ script parser read commands, which commands are judged, and in which package is 
 * A directory or command skif cannot place keeps a judgement that produces no false finding
 * A tool the machine brings (a CI runner image, a developer's shell) is no dependency gap
 * Reading commands costs no extra file reads, and a computed command is not guessed
+* A command counts where code that runs is written, as an import does
 
 ## Considered Options
 
@@ -88,10 +89,19 @@ repository already holds, and a directory skif cannot place changes nothing it j
 ### Which commands are judged
 
 * `package.json` scripts, every command a plugin reads from a file (`PluginInput::Script`, and
-  `PluginInput::SourceScript` for `execa`, `zx` and nano-spawn calls), and the literal commands of the `exec`,
+  `PluginInput::SourceScript` for `execa`, `zx` and nano-spawn calls in reached files), and the literal commands of the
+  `exec`,
   `execSync`, `spawn`, `spawnSync`, `execFile` and `execFileSync` calls of `child_process` in every reachable file that
   is neither ignored nor in a fixture directory. `fork` runs a module, not a command, and a command built at run time is
   not read. Calls are read during the parse the JS analysis already does.
+* The `execa`, `zx` and `nano-spawn` scans read only the files the module graph reached, taken from the texts the graph
+  already read, in the second plugin pass of [ADR 0015](0015-plugin-model-and-plugin-set.md). A command in a file
+  nothing reaches runs nothing.
+* A command found this way can run a file (`execa("node", ["scripts/next.mjs"])`), which becomes an entry. When what
+  the scans find changes anything but the packages and binaries named, the entries and the graph are built again from
+  the texts the previous graph kept, and the new graph's files are searched in turn. Entries are only added, so the
+  loop ends once a graph reaches no new file; it is bounded, and a longer chain of scripts running one another leaves
+  the files of its last links unsearched.
 * A command of a source file is parsed with the scripts of the package that owns the file, so `execSync('pnpm x')`
   follows the script `x`.
 * A binary with no provider (no listed dependency, ancestor project or `ignore-binaries` entry) is reported at the file
@@ -123,13 +133,16 @@ repository already holds, and a directory skif cannot place changes nothing it j
 * Good, because binaries that workflows, hooks, tool configs and spawned commands run without a dependency are
   reported, while a tool the CI image brings, a PowerShell step, a here-document body, a `case` pattern and a shell
   function produce no finding.
-* Good, because `child_process` commands come from the existing parse, so no file is read twice.
+* Good, because `child_process` and source-scan commands come from the existing parse, so no file is read twice, and
+  a fixture or other file nothing imports or runs is not read and runs nothing.
 * Bad, because a binary a package manager runs in an unknown directory is not reported where it is missing, as for
   `--filter`.
 * Bad, because a directory computed from the script's own location is not placed: the parser does not know which file
   runs the command.
 * Bad, because a provider listed only where a workflow starts does not cover a command that runs in a member that
   lists the same tool, so the root's listing can be reported unused.
+* Bad, because a command in a file nothing reaches credits no package that provides its binary, so that package can
+  become an `unused-dependencies` finding, and a chain of scripts that run one another builds the graph once per link.
 * Bad, because a tool a CI step runs by name that the project should list is not reported, as knip does not report it.
 
 ### Confirmation
@@ -162,6 +175,8 @@ repository already holds, and a directory skif cannot place changes nothing it j
 * `crates/skif-js/tests/unlisted_parity.rs`: `commands_run_with_a_cwd_option_run_scripts_of_the_package_there` and
   `a_runtime_in_the_engines_of_an_enclosing_package_provides_its_module`.
 * `crates/skif-js/tests/js_config.rs`: `ignore_global_binaries_false_reports_system_binaries`.
+* `crates/skif-js/tests/reached_sources.rs`: `execa_calls_are_read_from_the_files_the_graph_reaches`, and the
+  `fixture_tree` group of `crates/skif-js/benches/analysis.rs`.
 
 ## Pros and Cons of the Options
 

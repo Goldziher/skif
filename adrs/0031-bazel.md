@@ -1,7 +1,6 @@
 ---
 status: accepted
-superseded-in-part-by: ["0034", "0049"]
-date: 2026-11-13
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -12,10 +11,12 @@ decision-makers: ["Na'aman Hirschfeld"]
 In a repository built with Bazel and rules_js, much of what skif looks for lives in Starlark rather than in
 `package.json` and tool configs. A package uses a dependency through a label of the `node_modules` that rules_js
 links for it, or by loading its `package_json.bzl`; a file is built because a `js_binary` names it as its
-`entry_point` or a `ts_project` lists it in `srcs`; generated code exists only in `bazel-bin`; the `bazel-<name>`
-convenience link mirrors the whole repository; rules_js and rules_nodejs pin pnpm and Node in `MODULE.bazel`; and a
-member lockfile may be live because a `BUILD` file installs from it. skif itself also runs under Bazel: `bazel run`
-starts it in a runfiles tree, and `bazel test` allows writes only to a scratch directory.
+`entry_point` or a `ts_project` lists it in `srcs`; test files are built from a `testonly` target whose `srcs` is a
+`glob`; rules_angular's `ng_package` publishes an entry point for each Bazel package it names; generated code exists
+only in `bazel-bin`; the `bazel-<name>` convenience link mirrors the whole repository; rules_js and rules_nodejs pin
+pnpm and Node in `MODULE.bazel`; and a member lockfile may be live because a `BUILD` file installs from it. skif itself
+also runs under Bazel: `bazel run` starts it in a runfiles tree, and `bazel test` allows writes only to a scratch
+directory.
 
 How does skif read a Bazel repository without running Bazel, and how does it behave when Bazel runs it?
 
@@ -27,6 +28,9 @@ How does skif read a Bazel repository without running Bazel, and how does it beh
 * A file a `BUILD` file builds from is used, but its exports are public only where a caller the analysis cannot see
   may read them
 * An import that nothing generates is still `unresolved-imports`
+* A test file is an entry because a runner finds it by pattern, while a dead production file stays `unused-files`, also
+  when a production target's `glob` matches it
+* The public API of a package is what it publishes, whatever imports it inside the repository
 * Outside a Bazel repository nothing changes, and the extra cost is paid only where it changes an answer
 * `bazel run //:skif -- --fix` lints and fixes the source tree the user is in, and nothing is written into Bazel's
   output tree
@@ -36,6 +40,7 @@ How does skif read a Bazel repository without running Bazel, and how does it beh
 
 * Scan `BUILD` and module files as Starlark text for literal labels, paths and one fixed comprehension shape; never
   read output trees; and adapt the CLI's directories to `bazel run` and `bazel test`
+* Read every `glob` of every rule, with its `exclude` patterns
 * Run `bazel query` or `bazel cquery` for the targets, their sources and outputs
 * Evaluate Starlark
 * Take every missing relative import in a Bazel repository for generated code
@@ -62,18 +67,38 @@ no higher than the git repository root. A directory inside one of its output tre
   ([ADR 0019](0019-dependency-unlisted-and-unresolved-findings.md)).
 * `["<template>" % v for v in [<string literals>]]`, with exactly one `%s` in the template, the same loop variable
   and no `if` clause, yields one label per item. Any other comprehension yields nothing; a string followed by `%` or
-  `.format` is a template and names nothing; strings inside `glob(...)` are file patterns and name nothing; and a
-  label names a dependency only when its name is a valid npm package name.
+  `.format` is a template and names nothing; strings inside `glob(...)` are file patterns and name no dependency; and
+  a label names a dependency only when its name is a valid npm package name.
 * The literal `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, a production entry except
   for `js_test`. The literal `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are
   build sources: the module graph starts from them, so they and what they import are used, but their exports are
   judged as any module's ([ADR 0015](0015-plugin-model-and-plugin-set.md)). They are production build sources except
-  for `js_test`. A file an entry rule also matches stays an entry. `deps` name targets, not files, and are not read.
+  for `js_test`. rules_angular's `ng_project` is read as `ts_project` is. A file an entry rule also matches stays an
+  entry. `deps` name targets, not files, and are not read, except those of `ng_package`.
 * Build sources reach where plugin entries do: one that matches a file of a member nested below the package is a
-  build source of that member, and one that names a file of a nested root is handed to that root, where it is an
-  entry. `skif explain-usage` reports such a file as `build-source` and starts its import chains there too.
-* Nothing is read from `glob()`, `select()`, variables or macros defined in `.bzl` files, and a `BUILD` file in an
-  output tree is not read.
+  build source of that member, and one that names a file of a nested root is handed to that root as a build source
+  ([ADR 0006](0006-workspace-discovery-roots-and-multi-root-runs.md)). `skif explain-usage` reports such a file as
+  `build-source` and starts its import chains there too.
+* Nothing is read from `select()`, variables or macros defined in `.bzl` files, nor from a `glob()` other than the
+  one of a test target, and a `BUILD` file in an output tree is not read.
+
+### Test targets
+
+* A call of a rule the plugin reads (`js_binary`, `js_run_devserver`, `js_test`, `js_library`, `ts_project`,
+  `ng_project`) with the literal `testonly = True` is a test target, as `js_test` is: its literal files count only
+  outside `--production`.
+* The `srcs` and `data` of a test target also name the include patterns of a `glob(...)` (also `native.glob`) that is
+  their value or is added to it (`[":a.ts"] + glob([...])`): the string literals of the list given first or as
+  `include`, relative to the `BUILD` file. They are build sources outside `--production`.
+* The `exclude` patterns of such a `glob` are not applied. A `glob` inside another call (`select({...})`), one whose
+  patterns are a variable, and the `glob` of a production target name nothing.
+
+### `ng_package`
+
+Each label of the `deps` of an `ng_package` names a Bazel package (`//pkg`, `//pkg:target`, `@//pkg`; `:target` and
+`target` the `BUILD` file's own). When that package lies in the npm package whose `BUILD` file holds the call and holds
+`index.ts`, that file is a production entry, whose exports are public. A label of another repository or of a package
+outside the npm package names none.
 
 ### Output trees and generated code
 
@@ -115,13 +140,17 @@ it, but is excluded from analysis. `nested-workspace-root` reports it once, at i
 * The npm package's `skif` bin does the same with `process.chdir`. `run`, `lint` and `lintAsync` of the addon never
   change directory, so an embedding host stays in step with its own current directory.
 * Under `bazel test` (`TEST_TMPDIR` set and not empty), `--cache` without `--cache-location` keeps its store in
-  `$TEST_TMPDIR/skif/` ([ADR 0029](0029-performance-caching-and-benchmarks.md)). An explicit `--cache-location`
+  `$TEST_TMPDIR/skif/` ([ADR 0029](0029-performance-caching-benchmarks-and-budgets.md)). An explicit `--cache-location`
   wins.
 
 ### Consequences
 
 * Good, because the dependencies and files that rules_js targets name are used, and an output the `BUILD` files
   declare is never unresolved.
+* Good, because the spec files and helpers a Bazel test target builds are used, and the dead files a production `glob`
+  matches are still reported.
+* Good, because the secondary entry points of an Angular package are its public API, so their exports are not
+  reported.
 * Good, because the findings are the same before and after any build, and a build never fills the report with copies
   of root findings under `bazel-<name>/`.
 * Good, because the exports of a rules_js repository's sources are judged as knip judges them.
@@ -130,7 +159,11 @@ it, but is excluded from analysis. `nested-workspace-root` reports it once, at i
 * Good, because `bazel run //:skif -- --fix` lints and fixes the source tree, and `bazel test` writes nothing into the
   output tree.
 * Bad, because labels, entries and outputs that a macro, a variable or a filtered comprehension declares are not
-  found.
+  found, and a production target's `glob` names nothing, so its files need an import or an entry.
+* Bad, because a file a test target's `exclude` leaves out, or that lies in a Bazel subpackage the `glob` does not
+  cross, is still a used build source.
+* Bad, because only `index.ts` is taken for an `ng_package` entry point; a package built from another file needs an
+  `entry`.
 * Bad, because an export that only another Bazel target reads through a module name only Bazel maps is reported
   unused.
 * Bad, because a Bazel repository with a member lockfile nothing names pays a listing of its directories on every
@@ -139,14 +172,19 @@ it, but is excluded from analysis. `nested-workspace-root` reports it once, at i
 
 ### Confirmation
 
-* `crates/skif-js-plugins/src/bazel.rs`: `label_literals_expand_formatted_lists_and_skip_globs_and_templates` and
-  `public_hoist_packages_are_the_literal_keys_and_locations`.
-* `crates/skif-js-plugins/tests/plugins.rs`: `bazel_build_files_credit_linked_dependencies_and_add_entries`,
-  `bazel_build_files_name_nothing_without_rules_js`, `bazel_is_enabled_by_a_build_file_of_the_package` and
-  `bazel_format_comprehensions_name_their_packages_and_glob_patterns_none`.
+* `crates/skif-js-plugins/src/bazel.rs`: `label_literals_expand_formatted_lists_and_skip_globs_and_templates`,
+  `public_hoist_packages_are_the_literal_keys_and_locations` and
+  `calls_keep_the_include_patterns_of_their_globs_and_their_true_arguments`.
+* `crates/skif-js-plugins/tests/plugins.rs`: `bazel_build_files_credit_linked_dependencies_and_add_entries`, whose
+  production `glob` names nothing, `bazel_build_files_name_nothing_without_rules_js`,
+  `bazel_is_enabled_by_a_build_file_of_the_package`,
+  `bazel_format_comprehensions_name_their_packages_and_glob_patterns_none` and
+  `bazel_ng_packages_name_their_entry_points_and_test_only_globs_are_build_sources`.
 * `crates/skif-js/tests/fp_resolve.rs`: `bazel_outputs_are_generated_whatever_was_built`,
   `build_files_declare_nothing_outside_a_bazel_repository`, `bazel_sources_are_used_and_their_exports_judged` and
-  `a_bazel_source_that_is_also_an_entry_keeps_public_exports`.
+  `a_bazel_source_that_is_also_an_entry_keeps_public_exports`,
+  `ng_package_entry_points_and_globbed_test_only_specs_are_used` and
+  `a_root_bazel_source_in_a_nested_root_is_a_build_source_of_another_project`.
 * `crates/skif-js/tests/explain_absence.rs`: `a_bazel_source_is_a_build_source_whose_exports_are_judged`;
   `crates/skif-js/tests/explain_dependency.rs`:
   `a_bazel_format_comprehension_names_its_packages_and_glob_patterns_name_none`;
@@ -174,7 +212,15 @@ it, but is excluded from analysis. `nested-workspace-root` reports it once, at i
 ### Scan `BUILD` and module files as Starlark text for literal labels, paths and one fixed comprehension shape; never read output trees; and adapt the CLI's directories to `bazel run` and `bazel test`
 
 * Good, because it needs neither Bazel nor a Starlark interpreter, and costs nothing outside a Bazel repository.
-* Bad, because only literal forms and one comprehension shape are understood.
+* Good, because test files are found as every test runner plugin finds them, from the `glob` of test targets only.
+* Bad, because only literal forms and one comprehension shape are understood, and `exclude` is not applied.
+
+### Read every `glob` of every rule, with its `exclude` patterns
+
+* Good, because a `glob` means what Bazel means by it.
+* Bad, because a `ts_project` that builds `glob(["src/**/*.ts"])` makes every file of the package used, and
+  `unused-files` reports nothing in it.
+* Bad, because an `exclude` applies to one target only, and the build sources of a package are one pattern list.
 
 ### Run `bazel query` or `bazel cquery` for the targets, their sources and outputs
 

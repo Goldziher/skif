@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -10,16 +10,19 @@ decision-makers: ["Na'aman Hirschfeld"]
 
 skif draws on upstream projects in different ways. It began as a fork of sherif (MIT) and ports its workspace
 and manifest rules. It vendors syncpack's specifier crate (MIT) and re-implements syncpack's version-group semantics.
-It re-implements knip's analysis (ISC) in Rust and adapts a little of its data. It reads fallow for ideas. MIT and
-ISC both require the copyright notice and permission text to accompany copies or substantial portions. Without a rule
+It re-implements knip's analysis (ISC) in Rust and adapts a little of its data. It depends on tsrs (Apache-2.0), a
+Rust port of the TypeScript type checker that embeds TypeScript's library declarations. It reads fallow for ideas. MIT
+and ISC require the copyright notice and permission text to accompany copies or substantial portions, and Apache-2.0
+requires the attribution notices of the NOTICE file to ship with every distribution. Without a rule
 for when code is copied and how it is credited, a rebuilt fork drifts into ported code without notices, data of
-unknown origin, and a `LICENSE` that names upstream authors for code that is no longer theirs.
+unknown origin, and a `LICENSE` that names upstream authors for code that is not theirs.
 
 How does skif decide how to use upstream code, and how is it credited?
 
 ## Decision Drivers
 
-* MIT and ISC notices accompany everything copied or derived, in every published artefact
+* MIT and ISC notices accompany everything copied or derived, and Apache-2.0 NOTICE texts everything that embeds the
+  work, in every published artefact
 * Every copied line can be traced to its upstream, commit and licence
 * skif's own `LICENSE` names skif's author only
 * A re-vendor is mechanical
@@ -42,15 +45,16 @@ auditable file that every release ships.
 
 * Depend on a published crate when its API fits skif's constraints as it is
   ([ADR 0003](0003-library-api-and-embedding.md)): thread safety, no global state, no I/O in library code. oxc and
-  `oxc_resolver`, `jsonc-parser`, `yamlpatch` and `nodejs-semver` are dependencies, governed by `deny.toml` like any
-  other.
+  `oxc_resolver`, `jsonc-parser`, `yamlpatch`, `nodejs-semver` and tsrs are dependencies, governed by `deny.toml` like
+  any other.
 * Vendor when the code is right but its shape is not, and the changes are not upstream concerns: `syncpack-specifier`
   lives in `skif-specifier`, because skif needs `Arc` and a caller-owned cache
   ([ADR 0007](0007-specifier-and-semver-model.md)). Vendored code is unchanged except for a recorded list of
   modifications.
 * Re-implement when skif needs the behaviour, not the code, or the code is in another language: syncpack's
   version-group state machine and all of knip. The upstream at a recorded commit is the specification, and its
-  observed output on the corpus is the oracle ([ADR 0021](0021-knip-and-syncpack-comparison-harness.md)).
+  observed output on the corpus is the oracle
+  ([ADR 0021](0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 * Reference only means reading for ideas with no code, tests or data copied: fallow.
 
 ### Headers and `ATTRIBUTIONS.md`
@@ -66,17 +70,23 @@ auditable file that every release ships.
   Re-implemented semantics are listed in the section of their upstream, and the modification lists say that no code
   was copied. A section is added in the change that first copies from an upstream and removed only when nothing from
   it remains.
+* A dependency whose licence requires a NOTICE to ship with the work has its section too. tsrs's section, "tsrs (and
+  TypeScript)", holds its source, commit, licence, authors and copyright, states that no tsrs or TypeScript source is
+  copied, and carries tsrs's full NOTICE, TypeScript's and DefinitelyTyped's notices included, then the licence text.
+  The binaries and the npm addon embed tsrs and TypeScript's `lib.*.d.ts` files, so the file ships in every artefact
+  ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)).
 * skif's `LICENSE` is MIT, `Copyright (c) 2026 Na'aman Hirschfeld`. Upstream notices are never merged into it.
 * Every published crate includes `LICENSE` and `ATTRIBUTIONS.md`
-  ([ADR 0002](0002-crates-publishing-and-repository-consistency-checks.md)), and every release archive ships them
-  ([ADR 0027](0027-distribution-and-release.md)).
+  ([ADR 0002](0002-crates-publishing-and-repository-consistency-checks.md)), and every release archive and npm package
+  ships them ([ADR 0027](0027-distribution-and-release.md)).
 * A dependency whose licence is not on the `deny.toml` allow-list is avoided rather than excepted, as `notify` is for
   watch mode ([ADR 0028](0028-editors-agents-and-git-hooks.md)).
 
 ### Consequences
 
 * Good, because every vendored line can be traced to a source, commit and licence from the file itself.
-* Good, because the MIT and ISC obligations are met in one file that every crate and archive ships.
+* Good, because the MIT, ISC and Apache-2.0 obligations are met in one file that every crate, archive and npm package
+  ships.
 * Good, because each new upstream gets a concrete question instead of a case-by-case argument.
 * Bad, because headers and modification lists must be maintained on every re-vendor.
 * Bad, because the boundary between ported and rewritten sherif code, and "reference only" for fallow, rest on review
@@ -87,9 +97,11 @@ auditable file that every release ships.
 * `scripts/check-headers.sh` (the `consistency` job and `mise run consistency`) fails when a file of
   `crates/skif-specifier/src/` lacks a header, when a header names a commit other than the one `ATTRIBUTIONS.md`
   records for syncpack, when a section or a `### Modifications` list is missing, or when the knip section lacks its
-  commit, copyright or licence; `scripts/test-check-scripts.sh` tests it.
-* `scripts/check-archive.sh` requires the binary, `LICENSE` and the attributions in every release archive, and each
-  crate's `include` names `LICENSE` and `ATTRIBUTIONS.md`.
+  commit, copyright or licence, or when the tsrs section lacks its commit, copyright, NOTICE or licence;
+  `scripts/test-check-scripts.sh` tests it.
+* `scripts/check-archive.sh` requires the binary, `LICENSE` and the attributions with the tsrs section in every
+  release archive, `scripts/check-npm-tarballs.sh` requires the tsrs section in the npm package's `ATTRIBUTIONS.md`,
+  and each crate's `include` names `LICENSE` and `ATTRIBUTIONS.md`.
 
 ## Pros and Cons of the Options
 

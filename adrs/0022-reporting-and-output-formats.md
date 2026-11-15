@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -12,7 +12,7 @@ A run's findings reach terminals, scripts, code-scanning services, CI annotation
 request comments. Each wants another shape, and a pipeline often wants several from one run. Scripts need a stable
 machine-readable contract, on success and on failure alike, and they need to tell a repository with problems from a
 run that could not check it. Some facts about a run are not findings on a line: which packages skif could not fully
-judge, and which roots a multi-root run covered.
+judge, which roots a multi-root run covered, and how far the type checker covered each package.
 
 How are reports rendered, what is the JSON contract, and what do the exit codes mean?
 
@@ -70,8 +70,14 @@ get one contract for every outcome.
   `dry-run` and `changes`.
 * `incomplete-packages` lists the packages whose unused files and dependencies skif could not fully judge: `name`,
   `dir`, `scope` (`"package"` or `{"within": [globs]}`) and `reasons` (`cause`, `plugin`, `file`). Causes are
-  `unparsable-config`, `unknown-config`, `unknown-spread`, `computed-entries`, `unmapped-published`, `no-entries` (no
-  source file, entry or script of its own) and `unspecified`. The member is omitted when empty.
+  `unparsable-config`, `unknown-config`, `unknown-spread`, `computed-entries`, `unmapped-published`, `unmapped-entry` (a
+  plugin entry in build output with no source behind it, one reason per entry,
+  [ADR 0016](0016-config-evaluation-and-incomplete-entries.md)), `no-entries` (no source file, entry or script of its
+  own) and `unspecified`. The member is omitted when empty.
+* `type-aware` describes the type-aware analysis of the run ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)):
+  `enabled`, `engine` (the checker and its version, when one ran) and `packages`, each with `dir`, `name`, `state`
+  (`typed`, `partial` or `untyped`), `reason` when not typed, and `untyped-files`. The member is present when the
+  analysis produced a summary.
 * A multi-root run adds `roots` (`path`, `packages`, `summary`; the summaries add up to the run's), and when they occur
   `errors` (roots that could not be linted) and `truncated` (directories the root search did not enter)
   ([ADR 0006](0006-workspace-discovery-roots-and-multi-root-runs.md)). Directories of a multi-root run carry the
@@ -89,6 +95,10 @@ get one contract for every outcome.
 * The human renderer prints a note before the summary when packages are incomplete ("unused files and dependencies
   were not fully checked in …", naming the packages and pointing at `skif explain-usage`). SARIF and GitHub
   annotations do not carry it, since neither has a place for a fact that is not a finding.
+* Type coverage is no diagnostic: a package without types never produces a finding or changes the exit code. When
+  types were on and a package is partial or untyped, the human renderer prints one footer line that counts those
+  packages by reason and names `--no-type-aware`; a run with types off or fully typed prints none. SARIF carries the
+  `type-aware` object in its run properties, and the other formats leave it out.
 
 ### Exit codes
 
@@ -104,6 +114,8 @@ get one contract for every outcome.
 * Good, because a host uses `Report` directly and can reuse any renderer into its own buffer.
 * Good, because one analysis produces every report, and the reports always describe the same tree.
 * Good, because one `JSON.parse` handles success and failure, and a script can tell problems from a broken run.
+* Good, because a consumer can tell a finding judged with types from a name-based one, and why a package was not
+  typed, without a diagnostic for missing types.
 * Bad, because the JSON shape is a public API with its own version, maintained alongside the crate's semver.
 * Bad, because the stdout and `--output` rules are checked after parsing, and a file name cannot hold a format's `=`.
 * Bad, because files are not replaced as one transaction: a write that fails midway leaves earlier files updated.
@@ -114,10 +126,16 @@ get one contract for every outcome.
 
 * `crates/skif-report/tests/render.rs`: `json_rich`, `json_incomplete_packages`,
   `json_incomplete_packages_say_whether_the_whole_package_is_unjudged`, `human_notes_incomplete_packages`,
+  `json_type_aware`, `json_carries_the_type_aware_object_only_when_the_report_has_one`,
+  `human_footer_counts_untyped_and_partial_packages_by_reason`,
+  `human_footer_is_absent_when_every_package_is_typed_or_types_are_off`,
+  `formats_without_a_type_aware_section_are_unchanged`,
   `json_error_document`, `detailed_error_document_carries_kind_and_location`,
   `extra_members_cannot_shadow_reserved_keys`, `json_is_deterministic` and `every_format_is_deterministic`.
 * `crates/skif-report/tests/annotations.rs`: `sarif_structure`,
-  `sarif_regions_use_scalar_columns_and_skip_missing_spans` and `github_rich`.
+  `sarif_regions_use_scalar_columns_and_skip_missing_spans`, `sarif_run_properties_carry_the_type_aware_coverage` and
+  `github_rich`.
+* `crates/skif-js/tests/explain_absence.rs`: `a_plugin_entry_in_build_output_without_a_source`.
 * `crates/skif-cli/tests/formats.rs`: `several_formats_go_to_their_files_and_one_to_stdout`,
   `two_formats_on_stdout_are_a_usage_error`, `output_with_several_formats_is_a_usage_error`,
   `the_same_file_spelled_twice_is_a_usage_error`, `a_directory_target_is_a_usage_error_before_any_write`,

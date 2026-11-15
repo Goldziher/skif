@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -13,10 +13,11 @@ they merge a shared base, branch on the environment, spread a helper's result, f
 functions of other modules that change what they are given. A value the evaluator gets wrong is worse than one it does
 not know: a wrong entry list reports used files as unused, and `--allow-remove-files` deletes them. A value it does not
 know hides where entries lie, but suppressing every finding of a package for one unknown key hides real dead code too.
-Published paths in `package.json` raise the same question for packages that are not built yet.
+Published paths in `package.json`, plugin entries and relative imports that name a package's build output raise the same
+question for packages that are not built yet.
 
-What does the evaluator compute, when is a package's set of entries incomplete, and what is still judged in an
-incomplete package?
+What does the evaluator compute, how are branches on the environment read, how does a name of build output count, when
+is a package's set of entries incomplete, and what is still judged in an incomplete package?
 
 ## Decision Drivers
 
@@ -26,6 +27,9 @@ incomplete package?
 * Only what an unknown config could make an entry stays unjudged; everything else is judged as in a complete package
 * Plugins that read lists of names see every branch of a choice, while every other reading stays as it was
 * A published path into nothing is reported, not silently treated as an unknown entry
+* A file a build compiles to stands for the same source wherever it is named: in `package.json`, in a tool
+  configuration or in a relative import
+* A package a config names only for the runs that set an environment variable is needed only in those runs
 
 ## Considered Options
 
@@ -65,14 +69,30 @@ exports and members no unknown entry can reach.
   only for a bare specifier. A bundler alias whose target is a package makes that package a dependency of the config,
   and its imports are not reported.
 
+### Environment-gated branches
+
+* A test reads the environment when it holds a member of `process.env` or `import.meta.env` (`process.env.CI`,
+  `process.env['CI']`, `import.meta.env.MODE`), under any operator, directly or through a top-level constant it names.
+  A local binding of a function and a parameter that receives such a value are not followed.
+* When the evaluation leaves such a test undecided, the config is evaluated twice more, once with every such test taken
+  as true and once with every such test taken as false, in the config and in every module it imports values from
+  (`ExtractedConfig::environment_variants`). A test that does not read the environment stays undecided in both.
+* The plugin reading the config reads each variant as well. A package it requires from the config but not from both
+  variants becomes an optional reference (`PluginInput::OptionalDependency`): it credits a manifest that lists it and is
+  never unlisted ([ADR 0019](0019-dependency-unlisted-and-unresolved-findings.md)).
+* A package named on both branches, on every branch, or under a test that does not read the environment stays a
+  required reference.
+
 ### Incomplete entries
 
 * A config that evaluates to an unknown value, has an unknown spread, computes its entry keys, or does not parse makes
   its package's entries incomplete. A declarative plugin opts out with `reads_config`. A published path that maps to no
   source file in a build output directory, a gitignored published path and an existing bin stub that loads output
   without a source (`unmapped-published`) do so too, since publishing may expose any file.
+* A plugin entry in build output with no source behind it makes the whole package incomplete as `unmapped-entry`
+  (see *Build output and published paths*).
 * The causes are `unparsable-config`, `unknown-config`, `unknown-spread`, `computed-entries`, `unmapped-published`,
-  `no-entries` and `unspecified`, reported per package in `incomplete-packages`
+  `unmapped-entry`, `no-entries` and `unspecified`, reported per package in `incomplete-packages`
   ([ADR 0022](0022-reporting-and-output-formats.md)).
 * `Plugin::incomplete_scope` says where the entries an incomplete config hides can lie: `Package` (the default) or
   `Within(globs)`, relative to the package directory. A config that does not parse and a cause with no scope are
@@ -99,8 +119,23 @@ exports and members no unknown entry can reach.
 * An `import()` or `require()` with a non-static argument may load any file, so it drops the scope and leaves the whole
   package unjudged.
 
-### Published paths
+### Build output and published paths
 
+* A name of a missing path in a package's build output stands for its source, wherever it is written: a path
+  `package.json` publishes, a plugin entry that names one path in its package and is neither a file nor a directory, and
+  a relative import that resolves to nothing. It maps through the `outDir` and `rootDir` of the package's build
+  directories (`tsconfig`), then from a build output directory (`dist`, `lib`, `lib-esm`, ...) to its `src` twin, with
+  the extensions a compiler maps (`.js` to `.ts` and `.tsx`, `.mjs` to `.mts`, ...).
+* A file inside an output directory names no build output, so its own relative imports are never mapped. A relative
+  import that maps to no source is judged as any other
+  ([ADR 0019](0019-dependency-unlisted-and-unresolved-findings.md)).
+* A plugin entry that maps to no source and is build output (it lies in a build output directory, or in `bin` where a
+  build step may write it, and has a code extension) makes its package incomplete with the cause
+  `unmapped-entry`. Each such entry is a reason of its own, with the entry as its `file`, since every bundle entry is a
+  separate root of the module graph; one mapped published path clears `unmapped-published`.
+* A plugin entry into nothing outside build output, or one without a code extension (a compiled binary a workflow
+  runs), is no entry and leaves the package judged: unlike a published `bin` file, a plugin entry with no extension
+  names no module.
 * A published path names nothing when it lies in the package, outside a build output directory, git does not ignore
   it, it is neither a file nor a directory, and no source maps to it. Such a path is no entry, does not make the
   package incomplete, and is reported by `stale-js-config` with the `package-entry` hint.
@@ -133,9 +168,19 @@ dropped a scope.
   the narrowed scope are judged.
 * Good, because plugins that read lists credit every branch of a choice.
 * Good, because a stale published path is reported where it is written instead of silencing the package.
+* Good, because a bundler config or a loader file that names build output gets the files and dependencies of its source
+  judged as used, and a bundle whose source skif cannot find leaves its package unjudged with a reason naming the entry.
+* Good, because a coverage provider, reporter or environment a shared config enables only in CI is not unlisted in
+  every package calling it.
 * Bad, because soundness costs precision: a config that calls project code may leave more values unknown than a human
   reader would.
 * Bad, because the dependencies of an incomplete package are never judged.
+* Bad, because a command a tool configuration runs whose output has no source skif can map leaves its package
+  unjudged, and a branch of a choice that names such output makes the package incomplete even when the branch taken
+  names source.
+* Bad, because a package a CI run needs and no manifest lists is not reported, a config with an environment test is
+  evaluated and read three times, and taking every test as true and then as false enumerates two outcomes, not every
+  combination.
 * Bad, because a narrowed scope that is wrong costs more because exports outside it are judged, so narrowing is kept
   to what a shared base can set.
 
@@ -171,6 +216,16 @@ dropped a scope.
   `a_computed_import_keeps_the_package_unjudged` and `incomplete_packages_carry_the_scope_left_unjudged`.
 * `crates/skif-js/tests/config_hints.rs`: `published_paths_that_name_no_file` and
   `a_bin_path_a_compiling_command_may_write_keeps_the_package_unjudged`.
+* Environment-gated branches: `crates/skif-js-syntax/tests/config_functions.rs`:
+  `a_test_on_the_environment_gives_a_variant_for_each_outcome` and
+  `a_test_that_does_not_read_the_environment_gives_no_variants`; `crates/skif-js/tests/config_references.rs`:
+  `a_package_named_only_on_an_environment_gated_branch_is_optional` and
+  `a_package_named_on_a_branch_of_another_unknown_condition_stays_required`.
+* Build output: `crates/skif-js/tests/build_output_entries.rs`: `a_plugin_entry_in_an_out_dir_maps_back_to_its_source`,
+  `a_plugin_entry_in_a_build_directory_maps_back_to_src` and
+  `a_relative_require_into_unbuilt_output_reaches_its_source`; `crates/skif-js/tests/explain_absence.rs`:
+  `a_plugin_entry_in_build_output_without_a_source` and `a_plugin_entry_into_nothing_leaves_the_package_judged`;
+  `crates/skif-js/src/resolve.rs`: `a_relative_import_into_unbuilt_output_of_its_package_maps_to_source`.
 
 ## Pros and Cons of the Options
 

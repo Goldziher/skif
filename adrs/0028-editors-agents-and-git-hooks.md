@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -52,6 +52,13 @@ the launcher brings the binary without Rust or Node.
   bad argument are the JSON-RPC errors `-32601`, `-32600` and `-32602`. A line has a size limit and is skipped past
   without being buffered.
 * Calls run one at a time and in order. The server never writes a file: fixing stays a CLI action the agent runs.
+
+### Long-lived hosts run untyped
+
+* `skif mcp`, `skif lsp` and `--watch` analyse without types, as `--no-type-aware` does
+  ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)). With several checker threads, tsrs's worker threads keep arenas
+  across runs that skif cannot release, so the memory of a process that lints again and again would grow with every
+  run. A one-shot lint frees what it holds when the process ends.
 
 ### `--watch`
 
@@ -127,10 +134,13 @@ language-server client, as the editor guide shows.
   same plan as the CLI, and hook users get the binary without Rust or Node.
 * Good, because the servers add no crate, protocol dependency or licence exception, and watch mode behaves the same
   on every platform.
+* Good, because the memory of an editor or agent session stays flat over a long session.
 * Good, because there is one copy of the skill, read by every installer, and a release moves the plugin version and
   the server's pin with every other version surface.
 * Bad, because hand-rolled protocol code follows the specifications by hand; a new MCP revision or LSP feature is
   skif's work.
+* Bad, because member findings in the editor, the agent server and watch mode are name-based, so they can differ from
+  those of a typed CLI or CI run.
 * Bad, because polling costs a scan of the tree every interval, which grows with the repository.
 * Bad, because the language server lints the whole root after each burst of typing and answers nothing while it runs,
   and full sync sends the whole document on every change.
@@ -145,6 +155,8 @@ language-server client, as the editor guide shows.
 * `crates/skif-cli/tests/mcp.rs`: `a_session_initializes_lists_tools_and_lints`,
   `an_unknown_version_gets_the_newest_one`, `a_tool_that_cannot_run_returns_the_error_document`,
   `protocol_errors_are_json_rpc_errors` and `explain_usage_returns_the_report`.
+* `crates/skif-cli/src/lint.rs`: `no_type_aware_reaches_the_config_overrides` (`--watch` and the server overrides of
+  `skif mcp` and `skif lsp` turn types off).
 * `crates/skif-cli/src/watch.rs`: `an_unchanged_tree_never_fires` and `a_burst_fires_once_after_the_quiet_period`;
   `crates/skif-cli/tests/watch.rs`: `a_changed_manifest_is_linted_again`, `watch_refuses_fix` and
   `the_reports_a_run_writes_do_not_start_another_run`.

@@ -1,7 +1,6 @@
 ---
 status: accepted
-superseded-in-part-by: "0045"
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -80,9 +79,13 @@ them, and gives every channel the same version from one build.
 
 ### Build profiles
 
-* The CLI binaries use `[profile.release]` with `panic = "abort"`.
-* The addon uses `[profile.node]`, which inherits the release profile with `panic = "unwind"` (`napi build --profile
-  node`), so a panic becomes a JavaScript exception instead of ending the host process.
+* The CLI binaries use `[profile.release]`, which unwinds (`panic = "unwind"`), so a panic inside the type checker is
+  caught and the affected packages fall back to the untyped analysis
+  ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)).
+* The addon uses `[profile.node]`, which inherits the release profile and unwinds too (`napi build --profile node`),
+  so a panic becomes a JavaScript exception instead of ending the host process.
+* The CLI enables the `type-aware` feature by default and keeps tsrs's address-space reservation. The npm addon is
+  built with `type-aware` and the `plain-ptrs` feature.
 
 ### Versions and tags
 
@@ -129,6 +132,7 @@ dry-run input builds everything and skips every irreversible step.
   release by design.
 * Bad, because the version appears in many files; the bump script and the consistency check are what keep them
   equal.
+* Bad, because unwinding panics make the CLI binary slightly larger and slower to unwind than aborting.
 
 ### Confirmation
 
@@ -142,6 +146,9 @@ dry-run input builds everything and skips every irreversible step.
 * `scripts/check-glibc-floor.sh` checks the gnu binaries against `SKIF_GLIBC_FLOOR`, and
   `scripts/check-libc-selection.sh` checks the installers pick the right libc flavour.
 * `scripts/check-release-gate.sh` refuses an unready tag.
+* `panic_payloads_become_internal_errors` in `crates/skif-js-types/src/session.rs` checks that a caught checker panic
+  becomes an internal type error, and `scripts/npm-smoke.sh` requires the addon's `panicForTest` hook to raise a
+  JavaScript exception after which the addon still runs.
 * The `verify_npm` and `verify_binstall` jobs of `.github/workflows/publish.yaml` run the published packages on clean
   runners and fail the release when they do not print the released version.
 

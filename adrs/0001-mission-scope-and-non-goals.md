@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -52,7 +52,8 @@ and it can promise never to execute user code.
   * syncpack-style version, semver-range and catalog policies
     ([ADR 0010](0010-version-semver-range-and-catalog-policies.md));
   * knip-style JavaScript and TypeScript analysis on oxc
-    ([ADR 0013](0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+    ([ADR 0013](0013-js-analysis-core-oxc-module-graph-and-resolution.md)), with member usage resolved by the tsrs
+    type checker where a project has types ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)).
 * All three share one configuration file ([ADR 0004](0004-configuration-model-and-layering.md)), one workspace model
   ([ADR 0006](0006-workspace-discovery-roots-and-multi-root-runs.md)) and one diagnostic model
   ([ADR 0008](0008-rule-and-diagnostic-model-rule-ids-and-severities.md)).
@@ -84,14 +85,17 @@ and it can promise never to execute user code.
 
 ### Targets
 
-Measured as [ADR 0029](0029-performance-caching-and-benchmarks.md) describes:
+Measured as [ADR 0029](0029-performance-caching-benchmarks-and-budgets.md) describes:
 
 * the manifest and policy rules on 500 packages in under 50 ms;
 * JS analysis at least 5x faster than knip on the same corpus repository;
 * parsing and building a module graph of 10,000 files in under 2 s.
 
+These are figures of the untyped analysis. The budget of a run with types on is decided in
+[ADR 0029](0029-performance-caching-benchmarks-and-budgets.md).
+
 Parity with knip and syncpack is measured as a drift number on a pinned corpus and is never a release gate
-([ADR 0021](0021-knip-and-syncpack-comparison-harness.md)).
+([ADR 0021](0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 
 ### Releases
 
@@ -114,11 +118,12 @@ later release ([ADR 0027](0027-distribution-and-release.md)).
 ### Confirmation
 
 * `skif-bench run` (`mise run bench`) measures every target above and exits non-zero when one fails
-  ([ADR 0029](0029-performance-caching-and-benchmarks.md)).
+  ([ADR 0029](0029-performance-caching-benchmarks-and-budgets.md)).
 * `install_is_not_run_without_fix_without_changes_or_with_no_install` in `crates/skif-cli/tests/cli.rs` runs the CLI
   with a recording package-manager shim on `PATH` and asserts that the install runs only after a fix that changed files.
-* `scripts/check-dependency-tree.sh` keeps oxc, the only parser of user JavaScript, behind the JS analysis crates, and
-  no crate depends on a JavaScript runtime.
+* `scripts/check-dependency-tree.sh` keeps oxc and tsrs, the parsers of user JavaScript and TypeScript, behind the JS
+  analysis crates ([ADR 0002](0002-crates-publishing-and-repository-consistency-checks.md)), and no crate depends on a
+  JavaScript runtime.
 
 ## Pros and Cons of the Options
 

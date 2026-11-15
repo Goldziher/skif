@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -60,7 +60,12 @@ path and makes the CI guard mean what it says. The exit codes and JSON mode are 
   `--ignore-dependency` (adds an `[[ignore]]` entry to the file's), `--ignore-rule-for-package RULE:PACKAGE`,
   `--require-ignore-reasons` ([ADR 0005](0005-the-js-table-ignore-lists-and-suppression-reasons.md)).
 * JavaScript analysis: `--no-js`, `--production`, `--isolate-workspaces`, `--strict`, `--include-entry-exports`,
-  `--no-gitignore`, `--tsconfig`, `--use-tsconfig-files`, `--tags`. A mode flag turns a mode on, never off.
+  `--no-gitignore`, `--tsconfig`, `--use-tsconfig-files`, `--tags`, `--no-type-aware`. A mode flag turns a mode on,
+  never off.
+* `--no-type-aware` turns the type-aware analysis off at the top level and in every workspace, over `[js] type-aware`
+  ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)). `skif baseline write`, `skif baseline prune` and
+  `skif explain-usage` take it too, so they judge as the lint run they stand for. `--watch` implies it
+  ([ADR 0028](0028-editors-agents-and-git-hooks.md)).
 * Report selection: `--workspace`/`-W`, `--include`, `--exclude` and their shortcuts (`--dependencies`, `--exports`,
   `--files`, `--cycles`), and the instance filters. They narrow the report, not the analysis.
 * Configuration and runs: `--config` and `--no-config` (they conflict), `-r`, `--watch` (conflicts with fixing),
@@ -121,7 +126,10 @@ path and makes the CI guard mean what it says. The exit codes and JSON mode are 
 
 ### Confirmation
 
-* `crates/skif-cli/src/args.rs`: `every_long_flag_is_in_the_cli_reference`.
+* `crates/skif-cli/src/args.rs`: `every_long_flag_is_in_the_cli_reference` and
+  `no_type_aware_parses_on_lint_baseline_and_explain_usage`.
+* `crates/skif-cli/src/lint.rs`: `no_type_aware_reaches_the_config_overrides`.
+* `crates/skif-config/tests/config.rs`: `no_type_aware_wins_over_the_file_and_every_workspace`.
 * `crates/skif-cli/src/env.rs`: `ci_truthiness_table`.
 * `crates/skif-cli/tests/cli.rs`: `clean_workspace_exits_zero`, `issues_exit_one_in_both_formats`,
   `a_directory_without_a_workspace_exits_two`, `fix_from_another_directory_writes_root_relative_files_only`,

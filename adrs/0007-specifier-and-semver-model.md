@@ -61,7 +61,7 @@ modification list", because it gives npm range semantics and syncpack's exact cl
 * A re-vendor is a single commit that moves the recorded commit, re-applies the modification list and updates the
   attribution.
 * `mise run diff:syncpack` compares skif's classification and policy findings with the pinned syncpack
-  ([ADR 0021](0021-knip-and-syncpack-comparison-harness.md)).
+  ([ADR 0021](0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 
 ### Consequences
 

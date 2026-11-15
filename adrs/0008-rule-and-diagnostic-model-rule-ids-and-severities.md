@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -110,9 +110,9 @@ The toolchain rules also honour comment suppressions in the files they read
   * error: `unused-dependencies`, `unlisted-dependencies`, `unresolved-imports` and `stale-mocks`, which are about
     dependency correctness;
   * warning: `unused-files`, `unused-exports`, `unused-types`, `unlisted-binaries`, `unused-dev-dependencies`,
-    `unused-optional-peer-dependencies`, `unused-enum-members`, `unused-namespace-members`, `unused-namespace-exports`,
-    `unused-namespace-types`, `unused-subpath-imports`, `duplicate-exports`, `unparseable-files` and
-    `stale-js-config`;
+    `unused-optional-peer-dependencies`, `unused-class-members`, `unused-enum-members`, `unused-namespace-members`,
+    `unused-namespace-exports`, `unused-namespace-types`, `unused-subpath-imports`, `duplicate-exports`,
+    `unparseable-files` and `stale-js-config`;
   * off: `circular-imports` and `unused-subpath-exports`.
 * Every other rule takes its default from the record that decides it. The generated `docs/rules.md` states the default
   of every rule.

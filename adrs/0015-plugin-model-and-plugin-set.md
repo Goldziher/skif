@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-12
+date: 2026-11-15
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -14,14 +14,19 @@ knows a tool's config files, entry patterns and how to read its config, mostly b
 skif does not execute configuration ([ADR 0013](0013-js-analysis-core-oxc-module-graph-and-resolution.md)), and the
 set of tools is large, follows each tool's releases, and grows with what users run.
 
-How is a plugin expressed, when is it enabled, what may it read, how does the set grow, and where may a plugin depart
-from knip?
+Some tools also take their configuration from another package: a Rush project built with Heft takes its config files
+from a rig package's profile, and a rig lists the dependencies its profiles name. How is a plugin expressed, when is it
+enabled, what may it read, when does it run, how are configs one package ships for others read, how does the set grow,
+and where may a plugin depart from knip?
 
 ## Decision Drivers
 
 * Most plugins are a few lines of data, reviewable without reading code, and free at run time unless enabled
 * A plugin whose value is in its config reads it statically, never by executing it
 * Plugins share extraction helpers instead of each walking the AST
+* A command or config counts where code that runs is written, and no file is read only to be searched
+* The manifest that lists what a shared config names is the one judged for it
+* A package a plugin loads at run time without the project naming it is credited, never required
 * Every plugin is justified by real use and pinned by a test
 * Plugin ids match knip's, so configuration and comparison carry over
 * A deviation from knip never reports a file or dependency in use
@@ -44,7 +49,8 @@ helpers keep each resolver short.
 * A plugin is a row of the table in `skif-js-plugins` behind the `Plugin` trait: `spec()` returns the declarative
   `PluginSpec`, and the optional hooks are `resolve_config` (knip's `resolveFromAST`, on the statically evaluated
   config), `resolve_workspace`, `resolve_without_config`, `read_script` (a config that is a script calling the tool's
-  API), `incomplete_scope` ([ADR 0016](0016-config-evaluation-and-incomplete-entries.md)) and `reads_config`.
+  API), `incomplete_scope` ([ADR 0016](0016-config-evaluation-and-incomplete-entries.md)), `reads_config` and
+  `scans_reached_sources`.
 * `PluginSpec` holds the id, enablers, `root_only`, `config`, `entry`, `production` and `project` patterns, a dotted
   `package_json_key`, the binaries the tool provides, ignore patterns, custom element registrations
   ([ADR 0020](0020-templates-components-and-custom-elements.md)), `optional_binaries` and the knip commit the row was
@@ -52,7 +58,9 @@ helpers keep each resolver short.
 * A resolver returns `PluginInput`s, a `#[non_exhaustive]` vocabulary: entries and production entries (also as regular
   expressions), dependencies, optional dependencies, binaries, config files, scripts (also run in another directory or
   found in a source file), aliases, build directories, conditions, extensions, linked configs another plugin reads,
-  virtual modules the tool resolves at build time, incomplete entries, and a replacement for the default entry globs.
+  shared configs a package ships for the packages that extend them, packages judged against the package whose config
+  is read (`ImporterDependency`, [ADR 0019](0019-dependency-unlisted-and-unresolved-findings.md)), virtual modules the
+  tool resolves at build time, incomplete entries, and a replacement for the default entry globs.
 * The table is the source of truth: `crates/skif-js-plugins/src/plugins` and `registry.rs`. The test list `ADR_IDS` in
   `crates/skif-js-plugins/tests/plugins.rs` and `scripts/check-plugin-list.sh`, which compares the README and website
   lists with the table, keep the published lists in step. No record states the size of the set.
@@ -83,9 +91,45 @@ helpers keep each resolver short.
 * A plugin may name a config file that another plugin reads with its own resolver (`LinkedConfig`), and a specifier
   pattern its tool resolves at build time (`VirtualModule`), which is never reported as unlisted, unused or
   unresolved.
+* An option that only hides modules from one tool's loader, such as Jest's `modulePathIgnorePatterns`, does not remove
+  files from the analysis: TypeScript, the linters and the build still read them.
 * What a build step may write, and which package a shared config module charges, are decided in
   [ADR 0016](0016-config-evaluation-and-incomplete-entries.md) and
   [ADR 0019](0019-dependency-unlisted-and-unresolved-findings.md).
+
+### Plugin passes
+
+* A plugin whose findings all come from its package's own sources says so (`Plugin::scans_reached_sources`), as the
+  source-command scans of [ADR 0017](0017-scripts-binaries-and-working-directories.md) do. The resolvers run plugins in
+  passes (`PluginPass`): before the module graph, such a plugin gives what its `[js.plugins]` globs give and searches no
+  file; after it, it searches only the reached files of its package (`PackageSources::reached`), taken from the texts
+  the graph already read.
+* What the second pass finds is added to what the plugins gave before the graph, and the settings of every package are
+  derived again.
+
+### Shared configs and rigs
+
+* A config one package ships for the packages that extend it is a `SharedConfig` input: the shipping package's
+  manifest is judged for what the config's `extends` names, and the packages its compiler options name are credits of
+  that package, never unlisted there. What describes the extending projects (`paths`, `baseUrl`, output directories,
+  `customConditions`) is left out.
+* The `heft` plugin is the general case. It is enabled by `@rushstack/heft` or a `config/rig.json`, and has no knip
+  counterpart.
+  * Heft's config files (`config/heft.json`, `config/rig.json`, `config/typescript.json`, `config/jest.config.json`)
+    are read as JSON with comments. A relative `extends` names a further config, any other the package it lies in; the
+    `pluginPackage` of every lifecycle and task plugin of a `heft.json` is a package the config needs.
+  * `rigPackageName` of `config/rig.json` is a package the project needs. The selected profile of the installed rig
+    (`node_modules/<rigPackageName>/profiles/<rigProfile>`, `default` unless set) holds configs of the project: each
+    `config/*.json` the project has no file of the same name for, and each `tsconfig*.json`. A project file of the same
+    name wins over the profile's. A `rigProfile` that is not one directory name selects no profile, and a rig that is
+    not installed gives only the credit of the rig itself. These files lie in `node_modules`, so what they name is
+    credited to the project and never judged at the file.
+  * In a rig, `profiles/*/config/*.json` are its own configs, and `profiles/*/tsconfig*.json` are its shared configs.
+    A profile `heft.json` credits `@rushstack/heft`, which the rig provides to its projects, without requiring it.
+* A package a plugin loads at run time without the project naming it is credited, never required: a listing is used, a
+  missing one is not reported. Examples are the package a Heft plugin loads (`@rushstack/heft-sass-plugin` loads
+  `sass`) and the `cliPackageName` of a Heft Storybook task, which the storykit resolves. The `storykitPackageName`
+  stays a package the project needs.
 
 ### Growing the set
 
@@ -110,18 +154,25 @@ A plugin follows knip's plugin of the same id unless a deviation meets these rul
 * Where knip reports something a project loads (a config file, a stylesheet a component names), skif may credit it.
 * The deviation is stated in the plugin module's documentation and pinned by a test in
   `crates/skif-js-plugins/tests/plugins.rs`. The comparison harness counts what remains
-  ([ADR 0021](0021-knip-and-syncpack-comparison-harness.md)).
+  ([ADR 0021](0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 
 ### Consequences
 
 * Good, because most plugins are data, cost nothing unless enabled, and are checked by one test each.
 * Good, because the shared helpers and the input vocabulary keep config-driven plugins short.
+* Good, because a source scan reads no file nothing reaches, and its calls in such a file run nothing.
+* Good, because a rig's dependencies are used exactly where its profiles name them, and a project that lists its rig
+  only for `config/rig.json` uses it.
 * Good, because a missing plugin's effect can be patched with `entry`, `ignore-dependencies` and `ignore-binaries` until
   the plugin lands.
 * Bad, because plugins whose knowledge exists only in the evaluated config degrade to their static reading.
 * Bad, because every plugin is knowledge that follows its tool's releases; the knip commit per row makes drift visible
   but does not prevent it.
 * Bad, because a superset of entries can hide an unused file.
+* Bad, because a command in a file nothing reaches credits no package, and the file it would run is no entry.
+* Bad, because a rig that is a workspace member but not installed contributes no profile configs, and a package a Heft
+  plugin loads by name is credited only once it is added to the plugin's list.
+* Bad, because a test hidden by a loader-only option such as `modulePathIgnorePatterns` is still analysed.
 
 ### Confirmation
 
@@ -131,6 +182,14 @@ A plugin follows knip's plugin of the same id unless a deviation meets these rul
   `machine_tool_commands_judge_only_binaries_reached_through_a_package_manager`,
   `knip_config_files_are_entries_when_knip_is_a_dependency` and `knip_config_in_package_json_is_a_config`.
 * `crates/skif-js/tests/graph_fixes.rs`: `jest_test_regex_adds_test_files_and_test_path_ignore_patterns_remove_none`.
+* Plugin passes: `crates/skif-js-plugins/tests/plugins.rs`:
+  `the_source_scans_of_a_split_pass_search_only_the_reached_files`; `crates/skif-js-plugins/src/sources.rs`:
+  `a_reached_listing_searches_only_the_files_it_holds`.
+* Shared configs and rigs: `crates/skif-js-plugins/tests/plugins.rs`: `heft_config_names_extended_and_plugin_packages`,
+  `heft_rig_json_credits_the_rig_and_reads_its_profile`, `heft_rig_json_with_a_path_as_profile_reads_no_profile` and
+  `heft_rig_profiles_are_the_rigs_own_configs`; `crates/skif-js/tests/heft_rigs.rs`:
+  `rig_profiles_credit_the_rigs_dependencies_and_rig_json_the_rig`, `a_rig_no_rig_json_names_is_unused`,
+  `heft_tasks_credit_their_tests_and_option_packages` and `the_storybook_cli_package_is_a_dependency_of_the_storykit`.
 * `scripts/check-plugin-list.sh` passes.
 
 ## Pros and Cons of the Options
@@ -138,6 +197,7 @@ A plugin follows knip's plugin of the same id unless a deviation meets these rul
 ### A declarative table behind one trait, with optional static resolvers and shared extraction helpers
 
 * Good, because plugins are small, reviewable and safe on untrusted input.
+* Good, because passes and shared configs extend the same input vocabulary instead of adding a second model.
 * Bad, because static reading cannot follow every config form.
 
 ### One hand-written resolver per plugin
