@@ -723,7 +723,10 @@ mod tests {
         let mut written = baseline(&[]);
         written.mode = Some(TYPE_AWARE.to_owned());
         let text = serde_json::to_string(&written).unwrap();
-        assert!(text.contains(r#""tool":"knip@1","mode":"type-aware","installed":false"#), "{text}");
+        assert!(
+            text.contains(r#""tool":"knip@1","mode":"type-aware","installed":false"#),
+            "{text}"
+        );
     }
 
     #[test]
