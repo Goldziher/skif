@@ -96,6 +96,14 @@ All notable changes to this project are documented here. The format follows
   `tsconfig-declaration-file` also sets apart what a declaration entry re-exports, `published-source` what a file
   published as it is re-exports, `type-asserted-require` takes a template literal and `module-object-values` a
   namespace re-export used as a whole, and the harness resolves a workspace subpath into unbuilt output to its source.
+- **Comparison harness**: more known deviations of the knip comparison, for how knip reads a dependency, an import or
+  a command ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)): `module-augmentation`,
+  `jest-mock-specifier`, `nextra-resolve-alias`, `expo-updates`, `shared-config-reference`,
+  `shell-template-directory`, `nested-vitest-setup`, `gitignored-import`, `passthrough-command`, `bun-file-argument`,
+  `command-directory`, `optional-peer-host` and `required-child-process`; `non-member-project` also sets apart an
+  unlisted dependency inside a member or listed by a manifest between the file and its workspace, `data-uri` the name
+  knip cuts a `data:` specifier to, `own-tsconfig-paths` a missing `paths` target git ignores, `heft-config` an
+  unresolved import of a rig profile, and `bazel-build-file` an unresolved import of a `BUILD` output.
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
   `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
   `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it,
