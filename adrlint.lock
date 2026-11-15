@@ -94,7 +94,7 @@ blake3 = "1d7ecd992e4c8c5df165d995cce7354a46a15a6fa22d6e72257254ec7c6184c9"
 [adrs."adrs/0019-dependency-unlisted-and-unresolved-findings.md"]
 number = 19
 status = "accepted"
-blake3 = "e53d14239c17eca0d70d2e58871ee1b6ba8c02f9ae5c861d8b56ddf8dfef899e"
+blake3 = "27f4ae69e38829a2b1e871cad760a6542128b052dbe7b0d579a214f651da4fce"
 
 [adrs."adrs/0020-templates-components-and-custom-elements.md"]
 number = 20
@@ -255,3 +255,8 @@ blake3 = "45030c10d77574638c5a99fd0e275d5d71d6f8cbd2aef6934c5a9c6234eca3eb"
 number = 51
 status = "accepted"
 blake3 = "1cc9e12305acb98982729d1be477021dae971a0a7fc1041c4038126af2e18186"
+
+[adrs."adrs/0052-generated-paths-alias-replacements-and-installed-compiler-options.md"]
+number = 52
+status = "accepted"
+blake3 = "757b422b76058424cbec926b5c1bcc0703c48f5986d6ddce728e75d6eda01c62"

@@ -844,6 +844,49 @@ fn ignored_generated_targets_are_not_unresolved() {
     );
 }
 
+/// A specifier that leads into a missing path a `.gitignore` lists names a generated file, whether it is relative, a
+/// `tsconfig` `paths` entry named like a package (`electron` to `./.build/typings/electron.d.ts`) or a bundler alias:
+/// neither an unresolved import nor an unlisted dependency. Without the ignore entry each is reported.
+#[test]
+fn specifiers_into_missing_gitignored_paths_are_generated_files() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"type":"module","devDependencies":{"typescript":"5.0.0","vite":"6.0.0"}}"#,
+        ),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"electron":["./.build/typings/electron.d.ts"],"electron/*":["./.build/typings/electron.d.ts"]}}}"#,
+        ),
+        (
+            "vite.config.ts",
+            "import { defineConfig } from 'vite';\nexport default defineConfig({ resolve: { alias: { '@gen': './generated' } } });\n",
+        ),
+        ("index.html", "<script type=\"module\" src=\"/src/main.ts\"></script>"),
+        (
+            "src/main.ts",
+            "import { app } from 'electron';\nimport { routes } from '@gen/routes';\nimport { A } from './consts/values';\n\
+             export const all = [app, routes, A];\n",
+        ),
+    ];
+    let reported = lint(&files);
+    assert_eq!(
+        names(&reported, "unlisted-dependencies"),
+        strings(&["@gen/routes", "electron"]),
+        "{reported:#?}"
+    );
+    assert_eq!(
+        names(&reported, "unresolved-imports"),
+        strings(&["./consts/values"]),
+        "{reported:#?}"
+    );
+    let mut ignored = files.to_vec();
+    ignored.push((".gitignore", ".build/\ngenerated/\nsrc/consts/\n"));
+    let diagnostics = lint(&ignored);
+    assert_eq!(names(&diagnostics, "unlisted-dependencies"), strings(&[]), "{diagnostics:#?}");
+    assert_eq!(names(&diagnostics, "unresolved-imports"), strings(&[]), "{diagnostics:#?}");
+}
+
 #[test]
 fn tsconfig_in_a_directory_that_is_not_a_package_applies_below_it() {
     let diagnostics = lint(&[
