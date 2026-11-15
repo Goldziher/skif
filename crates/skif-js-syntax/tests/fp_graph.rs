@@ -684,16 +684,31 @@ fn declare_module_in_a_module_file_is_an_augmentation() {
 #[test]
 fn a_declaration_file_declares_without_an_import_unless_it_is_a_plain_module() {
     let cases: &[(&str, &str, bool, bool)] = &[
-        ("a script", "declare const VERSION: string;\ninterface Window { a: number }\n", false, true),
+        (
+            "a script",
+            "declare const VERSION: string;\ninterface Window { a: number }\n",
+            false,
+            true,
+        ),
         (
             "a script with a declared module",
             "declare module 'flags' { export const on: boolean; }\n",
             false,
             true,
         ),
-        ("a module with exports", "export interface A {}\nexport type B = string;\n", true, false),
+        (
+            "a module with exports",
+            "export interface A {}\nexport type B = string;\n",
+            true,
+            false,
+        ),
         ("an import", "import type { A } from './a';\ntype B = A;\n", true, false),
-        ("an import of require", "import x = require('y');\ntype B = typeof x;\n", true, false),
+        (
+            "an import of require",
+            "import x = require('y');\ntype B = typeof x;\n",
+            true,
+            false,
+        ),
         ("an empty export clause", "export {};\n", true, false),
         (
             "a global augmentation",
@@ -701,8 +716,18 @@ fn a_declaration_file_declares_without_an_import_unless_it_is_a_plain_module() {
             true,
             true,
         ),
-        ("a module augmentation", "export {};\ndeclare module 'dayjs' {}\n", true, true),
-        ("a UMD global", "export interface A {}\nexport as namespace Lib;\n", true, true),
+        (
+            "a module augmentation",
+            "export {};\ndeclare module 'dayjs' {}\n",
+            true,
+            true,
+        ),
+        (
+            "a UMD global",
+            "export interface A {}\nexport as namespace Lib;\n",
+            true,
+            true,
+        ),
     ];
     for &(case, source, module_file, declares) in cases {
         let info = parse("types.d.ts", source);
