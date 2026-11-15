@@ -69,6 +69,7 @@ pub(crate) fn start<'scope, 'env>(
         cwd: vfs::tsrs_path(&build.root),
         fs,
         boms,
+        pool: types_pool(build.threads),
         build,
         planned: Slot::default(),
         judged: Slot::default(),
@@ -175,13 +176,13 @@ impl PendingTypes<'_> {
         // What this planning allocates is freed when the analysis ends.
         let region = Region::new_scratch(SCRATCH_CHUNK);
         let start = Instant::now();
-        let (plan, _) = {
-            let _scope = region.enter();
-            panic::catch_unwind(AssertUnwindSafe(|| {
+        let (plan, _) = panic::catch_unwind(AssertUnwindSafe(|| {
+            self.shared.on_pool(|| {
+                let _scope = region.enter();
                 programs::plan_programs(input, &host, &planned.lookups)
-            }))
-            .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))?
-        };
+            })
+        }))
+        .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))?;
         let judged = Arc::new(Judged::new(
             self.shared.build.threads,
             &planned.early,
@@ -223,6 +224,35 @@ struct Shared {
     planned: Slot<Result<Planned, TypeError>>,
     /// The plan of the judged files, put by the host; `None` once the host gave the analysis up.
     judged: Slot<Option<Arc<Judged>>>,
+    /// The threads tsrs parallelises on. tsrs runs its parallel work on the rayon pool of the calling thread; on the
+    /// global pool, a host that runs many analyses at once on that pool's threads (one per root) blocks them all
+    /// waiting for plans whose parallel work then finds no thread, and a waiting tsrs call there takes other jobs of
+    /// the host that block. `None` when the pool cannot be started: tsrs then
+    /// uses the global pool.
+    pool: Option<rayon::ThreadPool>,
+}
+
+impl Shared {
+    /// Runs `work` on the analysis's own threads, so that the parallel work tsrs does in it stays there.
+    fn on_pool<R: Send>(&self, work: impl FnOnce() -> R + Send) -> R {
+        match &self.pool {
+            Some(pool) => pool.install(work),
+            None => work(),
+        }
+    }
+}
+
+/// The rayon pool of one analysis, a thread per core. Only tsrs's own work runs on it, never a wait for a plan or for
+/// cores: a pool thread that waits inside tsrs takes other queued jobs, so a job that blocks would block it too.
+fn types_pool(threads: Option<NonZeroUsize>) -> Option<rayon::ThreadPool> {
+    let cores = threads
+        .or_else(|| std::thread::available_parallelism().ok())
+        .map_or(1, NonZeroUsize::get);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(cores)
+        .thread_name(|index| format!("skif-types-{index}"))
+        .build()
+        .ok()
 }
 
 /// A value one thread puts once and others wait for.
@@ -409,9 +439,11 @@ fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Coordinated {
     let query = TypeQuery::default();
     let input = shared.build.input(&query);
     let planned = {
-        let _scope = region.enter();
         panic::catch_unwind(AssertUnwindSafe(|| {
-            programs::plan_programs(&input, &host, &Lookups::new())
+            shared.on_pool(|| {
+                let _scope = region.enter();
+                programs::plan_programs(&input, &host, &Lookups::new())
+            })
         }))
         .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))
     };
@@ -840,9 +872,9 @@ impl Session<'_> {
         if single_threaded {
             options.single_threaded = Tristate::True;
         }
-        let owner = ProgramOwner::new(options);
+        let owner = self.shared.on_pool(|| ProgramOwner::new(options));
         let built = self.walk(owner.program(), path, target, start, checkers, early);
-        drop(owner);
+        self.shared.on_pool(move || drop(owner));
         drop(loader_regions);
         built
     }
@@ -858,7 +890,7 @@ impl Session<'_> {
         checkers: usize,
         early: bool,
     ) -> Option<Outcome> {
-        tsrs.bind_source_files();
+        self.shared.on_pool(|| tsrs.bind_source_files());
         let build = start.elapsed();
         let (judged, index) = match target {
             Some(target) => target,
@@ -886,18 +918,20 @@ impl Session<'_> {
         };
         let slots: Vec<Mutex<Option<(FileFacts, u32)>>> = sources.iter().map(|_| Mutex::new(None)).collect();
         let query_start = Instant::now();
-        let pooled = tsrs.for_each_checker_group(&sources, |checker, index, source| {
-            if self.cancelled() {
-                return;
-            }
-            let mut facts = query::query_file(checker, source, &context);
-            // A file reads a member many times; one read of each is all the credit needs.
-            facts.reads.sort_unstable();
-            facts.reads.dedup();
-            facts.whole.sort_unstable();
-            facts.whole.dedup();
-            let unresolved_modules = query::unresolved_modules(checker, tsrs, source);
-            *lock(&slots[index]) = Some((facts, unresolved_modules));
+        let pooled = self.shared.on_pool(|| {
+            tsrs.for_each_checker_group(&sources, |checker, index, source| {
+                if self.cancelled() {
+                    return;
+                }
+                let mut facts = query::query_file(checker, source, &context);
+                // A file reads a member many times; one read of each is all the credit needs.
+                facts.reads.sort_unstable();
+                facts.reads.dedup();
+                facts.whole.sort_unstable();
+                facts.whole.dedup();
+                let unresolved_modules = query::unresolved_modules(checker, tsrs, source);
+                *lock(&slots[index]) = Some((facts, unresolved_modules));
+            })
         });
         if !pooled {
             return Some(Outcome::Failed);
