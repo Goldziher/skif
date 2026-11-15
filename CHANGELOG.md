@@ -240,6 +240,12 @@ some repositories. Types are to become the default again once programs share tho
 
 ### Fixed
 
+- **Stack overflow in recursive type-aware runs on few cores**: `skif -r` with types aborted with "has overflowed
+  its stack" on a 2- or 4-core machine (next.js on a GitHub runner). A rayon worker that waits for a parallel job
+  takes other queued jobs on its own stack, so the analyses of several roots nested on one worker and outgrew rayon's
+  2 MiB default. The CLI and the npm addon now build rayon's global pool with 64 MiB stacks, and the types pool gets
+  the stack of the program threads. A library host that runs recursive type-aware analyses builds its own global
+  pool with a larger stack, or calls `skif_cli::configure_global_pool`.
 - `unused-class-members` ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)):
   - An element access whose key is a constant reads the member the constant names: `target[ReactiveFlags.SKIP]`
     with `enum ReactiveFlags { SKIP = '__v_skip' }` reads `__v_skip`, also through a namespace import or a
