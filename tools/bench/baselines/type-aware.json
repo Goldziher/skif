@@ -1,0 +1,1657 @@
+{
+  "schema": 1,
+  "tool": "skif --no-type-aware",
+  "mode": "type-aware",
+  "installed": false,
+  "entries": {
+    "angular": {
+      "status": "compared",
+      "categories": {
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "root-package-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 44
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unmatched-workspace-patterns": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 45
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 16
+        },
+        "unused-class-members": {
+          "skif_only": 15,
+          "tool_only": 9,
+          "both": 13
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 46
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 24
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 24
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 725
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2487
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 14
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 192
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 84
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "babel": {
+      "status": "compared",
+      "categories": {
+        "catalog-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "catalog-version-divergence": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "local-path-dependency": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 43
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 9
+        },
+        "unresolved-catalog-references": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-class-members": {
+          "skif_only": 27,
+          "tool_only": 2,
+          "both": 5
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 26
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 266
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 71
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 682
+        },
+        "unused-subpath-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 9
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "4c85836a9120"
+    },
+    "cal-com": {
+      "status": "compared",
+      "categories": {
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 82
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 7
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "missing-package-manifest": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 95
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 15
+        },
+        "stale-mocks": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "stray-lockfile": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 12
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 633
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unsynced-dependency-family": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unused-class-members": {
+          "skif_only": 5,
+          "tool_only": 0,
+          "both": 42
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 86
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 28
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 632
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 334
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 297
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 45
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "create-t3-turbo": {
+      "status": "compared",
+      "categories": {
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "jest": {
+      "status": "compared",
+      "categories": {
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "lerna-packages-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "stale-mocks": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "types-in-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 47
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-class-members": {
+          "skif_only": 3,
+          "tool_only": 1,
+          "both": 8
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 26
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 43
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 19
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 25
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "mastra": {
+      "status": "compared",
+      "categories": {
+        "catalog-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 15
+        },
+        "catalog-version-divergence": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 187
+        },
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 41
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 11
+        },
+        "local-path-dependency": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 21
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 8
+        },
+        "missing-package-manifest": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "root-package-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 33
+        },
+        "root-package-manager-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 22
+        },
+        "root-package-private-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 30
+        },
+        "stale-mocks": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 14
+        },
+        "stale-patched-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 40
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 35
+        },
+        "unmatched-workspace-patterns": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 33
+        },
+        "unresolved-catalog-references": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 20
+        },
+        "unused-class-members": {
+          "skif_only": 35,
+          "tool_only": 0,
+          "both": 48
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 160
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 373
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 12
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2381
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 300
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 7
+        },
+        "unused-optional-peer-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 650
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 242
+        }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "4c85836a9120"
+    },
+    "n8n": {
+      "status": "compared",
+      "categories": {
+        "catalog-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 11
+        },
+        "catalog-version-divergence": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 118
+        },
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 11
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "missing-package-manifest": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "stale-mocks": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 14
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 28
+        },
+        "unmatched-workspace-patterns": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unparseable-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 45
+        },
+        "unused-class-members": {
+          "skif_only": 28,
+          "tool_only": 2,
+          "both": 6
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 9
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 923
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 138
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 8
+        },
+        "unused-namespace-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 964
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 12
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "next-js": {
+      "status": "compared",
+      "categories": {
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 8
+        },
+        "empty-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 25
+        },
+        "incompatible-peer-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "local-path-dependency": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 24
+        },
+        "missing-package-manifest": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 7
+        },
+        "nested-workspace-root": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "root-package-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 8
+        },
+        "root-package-manager-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 24
+        },
+        "root-package-private-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 7
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 16
+        },
+        "stale-mocks": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "stale-patched-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "stray-lockfile": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "toolchain-pin-drift": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 10
+        },
+        "types-in-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 11
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 110
+        },
+        "unmatched-workspace-patterns": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unparseable-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 12
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 63
+        },
+        "unsynced-dependency-family": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unused-class-members": {
+          "skif_only": 20,
+          "tool_only": 4,
+          "both": 15
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 146
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 343
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 521
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3628
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unused-subpath-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 350
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 70
+        }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "4c85836a9120"
+    },
+    "npm-cli": {
+      "status": "compared",
+      "categories": {
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "root-package-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "root-package-manager-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "root-package-private-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 65
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 24
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 29
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 57
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "nx-examples-integrated": {
+      "status": "compared",
+      "categories": {
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unsynced-dependency-family": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "opencode": {
+      "status": "compared",
+      "categories": {
+        "catalog-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 18
+        },
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 14
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "missing-package-manifest": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "root-package-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "stale-patched-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "stray-lockfile": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 14
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 22
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 45
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 400
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 233
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 121
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "rules-js": {
+      "status": "compared",
+      "categories": {
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "local-path-dependency": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "missing-package-manifest": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 19
+        },
+        "root-package-manager-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "types-in-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 49
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 18
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 45
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 15
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "rushstack": {
+      "status": "compared",
+      "categories": {
+        "empty-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "incompatible-peer-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "types-in-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 10
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 10
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 83
+        },
+        "unused-class-members": {
+          "skif_only": 7,
+          "tool_only": 0,
+          "both": 0
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 140
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 230
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 48
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 333
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 175
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "tanstack-query": {
+      "status": "compared",
+      "categories": {
+        "catalog-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 644
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unsynced-dependency-family": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 19
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 8
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 10
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 120
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 10
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 26
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    },
+    "turborepo-examples": {
+      "status": "compared",
+      "categories": {
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unmatched-workspace-patterns": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "unsynced-dependency-family": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 33
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        }
+      },
+      "installed": false,
+      "recursive": true,
+      "skif_rev": "4c85836a9120"
+    },
+    "vercel-examples": {
+      "status": "compared",
+      "categories": {
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 10
+        },
+        "empty-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 15
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "root-package-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "root-package-manager-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "root-package-private-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "toolchain-pin-drift": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 10
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 18
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 41
+        },
+        "unmatched-workspace-patterns": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 16
+        },
+        "unsynced-dependency-family": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 37
+        },
+        "unused-class-members": {
+          "skif_only": 2,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 144
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 158
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 191
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 193
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 43
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 67
+        }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "4c85836a9120"
+    },
+    "vscode": {
+      "status": "compared",
+      "categories": {
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "empty-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "local-path-dependency": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "member-toolchain-fields": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 7
+        },
+        "nested-workspace-root": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "root-package-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "root-package-private-field": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "stale-js-config": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "stray-lockfile": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unlisted-binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 7
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "unresolved-imports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unsynced-dependency-family": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "unused-class-members": {
+          "skif_only": 186,
+          "tool_only": 101,
+          "both": 155
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 25
+        },
+        "unused-dev-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 60
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 277
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2409
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 743
+        },
+        "unused-namespace-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "unused-namespace-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 124
+        },
+        "unused-namespace-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1677
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 85
+        }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "4c85836a9120"
+    },
+    "vue-core": {
+      "status": "compared",
+      "categories": {
+        "catalog-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "duplicate-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "foreign-package-manager-command": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unlisted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 86
+        },
+        "unsorted-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 9
+        },
+        "unused-class-members": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        },
+        "unused-dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unused-enum-members": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "unused-exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 17
+        },
+        "unused-files": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
+        },
+        "unused-types": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 12
+        },
+        "version-mismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "4c85836a9120"
+    }
+  }
+}
