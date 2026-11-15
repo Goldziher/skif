@@ -649,6 +649,9 @@ const fn kind_label(kind: ImportKind) -> &'static str {
 /// What an import takes, for the human report. An import that uses no export by itself
 /// ([`usage::credits_no_export`]) says what it does instead; a re-export lists the names it forwards.
 fn names_label(kind: ImportKind, names: &[String]) -> String {
+    if kind == ImportKind::Resolve {
+        return "its path, loaded by it: every value export".to_owned();
+    }
     if !usage::credits_no_export(kind) {
         return if names.is_empty() {
             "the whole module".to_owned()
@@ -657,7 +660,6 @@ fn names_label(kind: ImportKind, names: &[String]) -> String {
         };
     }
     match kind {
-        ImportKind::Resolve => "its path, no export".to_owned(),
         ImportKind::SideEffect => "runs it, no export".to_owned(),
         ImportKind::Mock => "a test-runner call, no export".to_owned(),
         ImportKind::ExportFrom if !names.is_empty() => names.join(", "),

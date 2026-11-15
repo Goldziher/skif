@@ -1,5 +1,6 @@
-//! `require.resolve` and `import.meta.resolve`: the call returns a module's path and loads nothing, so it keeps a local
-//! file in use and uses the package it names, but uses no export of the module.
+//! `require.resolve` and `import.meta.resolve`: the call returns a module's path, which code hands to what loads the
+//! module by it, so it keeps a local file in use, uses the package it names and uses the values of the module, not its
+//! types.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -98,24 +99,46 @@ const CJS_PACKAGE: (&str, &str) = (
 );
 
 #[test]
-fn esm_resolve_calls_keep_the_files_used_and_use_no_export() {
+fn esm_resolve_calls_keep_the_files_used_and_use_their_values() {
     let diagnostics = lint(&ESM_FILES);
     assert_eq!(found(&diagnostics, "unused-files"), none());
-    assert_eq!(
-        found(&diagnostics, "unused-exports"),
-        ["src/lib.cjs: a", "src/other.js: b"]
-    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
 
 #[test]
-fn a_commonjs_resolve_call_keeps_the_file_used_and_uses_no_export() {
+fn a_commonjs_resolve_call_keeps_the_file_used_and_uses_its_values() {
     let diagnostics = lint(&[
         CJS_PACKAGE,
         ("src/index.js", "const p = require.resolve('./lib');\nconsole.log(p);\n"),
         ("src/lib.js", "exports.a = 1;\n"),
     ]);
     assert_eq!(found(&diagnostics, "unused-files"), none());
-    assert_eq!(found(&diagnostics, "unused-exports"), ["src/lib.js: a"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+/// A worker pool runs the methods of the module whose resolved path it is given, and a loader calls what the module
+/// it loads by path exports: those exports are used though no module imports them by name.
+#[test]
+fn the_exports_of_a_module_loaded_by_its_resolved_path_are_used() {
+    let diagnostics = lint(&[
+        ESM_PACKAGE_TS,
+        (
+            "src/index.ts",
+            "import { Worker } from 'node:worker_threads';\n\
+             import { createRequire } from 'node:module';\n\
+             const require = createRequire(import.meta.url);\n\
+             export const pool = new Worker(require.resolve('./worker'));\n\
+             export const loaders = [{ loader: require.resolve('./loader') }];\n",
+        ),
+        (
+            "src/worker.ts",
+            "export type Job = { id: string };\nexport function setup(): void {}\nexport function run(id: string): string { return id; }\n",
+        ),
+        ("src/loader.ts", "export default function loader(source: string): string { return source; }\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unused-exports"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-types"), ["src/worker.ts: Job"]);
 }
 
 #[test]
@@ -137,23 +160,23 @@ fn a_resolved_package_is_a_used_dependency() {
 }
 
 #[test]
-fn explain_usage_names_a_resolve_call_as_taking_no_export() {
+fn explain_usage_names_a_resolve_call_as_using_the_values_of_the_module() {
     assert_eq!(
         explain(&ESM_FILES, "src/other.js", Some("b")),
         concat!(
             "src/other.js\n",
             "  imported by 1 place(s):\n",
-            "    src/index.js:4 (resolve: its path, no export)\n",
+            "    src/index.js:4 (resolve: its path, loaded by it: every value export)\n",
             "  reached from an entry through: src/index.js -> src/other.js\n",
             "  export `b` of src/other.js:\n",
-            "    no module imports it by name or as a whole\n",
-            "  => not used by another module\n",
+            "    imported by src/index.js:4 (the whole module)\n",
+            "  => used by another module\n",
         )
     );
 }
 
-/// A resolve call uses no export, but types were never credited by one: a type export of a module only resolved is
-/// reported by `unused-types`, as its values are by `unused-exports`.
+/// What loads a module by its resolved path reads its values, not its types: a type export of a module only resolved
+/// is reported by `unused-types`.
 #[test]
 fn a_type_export_of_a_resolved_module_is_reported() {
     let diagnostics = lint(&[
@@ -171,7 +194,7 @@ fn a_type_export_of_a_resolved_module_is_reported() {
     ]);
     assert_eq!(found(&diagnostics, "unused-files"), none());
     assert_eq!(found(&diagnostics, "unused-types"), ["src/lib.ts: Shape"]);
-    assert_eq!(found(&diagnostics, "unused-exports"), ["src/lib.ts: a"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
 
 /// A resolved module is a module of the graph: what it imports is followed.
@@ -201,10 +224,10 @@ fn an_unresolvable_resolve_call_is_reported() {
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), ["src/index.js: nope"]);
 }
 
-/// A resolve call does not change how a module read through a namespace is judged: it stays namespace-only, so its
-/// unread exports are `unused-namespace-exports`, not `unused-exports`.
+/// A module that one file reads through a namespace and resolves is loaded by its path too, so the values the namespace
+/// does not read are used as well.
 #[test]
-fn a_resolve_call_leaves_a_namespace_only_module_namespace_only() {
+fn a_resolve_call_uses_the_values_a_namespace_of_the_module_does_not_read() {
     let diagnostics = lint(&[
         ESM_PACKAGE,
         (
@@ -213,7 +236,7 @@ fn a_resolve_call_leaves_a_namespace_only_module_namespace_only() {
         ),
         ("src/lib.js", "export const a = 1;\nexport const b = 2;\n"),
     ]);
-    assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["src/lib.js: b"]);
+    assert_eq!(found(&diagnostics, "unused-namespace-exports"), none());
     assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
 

@@ -23,8 +23,9 @@ pub enum ImportKind {
     /// `require("x")` and `import x = require("x")`.
     Require,
     /// `require.resolve("x")`, `createRequire(…).resolve("x")` and `import.meta.resolve("x")`: the call returns the
-    /// module's path and loads nothing, so it keeps a local file reachable and uses the package it names, but uses no
-    /// export.
+    /// module's path, which code hands to what loads the module by it (a worker, a loader, a plugin host), so it keeps
+    /// a local file reachable, uses the package it names and uses the module object as a whole, its values and none
+    /// of its types. It binds nothing, so it is no source of a re-exported binding.
     Resolve,
     /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require`, `import()` or resolve call
     /// (`./commands/${name}`): a glob, not a module specifier.

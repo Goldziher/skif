@@ -134,6 +134,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Resolve calls**: `require.resolve(x)`, `createRequire(…).resolve(x)` and `import.meta.resolve(x)` of a module
+  use its value exports, as a `require(x)` that binds nothing does: code resolves the path to hand it to what loads the
+  module by it, a worker pool (`new Worker(require.resolve('./worker'))`), a bundler loader or a plugin host. Before,
+  such a call used no export, and `unused-exports` reported the methods of a worker and the default export of a
+  loader. Type exports are still reported unless an importer names them or a used export's signature mentions them.
+  `explain-usage` says `resolve: its path, loaded by it: every value export`
+  ([ADR NNNN](adrs/NNNN-resolve-calls-use-the-values-of-the-module.md),
+  [#165](https://github.com/Goldziher/skif/issues/165)).
 - `unused-dev-dependencies` reports a `devDependencies` entry of a package that the same manifest lists in
   `dependencies`, used or not ("is listed in `devDependencies` and in `dependencies`"), with the unsafe fix that
   removes it: the production entry installs the package for development as well. knip reports it too
