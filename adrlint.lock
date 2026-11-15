@@ -259,7 +259,7 @@ blake3 = "1cc9e12305acb98982729d1be477021dae971a0a7fc1041c4038126af2e18186"
 [adrs."adrs/0052-generated-paths-alias-replacements-and-installed-compiler-options.md"]
 number = 52
 status = "accepted"
-blake3 = "757b422b76058424cbec926b5c1bcc0703c48f5986d6ddce728e75d6eda01c62"
+blake3 = "57d2334f08f749a2252f56ec6d9aa9520461f53f95565f3326287fcfbe642d94"
 
 [adrs."adrs/0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md"]
 number = 53
@@ -280,3 +280,8 @@ blake3 = "855962f65067538c41f2464a9696600559f7bc7b50545bc8da9d0dd5e26eab91"
 number = 56
 status = "accepted"
 blake3 = "5e888d9ba6e617e6426e867e10f85d18ce2ca3386f75439a87a74b6a1a14d237"
+
+[adrs."adrs/0057-redundant-dev-entries-and-installed-optional-peers.md"]
+number = 57
+status = "accepted"
+blake3 = "44a4704920639e7bec5c4fe6411a1e6be09efedd8bd5e538f075a24f91165270"

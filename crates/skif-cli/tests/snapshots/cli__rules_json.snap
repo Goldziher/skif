@@ -249,7 +249,7 @@ expression: redact_version(&json.stdout)
       "category": "js",
       "default": "warning",
       "fixable": "unsafe",
-      "summary": "A package in `devDependencies` is never imported, required or run by a script."
+      "summary": "A package in `devDependencies` is never imported, required or run by a script, or is also in `dependencies`."
     },
     {
       "id": "unlisted-dependencies",

@@ -2250,6 +2250,22 @@ impl DependencyUsage {
         self.listed[id.index()].contains(name)
     }
 
+    /// Whether the package manager installs `name` for the development of package `id`: its manifest or that of a
+    /// package whose directory contains it (none under workspace isolation) lists it in `dependencies`,
+    /// `devDependencies` or `optionalDependencies`.
+    #[must_use]
+    pub fn installs_for_development(&self, workspace: &Workspace, id: PackageId, name: &str) -> bool {
+        std::iter::once(id)
+            .chain(self.ancestors[id.index()].iter().copied())
+            .filter_map(|scope| workspace.package(scope))
+            .any(|package| {
+                package
+                    .dependencies
+                    .iter()
+                    .any(|entry| &*entry.name == name && entry.kind != DependencyKind::PeerDependencies)
+            })
+    }
+
     /// The dependencies this workspace uses through the `package.json` of another project, each with the directory of
     /// that manifest: those its own code uses that only a manifest above its root lists (the innermost one), those
     /// the files outside its root that the graph reached import (the innermost manifest at or above the file that

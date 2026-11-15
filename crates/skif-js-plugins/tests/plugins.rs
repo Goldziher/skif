@@ -479,6 +479,38 @@ fn typescript_types_found_in_local_type_roots_name_no_package() {
     assert_eq!(deps(out), BTreeSet::from(["node", "vitest"]));
 }
 
+/// The `types` of an installed config (a rig profile below `node_modules`) are no package of the project when the
+/// first of the config's `typeRoots` that holds them is one of the rig's own install (`../../node_modules/@types`,
+/// relative to the profile); one that the project's own root (`${configDir}/node_modules/@types`) holds first, or
+/// that no root holds, still is.
+#[test]
+fn typescript_types_an_installed_config_finds_in_its_own_type_roots_name_no_package() {
+    let results = resolve(
+        &[
+            (
+                "tsconfig.json",
+                r#"{"extends":"./node_modules/rig/profiles/default/tsconfig-base.json"}"#,
+            ),
+            (
+                "node_modules/rig/profiles/default/tsconfig-base.json",
+                r#"{"compilerOptions":{"typeRoots":["${configDir}/node_modules/@types","../../node_modules/@types"],"types":["jest","node","mocha"]}}"#,
+            ),
+            (
+                "node_modules/rig/node_modules/@types/node/package.json",
+                r#"{"name":"@types/node"}"#,
+            ),
+            (
+                "node_modules/rig/node_modules/@types/jest/package.json",
+                r#"{"name":"@types/jest"}"#,
+            ),
+            ("node_modules/@types/jest/package.json", r#"{"name":"@types/jest"}"#),
+        ],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    assert_eq!(deps(out), BTreeSet::from(["jest", "mocha", "rig"]));
+}
+
 /// TypeScript 6 reads `types: ["*"]` as every `@types` package (every Nx 24 `tsconfig.base.json` sets it): `*` names
 /// no package, while the names beside it still do.
 #[test]
