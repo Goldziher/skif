@@ -12,10 +12,10 @@ use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, is_declaration_file, place_file_dir};
 use skif_specifier::Specifier;
-use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered, npmrc_entries};
+use skif_workspace::{Package, PackageId, PackageManager, Workspace, is_package_manifest, map_ordered, npmrc_entries};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
-use crate::discover::{is_ignored_in_repository, is_package_manifest, relative};
+use crate::discover::{is_ignored_in_repository, relative};
 use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::hoisting::PublicHoisting;
