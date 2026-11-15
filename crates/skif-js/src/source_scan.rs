@@ -125,6 +125,15 @@ mod tests {
     }
 
     #[test]
+    fn a_bare_module_name_is_a_sibling_file() {
+        let source = "new URL('check.mjs', import.meta.url);\nnew URL('generated', import.meta.url);\n\
+                      new URL('worker-package/worker.js', import.meta.url);\nnew URL('file.png', import.meta.url);\n\
+                      new URL('data:text/javascript,1.js', import.meta.url);\nnew URL('a.js?worker', import.meta.url);";
+        let found: Vec<String> = extra_specifiers(source).into_iter().map(|(s, _, _, _)| s).collect();
+        assert_eq!(found, ["./check.mjs"]);
+    }
+
+    #[test]
     fn a_url_target_is_added_next_to_a_named_import_of_the_same_file() {
         let source =
             "import { a } from './a.ts';\nnew URL('./a.ts', import.meta.url);\nnew URL('./a.ts', import.meta.url);";
