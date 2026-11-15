@@ -367,8 +367,11 @@ manifest, not by listing findings:
   which name `src/client/index.tsx`. skif makes the published file an entry and resolves a specifier into output that
   was never built to its source; a file inside build output maps nothing.
   An export or type (also as a namespace export or type) only knip reports in a published source, or in a file whose
-  exports a published source re-exports through `export … from` and `export *` (followed through the files in
-  between), is `published-source` as well: an entry's exports are public in skif. Enum and namespace members of these
+  exports a published source, or a declaration or JavaScript file the manifest publishes as it is, re-exports through
+  `export … from` and `export *` (followed through the files in between), is `published-source` as well: an entry's
+  exports are public in skif. A specifier of a workspace package's subpath into build output that was never built
+  resolves to the source it is built from, so next.js's `server.d.ts`, which re-exports `next/dist/server/web/types`,
+  credits `src/server/web/types.ts`. Enum and namespace members of these
   files, and the exports of the other files they reach, stay compared.
 - `published-file`: an export or type only knip reports in a declaration file, or an unused file, export or type of a
   JavaScript file (`.js`, `.mjs`, `.cjs`, `.jsx`), that the manifest of its project publishes as it is: a published
@@ -414,7 +417,9 @@ Two more follow from what knip makes an entry and how it credits a module object
   `imported-by-knip-unused-file` resolves imports, a declaration file also named by its stem with or without a built
   extension when no source file takes the specifier; and the unused files only skif reports that such a file reaches by
   relative imports, directly or through other files only skif reports unused (the files angular's
-  `*_isolated.golden.d.ts` compliance files import).
+  `*_isolated.golden.d.ts` compliance files import). An export or type only skif reports that such a file re-exports
+  through `export … from` and `export *` is set apart too (next.js's `module.compiled.d.ts`, `export * from
+  './module'`, makes the route modules' types public for knip).
 - `module-object-types`: a type only skif reports in a file that an import in a code file of the checkout uses as a
   whole module object (`import()`, `require`, a namespace used as a whole), directly or through `export … from` and
   `export *` re-exports. knip records such a use as opaque and credits every export, types included; skif's whole use
@@ -432,12 +437,14 @@ More follow from what knip reads no use in, where skif reads one with its parser
   (the `tslib` an `importHelpers` of a profile's `tsconfig-base.json` needs).
 - `type-asserted-require`: an export or namespace export only knip reports in a file that a code file loads with a
   `require` whose result an `as` asserts a type of (`require('./x') as typeof import('./x')`, next.js's
-  `stream-ops.ts`), or that such a file re-exports. knip does not follow a `require` wrapped in `as`. The harness
-  finds such a `require` in the text and resolves it as the import scan of `imported-by-knip-unused-file` does.
+  `stream-ops.ts`; the specifier may be a template literal without a substitution), or that such a file re-exports.
+  knip does not follow a `require` wrapped in `as`. The harness finds such a `require` in the text and resolves it as
+  the import scan of `imported-by-knip-unused-file` does.
 - `module-object-values`: an export or namespace export only knip reports in a file that an import uses as a whole
   module object, as skif's parser reads it (n8n's `methods = { listSearch, loadOptions }`, a namespace spread or
-  passed to `vi.mocked`, a `require` a callback returns), or that such a file re-exports. skif credits every value
-  export of such a module (ADR 0018); knip does not take these uses for whole ones.
+  passed to `vi.mocked`, a `require` a callback returns, a named import of a namespace re-export that escapes:
+  `export * as listSearch from './listSearch'` in `methods/index.ts`), or that such a file re-exports. skif credits
+  every value export of such a module (ADR 0018); knip does not take these uses for whole ones.
 - `commonjs-default-import`: an export or namespace export only knip reports in a CommonJS file (`module.exports`, no
   `default` export) that a default import reads as a property (`import routing from './ci-routing.cjs'` and then
   `const { a } = routing` in mastra's `.github/scripts`). skif binds the default import to `module.exports`; knip
@@ -461,13 +468,56 @@ More follow from what knip reads no use in, where skif reads one with its parser
   and that a code file names with its extension (`require('../sum.js')` beside `sum.ts` in jest's
   `examples/typescript`). skif resolves the specifier in TypeScript's order, to the twin; knip to the file it names.
 
+More follow from how knip reads a module where skif reads it otherwise. The harness reads the code with oxc, as knip
+reads its own oxc tree, and with skif's parser for the imports; each credit is followed through the `export … from`
+and `export *` re-exports of the files in between:
+
+- `opaque-dynamic-import`: an export or type only skif reports in a file that an `import()` with a literal specifier
+  loads which knip binds to no name (a bare `import('./x')`, one not awaited in a declarator, `vi.mock(import('./x'),
+  …)` with a factory that is not a plain object literal). knip records it as opaque and credits every export, types
+  included; skif reads the members the code takes from it (mastra's templates, cal-com's `trpc/react`, n8n's
+  codemirror utils).
+- `dynamic-import-default`: a `default` export only skif reports in a file that an `import()` knip binds to one name
+  loads (`const m = await import('./x')`, `import('./x').then(m => …)`, one name of an awaited `Promise.all`). knip
+  records an import of `default`; skif reads the members taken from the name (vscode's tsserver plugins).
+- `jest-require-actual`: an export or type only skif reports in a file a `jest.requireActual` loads (also through the
+  `jest` of `@jest/globals`). knip's Jest plugin records it as opaque; skif reads what the result is used for
+  (next.js's `turbopack-utils`).
+- `spied-namespace`: an export or type only skif reports in a file whose namespace imports only spy calls read
+  (`vi.spyOn(ns, 'a')`, `jest.spyOn`, `spyOn`), no namespace import of it being read through a member elsewhere. skif
+  reads a spy as a use of `a`; knip sees a reference of `ns` as a whole and, with `nsExports` and `nsTypes` off, skips
+  the exports of a module whose namespace imports are all referenced so (`hasStrictlyNsReferences` in its
+  `graph/analyze.js`): cal-com's `email-manager`, mastra's `ast-edit`, n8n's `nodeTypesUtils` and `GenericFunctions`.
+- `enumerated-namespace`: an export or type only skif reports in a file whose namespace import's name an array literal
+  holds or `Object.keys` (`values`, `entries`, `getOwnPropertyNames`) takes. knip marks the namespace opaque without
+  checking for a shadowing name: vscode's `git.ts` passes a `path` parameter in `['ls-tree', path]` beside an
+  `import * as path`.
+- `namespace-re-export`: an export or namespace export only skif reports that its file declares as `export * as X
+  from` (of any file, the file itself included). knip records it as a re-export of the source module and never lists
+  it among the file's own exports (opencode's namespaces, vscode's `icons`).
+- `typescript-commonjs-export`: an export or namespace export only skif reports that a `CommonJS` assignment
+  (`exports.x = …`, `module.exports.x = …`, `module.exports = { a, b }`) of a file that is no JavaScript file
+  exports. knip reads `CommonJS` exports in `.js`, `.mjs`, `.cjs` and `.jsx` files only (next.js's `join-function.ts`).
+- `node-test-entry`: an export or type only skif reports in a file knip's `node` plugin makes an entry: the plugin is
+  on in every workspace when a root script runs `node --test` (also `nub --test`), else in a workspace whose own
+  script does, and matches `**/*{.,-,_}test.<ext>`, `**/test-*.<ext>`, `**/test.<ext>` and `**/test/**/*.<ext>`
+  (n8n's test helpers and setup files).
+- `ng-package-entry`: an export or type only knip reports that an entry point an `ng_package` of a `rules_js`
+  repository names re-exports, or that lies in one: the `index.ts` of each Bazel package its `deps` name inside the
+  `BUILD` file's npm package, as skif's Bazel plugin makes them entries (angular's packages, whose manifest `exports`
+  list only schematics). knip has no Bazel plugin.
+- `import-type-qualifier`: a type or export only knip reports that a qualified import type names
+  (`import('./x').Name`, also `.Name.Member`). skif's parser reads a use of `Name`; knip records an import of the
+  module for its side effects (vscode's `electron-browser` types).
+
 `non-member-project`, `published-source`, `published-file` and `entry-module-duplicate` check where a finding is, not
 why skif has no finding there. See
 [ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness.md),
 [ADR 0040](../../adrs/0040-more-known-deviations-of-the-knip-comparison.md),
 [ADR 0053](../../adrs/0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) and
-[ADR 0056](../../adrs/0056-knip-tsconfig-declaration-entries-and-module-object-types.md) and
-[ADR 0058](../../adrs/0058-uses-knip-does-not-read.md).
+[ADR 0056](../../adrs/0056-knip-tsconfig-declaration-entries-and-module-object-types.md),
+[ADR 0058](../../adrs/0058-uses-knip-does-not-read.md) and
+[ADR 0060](../../adrs/0060-how-knip-reads-a-module.md).
 
 **Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
 has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no

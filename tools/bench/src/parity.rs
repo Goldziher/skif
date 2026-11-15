@@ -15,7 +15,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{TSTypeName, TSTypeQuery, TSTypeReference};
+use oxc_ast::ast::{
+    Argument, ArrayExpression, ArrayExpressionElement, AssignmentExpression, AssignmentOperator, AssignmentTarget,
+    BindingPattern, CallExpression, ComputedMemberExpression, Expression, ImportExpression, ObjectPropertyKind,
+    PropertyKey, StaticMemberExpression, TSImportType, TSImportTypeQualifier, TSTypeName, TSTypeQuery, TSTypeReference,
+    VariableDeclarator,
+};
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -128,6 +133,16 @@ pub const MODULE_OBJECT_VALUES: &str = "module-object-values";
 pub const KNIP_NODE_MODULES_NAME: &str = "knip-node-modules-name";
 pub const RAW_GLOB_READ: &str = "raw-glob-read";
 pub const TYPESCRIPT_TWIN: &str = "typescript-twin";
+pub const OPAQUE_DYNAMIC_IMPORT: &str = "opaque-dynamic-import";
+pub const DYNAMIC_IMPORT_DEFAULT: &str = "dynamic-import-default";
+pub const JEST_REQUIRE_ACTUAL: &str = "jest-require-actual";
+pub const SPIED_NAMESPACE: &str = "spied-namespace";
+pub const ENUMERATED_NAMESPACE: &str = "enumerated-namespace";
+pub const NAMESPACE_REEXPORT: &str = "namespace-re-export";
+pub const TYPESCRIPT_COMMONJS_EXPORT: &str = "typescript-commonjs-export";
+pub const NODE_TEST_ENTRY: &str = "node-test-entry";
+pub const NG_PACKAGE_ENTRY: &str = "ng-package-entry";
+pub const IMPORT_TYPE_QUALIFIER: &str = "import-type-qualifier";
 
 /// The name of a file of git ignore patterns.
 const GITIGNORE: &str = ".gitignore";
@@ -269,7 +284,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 48] = [
+pub const KNIP_DEVIATIONS: [Deviation; 58] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -316,7 +331,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 48] = [
     },
     Deviation {
         id: PUBLISHED_SOURCE,
-        reason: "knip reports these files as unused, and each is either a TypeScript file whose package publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin`, an `exports` leaf or, in an n8n node package, `n8n.nodes` and `n8n.credentials`, where `*` matches any part of the path and a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src` (for the n8n fields, the path without the build directory), or a file such a source imports by relative path, directly or through other files only knip reports unused. A published `bin` stub without a code extension whose first line is a `#!` line naming `node` loads the build output its relative `require`s and imports name, which maps to source the same way, as skif reads such a stub: that source and the files it reaches are published sources too. So are the sources that a JavaScript or declaration file the manifest publishes as it is (`published-file`, named without `*`) loads by a relative specifier into build output (`module.exports = require('./dist/client/index')`, `export * from './dist/client/index'`), mapped the same way, and the files they reach: skif makes such a file an entry and resolves a relative specifier into unbuilt output to the source it is built from. A published path without `*` is first mapped through the build directories of the package, as skif's TypeScript plugin reads them: below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` of the package directory is the same path below its `rootDir` (without one, the directory its `include` and `files` share). The exports and types (also as namespace exports and types) only knip reports in a published source, or in a file whose exports a published source re-exports through `export … from` and `export *` (followed through the files in between), are `published-source` too: skif makes the source an entry, whose exports are public. skif makes the source of a published path an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` it resolves itself and does not read the n8n fields. The harness checks the published path and the relative imports, not why skif has no finding for each file; enum and namespace members of these files, and the exports of the files they reach, stay compared, and their duplicates are `entry-module-duplicate`",
+        reason: "knip reports these files as unused, and each is either a TypeScript file whose package publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin`, an `exports` leaf or, in an n8n node package, `n8n.nodes` and `n8n.credentials`, where `*` matches any part of the path and a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src` (for the n8n fields, the path without the build directory), or a file such a source imports by relative path, directly or through other files only knip reports unused. A published `bin` stub without a code extension whose first line is a `#!` line naming `node` loads the build output its relative `require`s and imports name, which maps to source the same way, as skif reads such a stub: that source and the files it reaches are published sources too. So are the sources that a JavaScript or declaration file the manifest publishes as it is (`published-file`, named without `*`) loads by a relative specifier into build output (`module.exports = require('./dist/client/index')`, `export * from './dist/client/index'`), mapped the same way, and the files they reach: skif makes such a file an entry and resolves a relative specifier into unbuilt output to the source it is built from. A published path without `*` is first mapped through the build directories of the package, as skif's TypeScript plugin reads them: below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` of the package directory is the same path below its `rootDir` (without one, the directory its `include` and `files` share). The exports and types (also as namespace exports and types) only knip reports in a published source, or in a file whose exports a published source, or a declaration or JavaScript file the manifest publishes as it is, re-exports through `export … from` and `export *` (followed through the files in between, a specifier of a workspace package's subpath into build output resolved to its source, next.js's `server.d.ts` re-exporting `next/dist/server/web/types`), are `published-source` too: skif makes the source and the published file entries, whose exports are public. skif makes the source of a published path an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` it resolves itself and does not read the n8n fields. The harness checks the published path and the relative imports, not why skif has no finding for each file; enum and namespace members of these files, and the exports of the files they reach, stay compared, and their duplicates are `entry-module-duplicate`",
     },
     Deviation {
         id: ENTRY_MODULE_DUPLICATE,
@@ -412,7 +427,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 48] = [
     },
     Deviation {
         id: TSCONFIG_DECLARATION_FILE,
-        reason: "knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the `tsconfig.json` of one of its workspaces compiles a production entry: the files its `files` lists and its `include` globs select (everything below the configuration's directory when it sets neither), less its `exclude` globs, `node_modules` and the `outDir`, as knip reads the configuration and those it `extends`. The exports of an entry are public and its imports are read. skif judges a module declaration file like any module, an entry only when something else makes it one (ADR 0054, ADR 0055). Set apart: the exports, types and members skif reports in such a declaration file; the unlisted dependencies and unresolved imports knip reports in one that no code file of the checkout imports (relative, through the importer's tsconfig `paths` or as a subpath of a workspace package, by its stem with or without a built extension), whose imports skif never reads; and the unused files only skif reports that such a declaration file reaches by relative imports, directly or through other files only skif reports unused, which knip reaches from the entry",
+        reason: "knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the `tsconfig.json` of one of its workspaces compiles a production entry: the files its `files` lists and its `include` globs select (everything below the configuration's directory when it sets neither), less its `exclude` globs, `node_modules` and the `outDir`, as knip reads the configuration and those it `extends`. The exports of an entry are public and its imports are read. skif judges a module declaration file like any module, an entry only when something else makes it one (ADR 0054, ADR 0055). Set apart: the exports, types and members skif reports in such a declaration file, and the exports and types skif reports that such a file re-exports through `export … from` and `export *`, followed through the files in between (next.js's `route-modules/*/module.compiled.d.ts`, `export * from './module'`), which are public for knip as re-exports of an entry; the unlisted dependencies and unresolved imports knip reports in one that no code file of the checkout imports (relative, through the importer's tsconfig `paths` or as a subpath of a workspace package, by its stem with or without a built extension), whose imports skif never reads; and the unused files only skif reports that such a declaration file reaches by relative imports, directly or through other files only skif reports unused, which knip reaches from the entry",
     },
     Deviation {
         id: MODULE_OBJECT_TYPES,
@@ -424,7 +439,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 48] = [
     },
     Deviation {
         id: TYPE_ASSERTED_REQUIRE,
-        reason: "knip reports these exports and namespace exports as unused, and a code file of the checkout loads their file with a `require` whose result a TypeScript `as` asserts a type of (`require('./x') as typeof import('./x')`), directly or through the `export … from` and `export *` re-exports of the files in between: knip does not follow a `require` wrapped in `as`, skif reads the names it takes. The harness finds such a `require` in the source text and resolves its specifier as the import scan of `imported-by-knip-unused-file` does; it does not check which names skif credits through it",
+        reason: "knip reports these exports and namespace exports as unused, and a code file of the checkout loads their file with a `require` whose result a TypeScript `as` asserts a type of (`require('./x') as typeof import('./x')`, the specifier quoted or a template literal without a substitution), directly or through the `export … from` and `export *` re-exports of the files in between: knip does not follow a `require` wrapped in `as`, skif reads the names it takes. The harness finds such a `require` in the source text and resolves its specifier as the import scan of `imported-by-knip-unused-file` does; it does not check which names skif credits through it",
     },
     Deviation {
         id: TEMPLATE_LITERAL_IMPORT,
@@ -444,7 +459,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 48] = [
     },
     Deviation {
         id: MODULE_OBJECT_VALUES,
-        reason: "knip reports these exports and namespace exports as unused, and an import in a code file of the checkout uses their file as a whole module object, as skif's parser reads it (a namespace spread or put in an object literal, passed to a call such as `vi.mocked(ns)`, a `require` a callback returns), directly or through the `export … from` and `export *` re-exports of the files in between: skif credits every value export of a module used as a whole (ADR 0018), knip does not take these uses for one. Only the files that hold `import(`, `require(` or `* as ` are parsed",
+        reason: "knip reports these exports and namespace exports as unused, and an import in a code file of the checkout uses their file as a whole module object, as skif's parser reads it (a namespace spread or put in an object literal, passed to a call such as `vi.mocked(ns)`, a `require` a callback returns, or a named import of a namespace re-export used so, `methods = { listSearch }` after `import { listSearch } from './methods'` where `methods/index.ts` has `export * as listSearch from './listSearch'`), directly or through the `export … from` and `export *` re-exports of the files in between: skif credits every value export of a module used as a whole (ADR 0018), knip does not take these uses for one. Only the files that hold `import(`, `require(` or `* as ` are parsed",
     },
     Deviation {
         id: KNIP_NODE_MODULES_NAME,
@@ -457,6 +472,46 @@ pub const KNIP_DEVIATIONS: [Deviation; 48] = [
     Deviation {
         id: TYPESCRIPT_TWIN,
         reason: "skif reports these JavaScript files (`.js`, `.jsx`, `.mjs`, `.cjs`) as unused, a TypeScript file of the same stem lies beside each, and a code file of the checkout names it by a relative specifier with its extension (`require('../sum.js')` beside `sum.ts`): skif resolves the specifier in TypeScript's order, to the TypeScript twin, knip to the file it names",
+    },
+    Deviation {
+        id: OPAQUE_DYNAMIC_IMPORT,
+        reason: "skif reports these exports and types (also as namespace exports and types), and a code file of the checkout loads their file with an `import()` of a literal specifier that knip reads as opaque, directly or through the `export … from` and `export *` re-exports of the files in between: knip binds an `import()` to names only as the initialiser of a declarator (`const { a } = await import('./x')`, or one name when awaited), the first parameter of a `.then` callback, an element of an awaited `Promise.all([...])` given to an array pattern, the body of an arrow callback argument (a loader) or the module of a `vi.mock(import('./x'), () => ({ … }))` its Vitest plugin reads, and credits every export of the module, types included, for any other (`(await import('./x')).a`, `(await import('./x')) as any`, `vi.mock(import('./x'), async (original) => …)`, `handleImportExpression` in its `typescript/visitors/imports.js`). skif reads the names taken from the module. The harness reads the `import()` expressions with oxc, as knip's parser keeps parentheses, and resolves their specifiers as the import scan of `imported-by-knip-unused-file` does",
+    },
+    Deviation {
+        id: DYNAMIC_IMPORT_DEFAULT,
+        reason: "skif reports these `default` exports, and a code file of the checkout binds an `import()` of their file to one name (`const m = await import('./x')`, `import('./x').then(m => m.register())`, an element of an awaited `Promise.all([...])` given to a name), directly or through re-exports: knip records such a binding as an import of `default` besides the members read through the name (`handleDynamicImportBinding` in its `typescript/visitors/imports.js`), so it never reports that file's `default` unused; skif reads the members only. The harness reads the bindings with oxc",
+    },
+    Deviation {
+        id: JEST_REQUIRE_ACTUAL,
+        reason: "skif reports these exports and types (also as namespace exports and types), and a code file of the checkout loads their file with `jest.requireActual` (the global `jest`, or `jest` imported from `@jest/globals`) of a literal specifier, directly or through re-exports: knip's Jest plugin records `requireActual` as an opaque import that credits every export, types included (`plugins/jest/visitors/mock.js`), skif reads the names taken from the module. The harness reads the calls with oxc",
+    },
+    Deviation {
+        id: SPIED_NAMESPACE,
+        reason: "skif reports these exports and types (also as namespace exports and types), and spy calls (`vi.spyOn(ns, 'a')`, `jest.spyOn`, Jasmine's `spyOn`) are the only reads of a namespace import of their file, with no namespace import of the file read through a member otherwise, directly or through re-exports: for skif a spy call reads the member it names, for knip it references the namespace as a whole, and knip skips the exports and types of a module whose namespace imports are all referenced as a whole while `nsExports` and `nsTypes` are not reported (`hasStrictlyNsReferences` in its `graph/analyze.js`). The harness reads the namespace imports and the members read through them with skif's parser and the spy calls and member expressions with oxc",
+    },
+    Deviation {
+        id: ENUMERATED_NAMESPACE,
+        reason: "skif reports these exports and types (also as namespace exports and types), and a code file of the checkout that imports their file as a namespace (`import * as path`) holds an identifier of that name in an array literal or passes it to `Object.keys` (`values`, `entries`, `getOwnPropertyNames`), directly or through re-exports: knip's `ArrayExpression` visitor and its `Object.keys` branch mark the namespace import opaque, which credits every export of the module, types included, without checking whether a parameter or variable of that name shadows the import (vscode's `['ls-tree', path]` with a parameter `path` beside `import * as path`); skif resolves the name in its scope, and a whole use of the namespace credits its values only (ADR 0018). The harness reads the identifiers with oxc and the namespace imports with skif's parser",
+    },
+    Deviation {
+        id: NAMESPACE_REEXPORT,
+        reason: "skif reports these exports and namespace exports, and their file exports the name as a namespace re-export (`export * as Data from './data.js'`, of the file itself or of another): knip records an `export … from` as a re-export of the source module and never lists it among the file's own exports (`staticExports` with a `moduleRequest` in its `typescript/get-imports-and-exports.js`), so it never reports one unused; skif judges the name like any export. The harness reads the re-exports with skif's parser",
+    },
+    Deviation {
+        id: TYPESCRIPT_COMMONJS_EXPORT,
+        reason: "skif reports these exports, and a `CommonJS` assignment of their file, which is no JavaScript file (`.ts`, `.tsx`, `.mts`, `.cts`), exports the name (`exports.x = …`, `module.exports.x = …`, `module.exports = { a, b }`): knip records `CommonJS` exports in `.js`, `.mjs`, `.cjs` and `.jsx` files only (`isJS` in its `typescript/visitors/walk.js`), skif's parser in every code file. The harness reads the assignments with oxc",
+    },
+    Deviation {
+        id: NODE_TEST_ENTRY,
+        reason: "skif reports these exports and types (also as namespace exports and types) in a file that matches a pattern of knip's `node` plugin below its workspace (`**/*{.,-,_}test.<ext>`, `**/test-*.<ext>`, `**/test.<ext>`, `**/test/**/*.<ext>`, each extension one of `cjs`, `mjs`, `js`, `cts`, `mts` and `ts`), where a script of the root's manifest or of the workspace's own runs `node --test` (also `nub --test`): knip's `node` plugin makes those files entries in every workspace then (`hasNodeTest` in its `plugins/node/index.js`), and knip judges no export of an entry; skif makes only its own test-runner files entries. The harness reads the scripts as knip's plugin splits their commands",
+    },
+    Deviation {
+        id: NG_PACKAGE_ENTRY,
+        reason: "knip reports these exports and types (also as namespace exports and types), and their file is an entry point of an `ng_package` call of a `BUILD.bazel` or `BUILD` file (the `index.ts` of each Bazel package its `deps` name inside the project that owns the `BUILD` file, angular's `@angular/core/primitives/signals`), or such an entry point re-exports them through `export … from` and `export *`, followed through the files in between: skif's Bazel plugin makes each such `index.ts` a production entry, whose exports are public, and knip has no Bazel plugin. The manifest does not publish these secondary entry points (Bazel's `ng_package` writes their `exports` at build time), so `published-source` does not take them. The harness reads the `BUILD` files as skif's plugin does, only in a Bazel repository that uses `rules_js`",
+    },
+    Deviation {
+        id: IMPORT_TYPE_QUALIFIER,
+        reason: "knip reports these exports and types (also as namespace exports and types), and a code file of the checkout names them by a qualified import type (`type ILoadOptions = import('./window.js').ILoadOptions`, also `import('./x').A.B` for `A`), directly or through re-exports: knip's `TSImportType` visitor records the module as a type-only import of no name (its `typescript/visitors/walk.js`), skif's parser reads the export the qualifier names. The harness reads the import types with oxc and resolves their specifiers as the import scan of `imported-by-knip-unused-file` does",
     },
     Deviation {
         id: REPLACED_KNIP_CONFIG,
@@ -1553,7 +1608,10 @@ impl<'a> Resolver<'a> {
     /// The source file of the workspace package `specifier` names (`name` or `name/subpath`): the source behind the
     /// `exports` entry of the subpath (for the package itself also `main`, `module` and the other published fields),
     /// mapped as skif maps a published path ([`Layout::source_of`]), else the subpath itself or its `src` twin (the
-    /// package's `src/index` or `index` for no subpath).
+    /// package's `src/index` or `index` for no subpath), else the source a subpath into build output that was never
+    /// built is built from, mapped the same way (`next/dist/server/web/types` names `src/server/web/types.ts` of
+    /// `next`), as skif resolves a specifier into unbuilt output (`through_build_output` in
+    /// `crates/skif-js/src/resolve.rs`).
     fn workspace_target(&self, specifier: &str) -> Option<String> {
         let layout = self.layout?;
         let name = bare_package(specifier)?;
@@ -1594,6 +1652,12 @@ impl<'a> Resolver<'a> {
             .find_map(|target| layout.source_of(dir, target))
             .map(|source| joined(dir, &source))
             .or_else(|| local.iter().find_map(|path| resolve_relative(dir, path, self.is_file)))
+            .or_else(|| {
+                (!subpath.is_empty())
+                    .then(|| layout.source_of(dir, &format!("./{subpath}")))
+                    .flatten()
+                    .map(|source| joined(dir, &source))
+            })
     }
 }
 
@@ -1913,6 +1977,52 @@ fn entry_reexports(entries: Vec<String>, resolver: &Resolver<'_>, read: &SourceR
         .map(|entry| (entry, WHOLE_MODULE.to_owned()))
         .collect();
     follow_reexports(seeds, resolver, read)
+}
+
+/// What the projects that own one of `keys` publish as it is, as entries skif makes of them: `(sources, files)`, the
+/// sources their published JavaScript and declaration files and their `bin` stubs load into build output
+/// ([`published_file_sources`], [`bin_stub_sources`]), and the published files themselves among `files`
+/// ([`Layout::publishes_file`]).
+fn published_file_entries(
+    keys: &BTreeSet<String>,
+    files: &[String],
+    layout: &Layout<'_>,
+    read: &dyn Fn(&str) -> Option<String>,
+) -> (Vec<String>, Vec<String>) {
+    let is_project = |dir: &str| layout.is_project(dir);
+    let projects: BTreeSet<String> = keys.iter().map(|key| owner_dir(key, &is_project)).collect();
+    let mut sources: Vec<String> = projects
+        .iter()
+        .flat_map(|dir| {
+            let mut loaded = bin_stub_sources(layout, dir, read);
+            loaded.extend(published_file_sources(layout, dir, read));
+            loaded
+        })
+        .collect();
+    sources.sort();
+    sources.dedup();
+    let published = files
+        .iter()
+        .filter(|file| projects.contains(&owner_dir(file, &is_project)) && layout.publishes_file(file))
+        .cloned()
+        .collect();
+    (sources, published)
+}
+
+/// `<file>|<export>` for every export that one of the published files `published` re-exports from another file,
+/// followed through the files in between ([`entry_reexports`]), without the published files themselves, whose own
+/// findings `published-file` takes.
+fn published_file_reexports(
+    published: Vec<String>,
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let own: Vec<String> = published.iter().map(|file| format!("{file}|{WHOLE_MODULE}")).collect();
+    let mut credits = entry_reexports(published, resolver, read);
+    for key in &own {
+        credits.remove(key);
+    }
+    credits
 }
 
 /// `<file>|<export>` for every export that the files of `files` import ([`import_credits`]) from where skif's analysis
@@ -2870,6 +2980,8 @@ struct Classifier<'a> {
     /// The JavaScript files only skif reports unused that an import names beside a TypeScript twin
     /// (`typescript_twin_files`).
     typescript_twins: &'a BTreeSet<String>,
+    /// The facts of the deviations that follow from how knip reads a module ([`KnipReadSets`]).
+    knip_reads: &'a KnipReadSets,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     /// knip ran with the harness's empty configuration instead of the repository's own.
@@ -2928,6 +3040,7 @@ impl Classifier<'_> {
                     (TYPE_CATEGORIES.contains(&category) && self.module_object_types.contains(key))
                         .then_some(MODULE_OBJECT_TYPES)
                 })
+                .or_else(|| self.knip_read_credit(category, key))
                 .or_else(|| {
                     (MEMBER_CATEGORIES.contains(&category) && self.type_referenced_members.contains(key))
                         .then_some(TYPE_REFERENCED_MEMBERS)
@@ -2953,6 +3066,10 @@ impl Classifier<'_> {
             .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
             .or_else(|| self.published_source(category, key).then_some(PUBLISHED_SOURCE))
             .or_else(|| self.published_file(category, path).then_some(PUBLISHED_FILE))
+            .or_else(|| {
+                (EXPORT_LABELS.contains(&category) && credited(&self.knip_reads.ng_package_reexports, key))
+                    .then_some(NG_PACKAGE_ENTRY)
+            })
             .or_else(|| {
                 (category == "duplicates" && self.layout.is_entry_module(path)).then_some(ENTRY_MODULE_DUPLICATE)
             })
@@ -2983,6 +3100,10 @@ impl Classifier<'_> {
             })
             .or_else(|| self.unread_load(category, key))
             .or_else(|| {
+                (EXPORT_LABELS.contains(&category) && credited(&self.knip_reads.import_types, key))
+                    .then_some(IMPORT_TYPE_QUALIFIER)
+            })
+            .or_else(|| {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
             })
             .or_else(|| (category == "enumMembers" && self.whole_enum_members.contains(key)).then_some(WHOLE_ENUM_USE))
@@ -2992,6 +3113,30 @@ impl Classifier<'_> {
             })
             .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
             .or_else(config_error)
+    }
+
+    /// The deviation an export or type only skif reports is when knip credits it through a read skif makes otherwise
+    /// ([`KnipReadSets`]): an opaque or bound `import()`, a `jest.requireActual`, namespace imports only spy calls
+    /// read, a namespace import's name held by an array literal or `Object.keys`, a namespace re-export, a `CommonJS`
+    /// export of a file that is no JavaScript file, or a file knip's `node` plugin makes an entry.
+    fn knip_read_credit(&self, category: &str, key: &str) -> Option<&'static str> {
+        if !EXPORT_LABELS.contains(&category) {
+            return None;
+        }
+        let reads = self.knip_reads;
+        let value = VALUE_EXPORT_CATEGORIES.contains(&category);
+        [
+            (&reads.opaque_imports, OPAQUE_DYNAMIC_IMPORT),
+            (&reads.import_defaults, DYNAMIC_IMPORT_DEFAULT),
+            (&reads.required_actuals, JEST_REQUIRE_ACTUAL),
+            (&reads.spied_namespaces, SPIED_NAMESPACE),
+            (&reads.enumerated_namespaces, ENUMERATED_NAMESPACE),
+        ]
+        .into_iter()
+        .find_map(|(credits, id)| credited(credits, key).then_some(id))
+        .or_else(|| (value && reads.namespace_reexports.contains(key)).then_some(NAMESPACE_REEXPORT))
+        .or_else(|| (value && reads.typescript_commonjs.contains(key)).then_some(TYPESCRIPT_COMMONJS_EXPORT))
+        .or_else(|| reads.node_test_files.contains(key_path(key)).then_some(NODE_TEST_ENTRY))
     }
 
     /// The deviation a finding only knip reports is when skif loads its file, or reads its export, through code knip
@@ -3024,8 +3169,9 @@ impl Classifier<'_> {
         match side {
             Side::Skif if category == "files" => self.declaration_reach.contains(path),
             Side::Skif => {
-                (EXPORT_LABELS.contains(&category) || MEMBER_CATEGORIES.contains(&category))
-                    && self.tsconfig_declarations.contains(path)
+                ((EXPORT_LABELS.contains(&category) || MEMBER_CATEGORIES.contains(&category))
+                    && self.tsconfig_declarations.contains(path))
+                    || (EXPORT_LABELS.contains(&category) && credited(&self.knip_reads.declaration_reexports, key))
             }
             Side::Tool => IMPORT_CATEGORIES.contains(&category) && self.unimported_declarations.contains(path),
         }
@@ -3869,6 +4015,53 @@ fn module_objects(keys: &BTreeSet<String>, credits: &BTreeSet<String>) -> BTreeS
     keys.iter().filter(|key| credited(credits, key)).cloned().collect()
 }
 
+/// `<file>|*` for every file that a code file of `files` uses as a whole through a named or default import of a
+/// namespace re-export that escapes ([`whole_uses`]: `export * as listSearch from './listSearch'` in `methods/index.ts`
+/// and `methods = { listSearch }` after `import { listSearch } from './methods'`), and for the exports such a file
+/// re-exports, followed through the files in between ([`follow_reexports`]). Only the files holding `export * as ` are
+/// parsed for the re-exported names, and only the files whose text holds one of those names for their uses; `read`
+/// gives a file's source.
+fn namespace_reexport_object_credits(
+    files: &[String],
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let parsed = |file: &str, marker: &dyn Fn(&str) -> bool| {
+        read(file)
+            .filter(|source| marker(source.as_str()))
+            .and_then(|source| parse_module(Path::new(file), &source, &options).ok())
+    };
+    let names: BTreeSet<String> = files
+        .iter()
+        .filter_map(|file| parsed(file, &|source: &str| source.contains("export * as ")))
+        .flat_map(|module| {
+            module
+                .exports
+                .into_iter()
+                .filter(|export| export.kind == ExportKind::StarReExport && export.name != WHOLE_MODULE)
+                .map(|export| export.name)
+        })
+        .collect();
+    if names.is_empty() {
+        return BTreeSet::new();
+    }
+    let mentions_a_name = |source: &str| names.iter().any(|name| source.contains(name.as_str()));
+    let seeds: Vec<(String, String)> = files
+        .iter()
+        .filter_map(|file| parsed(file, &mentions_a_name).map(|module| whole_uses(file, &module, resolver)))
+        .flatten()
+        .filter(|(_, name)| names.contains(name))
+        .collect();
+    follow_reexports(seeds, resolver, read)
+        .into_iter()
+        .filter(|credit| credit.ends_with(&format!("|{WHOLE_MODULE}")))
+        .collect()
+}
+
 /// `<manifest>|<package>` for every dependency of the projects in `dirs` that skif's Heft support credits (ADR 0037),
 /// with the peers of those ([`with_peer_credits`]): in a project where the `heft` plugin is enabled, what it references
 /// ([`project_plugins`]), and what any plugin references from a file of a rig profile ([`in_rig_profile`]), such as the
@@ -3920,7 +4113,8 @@ fn in_rig_profile(relative: &str) -> bool {
 
 /// The specifiers of the `require` calls in `text` whose result a TypeScript `as` asserts a type of
 /// (`require('./x') as typeof import('./x')`), read from the text: `require(` not preceded by a name character, a
-/// quoted specifier, `)` and `as` followed by whitespace.
+/// quoted specifier (also a template literal without a substitution, ``require(`./x`)``), `)` and `as` followed by
+/// whitespace.
 fn type_asserted_requires(text: &str) -> Vec<&str> {
     const CALL: &str = "require(";
     let mut found = Vec::new();
@@ -3933,11 +4127,14 @@ fn type_asserted_requires(text: &str) -> Vec<&str> {
             continue;
         }
         let rest = text[at + CALL.len()..].trim_start();
-        let Some(quote) = rest.chars().next().filter(|c| matches!(*c, '\'' | '"')) else {
+        let Some(quote) = rest.chars().next().filter(|c| matches!(*c, '\'' | '"' | '`')) else {
             continue;
         };
         let body = &rest[1..];
         let Some(end) = body.find(quote) else { continue };
+        if body[..end].contains("${") {
+            continue;
+        }
         let asserted = body[end + 1..]
             .trim_start()
             .strip_prefix(')')
@@ -4321,6 +4518,715 @@ fn type_referenced_members(
         })
         .cloned()
         .collect()
+}
+
+/// The facts of the known deviations that follow from how knip reads a module where skif reads it otherwise
+/// (ADR 0060). Each credit is `<file>|<export>` (`<file>|*` for every export of the file), followed through the
+/// `export … from` and `export *` re-exports of the files in between ([`follow_reexports`]).
+#[derive(Default)]
+struct KnipReadSets {
+    /// `<file>|*` for every file an `import()` that knip reads as opaque loads ([`knip_read_credits`]).
+    opaque_imports: BTreeSet<String>,
+    /// `<file>|default` for every file an `import()` that knip binds to one name loads.
+    import_defaults: BTreeSet<String>,
+    /// `<file>|*` for every file a `jest.requireActual` loads.
+    required_actuals: BTreeSet<String>,
+    /// `<file>|*` for every file whose namespace imports only spy calls read.
+    spied_namespaces: BTreeSet<String>,
+    /// `<file>|*` for every file a namespace import of which an array literal or `Object.keys` holds by its name.
+    enumerated_namespaces: BTreeSet<String>,
+    /// `<file>|<export>` for every export a qualified import type names (`import('./x').Name`).
+    import_types: BTreeSet<String>,
+    /// The `exports` and `nsExports` keys only skif reports that name an `export * as X from` of their file
+    /// ([`namespace_reexport_keys`]).
+    namespace_reexports: BTreeSet<String>,
+    /// The `exports` and `nsExports` keys only skif reports that a `CommonJS` assignment of a file that is no
+    /// JavaScript file exports ([`typescript_commonjs_keys`]).
+    typescript_commonjs: BTreeSet<String>,
+    /// `<file>|<export>` for every export a declaration file of `tsconfig_declarations` re-exports
+    /// ([`entry_reexports`]).
+    declaration_reexports: BTreeSet<String>,
+    /// The files of exports and types only skif reports that knip's `node` plugin makes entries
+    /// ([`node_test_files`]).
+    node_test_files: BTreeSet<String>,
+    /// `<file>|<export>` for every export an entry point an `ng_package` names re-exports, with `<entry>|*` for each
+    /// ([`ng_package_entries`], [`entry_reexports`]).
+    ng_package_reexports: BTreeSet<String>,
+}
+
+/// The methods of `Object` that knip's call visitor takes for a whole read of a namespace they are given.
+const ENUMERATING_METHODS: [&str; 4] = ["keys", "values", "entries", "getOwnPropertyNames"];
+
+/// The extensions of the files knip reads `CommonJS` export assignments in (`isJS` in its
+/// `typescript/visitors/walk.js`).
+const JAVASCRIPT_EXTENSIONS: [&str; 4] = ["js", "mjs", "cjs", "jsx"];
+
+/// The texts a file must hold for [`knip_read_credits`] to parse it.
+const KNIP_READ_MARKERS: [&str; 3] = ["import(", "requireActual", "* as "];
+
+/// What knip's visitors take from one code file where skif's parser reads it otherwise, read with oxc as knip reads
+/// its own oxc tree (parentheses kept): the `import()` expressions it binds to names and those it reads as opaque, the
+/// `jest.requireActual` calls of its Jest plugin, the names spy calls, array literals and `Object.keys` take, the
+/// qualified import types and the `CommonJS` export assignments.
+#[derive(Default)]
+struct KnipReads {
+    /// The local names of `vi` imported from `vitest`, which knip's Vitest mock visitor reads.
+    vi_names: BTreeSet<String>,
+    /// The local names of `jest`, the global and the import from `@jest/globals`, which knip's Jest mock visitor reads.
+    jest_names: BTreeSet<String>,
+    /// The start offsets of the `import()` expressions knip binds: in a declarator, through `.then`, in an awaited
+    /// `Promise.all` given to an array pattern, returned by a callback argument, or named by a `vi.mock` that it reads
+    /// for side effects (`handledImportExpressions` in knip).
+    bound: BTreeSet<u32>,
+    /// The specifiers of the other `import()` expressions with a literal specifier, which knip reads as opaque.
+    opaque: Vec<String>,
+    /// The specifiers of the `import()` expressions knip binds to one name, which it records as an import of `default`.
+    defaults: Vec<String>,
+    /// The specifiers of the `jest.requireActual` calls, which knip's Jest plugin reads as opaque.
+    required_actuals: Vec<String>,
+    /// The names a spy call takes as its object (`vi.spyOn(ns, 'a')`, `spyOn(ns, 'a')`), with the members it spies on.
+    spied: BTreeMap<String, BTreeSet<String>>,
+    /// The names read as the object of a member expression (`ns.a`, `ns['a']`) or destructured (`const { a } = ns`).
+    member_objects: BTreeSet<String>,
+    /// The names an array literal holds or an `Object.keys` (`values`, `entries`, `getOwnPropertyNames`) call takes.
+    enumerated: BTreeSet<String>,
+    /// `(specifier, name)` for each qualified import type, `import('./x').Name` (also `.Name.Member`).
+    import_types: Vec<(String, String)>,
+    /// The names that `exports.x = …`, `module.exports.x = …` and `module.exports = { a, b }` (all properties
+    /// shorthand) export, as skif's parser reads them.
+    commonjs_exports: BTreeSet<String>,
+}
+
+impl KnipReads {
+    /// Records the `import()` at `start` of `specifier` as bound, and as an import of `default` when `one_name` binds
+    /// it to one name.
+    fn bind(&mut self, start: u32, specifier: String, one_name: bool) {
+        self.bound.insert(start);
+        if one_name {
+            self.defaults.push(specifier);
+        }
+    }
+
+    /// What knip's `handleVariableDeclarator` binds: an `import()` or awaited `import()` given to an object pattern,
+    /// or, awaited, to one name; each `import()` of an awaited `Promise.all([...])` given to an array pattern, before a
+    /// spread; and a name destructured, whose members it reads.
+    fn read_declarator(&mut self, id: &BindingPattern<'_>, init: &Expression<'_>) {
+        let (inner, awaited) = match init {
+            Expression::AwaitExpression(awaited) => (&awaited.argument, true),
+            other => (other, false),
+        };
+        if let Some((start, specifier)) = literal_import(inner) {
+            match id {
+                BindingPattern::ObjectPattern(_) => self.bind(start, specifier, false),
+                BindingPattern::BindingIdentifier(_) if awaited => self.bind(start, specifier, true),
+                _ => {}
+            }
+            return;
+        }
+        if let (BindingPattern::ArrayPattern(pattern), true) = (id, awaited)
+            && let Some(elements) = promise_all_elements(inner)
+        {
+            for (at, element) in elements.iter().enumerate() {
+                if matches!(element, ArrayExpressionElement::SpreadElement(_)) {
+                    break;
+                }
+                let Some((start, specifier)) = element.as_expression().and_then(literal_import) else {
+                    continue;
+                };
+                let one_name = matches!(
+                    pattern.elements.get(at),
+                    Some(Some(BindingPattern::BindingIdentifier(_)))
+                );
+                self.bind(start, specifier, one_name);
+            }
+        }
+        if let (BindingPattern::ObjectPattern(_), Some(name)) = (id, identifier_name(init)) {
+            self.member_objects.insert(name.to_owned());
+        }
+    }
+
+    /// What knip reads from a call: `import(x).then(callback)` with a callback whose first parameter is one name or an
+    /// object pattern (`handleImportThen`), a `vi.mock(import(x), () => ({ … }))` it reads for side effects (its
+    /// Vitest plugin), `jest.requireActual(x)` (its Jest plugin), the names `Object.keys` and its kin take, a spy call
+    /// on a name, and a callback argument that returns an `import()` (a loader).
+    fn read_call(&mut self, call: &CallExpression<'_>) {
+        let argument = |at: usize| call.arguments.get(at).and_then(Argument::as_expression);
+        if let Expression::StaticMemberExpression(callee) = &call.callee {
+            let method = callee.property.name.as_str();
+            let object = identifier_name(&callee.object);
+            if method == "then"
+                && let Some((start, specifier)) = literal_import(&callee.object)
+                && let Some(one_name) = argument(0).and_then(callback_binding)
+            {
+                self.bind(start, specifier, one_name);
+            }
+            if method == "mock"
+                && object.is_some_and(|name| self.vi_names.contains(name))
+                && let Some((start, specifier)) = argument(0).and_then(literal_import)
+                && argument(1).is_some_and(is_object_factory)
+            {
+                self.bind(start, specifier, false);
+            }
+            if method == "requireActual"
+                && object.is_some_and(|name| self.jest_names.contains(name))
+                && let Some(specifier) = argument(0).and_then(literal_text)
+            {
+                self.required_actuals.push(specifier);
+            }
+            if object == Some("Object") && ENUMERATING_METHODS.contains(&method) {
+                self.enumerated.extend(
+                    call.arguments
+                        .iter()
+                        .filter_map(Argument::as_expression)
+                        .filter_map(identifier_name)
+                        .map(str::to_owned),
+                );
+                return;
+            }
+        }
+        if is_spy_callee(&call.callee)
+            && let Some(object) = argument(0).and_then(identifier_name)
+            && let Some(member) = argument(1).and_then(literal_text)
+        {
+            self.spied.entry(object.to_owned()).or_default().insert(member);
+        }
+        for loaded in call.arguments.iter().filter_map(|passed| match passed {
+            Argument::ArrowFunctionExpression(arrow) => arrow.body.as_expression(),
+            _ => None,
+        }) {
+            let returned = match loaded {
+                Expression::AwaitExpression(awaited) => &awaited.argument,
+                other => other,
+            };
+            if let Some((start, specifier)) = literal_import(returned) {
+                self.bind(start, specifier, false);
+            }
+        }
+    }
+}
+
+impl<'a> Visit<'a> for KnipReads {
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(init) = &it.init {
+            self.read_declarator(&it.id, init);
+        }
+        walk::walk_variable_declarator(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.read_call(it);
+        walk::walk_call_expression(self, it);
+    }
+
+    fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
+        if !self.bound.contains(&it.span.start)
+            && let Some(specifier) = literal_text(&it.source)
+        {
+            self.opaque.push(specifier);
+        }
+        walk::walk_import_expression(self, it);
+    }
+
+    fn visit_array_expression(&mut self, it: &ArrayExpression<'a>) {
+        self.enumerated.extend(
+            it.elements
+                .iter()
+                .filter_map(ArrayExpressionElement::as_expression)
+                .filter_map(identifier_name)
+                .map(str::to_owned),
+        );
+        walk::walk_array_expression(self, it);
+    }
+
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        if let Some(name) = identifier_name(&it.object) {
+            self.member_objects.insert(name.to_owned());
+        }
+        walk::walk_static_member_expression(self, it);
+    }
+
+    fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
+        if let Some(name) = identifier_name(&it.object) {
+            self.member_objects.insert(name.to_owned());
+        }
+        walk::walk_computed_member_expression(self, it);
+    }
+
+    fn visit_ts_import_type(&mut self, it: &TSImportType<'a>) {
+        if let (Some(specifier), Some(qualifier)) = (it.source.value.as_str(), &it.qualifier) {
+            self.import_types
+                .push((specifier.to_owned(), qualifier_head(qualifier).to_owned()));
+        }
+        walk::walk_ts_import_type(self, it);
+    }
+
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        if it.operator == AssignmentOperator::Assign
+            && let AssignmentTarget::StaticMemberExpression(target) = &it.left
+        {
+            self.commonjs_exports.extend(commonjs_names(target, &it.right));
+        }
+        walk::walk_assignment_expression(self, it);
+    }
+}
+
+/// The name of `expr` when it is a plain identifier.
+fn identifier_name<'e>(expr: &'e Expression<'_>) -> Option<&'e str> {
+    match expr {
+        Expression::Identifier(id) => Some(id.name.as_str()),
+        _ => None,
+    }
+}
+
+/// The text of a string literal, or of a template literal without a substitution, as knip's `isStringLiteral` and
+/// `getStringValue` read one.
+fn literal_text(expr: &Expression<'_>) -> Option<String> {
+    match expr {
+        Expression::StringLiteral(literal) => literal.value.as_str().map(str::to_owned),
+        Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
+            template.quasis.first().map(|quasi| quasi.value.raw.as_str().to_owned())
+        }
+        _ => None,
+    }
+}
+
+/// The start offset and the literal specifier of `expr` when it is an `import()` of one.
+fn literal_import(expr: &Expression<'_>) -> Option<(u32, String)> {
+    let Expression::ImportExpression(import) = expr else {
+        return None;
+    };
+    literal_text(&import.source).map(|specifier| (import.span.start, specifier))
+}
+
+/// The elements of the array literal that `Promise.all([...])` takes when `expr` is such a call.
+fn promise_all_elements<'e, 'a>(expr: &'e Expression<'a>) -> Option<&'e [ArrayExpressionElement<'a>]> {
+    let Expression::CallExpression(call) = expr else {
+        return None;
+    };
+    let Expression::StaticMemberExpression(callee) = &call.callee else {
+        return None;
+    };
+    if identifier_name(&callee.object) != Some("Promise") || callee.property.name.as_str() != "all" {
+        return None;
+    }
+    match call.arguments.first() {
+        Some(Argument::ArrayExpression(array)) => Some(&array.elements[..]),
+        _ => None,
+    }
+}
+
+/// Whether the first parameter of a callback (an arrow or a function expression) binds one name (`Some(true)`) or an
+/// object pattern (`Some(false)`), the parameters knip's `handleImportThen` binds an `import()` to; `None` for any
+/// other.
+fn callback_binding(expr: &Expression<'_>) -> Option<bool> {
+    let params = match expr {
+        Expression::ArrowFunctionExpression(arrow) => &arrow.params,
+        Expression::FunctionExpression(function) => &function.params,
+        _ => return None,
+    };
+    match params
+        .items
+        .first()
+        .filter(|param| param.initializer.is_none())
+        .map(|param| &param.pattern)
+    {
+        Some(BindingPattern::BindingIdentifier(_)) => Some(true),
+        Some(BindingPattern::ObjectPattern(_)) => Some(false),
+        _ => None,
+    }
+}
+
+/// Whether `expr` is the factory knip's Vitest mock visitor reads a `vi.mock(import(x), factory)` for side effects
+/// with: a synchronous arrow without parameters that returns a parenthesised object literal without a spread.
+fn is_object_factory(expr: &Expression<'_>) -> bool {
+    let Expression::ArrowFunctionExpression(arrow) = expr else {
+        return false;
+    };
+    if arrow.r#async || !arrow.params.items.is_empty() || arrow.params.rest.is_some() {
+        return false;
+    }
+    let Some(Expression::ParenthesizedExpression(body)) = arrow.body.as_expression() else {
+        return false;
+    };
+    let Expression::ObjectExpression(object) = &body.expression else {
+        return false;
+    };
+    !object
+        .properties
+        .iter()
+        .any(|property| matches!(property, ObjectPropertyKind::SpreadProperty(_)))
+}
+
+/// Whether `callee` is a test runner's spy on a named member, as skif's parser reads one (`spy_target` in
+/// `crates/skif-js-syntax/src/members.rs`): `vi.spyOn`, `jest.spyOn` (any `.spyOn`) and Jasmine's `spyOn`.
+fn is_spy_callee(callee: &Expression<'_>) -> bool {
+    match callee {
+        Expression::StaticMemberExpression(member) => member.property.name.as_str() == "spyOn",
+        Expression::Identifier(id) => id.name.as_str() == "spyOn",
+        _ => false,
+    }
+}
+
+/// The export a qualified import type names: `A` for `import('x').A` and for `import('x').A.B`.
+fn qualifier_head<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> &'q str {
+    match qualifier {
+        TSImportTypeQualifier::Identifier(name) => name.name.as_str(),
+        TSImportTypeQualifier::QualifiedName(path) => qualifier_head(&path.left),
+    }
+}
+
+/// The names an assignment to `target` of `right` exports as skif's parser reads `CommonJS` exports: the property of
+/// `exports.x` and `module.exports.x`, and the keys of `module.exports = { a, b }` when every property is shorthand.
+fn commonjs_names(target: &StaticMemberExpression<'_>, right: &Expression<'_>) -> Vec<String> {
+    let property = target.property.name.as_str();
+    let module_exports = |expr: &Expression<'_>| {
+        matches!(expr, Expression::StaticMemberExpression(member)
+            if identifier_name(&member.object) == Some("module") && member.property.name.as_str() == "exports")
+    };
+    if identifier_name(&target.object) == Some("exports") || module_exports(&target.object) {
+        return vec![property.to_owned()];
+    }
+    if identifier_name(&target.object) != Some("module") || property != "exports" {
+        return Vec::new();
+    }
+    let Expression::ObjectExpression(object) = right.get_inner_expression() else {
+        return Vec::new();
+    };
+    object
+        .properties
+        .iter()
+        .map(|property| match property {
+            ObjectPropertyKind::ObjectProperty(property) if property.shorthand => match &property.key {
+                PropertyKey::StaticIdentifier(key) => Some(key.name.as_str().to_owned()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Option<Vec<String>>>()
+        .unwrap_or_default()
+}
+
+/// What knip reads in the code file `path` ([`KnipReads`]), parsed with oxc, with the local names of `vi` and `jest`
+/// that `module`, skif's parse of the file, imports ([`test_runner_names`]); `None` for a file oxc has no source type
+/// for.
+fn knip_reads(path: &str, source: &str, module: Option<&ModuleInfo>) -> Option<KnipReads> {
+    let source_type = SourceType::from_path(path).ok()?;
+    let (vi_names, jest_names) = test_runner_names(module);
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, source_type).parse();
+    let mut reads = KnipReads {
+        vi_names,
+        jest_names,
+        ..KnipReads::default()
+    };
+    reads.visit_program(&parsed.program);
+    Some(reads)
+}
+
+/// The local names of `vi` imported from `vitest`, and of `jest`: the global and the import from `@jest/globals`.
+fn test_runner_names(module: Option<&ModuleInfo>) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut vi = BTreeSet::new();
+    let mut jest = BTreeSet::from(["jest".to_owned()]);
+    for import in module.into_iter().flat_map(|module| &module.imports) {
+        let (names, wanted) = match import.specifier.as_str() {
+            "vitest" => (&mut vi, "vi"),
+            "@jest/globals" => (&mut jest, "jest"),
+            _ => continue,
+        };
+        names.extend(import.names.iter().filter_map(|name| match &name.kind {
+            ImportedKind::Named(export) if export == wanted => name.local.clone(),
+            _ => None,
+        }));
+    }
+    (vi, jest)
+}
+
+/// The credits of the uses knip reads in the code files of `files` ([`knip_reads`]) where skif reads otherwise, each
+/// followed through re-exports ([`follow_reexports`]), filling the `opaque_imports`, `import_defaults`,
+/// `required_actuals`, `spied_namespaces`, `enumerated_namespaces` and `import_types` of [`KnipReadSets`]:
+///
+/// * an `import()` knip reads as opaque, and a `jest.requireActual`, credit every export of the module they load,
+///   types included (knip's `OPAQUE` import); an `import()` knip binds to one name credits its `default`;
+/// * a namespace import (`import * as ns`) whose name an array literal holds or `Object.keys` takes credits every
+///   export of its module, whatever the name refers to there: knip's `ArrayExpression` visitor and its `Object.keys`
+///   branch mark the namespace opaque without checking whether a parameter or variable shadows it;
+/// * the namespace imports of a module that only spy calls read (`vi.spyOn(ns, 'a')`, read for skif as a use of `a`;
+///   for knip a reference of `ns` as a whole), when no namespace import of the module is read through a member
+///   otherwise, credit every export of the module: knip skips the exports and types of a module whose namespace
+///   imports are all referenced as a whole while `nsExports` and `nsTypes` are not reported (`hasStrictlyNsReferences`
+///   in its `graph/analyze.js`);
+/// * a qualified import type credits the export it names (`import('./x').A`), which skif's parser reads as a use of
+///   `A` and knip as an import of the module for its side effects (its `TSImportType` visitor).
+///
+/// Only the files holding one of [`KNIP_READ_MARKERS`] are parsed; `read` gives a file's source.
+fn knip_read_credits(files: &[String], resolver: &Resolver<'_>, read: &SourceReader<'_>) -> KnipReadSets {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let (mut opaque, mut defaults, mut actuals) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut enumerated, mut import_types) = (Vec::new(), Vec::new());
+    let mut spied: BTreeSet<String> = BTreeSet::new();
+    let mut read_otherwise: BTreeSet<String> = BTreeSet::new();
+    for file in files {
+        let Some(source) = read(file) else { continue };
+        if !KNIP_READ_MARKERS.iter().any(|marker| source.contains(marker)) {
+            continue;
+        }
+        let module = parse_module(Path::new(file), &source, &options).ok();
+        let Some(reads) = knip_reads(file, &source, module.as_ref()) else {
+            continue;
+        };
+        let credited_in = |specifiers: &[String], name: &str| -> Vec<(String, String)> {
+            specifiers
+                .iter()
+                .filter_map(|specifier| resolver.resolve(file, specifier))
+                .map(|target| (target, name.to_owned()))
+                .collect()
+        };
+        opaque.extend(credited_in(&reads.opaque[..], WHOLE_MODULE));
+        defaults.extend(credited_in(&reads.defaults[..], "default"));
+        actuals.extend(credited_in(&reads.required_actuals[..], WHOLE_MODULE));
+        import_types.extend(
+            reads
+                .import_types
+                .iter()
+                .filter_map(|(specifier, name)| resolver.resolve(file, specifier).map(|target| (target, name.clone()))),
+        );
+        let Some(module) = module else { continue };
+        for (import, target) in module_targets(file, &module, resolver) {
+            if !matches!(import.kind, ImportKind::Static | ImportKind::Dynamic) {
+                continue;
+            }
+            for name in &import.names {
+                let (ImportedKind::Namespace, Some(local)) = (&name.kind, &name.local) else {
+                    continue;
+                };
+                if reads.enumerated.contains(local) {
+                    enumerated.push((target.clone(), WHOLE_MODULE.to_owned()));
+                }
+                let spy_only = reads.spied.get(local).is_some_and(|members| {
+                    !name.escapes
+                        && !reads.member_objects.contains(local)
+                        && name.accessed_members.iter().all(|member| members.contains(member))
+                });
+                if spy_only {
+                    spied.insert(target.clone());
+                } else if reads.member_objects.contains(local) || !name.accessed_members.is_empty() {
+                    read_otherwise.insert(target.clone());
+                }
+            }
+        }
+    }
+    let spied_seeds: Vec<(String, String)> = spied
+        .difference(&read_otherwise)
+        .map(|target| (target.clone(), WHOLE_MODULE.to_owned()))
+        .collect();
+    KnipReadSets {
+        opaque_imports: follow_reexports(opaque, resolver, read),
+        import_defaults: follow_reexports(defaults, resolver, read),
+        required_actuals: follow_reexports(actuals, resolver, read),
+        spied_namespaces: follow_reexports(spied_seeds, resolver, read),
+        enumerated_namespaces: follow_reexports(enumerated, resolver, read),
+        import_types: follow_reexports(import_types, resolver, read),
+        ..KnipReadSets::default()
+    }
+}
+
+/// The keys of `keys` (`<file>|<export>`, exports and namespace exports only skif reports) whose file exports the name
+/// as a namespace re-export (`export * as X from './x'`, also of the file itself): knip records an `export … from` as
+/// a re-export of the source module and never lists it among the file's own exports, so it never reports one unused.
+/// `read` gives a file's source; a file it cannot read or parse has none.
+fn namespace_reexport_keys(keys: &BTreeSet<String>, read: &SourceReader<'_>) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    let mut modules: BTreeMap<&str, Option<ModuleInfo>> = BTreeMap::new();
+    keys.iter()
+        .filter(|key| {
+            let Some((path, name)) = key.split_once('|') else {
+                return false;
+            };
+            modules
+                .entry(path)
+                .or_insert_with(|| {
+                    read(path)
+                        .filter(|source| source.contains("export * as "))
+                        .and_then(|source| parse_module(Path::new(path), &source, &options).ok())
+                })
+                .as_ref()
+                .is_some_and(|module| {
+                    name != WHOLE_MODULE
+                        && module
+                            .exports
+                            .iter()
+                            .any(|export| export.kind == ExportKind::StarReExport && export.name == name)
+                })
+        })
+        .cloned()
+        .collect()
+}
+
+/// The keys of `keys` (`<file>|<export>`, exports and namespace exports only skif reports) in a code file that is no
+/// JavaScript file ([`JAVASCRIPT_EXTENSIONS`]) whose `CommonJS` assignments export the name, as oxc reads them
+/// ([`KnipReads`]): knip records `exports.x = …` and the other `CommonJS` exports in JavaScript files only. `read`
+/// gives a file's source; only the files holding `exports` are parsed.
+fn typescript_commonjs_keys(keys: &BTreeSet<String>, read: &SourceReader<'_>) -> BTreeSet<String> {
+    let mut exported: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    keys.iter()
+        .filter(|key| {
+            let Some((path, name)) = key.split_once('|') else {
+                return false;
+            };
+            let extension = path.rsplit_once('.').map_or("", |(_, extension)| extension);
+            if JAVASCRIPT_EXTENSIONS.contains(&extension) {
+                return false;
+            }
+            exported
+                .entry(path)
+                .or_insert_with(|| {
+                    read(path)
+                        .filter(|source| source.contains("exports"))
+                        .and_then(|source| knip_reads(path, &source, None))
+                        .map_or_else(BTreeSet::new, |reads| reads.commonjs_exports)
+                })
+                .contains(name)
+        })
+        .cloned()
+        .collect()
+}
+
+/// The file name patterns knip's `node` plugin makes entries of a workspace with when a script of the workspace's or
+/// the root's manifest runs `node --test` (`patterns` in its `plugins/node/index.js`), as tests on a path relative to
+/// the workspace: `**/*{.,-,_}test.<ext>`, `**/test-*.<ext>`, `**/test.<ext>` and `**/test/**/*.<ext>`, each
+/// extension one of these.
+const NODE_TEST_EXTENSIONS: [&str; 6] = ["cjs", "mjs", "js", "cts", "mts", "ts"];
+
+/// Whether `relative`, a path below a workspace with `/` separators, matches one of the patterns of knip's `node`
+/// plugin ([`NODE_TEST_EXTENSIONS`]). A hidden file matches none, as the glob's `*` matches no leading dot.
+fn is_node_test_file(relative: &str) -> bool {
+    let Some((stem_path, extension)) = relative.rsplit_once('.') else {
+        return false;
+    };
+    let (dirs, stem) = stem_path.rsplit_once('/').unwrap_or(("", stem_path));
+    if !NODE_TEST_EXTENSIONS.contains(&extension) || stem.starts_with('.') {
+        return false;
+    }
+    dirs.split('/').any(|segment| segment == "test")
+        || stem == "test"
+        || stem.starts_with("test-")
+        || [".test", "-test", "_test"].iter().any(|suffix| stem.ends_with(suffix))
+}
+
+/// Whether a script of `manifest` runs `node --test` (also `nub --test`), as knip's `node` plugin (`hasNodeTest`)
+/// reads its commands: each command of a `&&`, `||`, `;`, `&` or `|` chain, after its leading environment assignments,
+/// whose program is `node` or `nub` and one of whose arguments is `--test`.
+fn runs_node_test(manifest: &Value) -> bool {
+    let Some(scripts) = manifest.get("scripts").and_then(Value::as_object) else {
+        return false;
+    };
+    scripts.values().filter_map(Value::as_str).any(|script| {
+        script.split(['&', '|', ';']).any(|command| {
+            let mut words = command.split_whitespace().skip_while(|word| is_env_assignment(word));
+            words.next().is_some_and(|program| matches!(program, "node" | "nub")) && words.any(|word| word == "--test")
+        })
+    })
+}
+
+/// Whether `word` is an environment assignment that leads a shell command (`NODE_ENV=test`).
+fn is_env_assignment(word: &str) -> bool {
+    word.split_once('=')
+        .is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+}
+
+/// The files of `keys` (`<file>|<export>`) that knip's `node` plugin makes entries of their workspace: the plugin is
+/// on in every workspace when the root's manifest has a script that runs `node --test`, else in a workspace whose own
+/// manifest has one ([`runs_node_test`]), and makes the files that match its patterns entries ([`is_node_test_file`]),
+/// whose exports knip does not judge.
+fn node_test_files(keys: &BTreeSet<String>, layout: &Layout<'_>) -> BTreeSet<String> {
+    let runs = |dir: &str| (layout.manifest)(dir).is_some_and(|manifest| runs_node_test(&manifest));
+    let root = runs("");
+    let mut workspaces: BTreeMap<String, bool> = BTreeMap::new();
+    keys.iter()
+        .map(|key| key_path(key))
+        .filter(|path| {
+            let workspace = owner_dir(path, &|dir: &str| layout.is_workspace(dir));
+            let on = root || *workspaces.entry(workspace.clone()).or_insert_with(|| runs(&workspace));
+            on && is_node_test_file(below(&workspace, path))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The rule of `rules_angular` that packages Angular libraries for npm, and the attribute that names its entry points
+/// (`NG_PACKAGE` in `crates/skif-js-plugins/src/plugins/bazel.rs`).
+const NG_PACKAGE: (&str, &str) = ("ng_package", "deps");
+
+/// The file of an entry point's Bazel package that skif's Bazel plugin makes a production entry (`NG_ENTRY_FILE`
+/// there).
+const NG_ENTRY_FILE: &str = "index.ts";
+
+/// The entry points the `ng_package` calls of `build_files` name, as skif's Bazel plugin reads them
+/// (`ng_package_entries` there): the [`NG_ENTRY_FILE`] of each Bazel package that a label of its `deps` names
+/// (`//packages/core/primitives/signals`, `:core` for the `BUILD` file's own package) inside the project that owns the
+/// `BUILD` file (`is_project`), when the file exists. Only the `BUILD` files of a Bazel repository that uses `rules_js`
+/// are read ([`rules_js_build_files`]); `read` gives the source of a root file.
+fn ng_package_entries(
+    build_files: &[(String, String)],
+    is_project: &dyn Fn(&str) -> bool,
+    is_file: &FileProbe<'_>,
+    read: &dyn Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let mut found = Vec::new();
+    for (path, source, root) in rules_js_build_files(build_files, is_file, read) {
+        let project = owner_dir(path, is_project);
+        let package = below(root, &project);
+        let bazel_package = below(root, parent_dir(path));
+        for call in rule_calls(source).into_iter().filter(|call| call.rule == NG_PACKAGE.0) {
+            for (_, label) in call.literals.iter().filter(|(attribute, _)| attribute == NG_PACKAGE.1) {
+                let Some(inside) = bazel_label_package(label, bazel_package)
+                    .and_then(|target| within_package(&target, package).map(str::to_owned))
+                else {
+                    continue;
+                };
+                let entry = joined(&joined(&project, &inside), NG_ENTRY_FILE);
+                if is_file(&entry) {
+                    found.push(entry);
+                }
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// The Bazel package, relative to the repository root, of a target `label` of the main repository written in a
+/// `BUILD` file of `bazel_package` (`label_package` in `crates/skif-js-plugins/src/plugins/bazel.rs`): `//pkg`,
+/// `//pkg:target` and `@//pkg` name `pkg`, `:target` and `target` the file's own package. A label of another
+/// repository (`@npm//pkg`) names none.
+fn bazel_label_package(label: &str, bazel_package: &str) -> Option<String> {
+    let main = match label.strip_prefix('@') {
+        Some(after) => after.trim_start_matches('@').strip_prefix("//")?,
+        None => match label.strip_prefix("//") {
+            Some(absolute) => absolute,
+            None => return (!label.is_empty()).then(|| bazel_package.to_owned()),
+        },
+    };
+    Some(main.split_once(':').map_or(main, |(package, _)| package).to_owned())
+}
+
+/// `target`, a directory relative to the repository root, relative to the npm package at `package` (`""` for the
+/// repository root); `None` when it lies outside the package.
+fn within_package<'t>(target: &'t str, package: &str) -> Option<&'t str> {
+    if target == package {
+        return Some("");
+    }
+    if package.is_empty() {
+        return Some(target);
+    }
+    target.strip_prefix(package).and_then(|rest| rest.strip_prefix('/'))
 }
 
 /// Whether `path` is a `BUILD.bazel` or `BUILD` file.
@@ -5292,6 +6198,7 @@ struct Facts {
     type_referenced_members: BTreeSet<String>,
     raw_glob_reach: BTreeSet<String>,
     typescript_twins: BTreeSet<String>,
+    knip_reads: KnipReadSets,
 }
 
 impl Facts {
@@ -5329,7 +6236,9 @@ impl Facts {
                 plugin_entries(&OsFs, root, (dir, root_dirs.contains(dir)), &manifest, &members)
             })
         };
-        let (published, defaults) = entry_modules(&knip_exports, &files, layout, (&root_packages, entries_of));
+        let (mut published, defaults) = entry_modules(&knip_exports, &files, layout, (&root_packages, entries_of));
+        let (loaded_sources, published_files) = published_file_entries(&knip_exports, &files, layout, &read_source);
+        published.extend(loaded_sources);
         let skif_exports_one_sided = IMPORTED_EXPORT_CATEGORIES
             .iter()
             .any(|category| !one_sided(skif, knip, category).is_empty());
@@ -5393,6 +6302,13 @@ impl Facts {
             .iter()
             .map(|file| owner_dir(file, &is_project))
             .collect();
+        let knip_reads = Self::knip_reads(
+            (skif, knip),
+            (&files, &build_files),
+            (layout, &resolver),
+            &tsconfig_declarations,
+            &read_source,
+        );
         Self {
             not_judged: not_judged_dirs(skif_doc),
             foreign_paths: foreign_tsconfig_paths_keys(skif_doc, root),
@@ -5427,7 +6343,11 @@ impl Facts {
                 &resolver,
                 &read_source,
             ),
-            published_reexports: entry_reexports(published, &resolver, &read_source),
+            published_reexports: {
+                let mut credits = entry_reexports(published, &resolver, &read_source);
+                credits.extend(published_file_reexports(published_files, &resolver, &read_source));
+                credits
+            },
             root_entry_reexports: entry_reexports(defaults, &resolver, &read_source),
             non_member_credits,
             skipped_credits,
@@ -5461,7 +6381,13 @@ impl Facts {
                 )
             },
             module_object_types: module_objects(&skif_types, &object_credits),
-            module_object_values: module_objects(&knip_values, &object_credits),
+            module_object_values: if knip_values.is_empty() {
+                BTreeSet::new()
+            } else {
+                let mut credits = namespace_reexport_object_credits(&files, &resolver, &read_source);
+                credits.extend(object_credits.iter().cloned());
+                module_objects(&knip_values, &credits)
+            },
             knip_unused_members: if knip_members.is_empty() {
                 BTreeSet::new()
             } else {
@@ -5511,6 +6437,7 @@ impl Facts {
                 )
             },
             typescript_twins: typescript_twin_files(&skif_only_unused, &files, layout.is_file, &read_source),
+            knip_reads,
             tsconfig_declarations,
             uninstalled_projects: if installed {
                 uninstalled_projects((skif, knip), &is_project, &has_packages)
@@ -5518,6 +6445,53 @@ impl Facts {
                 BTreeSet::new()
             },
             skif_root_packages: root_packages,
+        }
+    }
+
+    /// The facts of the deviations that follow from how knip reads a module ([`KnipReadSets`]): `skif` and `knip`
+    /// are the findings of each side, `files` the checkout's code files and `build_files` its `BUILD` files with their
+    /// sources. Each fact is only gathered when a one-sided finding it can classify exists.
+    fn knip_reads(
+        (skif, knip): (&Keys, &Keys),
+        (files, build_files): (&[String], &[(String, String)]),
+        (layout, resolver): (&Layout<'_>, &Resolver<'_>),
+        tsconfig_declarations: &BTreeSet<String>,
+        read: &SourceReader<'_>,
+    ) -> KnipReadSets {
+        let collect = |own: &Keys, other: &Keys, categories: &[&str]| -> BTreeSet<String> {
+            categories
+                .iter()
+                .flat_map(|category| one_sided(own, other, category))
+                .collect()
+        };
+        let skif_exports = collect(skif, knip, &EXPORT_LABELS);
+        let skif_values = collect(skif, knip, &VALUE_EXPORT_CATEGORIES);
+        let knip_exports = collect(knip, skif, &EXPORT_LABELS);
+        let reads = if skif_exports.is_empty() && knip_exports.is_empty() {
+            KnipReadSets::default()
+        } else {
+            knip_read_credits(files, resolver, read)
+        };
+        let is_project = |dir: &str| layout.is_project(dir);
+        KnipReadSets {
+            namespace_reexports: namespace_reexport_keys(&skif_values, read),
+            typescript_commonjs: typescript_commonjs_keys(&skif_values, read),
+            declaration_reexports: if skif_exports.is_empty() {
+                BTreeSet::new()
+            } else {
+                entry_reexports(tsconfig_declarations.iter().cloned().collect(), resolver, read)
+            },
+            node_test_files: node_test_files(&skif_exports, layout),
+            ng_package_reexports: if knip_exports.is_empty() {
+                BTreeSet::new()
+            } else {
+                entry_reexports(
+                    ng_package_entries(build_files, &is_project, layout.is_file, read),
+                    resolver,
+                    read,
+                )
+            },
+            ..reads
         }
     }
 
@@ -5577,6 +6551,7 @@ impl Facts {
             type_referenced_members: &self.type_referenced_members,
             raw_glob_reach: &self.raw_glob_reach,
             typescript_twins: &self.typescript_twins,
+            knip_reads: &self.knip_reads,
             rush_root,
             replaced_knip_config: !options.repo_knip_config,
             layout,
@@ -7090,6 +8065,19 @@ mod tests {
 
     static NO_PATHS: [String; 0] = [];
     static NO_KEYS: BTreeSet<String> = BTreeSet::new();
+    static NO_READS: KnipReadSets = KnipReadSets {
+        opaque_imports: BTreeSet::new(),
+        import_defaults: BTreeSet::new(),
+        required_actuals: BTreeSet::new(),
+        spied_namespaces: BTreeSet::new(),
+        enumerated_namespaces: BTreeSet::new(),
+        import_types: BTreeSet::new(),
+        namespace_reexports: BTreeSet::new(),
+        typescript_commonjs: BTreeSet::new(),
+        declaration_reexports: BTreeSet::new(),
+        node_test_files: BTreeSet::new(),
+        ng_package_reexports: BTreeSet::new(),
+    };
     static ALL_JUDGED: BTreeMap<String, NotJudgedScope> = BTreeMap::new();
 
     /// A classifier over `layout` that knows nothing of the two reports: no path knip does not read, no package skif
@@ -7143,6 +8131,7 @@ mod tests {
             type_referenced_members: &NO_KEYS,
             raw_glob_reach: &NO_KEYS,
             typescript_twins: &NO_KEYS,
+            knip_reads: &NO_READS,
             rush_root: false,
             replaced_knip_config: false,
             layout,
@@ -10672,8 +11661,10 @@ vi.mock("mocked-package");
                     const c = require('./c');\n\
                     const d = myrequire('./d') as D;\n\
                     const e = require('./e') asserted;\n\
-                    const f = require(name) as F;\n";
-        assert_eq!(type_asserted_requires(text), ["./a", "./b"]);
+                    const f = require(name) as F;\n\
+                    const g = require(\n  `./g`\n) as typeof import('./g');\n\
+                    const h = require(`./${name}`) as H;\n";
+        assert_eq!(type_asserted_requires(text), ["./a", "./b", "./g"]);
     }
 
     #[test]
@@ -11256,6 +12247,678 @@ vi.mock("mocked-package");
                 (Side::Skif, "files", "ex/sum.js", Some(TYPESCRIPT_TWIN)),
                 (Side::Skif, "files", "ex/other.js", None),
                 (Side::Tool, "files", "ex/sum.js", None),
+            ],
+        );
+    }
+
+    /// The [`KnipReadSets`] that [`knip_read_credits`] reads from the code files of `sources`, resolved by relative
+    /// path only.
+    fn knip_read_sets(sources: &BTreeMap<&str, &str>) -> KnipReadSets {
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        knip_read_credits(&files, &resolver, &read)
+    }
+
+    #[test]
+    fn import_expressions_knip_binds_and_those_it_reads_as_opaque_are_told_apart() {
+        let source = "import { vi } from 'vitest';\n\
+                      import('./opaque');\n\
+                      const { a } = await import('./destructured');\n\
+                      const one = await import('./one');\n\
+                      const notAwaited = import('./not-awaited');\n\
+                      import('./then').then((m) => m.x);\n\
+                      import('./then-object').then(({ x }) => x);\n\
+                      const [p, { q }] = await Promise.all([import('./p'), import('./q')]);\n\
+                      vi.mock(import('./mocked'), () => ({ x: 1 }));\n\
+                      vi.mock(import('./spread'), () => ({ ...base }));\n\
+                      lazy(() => import('./lazy'));\n\
+                      import(name);\n";
+        let module = parse_module(
+            Path::new("src/load.ts"),
+            source,
+            &ParseOptions {
+                in_file_references: false,
+                member_accesses: true,
+            },
+        )
+        .ok();
+        let reads = knip_reads("src/load.ts", source, module.as_ref()).unwrap();
+        assert_eq!(reads.opaque, ["./opaque", "./not-awaited", "./spread"]);
+        assert_eq!(reads.defaults, ["./one", "./then", "./p"]);
+    }
+
+    #[test]
+    fn exports_of_a_module_an_opaque_or_bound_import_expression_loads_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/load.ts",
+                "import('./opaque');\nconst one = await import('./one');\n",
+            ),
+            (
+                "src/opaque.ts",
+                "export const a = 1;\nexport type T = 1;\nexport * from './deep';\n",
+            ),
+            ("src/deep.ts", "export const deep = 1;\n"),
+            ("src/one.ts", "export default 1;\nexport const other = 2;\n"),
+            ("src/lonely.ts", "export const lonely = 1;\n"),
+        ]);
+        let reads = knip_read_sets(&sources);
+        assert_eq!(reads.opaque_imports, strings(&["src/deep.ts|*", "src/opaque.ts|*"]));
+        assert_eq!(reads.import_defaults, strings(&["src/one.ts|default"]));
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "exports", "src/opaque.ts|a", Some(OPAQUE_DYNAMIC_IMPORT)),
+                (Side::Skif, "types", "src/opaque.ts|T", Some(OPAQUE_DYNAMIC_IMPORT)),
+                (Side::Skif, "exports", "src/deep.ts|deep", Some(OPAQUE_DYNAMIC_IMPORT)),
+                (
+                    Side::Skif,
+                    "exports",
+                    "src/one.ts|default",
+                    Some(DYNAMIC_IMPORT_DEFAULT),
+                ),
+                (Side::Skif, "exports", "src/one.ts|other", None),
+                (Side::Skif, "exports", "src/lonely.ts|lonely", None),
+                (Side::Skif, "files", "src/opaque.ts", None),
+                (Side::Tool, "exports", "src/opaque.ts|a", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn exports_of_a_module_jest_require_actual_loads_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/a.test.ts",
+                "jest.mock('./utils', () => ({ ...jest.requireActual('./utils') }));\n",
+            ),
+            (
+                "src/b.test.ts",
+                "import { jest as j } from '@jest/globals';\nj.requireActual('./aliased');\n\
+                 other.requireActual('./not-jest');\n",
+            ),
+            ("src/utils.ts", "export type Options = 1;\n"),
+            ("src/aliased.ts", "export const aliased = 1;\n"),
+            ("src/not-jest.ts", "export const notJest = 1;\n"),
+        ]);
+        let reads = knip_read_sets(&sources);
+        assert_eq!(reads.required_actuals, strings(&["src/aliased.ts|*", "src/utils.ts|*"]));
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "types", "src/utils.ts|Options", Some(JEST_REQUIRE_ACTUAL)),
+                (
+                    Side::Skif,
+                    "exports",
+                    "src/aliased.ts|aliased",
+                    Some(JEST_REQUIRE_ACTUAL),
+                ),
+                (Side::Skif, "exports", "src/not-jest.ts|notJest", None),
+                (Side::Tool, "types", "src/utils.ts|Options", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn exports_of_a_module_whose_namespace_imports_only_spy_calls_read_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/a.test.ts",
+                "import * as mail from './mail';\nimport * as util from './util';\nimport * as both from './both';\n\
+                 vi.spyOn(mail, 'send');\nvi.spyOn(util, 'go');\nutil.go();\nspyOn(both, 'x');\n",
+            ),
+            ("src/b.ts", "import * as again from './both';\nconsole.log(again.y);\n"),
+            ("src/mail.ts", "export function send() {}\nexport type Mail = 1;\n"),
+            ("src/util.ts", "export function go() {}\n"),
+            ("src/both.ts", "export const x = 1;\nexport const y = 2;\n"),
+        ]);
+        let reads = knip_read_sets(&sources);
+        assert_eq!(
+            reads.spied_namespaces,
+            strings(&["src/mail.ts|*"]),
+            "a namespace also read through a member, here or in another file, is read as knip reads one"
+        );
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "exports", "src/mail.ts|send", Some(SPIED_NAMESPACE)),
+                (Side::Skif, "types", "src/mail.ts|Mail", Some(SPIED_NAMESPACE)),
+                (Side::Skif, "exports", "src/util.ts|go", None),
+                (Side::Skif, "exports", "src/both.ts|x", None),
+                (Side::Tool, "exports", "src/mail.ts|send", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn exports_of_a_module_whose_namespace_name_an_array_or_object_keys_holds_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/git.ts",
+                "import * as path from './path';\nimport * as keys from './keys';\nimport * as plain from './plain';\n\
+                 export function lsTree(path: string) { return ['ls-tree', path]; }\n\
+                 export const names = Object.keys(keys);\nexport const a = plain.a;\n",
+            ),
+            (
+                "src/path.ts",
+                "export function format() {}\nexport function toNamespacedPath() {}\n",
+            ),
+            ("src/keys.ts", "export const k = 1;\n"),
+            ("src/plain.ts", "export const a = 1;\nexport const b = 2;\n"),
+        ]);
+        let reads = knip_read_sets(&sources);
+        assert_eq!(
+            reads.enumerated_namespaces,
+            strings(&["src/keys.ts|*", "src/path.ts|*"]),
+            "a parameter that shadows the namespace still counts, as in knip"
+        );
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "exports", "src/path.ts|format", Some(ENUMERATED_NAMESPACE)),
+                (Side::Skif, "exports", "src/keys.ts|k", Some(ENUMERATED_NAMESPACE)),
+                (Side::Skif, "exports", "src/plain.ts|b", None),
+                (Side::Tool, "exports", "src/path.ts|format", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn types_a_qualified_import_type_names_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/main.ts",
+                "type W = import('./window').Window;\ntype N = import('./ns').A.B;\n\
+                 type Q = typeof import('./whole');\n",
+            ),
+            (
+                "src/window.ts",
+                "export interface Window {}\nexport interface Other {}\n",
+            ),
+            ("src/ns.ts", "export namespace A { export type B = 1; }\n"),
+            ("src/whole.ts", "export const whole = 1;\n"),
+        ]);
+        let reads = knip_read_sets(&sources);
+        assert_eq!(reads.import_types, strings(&["src/ns.ts|A", "src/window.ts|Window"]));
+        assert!(
+            reads.opaque_imports.is_empty(),
+            "an import type is no import expression"
+        );
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Tool, "types", "src/window.ts|Window", Some(IMPORT_TYPE_QUALIFIER)),
+                (Side::Tool, "nsTypes", "src/ns.ts|A", Some(IMPORT_TYPE_QUALIFIER)),
+                (Side::Tool, "types", "src/window.ts|Other", None),
+                (Side::Tool, "exports", "src/whole.ts|whole", None),
+                (Side::Skif, "types", "src/window.ts|Window", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn namespace_re_exports_and_commonjs_exports_of_typescript_files_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/index.ts",
+                "export * as Config from './config';\nexport * as self from './index';\nexport const plain = 1;\n",
+            ),
+            ("src/join.ts", "exports.joinPath = join;\nmodule.exports.other = 1;\n"),
+            ("src/obj.ts", "const a = 1;\nconst b = 2;\nmodule.exports = { a, b };\n"),
+            ("src/mixed.ts", "const a = 1;\nmodule.exports = { a, b: 2 };\n"),
+            ("lib/plain.js", "exports.js = 1;\n"),
+        ]);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let keys = strings(&[
+            "src/index.ts|Config",
+            "src/index.ts|self",
+            "src/index.ts|plain",
+            "src/join.ts|joinPath",
+            "src/join.ts|other",
+            "src/join.ts|missing",
+            "src/obj.ts|a",
+            "src/mixed.ts|a",
+            "lib/plain.js|js",
+        ]);
+        let reads = KnipReadSets {
+            namespace_reexports: namespace_reexport_keys(&keys, &read),
+            typescript_commonjs: typescript_commonjs_keys(&keys, &read),
+            ..KnipReadSets::default()
+        };
+        assert_eq!(
+            reads.namespace_reexports,
+            strings(&["src/index.ts|Config", "src/index.ts|self"])
+        );
+        assert_eq!(
+            reads.typescript_commonjs,
+            strings(&["src/join.ts|joinPath", "src/join.ts|other", "src/obj.ts|a"]),
+            "a JavaScript file, and an object literal with a property that is not shorthand, are read as knip reads \
+             them"
+        );
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "nsExports", "src/index.ts|Config", Some(NAMESPACE_REEXPORT)),
+                (Side::Skif, "exports", "src/index.ts|self", Some(NAMESPACE_REEXPORT)),
+                (Side::Skif, "types", "src/index.ts|Config", None),
+                (Side::Skif, "exports", "src/index.ts|plain", None),
+                (
+                    Side::Skif,
+                    "exports",
+                    "src/join.ts|joinPath",
+                    Some(TYPESCRIPT_COMMONJS_EXPORT),
+                ),
+                (Side::Skif, "exports", "src/mixed.ts|a", None),
+                (Side::Tool, "exports", "src/index.ts|Config", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn files_knip_s_node_plugin_matches_are_read_as_its_patterns_read_them() {
+        for (path, expected) in [
+            ("test/helpers.ts", true),
+            ("src/test/setup.js", true),
+            ("a.test.ts", true),
+            ("a-test.mjs", true),
+            ("a_test.cts", true),
+            ("src/test-run.ts", true),
+            ("test.js", true),
+            ("src/a.spec.ts", false),
+            ("testing/a.ts", false),
+            ("src/contest.ts", false),
+            ("src/.test.ts", false),
+            ("a.test.tsx", false),
+            ("test/data.json", false),
+        ] {
+            assert_eq!(is_node_test_file(path), expected, "{path}");
+        }
+        for (script, expected) in [
+            ("node --test", true),
+            ("NODE_ENV=test node --import tsx --test test/*.ts", true),
+            ("pnpm build && nub --test", true),
+            ("tsc; node --test", true),
+            ("node test.js", false),
+            ("vitest --test", false),
+            ("echo node --test", false),
+        ] {
+            assert_eq!(
+                runs_node_test(&json!({ "scripts": { "test": script } })),
+                expected,
+                "{script}"
+            );
+        }
+        assert!(!runs_node_test(&json!({ "name": "no-scripts" })));
+    }
+
+    #[test]
+    fn exports_of_files_knip_s_node_plugin_makes_entries_split_off_on_skif_side() {
+        let keys = strings(&[
+            "packages/a/test/helpers.ts|help",
+            "packages/a/src/x.ts|x",
+            "packages/b/test/helpers.ts|help",
+        ]);
+        let is_file = |_: &str| false;
+        let own = manifests_of(&[
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            (
+                "packages/a",
+                json!({ "name": "a", "scripts": { "test": "node --test" } }),
+            ),
+            ("packages/b", json!({ "name": "b" })),
+        ]);
+        let layout = Layout::new(strings(&["packages/a", "packages/b"]), &own, &is_file);
+        let files = node_test_files(&keys, &layout);
+        assert_eq!(files, strings(&["packages/a/test/helpers.ts"]));
+        let root = manifests_of(&[
+            ("", json!({ "name": "root", "scripts": { "test": "node --test" } })),
+            ("packages/a", json!({ "name": "a" })),
+            ("packages/b", json!({ "name": "b" })),
+        ]);
+        let root_layout = Layout::new(strings(&["packages/a", "packages/b"]), &root, &is_file);
+        assert_eq!(
+            node_test_files(&keys, &root_layout),
+            strings(&["packages/a/test/helpers.ts", "packages/b/test/helpers.ts"]),
+            "a root script turns the plugin on in every workspace"
+        );
+        let reads = KnipReadSets {
+            node_test_files: files,
+            ..KnipReadSets::default()
+        };
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Skif,
+                    "exports",
+                    "packages/a/test/helpers.ts|help",
+                    Some(NODE_TEST_ENTRY),
+                ),
+                (
+                    Side::Skif,
+                    "types",
+                    "packages/a/test/helpers.ts|Help",
+                    Some(NODE_TEST_ENTRY),
+                ),
+                (Side::Skif, "exports", "packages/a/src/x.ts|x", None),
+                (Side::Skif, "exports", "packages/b/test/helpers.ts|help", None),
+                (Side::Tool, "exports", "packages/a/test/helpers.ts|help", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn exports_a_tsconfig_declaration_entry_re_exports_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            ("src/module.compiled.d.ts", "export * from './module';\n"),
+            ("src/module.ts", "export type RouteModule = 1;\n"),
+            ("src/other.ts", "export type Other = 1;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let declarations = strings(&["src/module.compiled.d.ts"]);
+        let reads = KnipReadSets {
+            declaration_reexports: entry_reexports(declarations.iter().cloned().collect(), &resolver, &read),
+            ..KnipReadSets::default()
+        };
+        let classifier = Classifier {
+            tsconfig_declarations: &declarations,
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Skif,
+                    "types",
+                    "src/module.ts|RouteModule",
+                    Some(TSCONFIG_DECLARATION_FILE),
+                ),
+                (Side::Skif, "types", "src/other.ts|Other", None),
+                (Side::Skif, "files", "src/module.ts", None),
+                (Side::Tool, "types", "src/module.ts|RouteModule", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn bazel_labels_name_the_package_skif_s_bazel_plugin_reads() {
+        for (label, expected) in [
+            ("//packages/core", Some("packages/core")),
+            ("//packages/core:lib", Some("packages/core")),
+            ("@//packages/core", Some("packages/core")),
+            (":core", Some("here")),
+            ("core", Some("here")),
+            ("@npm//packages/core", None),
+            ("", None),
+        ] {
+            assert_eq!(bazel_label_package(label, "here").as_deref(), expected, "{label}");
+        }
+        assert_eq!(within_package("packages/core", "packages/core"), Some(""));
+        assert_eq!(within_package("packages/core/a", "packages/core"), Some("a"));
+        assert_eq!(within_package("packages/core/a", ""), Some("packages/core/a"));
+        assert_eq!(within_package("packages/corex", "packages/core"), None);
+    }
+
+    #[test]
+    fn exports_an_ng_package_entry_point_re_exports_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "MODULE.bazel",
+                "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+            ),
+            ("packages/core/package.json", r#"{ "name": "@angular/core" }"#),
+            ("packages/core/index.ts", "export * from './src/api';\n"),
+            ("packages/core/src/api.ts", "export const api = 1;\n"),
+            (
+                "packages/core/primitives/signals/index.ts",
+                "export const signal = 1;\n",
+            ),
+            ("packages/core/src/lonely.ts", "export const lonely = 1;\n"),
+            ("packages/other/index.ts", "export const other = 1;\n"),
+        ]);
+        let build_files = vec![(
+            "packages/core/BUILD.bazel".to_owned(),
+            "ng_package(name = \"npm_package\", deps = [\":core\", \"//packages/core/primitives/signals\", \
+             \"//packages/core/missing\", \"//packages/other:lib\", \"@npm//packages/core/src\"])\n"
+                .to_owned(),
+        )];
+        let manifests = manifests_in(&sources);
+        let manifest = |dir: &str| manifests.get(dir).cloned();
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(strings(&["packages/core"]), &manifest, &is_file);
+        let is_project = |dir: &str| layout.is_project(dir);
+        let entries = ng_package_entries(&build_files, &is_project, &is_file, &read);
+        assert_eq!(
+            entries,
+            ["packages/core/index.ts", "packages/core/primitives/signals/index.ts"],
+            "a label outside the project, of another repository or of a package without an entry file names none"
+        );
+        let resolver = Resolver::new(&layout, &read);
+        let reads = KnipReadSets {
+            ng_package_reexports: entry_reexports(entries, &resolver, &read),
+            ..KnipReadSets::default()
+        };
+        let classifier = Classifier {
+            knip_reads: &reads,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "exports",
+                    "packages/core/index.ts|api",
+                    Some(NG_PACKAGE_ENTRY),
+                ),
+                (
+                    Side::Tool,
+                    "exports",
+                    "packages/core/src/api.ts|api",
+                    Some(NG_PACKAGE_ENTRY),
+                ),
+                (
+                    Side::Tool,
+                    "nsExports",
+                    "packages/core/primitives/signals/index.ts|signal",
+                    Some(NG_PACKAGE_ENTRY),
+                ),
+                (Side::Tool, "exports", "packages/core/src/lonely.ts|lonely", None),
+                (Side::Tool, "exports", "packages/other/index.ts|other", None),
+                (Side::Tool, "files", "packages/core/src/lonely.ts", None),
+                (Side::Skif, "exports", "packages/core/src/api.ts|api", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_workspace_subpath_into_unbuilt_output_resolves_to_its_source() {
+        let sources = BTreeMap::from([
+            ("packages/next/src/server/web/types.ts", "export type Req = 1;\n"),
+            ("packages/next/src/index.ts", "export const next = 1;\n"),
+        ]);
+        let manifest = manifests_of(&[(
+            "packages/next",
+            json!({ "name": "next", "exports": { ".": "./dist/index.js" } }),
+        )]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(strings(&["packages/next"]), &manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        for (specifier, expected) in [
+            (
+                "next/dist/server/web/types",
+                Some("packages/next/src/server/web/types.ts"),
+            ),
+            ("next", Some("packages/next/src/index.ts")),
+            ("next/dist/server/missing", None),
+            ("other/dist/server/web/types", None),
+        ] {
+            assert_eq!(
+                resolver.resolve("apps/web/page.ts", specifier).as_deref(),
+                expected,
+                "{specifier}"
+            );
+        }
+    }
+
+    #[test]
+    fn exports_a_published_declaration_file_re_exports_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "packages/next/server.d.ts",
+                "export * from 'next/dist/server/web/types';\nexport { local } from './src/local';\n",
+            ),
+            ("packages/next/src/server/web/types.ts", "export type Req = 1;\n"),
+            (
+                "packages/next/src/local.ts",
+                "export const local = 1;\nexport const unshared = 2;\n",
+            ),
+            ("packages/next/src/lonely.ts", "export const lonely = 1;\n"),
+        ]);
+        let manifest = manifests_of(&[("packages/next", json!({ "name": "next", "files": ["server.d.ts"] }))]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(strings(&["packages/next"]), &manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let keys = strings(&[
+            "packages/next/src/server/web/types.ts|Req",
+            "packages/next/src/local.ts|local",
+            "packages/next/src/lonely.ts|lonely",
+        ]);
+        let (_, published) = published_file_entries(&keys, &files, &layout, &read);
+        assert_eq!(published, ["packages/next/server.d.ts"]);
+        let credits = published_file_reexports(published, &resolver, &read);
+        assert_eq!(
+            credits,
+            strings(&[
+                "packages/next/src/local.ts|local",
+                "packages/next/src/server/web/types.ts|*"
+            ]),
+            "the published file's own findings are `published-file`"
+        );
+        let classifier = Classifier {
+            published_reexports: &credits,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "types",
+                    "packages/next/src/server/web/types.ts|Req",
+                    Some(PUBLISHED_SOURCE),
+                ),
+                (
+                    Side::Tool,
+                    "exports",
+                    "packages/next/src/local.ts|local",
+                    Some(PUBLISHED_SOURCE),
+                ),
+                (Side::Tool, "exports", "packages/next/src/local.ts|unshared", None),
+                (Side::Tool, "exports", "packages/next/src/lonely.ts|lonely", None),
+                (Side::Skif, "exports", "packages/next/src/local.ts|local", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn value_exports_a_named_import_of_a_namespace_re_export_uses_as_a_whole_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "nodes/methods/index.ts",
+                "export * as listSearch from './listSearch';\nexport * as loadOptions from './loadOptions';\n",
+            ),
+            ("nodes/methods/listSearch.ts", "export async function searchA() {}\n"),
+            ("nodes/methods/loadOptions.ts", "export async function loadA() {}\n"),
+            (
+                "nodes/Node.ts",
+                "import { listSearch, loadOptions } from './methods';\nexport const methods = { listSearch };\n\
+                 console.log(loadOptions.loadA);\n",
+            ),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let credits = namespace_reexport_object_credits(&files, &resolver, &read);
+        assert_eq!(
+            credits,
+            strings(&["nodes/methods/listSearch.ts|*"]),
+            "a namespace re-export read through a member is no use as a whole"
+        );
+        let values = module_objects(
+            &strings(&[
+                "nodes/methods/listSearch.ts|searchA",
+                "nodes/methods/loadOptions.ts|loadA",
+            ]),
+            &credits,
+        );
+        let classifier = Classifier {
+            module_object_values: &values,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "exports",
+                    "nodes/methods/listSearch.ts|searchA",
+                    Some(MODULE_OBJECT_VALUES),
+                ),
+                (Side::Tool, "exports", "nodes/methods/loadOptions.ts|loadA", None),
             ],
         );
     }
