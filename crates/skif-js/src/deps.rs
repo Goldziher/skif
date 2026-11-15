@@ -1770,6 +1770,9 @@ impl DependencyUsage {
                     .entry(dependency.file.as_path())
                     .or_insert_with(|| judged_config(workspace, setup, fs, &dependency.file));
                 let Some((owner, file)) = verdict.clone() else {
+                    if dependency.reader_may_list {
+                        self.credit_installed_compiler_option(workspace, reader, dependency);
+                    }
                     continue;
                 };
                 // A reference to the reader's own install is the reader's, whichever package holds the file.
@@ -1784,6 +1787,29 @@ impl DependencyUsage {
                 });
             }
         }
+    }
+
+    /// A compiler option of a config the package `reader` extends through a `node_modules` directory (a rig profile's
+    /// `importHelpers`): TypeScript merges it into the reader's options, so the package it names is a use of the
+    /// manifest of `reader` that lists it. The installed config is not judged, so nothing is reported when none does.
+    fn credit_installed_compiler_option(
+        &mut self,
+        workspace: &Workspace,
+        reader: PackageId,
+        dependency: &ConfigDependency,
+    ) {
+        let Some(file) = relative(&dependency.file, &workspace.root) else {
+            return;
+        };
+        if !file.split('/').any(|part| part == "node_modules") {
+            return;
+        }
+        let name = dependency.name.as_str();
+        self.with_via(Use::Config(PathBuf::from(file)), |usage| {
+            usage.is_satisfied(workspace, reader, name, (dependency.type_only, false), |usage, name| {
+                usage.find_listed(reader, name)
+            });
+        });
     }
 
     /// The package `dependency` that the config `file` (relative to the root) of package `owner` names: a use of the
