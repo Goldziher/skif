@@ -303,7 +303,7 @@ publishes it (`types`, `typings`, the `types` condition of `exports`), a `tsconf
 `entry` glob names it. Otherwise it is judged like a TypeScript module once a module imports it, so `unused-types`
 and `unused-exports` report what no importer uses
 ([ADR 0054](https://github.com/Goldziher/skif/blob/main/adrs/0054-module-declaration-files-are-modules.md),
-[ADR NNNN](https://github.com/Goldziher/skif/blob/main/adrs/NNNN-exportless-declaration-files-that-load-a-module.md)).
+[ADR 0055](https://github.com/Goldziher/skif/blob/main/adrs/0055-exportless-declaration-files-that-load-a-module.md)).
 knip makes every declaration file that the `tsconfig.json` of a workspace compiles (its `include` and `files`) an
 entry, so it reports no export or type of one and reads its imports even when nothing imports it: in a workspace
 whose `tsconfig.json` includes `src/**/*`, knip judges none of the `.d.ts` files there that skif judges.
