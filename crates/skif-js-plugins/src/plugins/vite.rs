@@ -126,7 +126,12 @@ pub(crate) fn html_and_build_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'
     };
     let public_dirs: Vec<Option<String>> = roots.iter().map(|root| public_dir(config.value, root)).collect();
     for (root, public) in roots.iter().zip(&public_dirs) {
-        out.extend(served_html_entries(cx, root, &join_rel(root, "index.html"), public.as_deref()));
+        out.extend(served_html_entries(
+            cx,
+            root,
+            &join_rel(root, "index.html"),
+            public.as_deref(),
+        ));
     }
     let inputs = get_in(config.value, build_input_key(config.value));
     for input in inputs.into_iter().flat_map(values_of).flat_map(file_strings) {

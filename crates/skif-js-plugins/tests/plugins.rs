@@ -853,7 +853,12 @@ fn vite_index_html_scripts_from_the_public_dir() {
             .cloned()
             .collect::<BTreeSet<String>>()
     };
-    let set = |entries: &[&str]| entries.iter().map(|entry| (*entry).to_owned()).collect::<BTreeSet<String>>();
+    let set = |entries: &[&str]| {
+        entries
+            .iter()
+            .map(|entry| (*entry).to_owned())
+            .collect::<BTreeSet<String>>()
+    };
 
     assert_eq!(
         production("export default { base: process.env.BASE };"),
@@ -869,7 +874,13 @@ fn vite_index_html_scripts_from_the_public_dir() {
     );
     assert_eq!(
         production(r#"export default { publicDir: "assets" };"#),
-        set(&["static/init.js", "assets/static/init.js", "boot.js", "local.js", "src/main.ts"])
+        set(&[
+            "static/init.js",
+            "assets/static/init.js",
+            "boot.js",
+            "local.js",
+            "src/main.ts"
+        ])
     );
     assert_eq!(
         production("export default { publicDir: false };"),
