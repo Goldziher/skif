@@ -1016,9 +1016,9 @@ impl Session<'_> {
         // Without cores held, the program is of the judged files' plan, or an early one of an analysis's own cores
         // ([`Cores::admit_early`]): waiting for them cannot wait for a host.
         let _taken = held.unwrap_or_else(|| {
-            let count = target
-                .as_ref()
-                .map_or(checkers, |(judged, index)| charge(checkers, judged.plan.programs[*index].files.len()));
+            let count = target.as_ref().map_or(checkers, |(judged, index)| {
+                charge(checkers, judged.plan.programs[*index].files.len())
+            });
             self.shared.cores.take(count)
         });
         let cores_waited = waiting.elapsed();
@@ -1454,7 +1454,11 @@ mod tests {
         };
         assert!(cores.admit_early(1).is_none(), "the early share is held");
         let planned = cores.take(9);
-        assert_eq!(cores.in_use(), 8, "a planned program takes the planned share, whatever the early programs hold");
+        assert_eq!(
+            cores.in_use(),
+            8,
+            "a planned program takes the planned share, whatever the early programs hold"
+        );
         assert_eq!(cores.peak(), 8);
         assert_eq!(cores.takes(), 3);
         drop((first, second, planned));
@@ -1497,7 +1501,11 @@ mod tests {
     fn a_program_holds_a_core_for_each_checker_that_has_a_judged_file() {
         let cases = [((8, 3), 3), ((4, 100), 4), ((4, 0), 1), ((1, 1), 1)];
         for ((checkers, judged), expected) in cases {
-            assert_eq!(charge(checkers, judged), expected, "{checkers} checkers, {judged} judged files");
+            assert_eq!(
+                charge(checkers, judged),
+                expected,
+                "{checkers} checkers, {judged} judged files"
+            );
         }
     }
 
@@ -1580,7 +1588,11 @@ mod tests {
             Next::Wait,
             "a program refused cores waits for the judged files' plan"
         );
-        assert_eq!(queue.next(&early, Gate::Closed, admitted), Next::Early(0), "and is still queued");
+        assert_eq!(
+            queue.next(&early, Gate::Closed, admitted),
+            Next::Early(0),
+            "and is still queued"
+        );
         let judged = configs(&["a", "b"]);
         assert_eq!(queue.next(&early, Gate::Open(&judged), |_| false), Next::Judged(1));
         assert_eq!(queue.next(&early, Gate::Open(&judged), admitted), Next::Done);
