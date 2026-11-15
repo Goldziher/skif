@@ -7544,9 +7544,10 @@ fn shell_template_directory(checkout: &DependencyCheckout<'_>, key: &str) -> boo
     let argument = format!(" {specifier}");
     resolve_relative(&project, specifier, checkout.layout.is_file).is_some()
         && (checkout.read)(path).is_some_and(|source| {
-            source
-                .lines()
-                .any(|line| line.split_once(SHELL_TEMPLATE).is_some_and(|(_, command)| command.contains(&argument)))
+            source.lines().any(|line| {
+                line.split_once(SHELL_TEMPLATE)
+                    .is_some_and(|(_, command)| command.contains(&argument))
+            })
         })
 }
 
@@ -7655,9 +7656,11 @@ fn bun_file_argument(checkout: &DependencyCheckout<'_>, key: &str) -> bool {
     has_code_extension(binary)
         && (checkout.read)(path).is_some_and(|source| {
             source.lines().any(|line| {
-                word_starts(line, binary)
-                    .into_iter()
-                    .any(|at| last_command(&command_words(&line[..at])).first().is_some_and(|word| word == BUN))
+                word_starts(line, binary).into_iter().any(|at| {
+                    last_command(&command_words(&line[..at]))
+                        .first()
+                        .is_some_and(|word| word == BUN)
+                })
             })
         })
 }
@@ -7687,7 +7690,10 @@ fn run_directory(words: &[String], start: &str) -> RunDirectory {
         let (target, step) = match (word, words.get(at + 1)) {
             ("cd", Some(dir)) => (Some((dir.as_str(), true)), 2),
             ("-C" | "--dir", Some(dir)) if in_pnpm => (Some((dir.as_str(), false)), 2),
-            _ => (word.strip_prefix("--dir=").filter(|_| in_pnpm).map(|dir| (dir, false)), 1),
+            _ => (
+                word.strip_prefix("--dir=").filter(|_| in_pnpm).map(|dir| (dir, false)),
+                1,
+            ),
         };
         if COMMAND_SEPARATORS.contains(&word) {
             command = None;
@@ -7787,13 +7793,10 @@ fn manifest_scripts(source: &str) -> Vec<String> {
     serde_json::from_str::<Value>(source)
         .ok()
         .and_then(|manifest| {
-            manifest.get("scripts").and_then(Value::as_object).map(|scripts| {
-                scripts
-                    .values()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
+            manifest
+                .get("scripts")
+                .and_then(Value::as_object)
+                .map(|scripts| scripts.values().filter_map(Value::as_str).map(str::to_owned).collect())
         })
         .unwrap_or_default()
 }
@@ -7823,7 +7826,11 @@ fn command_directory(checkout: &DependencyCheckout<'_>, key: &str) -> bool {
     } else {
         owner_dir(path, &is_project)
     };
-    let scripts = if manifest { manifest_scripts(&source) } else { Vec::new() };
+    let scripts = if manifest {
+        manifest_scripts(&source)
+    } else {
+        Vec::new()
+    };
     let lines: Vec<&str> = if manifest {
         scripts.iter().map(String::as_str).collect()
     } else {
@@ -13809,8 +13816,11 @@ vi.mock("mocked-package");
         let manifest = |dir: &str| manifests.get(dir).cloned();
         let is_file = |file: &str| sources.contains_key(file);
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
-        let is_ignored =
-            |path: &str| ignored.iter().any(|dir| path == *dir || path.starts_with(&format!("{dir}/")));
+        let is_ignored = |path: &str| {
+            ignored
+                .iter()
+                .any(|dir| path == *dir || path.starts_with(&format!("{dir}/")))
+        };
         let layout = Layout::new(strings(members), &manifest, &is_file);
         let resolver = Resolver::new(&layout, &read);
         let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
@@ -13885,10 +13895,25 @@ vi.mock("mocked-package");
                 (Side::Tool, "unlisted", "src/data.mjs|data", Some(DATA_URI)),
                 (Side::Tool, "unlisted", "src/plain.mjs|data", None),
                 (Side::Skif, "unlisted", "src/data.mjs|data", None),
-                (Side::Tool, "unlisted", "src/augment.ts|expect", Some(MODULE_AUGMENTATION)),
+                (
+                    Side::Tool,
+                    "unlisted",
+                    "src/augment.ts|expect",
+                    Some(MODULE_AUGMENTATION),
+                ),
                 (Side::Tool, "unlisted", "src/uses.ts|expect", None),
-                (Side::Tool, "unlisted", "src/mock.test.ts|virtual-mod", Some(JEST_MOCK_SPECIFIER)),
-                (Side::Tool, "unlisted", "src/mock.test.ts|@scope/real", Some(JEST_MOCK_SPECIFIER)),
+                (
+                    Side::Tool,
+                    "unlisted",
+                    "src/mock.test.ts|virtual-mod",
+                    Some(JEST_MOCK_SPECIFIER),
+                ),
+                (
+                    Side::Tool,
+                    "unlisted",
+                    "src/mock.test.ts|@scope/real",
+                    Some(JEST_MOCK_SPECIFIER),
+                ),
                 (Side::Tool, "unlisted", "src/mock.test.ts|vi-mocked", None),
                 (Side::Tool, "unlisted", "src/mock.test.ts|vitest", None),
                 (
@@ -13897,11 +13922,26 @@ vi.mock("mocked-package");
                     "docs/next.config.mjs|@vercel/turbopack-next",
                     Some(NEXTRA_ALIAS),
                 ),
-                (Side::Tool, "unresolved", "docs/next.config.mjs|./content/*", Some(NEXTRA_ALIAS)),
+                (
+                    Side::Tool,
+                    "unresolved",
+                    "docs/next.config.mjs|./content/*",
+                    Some(NEXTRA_ALIAS),
+                ),
                 (Side::Tool, "unlisted", "docs/next.config.mjs|nextra", None),
-                (Side::Tool, "unlisted", "web/next.config.mjs|@vercel/turbopack-next", None),
+                (
+                    Side::Tool,
+                    "unlisted",
+                    "web/next.config.mjs|@vercel/turbopack-next",
+                    None,
+                ),
                 (Side::Tool, "unlisted", "app/app.json|expo-updates", Some(EXPO_UPDATES)),
-                (Side::Tool, "unlisted", "app/app.config.ts|expo-updates", Some(EXPO_UPDATES)),
+                (
+                    Side::Tool,
+                    "unlisted",
+                    "app/app.config.ts|expo-updates",
+                    Some(EXPO_UPDATES),
+                ),
                 (Side::Tool, "unlisted", "app/app.json|expo-notifications", None),
                 (Side::Tool, "unlisted", "app/other.json|expo-updates", None),
             ],
@@ -13911,7 +13951,10 @@ vi.mock("mocked-package");
     #[test]
     fn unresolved_imports_knip_resolves_otherwise_split_off_on_knip_side() {
         let sources = BTreeMap::from([
-            ("MODULE.bazel", "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n"),
+            (
+                "MODULE.bazel",
+                "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+            ),
             (
                 "pkg/BUILD.bazel",
                 "genrule(\n    name = \"sources\",\n    outs = [\n        \"dist/index.d.ts\",\n        \"LICENSE\",\n    ],\n    cmd = \"cp $< $@\",\n)\n",
@@ -13953,7 +13996,12 @@ vi.mock("mocked-package");
             &sources,
             (&["packages/style-config", "app"], &["db/types.ts"]),
             &[
-                (Side::Tool, "unresolved", "pkg/index.d.ts|./dist/index.js", Some(BAZEL_BUILD_FILE)),
+                (
+                    Side::Tool,
+                    "unresolved",
+                    "pkg/index.d.ts|./dist/index.js",
+                    Some(BAZEL_BUILD_FILE),
+                ),
                 (Side::Tool, "unresolved", "pkg/index.d.ts|./gone.js", None),
                 (Side::Tool, "unresolved", "db/index.ts|./types", Some(GITIGNORED_IMPORT)),
                 (Side::Tool, "unresolved", "db/index.ts|./schema", None),
@@ -13963,7 +14011,12 @@ vi.mock("mocked-package");
                     "rigs/web-rig/profiles/library/tsconfig-base.json|tslib",
                     Some(HEFT_CONFIG),
                 ),
-                (Side::Tool, "unresolved", "rigs/web-rig/config/tsconfig.json|tslib", None),
+                (
+                    Side::Tool,
+                    "unresolved",
+                    "rigs/web-rig/config/tsconfig.json|tslib",
+                    None,
+                ),
                 (
                     Side::Tool,
                     "unresolved",
@@ -13977,15 +14030,30 @@ vi.mock("mocked-package");
                     Some(SHARED_CONFIG_REFERENCE),
                 ),
                 (Side::Tool, "unresolved", "app/stylelint.config.mjs|postcss-scss", None),
-                (Side::Tool, "unresolved", "app/stylelint.config.mjs|stylelint-order", None),
+                (
+                    Side::Tool,
+                    "unresolved",
+                    "app/stylelint.config.mjs|stylelint-order",
+                    None,
+                ),
                 (
                     Side::Tool,
                     "unresolved",
                     "desktop/script/build.ts|./script/copy.ts",
                     Some(SHELL_TEMPLATE_DIRECTORY),
                 ),
-                (Side::Tool, "unresolved", "desktop/script/build.ts|./script/missing.ts", None),
-                (Side::Tool, "unresolved", "desktop/script/build.ts|./script/other.ts", None),
+                (
+                    Side::Tool,
+                    "unresolved",
+                    "desktop/script/build.ts|./script/missing.ts",
+                    None,
+                ),
+                (
+                    Side::Tool,
+                    "unresolved",
+                    "desktop/script/build.ts|./script/other.ts",
+                    None,
+                ),
                 (
                     Side::Tool,
                     "unresolved",
@@ -13993,7 +14061,12 @@ vi.mock("mocked-package");
                     Some(NESTED_VITEST_SETUP),
                 ),
                 (Side::Tool, "unresolved", "vitest.config.ts|src/missing-setup.ts", None),
-                (Side::Tool, "unresolved", "tooling.config.ts|src/__tests__/global-setup.ts", None),
+                (
+                    Side::Tool,
+                    "unresolved",
+                    "tooling.config.ts|src/__tests__/global-setup.ts",
+                    None,
+                ),
                 (Side::Skif, "unresolved", "db/index.ts|./types", None),
             ],
         );
@@ -14049,13 +14122,25 @@ vi.mock("mocked-package");
             (binary(ci, "update-templates"), Some(COMMAND_DIRECTORY)),
             (binary("package.json", "rspack"), Some(COMMAND_DIRECTORY)),
             (binary("package.json", "eslint"), None),
-            (binary("packages/app/package.json", "electrontest"), Some(COMMAND_DIRECTORY)),
-            (binary("packages/app/package.json", "oxfmt-mdx"), Some(COMMAND_DIRECTORY)),
+            (
+                binary("packages/app/package.json", "electrontest"),
+                Some(COMMAND_DIRECTORY),
+            ),
+            (
+                binary("packages/app/package.json", "oxfmt-mdx"),
+                Some(COMMAND_DIRECTORY),
+            ),
             (binary("packages/app/package.json", "watch"), Some(PASSTHROUGH_COMMAND)),
             (binary("packages/app/package.json", "sed"), None),
-            (binary("packages/sdk/script/verify.ts", "imports.mjs"), Some(BUN_FILE_ARGUMENT)),
+            (
+                binary("packages/sdk/script/verify.ts", "imports.mjs"),
+                Some(BUN_FILE_ARGUMENT),
+            ),
             (binary("packages/sdk/script/verify.ts", "other.mjs"), None),
-            (binary("scripts/build.mjs", "generate-licenses"), Some(COMMAND_DIRECTORY)),
+            (
+                binary("scripts/build.mjs", "generate-licenses"),
+                Some(COMMAND_DIRECTORY),
+            ),
         ];
         let cases: Vec<(Side, &str, &str, Option<&str>)> = keys
             .iter()
@@ -14086,7 +14171,11 @@ vi.mock("mocked-package");
             RunDirectory::At("tools/x".to_owned())
         );
         for computed in ["$`cd ${root} && pnpm ", "cd /tmp && ", "cd ../.. && "] {
-            assert_eq!(run_directory(&command_words(computed), "a"), RunDirectory::Computed, "{computed}");
+            assert_eq!(
+                run_directory(&command_words(computed), "a"),
+                RunDirectory::Computed,
+                "{computed}"
+            );
         }
         assert_eq!(output_stem("pkg/dist/index.d.ts"), "pkg/dist/index");
         assert_eq!(output_stem("pkg/dist/index.js"), "pkg/dist/index");
@@ -14108,7 +14197,10 @@ vi.mock("mocked-package");
     #[test]
     fn unlisted_dependencies_and_binaries_only_skif_reports_from_optional_peers_and_required_child_process_split_off() {
         let sources = BTreeMap::from([
-            ("package.json", r#"{ "name": "root", "devDependencies": { "vitest": "4" } }"#),
+            (
+                "package.json",
+                r#"{ "name": "root", "devDependencies": { "vitest": "4" } }"#,
+            ),
             (
                 "node_modules/vitest/package.json",
                 r#"{ "name": "vitest", "peerDependencies": { "@vitest/coverage-v8": "*", "jsdom": "*", "happy-dom": "*" }, "peerDependenciesMeta": { "@vitest/coverage-v8": { "optional": true }, "jsdom": { "optional": true } } }"#,
@@ -14134,11 +14226,21 @@ vi.mock("mocked-package");
                     "packages/utils/vite.config.ts|@vitest/coverage-v8",
                     Some(OPTIONAL_PEER_HOST),
                 ),
-                (Side::Skif, "unlisted", "packages/utils/a.test.ts|jsdom", Some(OPTIONAL_PEER_HOST)),
+                (
+                    Side::Skif,
+                    "unlisted",
+                    "packages/utils/a.test.ts|jsdom",
+                    Some(OPTIONAL_PEER_HOST),
+                ),
                 (Side::Skif, "unlisted", "packages/utils/a.test.ts|happy-dom", None),
                 (Side::Skif, "unlisted", "packages/utils/a.test.ts|left-pad", None),
                 (Side::Tool, "unlisted", "packages/utils/a.test.ts|jsdom", None),
-                (Side::Skif, "binaries", "scripts/release.js|sentry-cli", Some(REQUIRED_CHILD_PROCESS)),
+                (
+                    Side::Skif,
+                    "binaries",
+                    "scripts/release.js|sentry-cli",
+                    Some(REQUIRED_CHILD_PROCESS),
+                ),
                 (Side::Skif, "binaries", "scripts/esm.mjs|sqlite3", None),
                 (Side::Skif, "binaries", "scripts/plain.js|x", None),
                 (Side::Skif, "binaries", "package.json|sentry-cli", None),
@@ -14150,7 +14252,10 @@ vi.mock("mocked-package");
     #[test]
     fn unlisted_dependencies_below_nested_projects_of_members_or_listed_above_split_off_on_knip_side() {
         let manifests = [
-            ("", json!({ "name": "root", "workspaces": ["packages/*", "extensions"] })),
+            (
+                "",
+                json!({ "name": "root", "workspaces": ["packages/*", "extensions"] }),
+            ),
             ("packages/runtime", json!({ "name": "runtime" })),
             (
                 "packages/runtime/src/__tests__/test_root",
@@ -14211,7 +14316,12 @@ vi.mock("mocked-package");
                     "templates/agent/client/test/e2e/a.spec.ts|@playwright/test",
                     Some(NON_MEMBER_PROJECT),
                 ),
-                (Side::Tool, "unlisted", "templates/agent/client/test/e2e/a.spec.ts|zod", None),
+                (
+                    Side::Tool,
+                    "unlisted",
+                    "templates/agent/client/test/e2e/a.spec.ts|zod",
+                    None,
+                ),
                 (Side::Tool, "unlisted", "examples/app/src/a.ts|zod", None),
                 (Side::Tool, "unlisted", "packages/runtime/src/a.ts|zod", None),
                 (
@@ -14220,7 +14330,12 @@ vi.mock("mocked-package");
                     "packages/runtime/src/__tests__/test_root/data.mjs|data",
                     Some(DATA_URI),
                 ),
-                (Side::Skif, "binaries", "scripts/release.js|sentry-cli", Some(REQUIRED_CHILD_PROCESS)),
+                (
+                    Side::Skif,
+                    "binaries",
+                    "scripts/release.js|sentry-cli",
+                    Some(REQUIRED_CHILD_PROCESS),
+                ),
                 (Side::Tool, "binaries", "scripts/release.js|sentry-cli", None),
             ],
         );
