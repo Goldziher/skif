@@ -897,6 +897,13 @@ impl<'a> JsAnalysis<'a> {
         self.setup.ignores_dependency(id, name)
     }
 
+    /// Whether dependency `name` of package `id` is on an `ignore-dependencies` list of the configuration, leaving out
+    /// the references plugins say are never reported, such as the packages a bundler keeps external.
+    #[must_use]
+    pub fn user_ignores_dependency(&self, id: PackageId, name: &str) -> bool {
+        self.setup.user_ignores_dependency(id, name)
+    }
+
     /// Whether the import specifier `specifier` of package `id` is on an `ignore-unresolved` list, or on an
     /// `ignore-dependencies` list (kept so specifiers a plugin declares virtual stay silent).
     #[must_use]
