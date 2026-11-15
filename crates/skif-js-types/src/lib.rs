@@ -27,7 +27,7 @@ pub use facts::{
     CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, TypeFacts, TypeQuery,
     TypeTimings,
 };
-pub use session::PendingTypes;
+pub use session::{PendingTypes, TypeBudget};
 
 /// The engine and version recorded in [`TypeFacts::engine`].
 pub const ENGINE: &str = "tsrs 7.1.0-beta.tsrs1";
@@ -59,6 +59,8 @@ pub struct TypeInput<'a> {
     pub query: &'a TypeQuery,
     /// The threads the checker may use; `None` for all cores.
     pub threads: Option<NonZeroUsize>,
+    /// The cores the analyses of the run share; `None` for cores of the analysis's own.
+    pub budget: Option<&'a TypeBudget>,
     /// Set by the host to stop the analysis.
     pub cancel: Option<&'a AtomicBool>,
 }
@@ -74,6 +76,7 @@ impl<'a> TypeInput<'a> {
             tsconfig_override: None,
             query,
             threads: None,
+            budget: None,
             cancel: None,
         }
     }
@@ -89,6 +92,13 @@ impl<'a> TypeInput<'a> {
     #[must_use]
     pub fn with_threads(mut self, threads: NonZeroUsize) -> Self {
         self.threads = Some(threads);
+        self
+    }
+
+    /// Takes the programs' cores from `budget`, which the other analyses of the run share.
+    #[must_use]
+    pub fn with_budget(mut self, budget: &'a TypeBudget) -> Self {
+        self.budget = Some(budget);
         self
     }
 
@@ -117,6 +127,8 @@ pub struct TypeBuild {
     pub tsconfig_override: Option<PathBuf>,
     /// The threads the checker may use; `None` for all cores.
     pub threads: Option<NonZeroUsize>,
+    /// The cores the analyses of the run share; `None` for cores of the analysis's own.
+    pub budget: Option<TypeBudget>,
 }
 
 impl TypeBuild {
@@ -129,6 +141,7 @@ impl TypeBuild {
             packages,
             tsconfig_override: None,
             threads: None,
+            budget: None,
         }
     }
 
@@ -146,6 +159,13 @@ impl TypeBuild {
         self
     }
 
+    /// Takes the programs' cores from `budget`, which the other analyses of the run share.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TypeBudget) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
     /// The input over the packages of the build for `query`, without cancellation.
     fn input<'a>(&'a self, query: &'a TypeQuery) -> TypeInput<'a> {
         TypeInput {
@@ -155,6 +175,7 @@ impl TypeBuild {
             tsconfig_override: self.tsconfig_override.as_deref(),
             query,
             threads: self.threads,
+            budget: self.budget.as_ref(),
             cancel: None,
         }
     }
@@ -199,4 +220,5 @@ const _: () = {
     assert_send_sync::<TypeQuery>();
     assert_send_sync::<TypeError>();
     assert_send_sync::<TypeBuild>();
+    assert_send_sync::<TypeBudget>();
 };
