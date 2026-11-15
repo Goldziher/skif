@@ -679,6 +679,38 @@ fn declare_module_in_a_module_file_is_an_augmentation() {
     }
 }
 
+/// A script declares globals for every file of the program, as does a module file that augments the global scope or
+/// another module; the exports of any other module file are used only through imports.
+#[test]
+fn a_declaration_file_declares_without_an_import_unless_it_is_a_plain_module() {
+    let cases: &[(&str, &str, bool, bool)] = &[
+        ("a script", "declare const VERSION: string;\ninterface Window { a: number }\n", false, true),
+        (
+            "a script with a declared module",
+            "declare module 'flags' { export const on: boolean; }\n",
+            false,
+            true,
+        ),
+        ("a module with exports", "export interface A {}\nexport type B = string;\n", true, false),
+        ("an import", "import type { A } from './a';\ntype B = A;\n", true, false),
+        ("an import of require", "import x = require('y');\ntype B = typeof x;\n", true, false),
+        ("an empty export clause", "export {};\n", true, false),
+        (
+            "a global augmentation",
+            "export {};\ndeclare global {\n  interface Window { a: number }\n}\n",
+            true,
+            true,
+        ),
+        ("a module augmentation", "export {};\ndeclare module 'dayjs' {}\n", true, true),
+        ("a UMD global", "export interface A {}\nexport as namespace Lib;\n", true, true),
+    ];
+    for &(case, source, module_file, declares) in cases {
+        let info = parse("types.d.ts", source);
+        assert_eq!(info.module_file, module_file, "{case}");
+        assert_eq!(info.declares_without_import(), declares, "{case}");
+    }
+}
+
 #[test]
 fn only_the_declarations_of_value_exports_contain_types() {
     type Case<'a> = (&'a str, &'a str, &'a [(&'a str, &'a [&'a str])]);
