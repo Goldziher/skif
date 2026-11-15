@@ -2408,9 +2408,15 @@ impl Classifier<'_> {
     /// discovery skips. A finding that lies in such a place itself stays compared.
     fn outside_use(&self, category: &str, key: &str) -> Option<&'static str> {
         let (non_member, skipped) = if IMPORTED_EXPORT_CATEGORIES.contains(&category) {
-            (credited(self.non_member_credits, key), credited(self.skipped_credits, key))
+            (
+                credited(self.non_member_credits, key),
+                credited(self.skipped_credits, key),
+            )
         } else if MEMBER_CATEGORIES.contains(&category) {
-            (self.non_member_members.contains(key), self.skipped_members.contains(key))
+            (
+                self.non_member_members.contains(key),
+                self.skipped_members.contains(key),
+            )
         } else {
             return None;
         };
@@ -2861,11 +2867,7 @@ fn member_uses(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) -> Vec<
                     .iter()
                     .map(|member| (export.as_str(), member))
                     .collect(),
-                ImportedKind::Default => name
-                    .accessed_members
-                    .iter()
-                    .map(|member| ("default", member))
-                    .collect(),
+                ImportedKind::Default => name.accessed_members.iter().map(|member| ("default", member)).collect(),
                 ImportedKind::Namespace => name
                     .nested_members
                     .iter()
@@ -7423,13 +7425,33 @@ vi.mock("mocked-package");
             ..bare(&layout)
         };
         for (side, category, key, expected) in [
-            (Side::Skif, "enumMembers", "src/phases.ts|Start", Some(NON_MEMBER_PROJECT)),
-            (Side::Skif, "enumMembers", "src/phases.ts|Stop", Some(NON_MEMBER_PROJECT)),
+            (
+                Side::Skif,
+                "enumMembers",
+                "src/phases.ts|Start",
+                Some(NON_MEMBER_PROJECT),
+            ),
+            (
+                Side::Skif,
+                "enumMembers",
+                "src/phases.ts|Stop",
+                Some(NON_MEMBER_PROJECT),
+            ),
             (Side::Skif, "enumMembers", "src/mode.ts|On", Some(NON_MEMBER_PROJECT)),
             (Side::Skif, "enumMembers", "src/phases.ts|Idle", None),
             (Side::Skif, "enumMembers", "src/phases.ts|Only", None),
-            (Side::Skif, "namespaceMembers", "src/tools.ts|run", Some(SKIPPED_DIRECTORY)),
-            (Side::Skif, "namespaceMembers", "src/tools.ts|idle", Some(SKIPPED_DIRECTORY)),
+            (
+                Side::Skif,
+                "namespaceMembers",
+                "src/tools.ts|run",
+                Some(SKIPPED_DIRECTORY),
+            ),
+            (
+                Side::Skif,
+                "namespaceMembers",
+                "src/tools.ts|idle",
+                Some(SKIPPED_DIRECTORY),
+            ),
             (Side::Skif, "namespaceMembers", "src/tools.ts|spare", None),
             (Side::Skif, "exports", "src/tools.ts|run", None),
             (Side::Tool, "enumMembers", "src/phases.ts|Start", None),
