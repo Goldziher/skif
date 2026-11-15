@@ -231,6 +231,91 @@ fn a_read_through_an_interface_credits_the_classes_that_implement_it() {
     );
 }
 
+const CELL_READER: &str = "\
+import type { ICell } from './cell';
+import { CodeCell } from './cell';
+
+export function f(c: ICell): number {
+  return c.getRange();
+}
+
+export const make = (): CodeCell => new CodeCell();
+";
+
+/// A read through an interface credits the member the implementing class has, its own or one it inherits from a base
+/// class, and only that member. The implementing class declares no judged member, so skif does not ask about it.
+#[test]
+fn a_read_through_an_interface_credits_the_member_the_implementing_class_inherits() {
+    for (case, cell, asked, reads) in [
+        (
+            "a member of the base class",
+            "export interface ICell {\n  getRange(): number;\n}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n}\n\n\
+             export class CodeCell extends BaseCell implements ICell {}\n",
+            vec![("BaseCell", vec!["getRange"])],
+            vec![(0, vec!["getRange"])],
+        ),
+        (
+            "a member of the base class of the base class",
+            "export interface ICell {\n  getRange(): number;\n}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n}\n\n\
+             export abstract class MidCell extends BaseCell {}\n\n\
+             export class CodeCell extends MidCell implements ICell {}\n",
+            vec![("BaseCell", vec!["getRange"])],
+            vec![(0, vec!["getRange"])],
+        ),
+        (
+            "a member the interface inherits from another interface",
+            "export interface IBase {\n  getRange(): number;\n}\n\n\
+             export interface ICell extends IBase {}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n}\n\n\
+             export class CodeCell extends BaseCell implements ICell {}\n",
+            vec![("BaseCell", vec!["getRange"])],
+            vec![(0, vec!["getRange"])],
+        ),
+        (
+            "a base member the interface does not declare",
+            "export interface ICell {\n  getRange(): number;\n}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n  getSize(): number {\n    return 2;\n  }\n}\n\n\
+             export class CodeCell extends BaseCell implements ICell {}\n",
+            vec![("BaseCell", vec!["getRange", "getSize"])],
+            vec![(0, vec!["getRange"])],
+        ),
+        (
+            "an override nearer than the base member",
+            "export interface ICell {\n  getRange(): number;\n}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n}\n\n\
+             export abstract class MidCell extends BaseCell {\n  override getRange(): number {\n    return 2;\n  }\n}\n\n\
+             export class CodeCell extends MidCell implements ICell {}\n",
+            vec![("BaseCell", vec!["getRange"]), ("MidCell", vec!["getRange"])],
+            vec![(1, vec!["getRange"])],
+        ),
+    ] {
+        let workspace = Workspace::new(&[
+            ("tsconfig.json", TSCONFIG),
+            ("src/cell.ts", cell),
+            ("src/use.ts", CELL_READER),
+        ]);
+        let query = query(
+            asked
+                .iter()
+                .map(|(class, members)| workspace.decl("src/cell.ts", DeclKind::Class, class, members))
+                .collect(),
+        );
+        let facts = run(&workspace, &[package("", "app", &["src/cell.ts", "src/use.ts"])], &query);
+        assert_case(
+            case,
+            &facts,
+            &Expected {
+                reads,
+                covered: vec!["src/cell.ts", "src/use.ts"],
+                coverage: vec![typed("", "app")],
+                ..Expected::default()
+            },
+        );
+    }
+}
+
 #[test]
 fn a_read_the_checker_cannot_settle_is_credited_by_name() {
     for (receiver, main) in [
