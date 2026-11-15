@@ -2364,7 +2364,7 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "skif"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "rayon",
@@ -2386,7 +2386,7 @@ dependencies = [
 
 [[package]]
 name = "skif-bench"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2408,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "skif-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2435,7 +2435,7 @@ dependencies = [
 
 [[package]]
 name = "skif-config"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "globset",
  "ignore",
@@ -2455,7 +2455,7 @@ dependencies = [
 
 [[package]]
 name = "skif-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ahash",
  "criterion",
@@ -2473,7 +2473,7 @@ dependencies = [
 
 [[package]]
 name = "skif-edit"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "insta",
@@ -2489,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "skif-js"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "globset",
@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "skif-js-plugins"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "globset",
  "indexmap",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "skif-js-syntax"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "memchr",
@@ -2553,7 +2553,7 @@ dependencies = [
 
 [[package]]
 name = "skif-js-types"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "rayon",
  "skif-core",
@@ -2569,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "skif-lint"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "rayon",
  "serde",
@@ -2583,7 +2583,7 @@ dependencies = [
 
 [[package]]
 name = "skif-migrate"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "insta",
  "serde",
@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "skif-node"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -2610,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "skif-report"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "insta",
  "serde",
@@ -2621,7 +2621,7 @@ dependencies = [
 
 [[package]]
 name = "skif-rules"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "insta",
  "rayon",
@@ -2639,7 +2639,7 @@ dependencies = [
 
 [[package]]
 name = "skif-specifier"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "nodejs-semver",
@@ -2649,7 +2649,7 @@ dependencies = [
 
 [[package]]
 name = "skif-workspace"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "globset",
