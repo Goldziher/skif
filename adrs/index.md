@@ -59,4 +59,5 @@ old one.
 | 0049 | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](0049-bazel-test-globs-and-angular-packages.md) | accepted |
 | 0050 | [Knip Comparison Against the Typed Run](0050-knip-comparison-against-the-typed-run.md) | accepted |
 | 0051 | [Enum and Namespace Members Whose Users skif Does Not Read](0051-members-whose-users-skif-does-not-read.md) | accepted |
-| 0052 | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted |
+| 0052 | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted, superseded in part by [NNNN](NNNN-redundant-dev-entries-and-installed-optional-peers.md) |
+| NNNN | [Redundant Development Entries, Optional Peers Installed Elsewhere and Types an Installed Config Brings](NNNN-redundant-dev-entries-and-installed-optional-peers.md) | accepted |
