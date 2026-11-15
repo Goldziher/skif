@@ -557,7 +557,9 @@ credited, since that would hide most of the package's unused files.
 A `require()` or `import()` of a template literal with a relative static prefix (`` import(`./reporters/${name}.js`) ``)
 reaches every file matching the prefix, `*` for each substitution, and the suffix, as `import.meta.glob` does, and their
 exports count as used; an output extension also matches the sources it is built from (`.js` matches `.ts` and `.tsx`).
-Paths built at runtime in other ways are not followed: a specifier held in a variable, a `fast-glob` or `glob` call
+A last segment without an extension names a module as a specifier does: a file with any code extension, or the
+`index` of a directory (`` require(`./commands/${name}`) `` reaches `commands/login.js` and `commands/trust/index.js`,
+and `` require(`./locales/${lang}/messages`) `` reaches `locales/en/messages.js`). Paths built at runtime in other ways are not followed: a specifier held in a variable, a `fast-glob` or `glob` call
 listing files relative to `__dirname`, or a registry that loads `${name}/${name}.module.js` from a directory it computes.
 Add such files to `entry`.
 

@@ -895,8 +895,16 @@ impl Finder<'_, '_> {
 
     /// A `require`, `import()` or resolve call whose specifier is not a constant: followed as a glob when the source
     /// narrows it to a directory, and every matching module counts as read in full. Otherwise it is an unknown target.
+    /// A glob whose last segment has no extension also names the `index` of a directory, as Node and bundlers resolve
+    /// `./commands/${name}` to `commands/<name>/index.js`.
     fn computed_specifier(&mut self, specifier: Option<&Expression<'_>>, span: skif_core::Span) {
-        if let Some(specifier) = specifier.and_then(template_glob) {
+        let Some(glob) = specifier.and_then(template_glob) else {
+            self.info.unresolved_dynamic.push(span);
+            return;
+        };
+        let last_segment = glob.rsplit('/').next().unwrap_or_default();
+        let index = (!last_segment.contains('.')).then(|| format!("{glob}/index"));
+        for specifier in std::iter::once(glob).chain(index) {
             self.info.imports.push(Import {
                 specifier,
                 kind: ImportKind::ImportMetaGlob,
@@ -904,8 +912,6 @@ impl Finder<'_, '_> {
                 call: None,
                 span,
             });
-        } else {
-            self.info.unresolved_dynamic.push(span);
         }
     }
 

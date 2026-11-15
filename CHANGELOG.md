@@ -210,6 +210,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: a computed relative `require()`, `import()` or resolve call whose last segment has no extension
+  reaches the modules Node and bundlers resolve it to: the `index` of a directory (`` require(`./commands/${name}`) ``
+  loads `commands/trust/index.js`) and a file with a code extension after a fixed name
+  (`` require(`./locales/${lang}/messages`) `` loads `locales/en/messages.js`). Before, only files directly matching
+  the glob counted, and directory commands were reported with what they import
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - `unused-files`: a Playwright `webServer.command` that the config computes is read, so the file it runs is no longer
   reported and the binaries it runs are judged. Each branch of a condition the config cannot decide counts, and in a
   template literal a substitution whose value is not known (a port from the environment) reads as a shell variable
