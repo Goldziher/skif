@@ -294,9 +294,14 @@ call keeps the file it names in use and a package it names is a used dependency,
 `unused-exports` reports the value exports of that file that nothing else imports, as `unused-types` reports its
 types. knip reports none of them.
 
-skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file: TypeScript loads ambient
-declarations without an import, and a published package's typings are read by its consumers, so every declaration
-file is an entry. knip reports one that nothing imports.
+skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file; knip reports one that nothing
+imports. A declaration file that applies without an import is an entry: a script (no top-level `import` or `export`),
+whose declarations are global, or a module file that augments the global scope (`declare global`, `export as
+namespace`) or another module (`declare module "x"`). Any other declaration file is a module, an entry only when
+`package.json` publishes it (`types`, `typings`, the `types` condition of `exports`), a `tsconfig.json` lists it in
+`files` or an `entry` glob names it. Otherwise it is judged like a TypeScript module once a module imports it, so
+`unused-types` and `unused-exports` report what no importer uses, as knip does
+([ADR NNNN](https://github.com/Goldziher/skif/blob/main/adrs/NNNN-module-declaration-files-are-modules.md)).
 
 A namespace passed as an argument is a use of the whole module in both tools, with one exception in skif: a
 test-runner spy with a literal member name (`vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")`, Jasmine's `spyOn(ns, "a")`)

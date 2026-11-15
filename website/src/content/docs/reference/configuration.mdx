@@ -1162,8 +1162,8 @@ added for components are no `circular-imports` cycle. Registrations apply to eve
 registered from a package stays an import of the declaration file. A package that may use its components in files
 skif records no tags for keeps every component it registers used: one with a `.tsx` or `.jsx` project file, a
 VitePress or VuePress site, or a bundler config that passes the plugin an `include` matching more than `.vue` files
-(`/\.md$/`) or options skif cannot read. `auto-imports.d.ts` is an entry like every `.d.ts` file, so each composable
-it registers counts as used, whether or not a file names it. A generated file that `.gitignore` excludes is not read,
+(`/\.md$/`) or options skif cannot read. `auto-imports.d.ts` is an entry, as every declaration file that declares globals
+is, so each composable it registers counts as used, whether or not a file names it. A generated file that `.gitignore` excludes is not read,
 and the components it registers then look unused.
 
 Stylesheets that code imports are followed: `@import`, `@use`, `@forward` and the Tailwind at-rules of `.css`,
