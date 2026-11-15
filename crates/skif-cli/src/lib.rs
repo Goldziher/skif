@@ -95,7 +95,7 @@ fn record_panics() {
 /// outgrew the 2 MiB default. Only the pages a thread touches are committed.
 const WORKER_STACK_SIZE: usize = 64 << 20;
 
-/// Builds rayon's global pool, once per process, with [`WORKER_STACK_SIZE`] stacks. The thread count still follows
+/// Builds rayon's global pool, once per process, with 64 MiB stacks. The thread count still follows
 /// `RAYON_NUM_THREADS`. A host that built the global pool first keeps its own.
 pub fn configure_global_pool() {
     static ONCE: Once = Once::new();

@@ -75,7 +75,6 @@ some repositories. Types are to become the default again once programs share tho
   2, as `run` does, so a binary built on it needs no hook ([ADR 0027](adrs/0027-distribution-and-release.md)).
 - **Library users of `skif-report`**: `type-aware` is a reserved top-level key of the JSON document, so
   `render_json_with` rejects an extra member of that name.
-
 - **Library users of `skif-config`**: `ConfigOverrides::no_type_aware` is replaced by `type_aware: Option<bool>`
   (`Some(false)` for `--no-type-aware`, `Some(true)` for `--type-aware`); `with_no_type_aware` and the new
   `with_type_aware` set it, and turning types off wins over turning them on.
