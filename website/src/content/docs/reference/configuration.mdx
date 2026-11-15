@@ -557,9 +557,15 @@ credited, since that would hide most of the package's unused files.
 A `require()` or `import()` of a template literal with a relative static prefix (`` import(`./reporters/${name}.js`) ``)
 reaches every file matching the prefix, `*` for each substitution, and the suffix, as `import.meta.glob` does, and their
 exports count as used; an output extension also matches the sources it is built from (`.js` matches `.ts` and `.tsx`).
-Paths built at runtime in other ways are not followed: a specifier held in a variable, a `fast-glob` or `glob` call
-listing files relative to `__dirname`, or a registry that loads `${name}/${name}.module.js` from a directory it computes.
-Add such files to `entry`.
+A last segment without an extension names a module as a specifier does: a file with any code extension, or the
+`index` of a directory (`` require(`./commands/${name}`) `` reaches `commands/login.js` and `commands/trust/index.js`,
+and `` require(`./locales/${lang}/messages`) `` reaches `locales/en/messages.js`). A `const` that holds a path built
+from the file's directory (`const entry = path.resolve(__dirname, "cli/entry.js")`, also `path.join`,
+`require("node:path").resolve` and string literals after `__dirname`) names its module where a `require()`,
+`import()` or `require.resolve()` of the same file reads it by name, also inside a nested function; a parameter or
+local of the same name, a `let` and a computed segment are not followed. Paths built at runtime in other ways are not
+followed: another specifier held in a variable, a `fast-glob` or `glob` call listing files relative to `__dirname`, or
+a registry that loads `${name}/${name}.module.js` from a directory it computes. Add such files to `entry`.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
@@ -1160,8 +1166,8 @@ added for components are no `circular-imports` cycle. Registrations apply to eve
 registered from a package stays an import of the declaration file. A package that may use its components in files
 skif records no tags for keeps every component it registers used: one with a `.tsx` or `.jsx` project file, a
 VitePress or VuePress site, or a bundler config that passes the plugin an `include` matching more than `.vue` files
-(`/\.md$/`) or options skif cannot read. `auto-imports.d.ts` is an entry like every `.d.ts` file, so each composable
-it registers counts as used, whether or not a file names it. A generated file that `.gitignore` excludes is not read,
+(`/\.md$/`) or options skif cannot read. `auto-imports.d.ts` is an entry, as every declaration file that declares globals
+is, so each composable it registers counts as used, whether or not a file names it. A generated file that `.gitignore` excludes is not read,
 and the components it registers then look unused.
 
 Stylesheets that code imports are followed: `@import`, `@use`, `@forward` and the Tailwind at-rules of `.css`,
@@ -1191,7 +1197,11 @@ adds to them as well. A `testRegex` is matched against `/` and the path relative
 for the `rootDir` option (the config's directory by default) and anchoring the expression there when it leads; the
 `i`, `m` and `s` flags of a regular expression literal apply. An expression the analysis cannot compile (a lookaround or
 a backreference) leaves the package's files unjudged. `testPathIgnorePatterns` is not applied, as knip does not apply it
-either. A Playwright `testMatch` regular expression becomes a glob
+either. A test file resolves its imports as every other file does, in TypeScript's order: when `sum.ts` and `sum.js`
+sit side by side, `../sum` and `../sum.js` name `sum.ts`, while Jest (whose default `moduleFileExtensions` lists `js`
+before `ts`) loads `sum.js` and knip resolves both to it. Jest's `moduleFileExtensions` is not read. A `.js` file beside a `.ts` file of the
+same name is most often the build output of that file, which this order keeps from standing in for its source; a
+hand-written twin that only such imports reach is reported by `unused-files`, so list it in `entry` or `ignore`. A Playwright `testMatch` regular expression becomes a glob
 when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
 (`/.*\.e2e\.tsx?/` matches `**/*.e2e.ts{x,}*` below `testDir`); any other expression makes every script below
 `testDir` an entry.
@@ -1214,7 +1224,11 @@ member ([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-
 A namespace used as a whole in its own file credits none of its members. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
 as used, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole, its types included: it runs as a
-program of its own, as an entry does. A module that a test mocks
+program of its own, as an entry does. A bare file name with a code extension (`new URL("worker.mjs", import.meta.url)`)
+names the file beside the importer, as URL resolution reads it; a bare path with a directory is left out, since bundlers
+may read it as a package. So is a worker thread started from a path built from the file's directory
+(`new Worker(path.join(__dirname, "../workers/job.js"))`, also `path.resolve`, with string literals after
+`__dirname`); a plain string path is resolved against the working directory at run time and is not followed. A module that a test mocks
 (`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from the syntax tree, so a call written
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. A relative or aliased mock

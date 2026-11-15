@@ -102,18 +102,21 @@ fn a_file_in_an_excluded_package() {
     assert_eq!(absence(&files, config, "packages/a/orphan.ts"), "package-excluded");
 }
 
-/// A discovered declaration file (`.d.ts`, `.d.mts`, `.d.cts`) is an ambient entry, so it is in the graph and
-/// `declaration-file` is not reached for it; a declaration file Git ignores is not discovered.
+/// A discovered script declaration file (`.d.ts`, `.d.mts`, `.d.cts`) is an ambient entry, so it is in the graph and
+/// `declaration-file` is not reached for it; a module declaration file nothing imports is not in the graph and is
+/// `declaration-file`; a declaration file Git ignores is not discovered.
 #[test]
 fn a_declaration_file() {
     for extension in ["d.ts", "d.mts", "d.cts"] {
         let types_file = format!("lib/types.{extension}");
+        let module_file = format!("lib/module.{extension}");
         let generated_file = format!("lib/generated.{extension}");
         let gitignore = format!("{generated_file}\n");
         let files = [
             PACKAGE,
             ("index.ts", "export const main = 1;\n"),
-            (types_file.as_str(), "export declare const x: number;\n"),
+            (types_file.as_str(), "declare const x: number;\n"),
+            (module_file.as_str(), "export declare const z: number;\n"),
             (generated_file.as_str(), "export declare const y: number;\n"),
             (".gitignore", gitignore.as_str()),
         ];
@@ -122,6 +125,12 @@ fn a_declaration_file() {
             (&types["in-graph"], &types["entry"]),
             (&json!(true), &json!("entry-glob")),
             "{types}"
+        );
+        let module = report(&files, "", &module_file);
+        assert_eq!(
+            (&module["in-graph"], &module["absence"]),
+            (&json!(false), &json!("declaration-file")),
+            "{module}"
         );
         assert_eq!(absence(&files, "", &generated_file), "not-discovered", "{extension}");
     }
@@ -758,4 +767,31 @@ fn a_built_script_source_and_a_file_a_bin_stub_loads_name_their_entry_rule() {
             "{file}: {usage}"
         );
     }
+}
+
+/// The default import of a `CommonJS` module is listed as a user of the `module.exports` properties it reads, and not
+/// of the others.
+#[test]
+fn a_default_import_of_a_commonjs_module_is_listed_for_the_properties_it_reads() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import lib from './lib.js';\nconst { used } = lib;\nexport const run = used;\n",
+        ),
+        (
+            "lib.js",
+            "function used() {}\nfunction unused() {}\nmodule.exports = { used, unused };\n",
+        ),
+    ];
+    let used = export_report(&files, "", "lib.js", "used");
+    assert_eq!(used["verdict"], "used", "{used}");
+    assert_eq!(used["users"][0]["file"], "index.ts", "{used}");
+    assert_eq!(
+        used["users"][0]["how"], "the default import of module.exports, members used",
+        "{used}"
+    );
+    let unused = export_report(&files, "", "lib.js", "unused");
+    assert_eq!(unused["verdict"], "unused", "{unused}");
+    assert_eq!(unused["users"], json!([]), "{unused}");
 }

@@ -740,13 +740,23 @@ fn describe_name(name: &ImportedName) -> String {
     match &name.kind {
         ImportedKind::Default => "default".to_owned(),
         ImportedKind::Named(export) => export.clone(),
-        ImportedKind::Namespace if name.escapes => match &name.passed_to {
-            Some(call) => format!("the namespace, used as a whole, returned from a callback passed to {call}"),
-            None => "the namespace, used as a whole".to_owned(),
-        },
-        ImportedKind::Namespace if name.accessed_members.is_empty() => "the namespace, no member read".to_owned(),
-        ImportedKind::Namespace => format!("the namespace, members {}", name.accessed_members.join(", ")),
+        ImportedKind::Namespace => describe_namespace("the namespace", name),
     }
+}
+
+/// How the binding `name` of a module object (`what`: a namespace, or the `module.exports` a default import binds)
+/// reads it.
+fn describe_namespace(what: &str, name: &ImportedName) -> String {
+    if name.escapes {
+        return match &name.passed_to {
+            Some(call) => format!("{what}, used as a whole, returned from a callback passed to {call}"),
+            None => format!("{what}, used as a whole"),
+        };
+    }
+    if name.accessed_members.is_empty() {
+        return format!("{what}, no member read");
+    }
+    format!("{what}, members {}", name.accessed_members.join(", "))
 }
 
 /// What one name of an import of `kind` takes: an `export * from` forwards every export rather than reading members.
@@ -771,9 +781,15 @@ fn reached(target: &Target) -> &[ModuleId] {
     }
 }
 
-/// Whether `import`, of the module `importer`, uses export `export` of the module it points at, or the module as a
-/// whole. A use of the module object as a whole uses no type export (`is_type`), as in [`usage::ExportUsage`].
-fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bool) -> Option<String> {
+/// Whether `import`, of the module `importer`, uses export `export` of the module `target` it points at, or the module
+/// as a whole. A use of the module object as a whole uses no type export (`is_type`), as in [`usage::ExportUsage`].
+fn uses_export(
+    importer: &ModuleInfo,
+    target: &ModuleInfo,
+    import: &Import,
+    export: &str,
+    is_type: bool,
+) -> Option<String> {
     if usage::credits_no_export(import.kind) {
         return None;
     }
@@ -782,15 +798,14 @@ fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bo
         return reads.then(|| "the whole module".to_owned());
     }
     import.names.iter().find_map(|name| {
-        let hit = match &name.kind {
-            ImportedKind::Default => export == "default",
-            ImportedKind::Named(named) => named == export,
-            ImportedKind::Namespace => {
-                let whole = name.escapes && (!is_type || usage::exports_binding(importer, name));
-                whole || name.accessed_members.iter().any(|member| member == export)
-            }
+        let object = match &name.kind {
+            ImportedKind::Namespace => "the namespace",
+            ImportedKind::Default if usage::binds_module_exports(target) => "the default import of module.exports",
+            ImportedKind::Default => return (export == "default").then(|| describe_name(name)),
+            ImportedKind::Named(named) => return (named == export).then(|| describe_name(name)),
         };
-        hit.then(|| describe_name(name))
+        let whole = name.escapes && (!is_type || usage::exports_binding(importer, name));
+        (whole || name.accessed_members.iter().any(|member| member == export)).then(|| describe_namespace(object, name))
     })
 }
 
@@ -1111,6 +1126,9 @@ impl JsAnalysis<'_> {
             if let Some(&reason) = self.entry_origins.get(&module.abs) {
                 return reason;
             }
+            if package.declaration_entry.is_match(&rel) {
+                return EntryReason::EntryGlob;
+            }
             if package.in_incomplete_scope(&rel) {
                 return EntryReason::IncompleteScope;
             }
@@ -1399,7 +1417,7 @@ impl JsAnalysis<'_> {
                 let Some(import) = importer.info.imports.get(resolved.import) else {
                     continue;
                 };
-                if let Some(how) = uses_export(&importer.info, import, name, is_type) {
+                if let Some(how) = uses_export(&importer.info, &module.info, import, name, is_type) {
                     report.users.push(ExportUser {
                         file: slashed(&importer.path),
                         line: import_line(resolved, import),

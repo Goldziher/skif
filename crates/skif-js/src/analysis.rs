@@ -638,6 +638,7 @@ impl<'a> JsAnalysis<'a> {
         let run = TypeRun {
             fs: &disk,
             sequential,
+            budget: modules.and_then(ModuleParser::type_budget),
             cancel,
             wanted: types,
         };
@@ -679,7 +680,7 @@ impl<'a> JsAnalysis<'a> {
                         known_texts: known,
                     };
                     timing::phase(phase("graph (read, parse, resolve)"), || {
-                        graph::build(&inputs, &found.files, &found.build_sources)
+                        graph::build(&inputs, &found.files, &found.build_sources, &found.declarations)
                     })
                 };
             let mut found = entries_of(&setup);
@@ -718,7 +719,15 @@ impl<'a> JsAnalysis<'a> {
                 graph = graph_of(&setup, &resolver, &found, &known);
             }
             graph.release_texts();
-            let entries = found.files;
+            let mut entries = found.files;
+            // The declaration files the graph made entries, which apply without being imported.
+            entries.extend(
+                found
+                    .declarations
+                    .iter()
+                    .filter(|path| graph.id_of(path.as_path()).is_some_and(|id| graph.module(id).is_entry))
+                    .cloned(),
+            );
             let other_root_entries = found.other_root_entries;
             let other_root_build_sources = found.other_root_build_sources;
             let entry_origins = found.origins;

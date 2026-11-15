@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
 use common::{Generated, Options, abs, generated_programs, try_run};
-use skif_js_types::{TypeBuild, TypeError, TypeFacts, TypePackage, TypeTimings, start};
+use skif_js_types::{TypeBudget, TypeBuild, TypeError, TypeFacts, TypePackage, TypeTimings, start};
 
 /// Programs of 3, 5 and 2 classes, below `packages/p0` to `packages/p2`.
 const PROGRAM_SIZES: [u32; 3] = [3, 5, 2];
@@ -137,4 +137,106 @@ fn a_given_tsconfig_that_cannot_be_read_fails_the_finish() {
         matches!(&result, Err(TypeError::Config { path, .. }) if path == &PathBuf::from("missing.json")),
         "{result:?}"
     );
+}
+
+#[test]
+fn analyses_that_fill_every_thread_of_the_global_pool_finish() {
+    use rayon::prelude::*;
+    // More source directories than tsrs lists inline, so that planning lists the rest on its rayon pool.
+    let mut files = vec![("tsconfig.json".to_owned(), common::TSCONFIG.to_owned())];
+    let mut judged = Vec::new();
+    for index in 0..100 {
+        let rel = format!("src/d{index}/m.ts");
+        files.push((rel.clone(), format!("export const value{index} = {index};\n")));
+        judged.push(rel);
+    }
+    let judged: Vec<&str> = judged.iter().map(String::as_str).collect();
+    let workspace = common::Workspace::from_owned(files);
+    let packages = vec![common::package("", "app", &judged)];
+    let query = common::query(Vec::new());
+    // Twice as many analyses as the global pool has threads, one per task: every thread of the pool runs one and waits
+    // for its plan, as a host does with one analysis per root.
+    let analyses = rayon::current_num_threads() * 2;
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let facts: Vec<TypeFacts> = (0..analyses)
+            .into_par_iter()
+            .with_max_len(1)
+            .map(|_| {
+                let build = TypeBuild::new(workspace.fs(), abs(""), packages.clone()).with_threads(threads());
+                std::thread::scope(|scope| start(scope, build, None).finish(&packages, &query))
+                    .expect("the analysis fails")
+            })
+            .collect();
+        done.send(facts.len()).unwrap();
+    });
+    // A deadlocked pool never ends; the thread is left behind and the test fails.
+    assert_eq!(
+        finished.recv_timeout(std::time::Duration::from_secs(120)),
+        Ok(analyses),
+        "the analyses wait for each other's threads"
+    );
+}
+
+/// The facts of `analyses` analyses of every program of `generated`, run at once on the global pool and sharing
+/// `budget`, as a host runs one per root. Between starting its programs and handing its query over, each host does
+/// parallel work that lets its thread run another analysis meanwhile, as building its module graph does.
+fn sharing(generated: &Generated, budget: &TypeBudget, analyses: usize) -> Vec<TypeFacts> {
+    use rayon::prelude::*;
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::scope(|outer| {
+        outer.spawn(|| {
+            let facts: Vec<TypeFacts> = (0..analyses)
+                .into_par_iter()
+                .with_max_len(1)
+                .map(|_| {
+                    let build = TypeBuild::new(generated.workspace.fs(), abs(""), generated.packages.clone())
+                        .with_threads(threads())
+                        .with_budget(budget.clone());
+                    std::thread::scope(|scope| {
+                        let pending = start(scope, build, None);
+                        rayon::join(|| (), || std::thread::sleep(std::time::Duration::from_millis(5)));
+                        pending.finish(&generated.packages, &generated.query)
+                    })
+                    .expect("the analysis fails")
+                })
+                .collect();
+            done.send(facts).unwrap();
+        });
+        finished
+            .recv_timeout(std::time::Duration::from_secs(300))
+            .expect("the analyses wait for each other's cores")
+    })
+}
+
+#[test]
+fn analyses_that_share_a_budget_never_hold_more_cores_than_it_has_and_keep_their_facts() {
+    let generated = generated_programs(&PROGRAM_SIZES);
+    let expected = without_timings(analyzed(&generated, &generated.packages));
+    let analyses = rayon::current_num_threads() * 2;
+    // One core leaves no early share, so no program starts before its query; four leave one core for early programs.
+    for cores in [1, 4] {
+        let budget = TypeBudget::new(NonZeroUsize::new(cores));
+        let facts = sharing(&generated, &budget, analyses);
+        assert_eq!(facts.len(), analyses, "{cores} cores");
+        assert_eq!(
+            budget.takes(),
+            analyses * PROGRAM_SIZES.len(),
+            "{cores} cores: every program of every analysis takes its cores from the budget"
+        );
+        assert!(
+            (1..=cores).contains(&budget.peak()),
+            "{cores} cores: at most the budget is held at once, not {}",
+            budget.peak()
+        );
+        if cores == 1 {
+            assert!(
+                facts.iter().all(|facts| facts.timings.early == 0),
+                "without an early share every program waits for its query"
+            );
+        }
+        for facts in facts {
+            assert_eq!(without_timings(facts), expected, "{cores} cores");
+        }
+    }
 }

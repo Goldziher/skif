@@ -276,7 +276,9 @@ impl Linter {
     /// files that can be shared, those outside the root parsing them (a directory of shared code outside every root)
     /// or inside a root nested in it, so such a file is parsed once for the run instead of once per root, also while
     /// the roots are linted in parallel. Each root parses its own files outside the cache. The entries live as long
-    /// as the linters do. One target is [`with_fs`](Self::with_fs). A host that keeps a cache of its own passes it
+    /// as the linters do. Their type-aware analyses also take the cores of their TypeScript programs from one budget
+    /// of the machine's cores, so the programs of the roots linted at once hold no more cores together than the
+    /// machine has. One target is [`with_fs`](Self::with_fs). A host that keeps a cache of its own passes it
     /// to [`for_targets_with_cache`](Self::for_targets_with_cache).
     ///
     /// # Errors
