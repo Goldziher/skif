@@ -42,13 +42,17 @@ fn type_aware_summary(config: &Config) -> Option<TypeAwareSummary> {
 }
 
 #[test]
-fn no_type_aware_runs_no_checker() {
+fn types_off_by_default_by_the_file_or_by_no_type_aware_run_no_checker() {
     let before = skif_js_types::arena_bytes_in_use();
-    let mut overridden = Config::from_toml_str("").unwrap();
+    let mut overridden = Config::from_toml_str("[js]\ntype-aware = true\n").unwrap();
     overridden
         .apply(&ConfigOverrides::default().with_no_type_aware(true))
         .unwrap();
-    for config in [Config::from_toml_str("[js]\ntype-aware = false\n").unwrap(), overridden] {
+    for config in [
+        Config::from_toml_str("").unwrap(),
+        Config::from_toml_str("[js]\ntype-aware = false\n").unwrap(),
+        overridden,
+    ] {
         assert_eq!(
             type_aware_summary(&config),
             Some(TypeAwareSummary::new(

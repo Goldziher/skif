@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct TypeAwareSummary {
-    /// Whether the configuration asked for the type-aware analysis (`[js] type-aware`, `--no-type-aware`).
+    /// Whether the configuration asked for the type-aware analysis (`[js] type-aware`, `--type-aware`,
+    /// `--no-type-aware`).
     pub enabled: bool,
     /// The type checker that ran and its version, when one ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
