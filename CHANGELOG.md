@@ -256,6 +256,17 @@ All notable changes to this project are documented here. The format follows
   a root waited for cores. Library hosts share a `TypeBudget` of `skif-js-types` between analyses with
   `TypeBuild::with_budget` and `TypeInput::with_budget`.
 
+- **Type-aware analysis of nested roots** (`--recursive`, several paths): a TypeScript program the judged files of
+  several roots go to is built once for the run instead of once per root. A root nested in another without a
+  `tsconfig.json` of its own places its files in the outer root's config, as TypeScript does, so every such root
+  built the whole outer program again to walk one or two files; on next.js that was the 3,638-file root program,
+  built again by each of the nested test roots. A built program is now kept, after the walk of the root that built
+  it, while a root of the run that holds one of its files has not been linted, and each of those roots walks its
+  files on that build; a root that needs a program another root is building waits for that build. Findings do not
+  change. `SKIF_TIMINGS` names a program another root built. Library hosts share a `TypePrograms` of `skif-js-types`
+  between analyses with `TypeBuild::with_programs` and `TypeInput::with_programs`; `ProgramTiming` gains `shared`
+  ([#245](https://github.com/Goldziher/skif/issues/245)).
+
 - **Type-aware analysis memory**: a TypeScript program gets no more checkers than it has judged files. tsrs creates
   every checker of a program before the walk, each with its own copy of the program's global types, so a program
   with two judged files on four checkers held two checkers that walked nothing. The diagnostics a checker makes while answering are freed with its

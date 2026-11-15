@@ -1,6 +1,6 @@
 //! The module cache the linters of one run parse through (ADR 0029): a host's cache, which holds every file, or the
 //! cache of a multi-root run, which holds only the files more than one root can reach. A multi-root run's roots also
-//! share the cores of their type-aware analyses.
+//! share the cores and the TypeScript programs of their type-aware analyses.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,12 +43,14 @@ impl SharedModules {
     /// * With several roots, a lookup of a file another root is parsing waits for that parse instead of repeating
     ///   it. One root takes no lock for that.
     /// * With several roots, their type-aware analyses take the cores of their programs from one budget of the
-    ///   machine's cores. The facts do not depend on it.
+    ///   machine's cores, and a TypeScript program the judged files of several roots go to (an outer root's
+    ///   `tsconfig.json` that includes the files of the roots nested below it) is built once, kept while a root that
+    ///   holds one of its files has not been linted, and walked by each. The facts do not depend on it.
     #[must_use]
     pub fn for_run(roots: Vec<PathBuf>, host: Option<Arc<dyn ModuleCache>>) -> Option<Self> {
         let several = roots.len() > 1;
         let coalescer = several.then(|| Arc::new(ParseCoalescer::new()));
-        let types = several.then(SharedBudget::default);
+        let types = several.then(|| SharedBudget::for_roots(&roots));
         match host {
             Some(cache) => Some(Self {
                 cache,
