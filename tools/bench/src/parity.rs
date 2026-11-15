@@ -4049,10 +4049,10 @@ fn namespace_reexport_object_credits(
     if names.is_empty() {
         return BTreeSet::new();
     }
-    let named = |source: &str| names.iter().any(|name| source.contains(name.as_str()));
+    let mentions_a_name = |source: &str| names.iter().any(|name| source.contains(name.as_str()));
     let seeds: Vec<(String, String)> = files
         .iter()
-        .filter_map(|file| parsed(file, &named).map(|module| whole_uses(file, &module, resolver)))
+        .filter_map(|file| parsed(file, &mentions_a_name).map(|module| whole_uses(file, &module, resolver)))
         .flatten()
         .filter(|(_, name)| names.contains(name))
         .collect();
@@ -4871,7 +4871,7 @@ fn is_spy_callee(callee: &Expression<'_>) -> bool {
 fn qualifier_head<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> &'q str {
     match qualifier {
         TSImportTypeQualifier::Identifier(name) => name.name.as_str(),
-        TSImportTypeQualifier::QualifiedName(qualified) => qualifier_head(&qualified.left),
+        TSImportTypeQualifier::QualifiedName(path) => qualifier_head(&path.left),
     }
 }
 
@@ -4977,16 +4977,16 @@ fn knip_read_credits(files: &[String], resolver: &Resolver<'_>, read: &SourceRea
         let Some(reads) = knip_reads(file, &source, module.as_ref()) else {
             continue;
         };
-        let resolved = |specifiers: &[String], name: &str| -> Vec<(String, String)> {
+        let credited_in = |specifiers: &[String], name: &str| -> Vec<(String, String)> {
             specifiers
                 .iter()
                 .filter_map(|specifier| resolver.resolve(file, specifier))
                 .map(|target| (target, name.to_owned()))
                 .collect()
         };
-        opaque.extend(resolved(&reads.opaque[..], WHOLE_MODULE));
-        defaults.extend(resolved(&reads.defaults[..], "default"));
-        actuals.extend(resolved(&reads.required_actuals[..], WHOLE_MODULE));
+        opaque.extend(credited_in(&reads.opaque[..], WHOLE_MODULE));
+        defaults.extend(credited_in(&reads.defaults[..], "default"));
+        actuals.extend(credited_in(&reads.required_actuals[..], WHOLE_MODULE));
         import_types.extend(
             reads
                 .import_types
@@ -5089,8 +5089,7 @@ fn typescript_commonjs_keys(keys: &BTreeSet<String>, read: &SourceReader<'_>) ->
                     read(path)
                         .filter(|source| source.contains("exports"))
                         .and_then(|source| knip_reads(path, &source, None))
-                        .map(|reads| reads.commonjs_exports)
-                        .unwrap_or_default()
+                        .map_or_else(BTreeSet::new, |reads| reads.commonjs_exports)
                 })
                 .contains(name)
         })
