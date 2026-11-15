@@ -319,7 +319,13 @@ fn a_dev_dependency_the_manifest_also_lists_in_dependencies_is_reported() {
     let dev: Vec<(String, String, Option<String>)> = diagnostics
         .iter()
         .filter(|d| d.rule.as_str() == "unused-dev-dependencies")
-        .map(|d| (d.dependency.clone().unwrap_or_default(), d.message.clone(), d.help.clone()))
+        .map(|d| {
+            (
+                d.dependency.clone().unwrap_or_default(),
+                d.message.clone(),
+                d.help.clone(),
+            )
+        })
         .collect();
     assert_eq!(
         dev,
@@ -332,7 +338,9 @@ fn a_dev_dependency_the_manifest_also_lists_in_dependencies_is_reported() {
             (
                 "unused-a".to_owned(),
                 "`unused-a` is listed in `devDependencies` but never used".to_owned(),
-                Some("remove it, or add it to `ignore-dependencies` when a tool uses it without importing it".to_owned())
+                Some(
+                    "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it".to_owned()
+                )
             ),
         ],
         "{diagnostics:#?}"
