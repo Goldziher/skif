@@ -245,6 +245,25 @@ mod tests {
     }
 
     #[test]
+    fn only_the_roots_of_a_run_over_several_share_a_type_budget() {
+        let host = || Arc::new(MemoryModuleCache::new()) as Arc<dyn ModuleCache>;
+        let budget = |modules: &SharedModules, root: &str| modules.parser(Path::new(root)).type_budget().is_some();
+        let one = SharedModules::for_run(roots(&["/r/a"]), Some(host())).unwrap();
+        assert!(!budget(&one, "/r/a"), "one root has the cores of its own analysis");
+        assert!(!budget(&SharedModules::host(host()), "/r/a"), "a host's cache of one linter");
+        for modules in [
+            SharedModules::for_run(roots(&["/r/a", "/r/b"]), Some(host())).unwrap(),
+            SharedModules::for_run(roots(&["/r/a", "/r/b"]), None).unwrap(),
+        ] {
+            let (a, b) = (modules.parser(Path::new("/r/a")), modules.parser(Path::new("/r/b")));
+            let (Some(a), Some(b)) = (a.type_budget(), b.type_budget()) else {
+                panic!("every root of the run has the budget");
+            };
+            assert!(std::ptr::eq(a, b), "the roots share one budget");
+        }
+    }
+
+    #[test]
     fn the_cache_of_a_run_holds_only_the_files_a_root_does_not_own() {
         let modules = SharedModules::for_run(roots(&["/r", "/r/nested", "/r/sibling"]), None).unwrap();
         // For `/r`: its own file is local; a file of the root nested in it and one outside every root are shared.
