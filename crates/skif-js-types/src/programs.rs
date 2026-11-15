@@ -84,6 +84,20 @@ pub(crate) enum Placement {
     Outside,
 }
 
+/// Where the search for a file's config led, as a planning keeps it: the config by its canonical path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Located {
+    Config(String),
+    NoConfig,
+    ConfigError,
+    Outside,
+}
+
+/// Where each file of a planning went, by its name as tsrs names files and whether the search started at the config
+/// given for the root package. A file's place depends on nothing else, so a later planning of the same files over the
+/// same file system reuses it instead of searching again.
+pub(crate) type Lookups = BTreeMap<(String, bool), Located>;
+
 /// What the search for a file's config found.
 enum Lookup {
     Found(String),
@@ -104,16 +118,22 @@ enum Start<'a> {
 /// The parsed configs of one planning, by path; `None` for a config that cannot be parsed.
 type ConfigCache = skif_core::HashMap<tspath::Path, Option<ParsedCommandLine>>;
 
-/// Plans the programs of `input`: per judged file its config, deduplicated by canonical path.
+/// Plans the programs of `input`: per judged file its config, deduplicated by canonical path. A file `known` holds
+/// keeps the place it has there; the others are searched. Returns the plan with the places of the searched files.
 ///
 /// # Errors
 /// [`TypeError::Config`] when the `tsconfig` given for the root package cannot be read or parsed.
-pub(crate) fn plan_programs(input: &TypeInput<'_>, host: &ConfigHost) -> Result<ProgramPlan, TypeError> {
+pub(crate) fn plan_programs(
+    input: &TypeInput<'_>,
+    host: &ConfigHost,
+    known: &Lookups,
+) -> Result<(ProgramPlan, Lookups), TypeError> {
     let given = input
         .tsconfig_override
         .map(|config| given_config(input.root, config, host))
         .transpose()?;
     let mut cache = ConfigCache::default();
+    let mut searched = Lookups::new();
     let mut by_config: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     let mut files = Vec::new();
     for (package_index, package) in input.packages.iter().enumerate() {
@@ -123,18 +143,23 @@ pub(crate) fn plan_programs(input: &TypeInput<'_>, host: &ConfigHost) -> Result<
         };
         for path in &package.files {
             let name = tsrs_path(path);
-            let placement = match find_config(&name, start, host, &mut cache) {
-                Lookup::Found(config) => {
-                    by_config
-                        .entry(host.fs.realpath(&config))
-                        .or_default()
-                        .push(files.len());
+            let key = (name, matches!(start, Start::Given(_)));
+            let cached = known.get(&key).or_else(|| searched.get(&key)).cloned();
+            let located = cached.unwrap_or_else(|| {
+                let located = locate(&key.0, start, host, &mut cache);
+                searched.insert(key.clone(), located.clone());
+                located
+            });
+            let (name, _) = key;
+            let placement = match located {
+                Located::Config(config) => {
+                    by_config.entry(config).or_default().push(files.len());
                     // Replaced by the program index once every file is placed.
                     Placement::Program(usize::MAX)
                 }
-                Lookup::NoConfig => Placement::NoConfig,
-                Lookup::ConfigError => Placement::ConfigError,
-                Lookup::Outside => Placement::Outside,
+                Located::NoConfig => Placement::NoConfig,
+                Located::ConfigError => Placement::ConfigError,
+                Located::Outside => Placement::Outside,
             };
             files.push(PlannedFile {
                 package: package_index,
@@ -154,7 +179,17 @@ pub(crate) fn plan_programs(input: &TypeInput<'_>, host: &ConfigHost) -> Result<
             PlannedProgram { config, files: members }
         })
         .collect();
-    Ok(ProgramPlan { programs, files })
+    Ok((ProgramPlan { programs, files }, searched))
+}
+
+/// Where the search for the config of `file` leads.
+fn locate(file: &str, start: Start<'_>, host: &ConfigHost, cache: &mut ConfigCache) -> Located {
+    match find_config(file, start, host, cache) {
+        Lookup::Found(config) => Located::Config(host.fs.realpath(&config)),
+        Lookup::NoConfig => Located::NoConfig,
+        Lookup::ConfigError => Located::ConfigError,
+        Lookup::Outside => Located::Outside,
+    }
 }
 
 /// The `tsconfig` given for the root package, absolute, once it parses.
@@ -300,6 +335,15 @@ mod tests {
     }
 
     fn plan_with(memory: MemoryFs, packages: &[TypePackage], given: Option<&Path>) -> Result<ProgramPlan, TypeError> {
+        plan_known(memory, packages, given, &Lookups::new()).map(|(plan, _)| plan)
+    }
+
+    fn plan_known(
+        memory: MemoryFs,
+        packages: &[TypePackage],
+        given: Option<&Path>,
+        known: &Lookups,
+    ) -> Result<(ProgramPlan, Lookups), TypeError> {
         let (fs, _) = crate::vfs::tsrs_fs(Arc::new(memory));
         let host = ConfigHost::new(fs, ROOT.to_owned());
         let query = TypeQuery::default();
@@ -307,7 +351,7 @@ mod tests {
         if let Some(config) = given {
             input = input.with_tsconfig_override(config);
         }
-        plan_programs(&input, &host)
+        plan_programs(&input, &host, known)
     }
 
     fn plan(memory: MemoryFs, packages: &[TypePackage]) -> ProgramPlan {
@@ -504,6 +548,44 @@ mod tests {
         assert!(
             matches!(&error, Err(TypeError::Config { path, .. }) if path == Path::new("missing.json")),
             "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_planning_keeps_the_places_it_is_given_and_returns_those_it_searched() {
+        let memory = MemoryFs::new()
+            .with_file("/ws/a/tsconfig.json", r#"{ "include": ["src"] }"#)
+            .with_file("/ws/a/src/a.ts", "")
+            .with_file("/ws/b/src/b.ts", "");
+        let early = [package("/ws/a", &["/ws/a/src/a.ts"])];
+        let (_, searched) = plan_known(memory, &early, None, &Lookups::new()).unwrap();
+        assert_eq!(
+            searched,
+            Lookups::from([(
+                ("/ws/a/src/a.ts".to_owned(), false),
+                Located::Config("/ws/a/tsconfig.json".to_owned())
+            )])
+        );
+        // A file system without the config: only a known place can still put `a.ts` into its program.
+        let without_config = MemoryFs::new()
+            .with_file("/ws/a/src/a.ts", "")
+            .with_file("/ws/b/src/b.ts", "");
+        let later = [
+            package("/ws/a", &["/ws/a/src/a.ts"]),
+            package("/ws/b", &["/ws/b/src/b.ts"]),
+        ];
+        let (plan, searched_later) = plan_known(without_config, &later, None, &searched).unwrap();
+        assert_eq!(
+            placements(&plan),
+            pairs(&[
+                ("/ws/a/src/a.ts", "/ws/a/tsconfig.json"),
+                ("/ws/b/src/b.ts", "NoConfig"),
+            ])
+        );
+        assert_eq!(
+            searched_later,
+            Lookups::from([(("/ws/b/src/b.ts".to_owned(), false), Located::NoConfig)]),
+            "only the file the known places lack is searched"
         );
     }
 }
