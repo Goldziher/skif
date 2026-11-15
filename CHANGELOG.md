@@ -9,6 +9,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Type-aware programs share their declaration files**: the TypeScript programs of a run (one per `tsconfig.json`,
+  across every root of `skif -r`) parse and bind each bundled lib file and each declaration file below
+  `node_modules` once for the run instead of once per program, and read it from there. A project's own files are
+  still parsed by each program that includes them, and the findings do not change. `SKIF_TIMINGS=1` reports, per root
+  and for the run, how many of those files were parsed and how many were reused; library hosts read the same counts
+  from `TypeTimings::shared_files` and `TypePrograms::shared_files`
+  ([#247](https://github.com/Goldziher/skif/issues/247)).
+
 ## [0.6.0] - 2026-11-15
 
 skif 0.6.0 adds opt-in type-aware analysis. With `--type-aware` or `[js] type-aware = true`, where a package has a
