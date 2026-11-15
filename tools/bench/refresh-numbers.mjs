@@ -6,10 +6,11 @@
 // Without either flag both are refreshed, and the speed blocks are left as they are while no run has been imported
 // (tools/bench/results/summary.json does not exist and no --summary is given). It fails, and writes nothing, when the
 // input does not hold every number the blocks show: a tool that was not timed, a corpus repository without a knip row,
-// a tool error that corpus.toml does not declare, an invalid ADR 0001 check, a stale baseline. A knip failure that
-// corpus.toml declares and the run matched is published as `fails: <reason>`, without a ratio, and left out of the
-// claims; one it declares `timed` (knip printed its whole report first) is published with its time and ratio and the
-// reason beside them. A target whose runs corpus.toml caps names its own run counts.
+// a tool error that corpus.toml does not declare, an invalid ADR 0001 or type-aware budget check, a skif mode (types on
+// or off) without its peak RSS, a stale baseline. A knip failure that corpus.toml declares and the run matched is
+// published as `fails: <reason>`, without a ratio, and left out of the claims; one it declares `timed` (knip printed
+// its whole report first) is published with its time and ratio and the reason beside them. A target whose runs
+// corpus.toml caps names its own run counts.
 // Usage: node tools/bench/refresh-numbers.mjs [--bench] [--parity] [--summary FILE] [--baseline FILE]
 
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -19,8 +20,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
-export const SUMMARY_SCHEMA = 6;
+export const SUMMARY_SCHEMA = 7;
 const SKIF = "skif";
+const SKIF_UNTYPED = "skif --no-type-aware";
 const SKIF_MANIFEST = "skif --no-js";
 const SHERIF = "sherif";
 const SYNCPACK = "syncpack lint";
@@ -116,10 +118,13 @@ const date = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 10);
 
 /** The rows of the tools a target must have for the published tables. */
 function requiredTools(target) {
-  if (target.kind === "corpus") return [SKIF, SKIF_MANIFEST, SHERIF, SYNCPACK, KNIP];
+  if (target.kind === "corpus") return [SKIF, SKIF_UNTYPED, SKIF_MANIFEST, SHERIF, SYNCPACK, KNIP];
   if (target.kind === "generated") return [SKIF_MANIFEST, SHERIF, SYNCPACK];
-  return [SKIF];
+  return [SKIF, SKIF_UNTYPED];
 }
+
+/** The skif modes, types on (the default) and types off, whose rows carry a peak RSS. */
+const SKIF_MODES = [SKIF, SKIF_UNTYPED];
 
 /** Why the summary was not measured by a run of the bench workflow on a GitHub-hosted runner from clean checkouts. */
 function provenanceProblems(summary) {
@@ -168,6 +173,9 @@ export function summaryProblems(summary) {
     for (const tool of requiredTools(target).filter((name) => !timed.has(name))) {
       problems.push(`${target.target} has no ${tool} row`);
     }
+    for (const row of target.results.filter((r) => SKIF_MODES.includes(r.tool) && r.peak_rss_bytes == null)) {
+      problems.push(`${target.target}: ${row.tool} has no peak RSS`);
+    }
     for (const row of target.results.filter((r) => r.error_runs > 0 && r.failure == null)) {
       const cause = row.error_output == null ? "" : ` (${row.error_output})`;
       problems.push(
@@ -178,6 +186,9 @@ export function summaryProblems(summary) {
   }
   for (const check of summary.adr_0001_checks.filter((c) => c.status === "invalid")) {
     problems.push(`${check.target}: the ADR 0001 check is invalid: ${check.description}`);
+  }
+  for (const check of summary.type_aware_budget_checks.filter((c) => c.status === "invalid")) {
+    problems.push(`${check.target}: the type-aware budget check is invalid: ${check.description}`);
   }
   if (!summary.targets.some((target) => target.kind === "corpus")) {
     problems.push("the summary has no corpus target (was it run with --no-corpus?)");
@@ -223,7 +234,7 @@ export function benchDetail(summary) {
         lines.push(`| ${row.tool} | ${fails(row)} | - | - |`);
         continue;
       }
-      const skifRow = row.tool === SKIF || row.tool === SKIF_MANIFEST;
+      const skifRow = row.tool === SKIF || row.tool === SKIF_UNTYPED || row.tool === SKIF_MANIFEST;
       const relative = skifRow || row.relative_to_skif == null ? "-" : `${row.relative_to_skif.toFixed(1)}x`;
       lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);
     }
@@ -240,12 +251,22 @@ export function benchDetail(summary) {
     }
     lines.push("");
   }
+  if (summary.type_aware_budget_checks.length > 0) {
+    lines.push("| Type-aware budget (ADR 0029) | Check | Result |", "| --- | --- | --- |");
+    for (const check of summary.type_aware_budget_checks) {
+      lines.push(`| ${check.target} | ${cell(check.description)} | ${CHECK_LABELS[check.status]} |`);
+    }
+    lines.push("");
+  }
   return lines.join("\n");
 }
 
 const find = (target, tool) => target.results.find((row) => row.tool === tool);
 const median = (target, tool) => find(target, tool)?.median_ms;
 const repoName = (target) => target.target.replace(/^corpus: (\S+).*$/, "$1");
+const MIB = 1024 * 1024;
+/** A peak RSS in mebibytes, as the type-awareness table prints it: `3,288 MiB`. */
+export const mebibytes = (bytes) => `${Math.round(bytes / MIB).toLocaleString("en-US")} MiB`;
 const generatedName = (target) => `Generated, ${target.packages} packages`;
 /** A target as the compact tables name it: a corpus repository by its name, a generated workspace by its size. */
 const targetName = (target) => (target.kind === "corpus" ? repoName(target) : target.target);
@@ -271,6 +292,19 @@ export function benchSummary(summary) {
       "",
       `knip exits with an error after its report on ${names(why)}; its time there is that of a run without the ` +
         "entries of the configurations it could not load.",
+    );
+  }
+  lines.push("", "**Type awareness** (full skif run, types on by default and off with `--no-type-aware`)", "");
+  lines.push(
+    "| Target | types on (default) | types off | on / off | peak RSS, types on (default) | peak RSS, types off |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+  );
+  for (const target of summary.targets.filter((t) => SKIF_MODES.every((tool) => find(t, tool) != null))) {
+    const [typed, untyped] = SKIF_MODES.map((tool) => find(target, tool));
+    lines.push(
+      `| ${targetName(target)} | ${duration(typed.median_ms)} | ${duration(untyped.median_ms)} | ` +
+        `${(typed.median_ms / untyped.median_ms).toFixed(1)}x | ${mebibytes(typed.peak_rss_bytes)} | ` +
+        `${mebibytes(untyped.peak_rss_bytes)} |`,
     );
   }
   lines.push("", "**Manifest and policy checks** (`skif --no-js`)", "");

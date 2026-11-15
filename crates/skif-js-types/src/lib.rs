@@ -204,7 +204,8 @@ pub fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
     session::analyze(input)
 }
 
-/// The bytes of tsrs's arenas in use now, for tests that check repeated analyses give their memory back.
+/// The bytes of tsrs's arenas in use now, for tests that check repeated analyses give their memory back and for the
+/// host's timings.
 ///
 /// With compressed pointers (the default on unix) these are the chunks of the process-wide reservation that are
 /// handed out, on every thread; with `plain-ptrs` only the calling thread's arena is counted.
@@ -212,6 +213,14 @@ pub fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
 #[must_use]
 pub fn arena_bytes_in_use() -> usize {
     tsrs_core::ptr::reserve_stats().map_or_else(tsrs_core::ptr::arena_used_bytes, |(in_use, _)| in_use)
+}
+
+/// The most bytes of tsrs's arenas in use at once in the process so far, for the host's timings; `None` with
+/// `plain-ptrs`, where only the calling thread's arena is counted.
+#[doc(hidden)]
+#[must_use]
+pub fn arena_peak_bytes() -> Option<usize> {
+    tsrs_core::ptr::reserve_stats().map(|(_, peak)| peak)
 }
 
 const _: () = {

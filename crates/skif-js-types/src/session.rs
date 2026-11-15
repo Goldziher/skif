@@ -584,14 +584,19 @@ struct Schedule {
 }
 
 impl Schedule {
-    /// The schedule of programs that hold `sizes` judged files each.
+    /// The schedule of programs that hold `sizes` judged files each. A program gets no more checkers than it has
+    /// files to walk: tsrs creates every checker of a program before the walk, each with the program's global types,
+    /// and one that owns no walked file only holds memory.
     fn new(parallelism: &Parallelism, sizes: &[usize]) -> Self {
         let total = sizes.iter().sum();
         let mut order: Vec<usize> = (0..sizes.len()).collect();
         order.sort_by_key(|&index| std::cmp::Reverse(sizes[index]));
         Self {
             order,
-            checkers: sizes.iter().map(|&files| parallelism.checkers(files, total)).collect(),
+            checkers: sizes
+                .iter()
+                .map(|&files| parallelism.checkers(files, total).min(files.max(1)))
+                .collect(),
         }
     }
 }
@@ -1074,8 +1079,11 @@ impl Session<'_> {
         // Referenced projects contribute their sources, as editors and tsrs-lint read them.
         options.use_source_of_project_reference = true;
         options.regions = Some(Arc::clone(&loader_regions));
-        // The checkers' memory goes back with the program.
+        // The checkers' memory goes back with the program, the diagnostics they make while answering included:
+        // without a region of their own those go to the arena of the thread that made them, which is never freed,
+        // so every program of a run would add its diagnostics. No diagnostic is read.
         options.checker_regions = true;
+        options.checker_diagnostic_regions = true;
         if single_threaded {
             options.single_threaded = Tristate::True;
         }
@@ -1386,6 +1394,21 @@ mod tests {
             "a program beside others gets at most MOST_SHARED_CHECKERS"
         );
         assert!(wide.checkers[1..].iter().all(|&checkers| checkers == 4));
+    }
+
+    #[test]
+    fn a_program_gets_no_more_checkers_than_judged_files() {
+        assert_eq!(schedule(16, &[1, 2, 3, 400]).checkers, [1, 2, 3, 8]);
+        assert_eq!(
+            schedule(16, &[0]).checkers,
+            [1],
+            "a program without judged files still has a checker"
+        );
+        assert_eq!(
+            schedule(16, &[3]).checkers,
+            [3],
+            "a lone program's even share is capped too"
+        );
     }
 
     #[test]
