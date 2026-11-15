@@ -85,7 +85,7 @@ under [Parity with knip](#parity-with-knip).
 | Unused files | Yes | No | No | Yes |
 | Unused exports and exported types | Yes | No | No | Yes |
 | Unused enum members, namespace members, exports and types in a used namespace | Yes | No | No | Yes |
-| Unused class members | Yes: `unused-class-members`, matched by name (8) | No | No | No: dropped in knip 6 (`classMembers` in knip 5, off by default) |
+| Unused class members | Yes: `unused-class-members`, resolved with the type checker, by name without types (8) | No | No | No: dropped in knip 6 (`classMembers` in knip 5, off by default) |
 | Duplicate exports | Yes | No | No | Yes |
 | Circular imports | Yes: `circular-imports`, off by default | No | No | Yes: `cycles`, not reported by default |
 | Unused `package.json` subpath imports and exports | Yes: `unused-subpath-imports`, and `unused-subpath-exports` off by default (1) | No | No | Yes: `subpaths` (1) |
@@ -124,8 +124,8 @@ under [Parity with knip](#parity-with-knip).
    checker cannot settle, a read of a property of the member's name on any object counts. It leaves alone the members
    of decorated classes, of classes that extend an unknown class and of interfaces declared elsewhere, where knip
    judged them by their references
-   ([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md),
-   [ADR 0046](https://github.com/Goldziher/skif/blob/main/adrs/0046-typed-member-semantics.md)).
+   ([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md),
+   [ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ### Fixing, adoption and configuration
 
@@ -382,7 +382,8 @@ name on the [rules pages](../../rules/).
 
 ## Performance
 
-Generated from the latest imported run of the `bench` workflow, with the dependencies of the repositories installed:
+Generated from the latest imported run of the `bench` workflow, with the dependencies of the repositories installed
+and skif run as it runs by default (the knip rows) or with `--no-js` (the sherif and syncpack rows):
 
 {/* bench:claims:start */}
 - **6.0–9.0x faster than knip** (median 7.7x) for dead-code analysis, on 3 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core.

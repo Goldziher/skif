@@ -974,7 +974,15 @@ installed) keeps the name-based analysis for the files concerned and loses no fi
 reason (see [output formats](../cli/#output-formats)). `type-aware = false`, or `skif --no-type-aware`, which also
 overrides every `[js.workspaces]` table, runs no type checker at all and is faster and less accurate for member
 findings. The language server, `skif mcp` and `--watch` run without types
-([ADR 0044](https://github.com/Goldziher/skif/blob/main/adrs/0044-type-aware-analysis-on-tsrs.md)).
+([ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
+
+Types cost time and memory: each TypeScript program reads and binds its files a second time, beside the module
+graph. The [benchmarks](../../guides/benchmarks/) time every repository with types and with `--no-type-aware` and
+publish the peak memory of both, and the `bench` workflow fails a run in which types take more than 3x the untyped
+time on the largest repository or 2x in the median, or more than 4 GiB of peak memory on any target
+([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)). The programs of a run, also of several roots, share one budget of the machine's cores, which
+also bounds how many are in memory at once. A build of the `skif` crate without its `type-aware` feature, or of `skif-cli` with
+`--no-default-features`, has no type checker and reports every package untyped (`not-built`).
 
 ```toml
 [js.workspaces."packages/legacy"]

@@ -24,6 +24,7 @@ direction.
 | `skif-js` | JavaScript and TypeScript module graph and dependency rules, built on oxc. |
 | `skif-js-syntax` | oxc-based module facts and static config extraction; never executes code. |
 | `skif-js-plugins` | `package.json` script parsing and the declarative plugin table. |
+| `skif-js-types` | Type-aware facts from the TypeScript checker of tsrs: which member a read reaches. The only crate that depends on tsrs. |
 | `skif-migrate` | The translation behind `skif migrate`: sherif, syncpack and knip configuration to `skif.toml`. |
 | `skif-node` | The Node-API addon behind the npm package. |
 
@@ -36,6 +37,7 @@ direction.
 - [Fix and edit model](https://github.com/Goldziher/skif/blob/main/adrs/0009-fixes-edits-and-package-json-formatting.md)
 - [Version and catalog policies](https://github.com/Goldziher/skif/blob/main/adrs/0010-version-semver-range-and-catalog-policies.md)
 - [JS analysis on oxc](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)
+- [Type-aware analysis on tsrs](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)
 - [CLI contract](https://github.com/Goldziher/skif/blob/main/adrs/0024-cli-contract.md)
 - [Several roots in one run](https://github.com/Goldziher/skif/blob/main/adrs/0006-workspace-discovery-roots-and-multi-root-runs.md) and
   [root discovery](https://github.com/Goldziher/skif/blob/main/adrs/0006-workspace-discovery-roots-and-multi-root-runs.md)
@@ -54,6 +56,8 @@ The full list is the [ADR index](https://github.com/Goldziher/skif/blob/main/adr
 3. `skif-lint` builds a registry from the rule providers, validates every rule's options, and runs the providers
    concurrently. Rules emit diagnostics, optionally with fixes.
 4. The JS analysis (`skif-js`, with `skif-js-syntax` and `skif-js-plugins`) is one of those providers. It parses the
-   sources, builds the module graph, applies the plugin table and emits the `js` rules.
+   sources, builds the module graph, applies the plugin table and emits the `js` rules. With type-aware analysis on,
+   `skif-js-types` builds one TypeScript program per `tsconfig.json` that holds a judged file, starting while the
+   graph is built, answers which members the typed reads reach, and frees every program before the rules run.
 5. `skif-edit` turns fixes into a `FixPlan` of format-preserving edits; the CLI writes the plan.
 6. `skif-report` renders the report as human, JSON, SARIF, GitHub, Code Climate, compact, Markdown or CODEOWNERS output.
