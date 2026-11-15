@@ -62,4 +62,5 @@ old one.
 | 0052 | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted |
 | 0053 | [Plugin Entries of Nested Roots, Published File Loads, and What knip Does Not Read](0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) | accepted |
 | 0054 | [Module Declaration Files Are Modules](0054-module-declaration-files-are-modules.md) | accepted |
-| NNNN | [knip's tsconfig Declaration Entries and Its Opaque Module Objects](NNNN-knip-tsconfig-declaration-entries-and-module-object-types.md) | accepted |
+| 0055 | [Exportless Declaration Files That Load a Module Are Entries](0055-exportless-declaration-files-that-load-a-module.md) | accepted |
+| 0056 | [knip's tsconfig Declaration Entries and Its Opaque Module Objects](0056-knip-tsconfig-declaration-entries-and-module-object-types.md) | accepted |

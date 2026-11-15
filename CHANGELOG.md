@@ -245,6 +245,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-exports`, `unused-namespace-exports`: the default import of a `CommonJS` module without a `default` export
+  (`import lib from "./lib.js"` of a file with `module.exports = { a, b }` or `exports.a = …`) binds its
+  `module.exports` object, as `esModuleInterop` and bundlers do. The properties read through it
+  (`const { a } = lib`, `lib.a`) and, when the binding is used as a whole, all of its values are credited, as for a
+  `require()` binding or a namespace import; the properties it does not read stay reported. Before, the import credited
+  only a `default` export the module does not have, so every property was reported. `skif explain-usage` lists such an
+  import as a user of the properties it reads.
+- `unused-dependencies`: a module declaration file that exports nothing and loads a module for its effect
+  (`import "sst"`, `/// <reference path="…" />`, as SST's generated `sst-env.d.ts`) is an entry again, so the package it
+  loads is no longer reported as unused. A declaration file with an export stays a module
+  ([ADR 0055](adrs/0055-exportless-declaration-files-that-load-a-module.md)).
 - `unused-files`: a `require()`, `import()` or `require.resolve()` of a `const` that holds a path built from the file's
   directory (`const entry = require("node:path").resolve(__dirname, "cli/entry.js")`, then `require(entry)`, also in a
   nested function) loads the file the path names, so it and what it imports are no longer reported. The read is
