@@ -266,6 +266,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unlisted-dependencies`: the `resolve` of a `createRequire` given another location than the file itself
+  (`createRequire(join(otherPackage, 'package.json')).resolve('pkg/data.json')`) names no import: Node.js resolves the
+  specifier from that location, so the package is the dependency of the package there. Only `import.meta.url`,
+  `import.meta.filename` and `__filename` make the call resolve from the file. Before, the package was reported as an
+  unlisted dependency of the file's package. The parse cache schema is raised
+  ([ADR NNNN](adrs/NNNN-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
 - `unused-dependencies`, `unused-dev-dependencies`: the `next` plugin names `react` and `react-dom` for a package
   without a `next.config` only when the package depends on `next` itself. A package that inherits the plugin from the
   root's `next` (a test fixture package of the workspace) is judged by its own uses of React. Before, its `react` was

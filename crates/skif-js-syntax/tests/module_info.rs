@@ -317,6 +317,23 @@ fn computed_relative_resolve_specifiers_are_globs() {
     assert_eq!(info.unresolved_dynamic.len(), 1);
 }
 
+/// The `resolve` of a `createRequire` given this file (`import.meta.url`, `import.meta.filename`, `__filename`) names a
+/// module of the file; given another location it resolves from there and names none.
+#[test]
+fn a_create_require_resolve_names_a_module_only_from_this_file() {
+    let info = parse(
+        "a.mjs",
+        "createRequire(import.meta.filename).resolve('own-a');\n\
+         createRequire(__filename).resolve('own-b');\n\
+         createRequire(join(otherPackage, 'package.json')).resolve('other-a/data.json');\n\
+         createRequire(otherFile).resolve('other-b');\n\
+         createRequire(import.meta.dirname).resolve('other-c');\n",
+    );
+    let got: Vec<_> = info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect();
+    assert_eq!(got, [("own-a", ImportKind::Resolve), ("own-b", ImportKind::Resolve)]);
+    assert_eq!(info.unresolved_dynamic.len(), 0);
+}
+
 #[test]
 fn import_meta_glob_yields_one_import_per_pattern() {
     let info = parse(
