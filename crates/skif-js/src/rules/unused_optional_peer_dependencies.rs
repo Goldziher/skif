@@ -15,7 +15,8 @@ pub static META: RuleMeta = RuleMeta::new(
     "An optional peer dependency is imported but not installed as a dependency or dev dependency.",
 );
 
-/// Reports optional peer dependencies the code imports while the package does not install them itself.
+/// Reports optional peer dependencies the code imports while neither the package nor a package containing it installs
+/// them.
 pub struct UnusedOptionalPeerDependencies;
 
 impl JsRule for UnusedOptionalPeerDependencies {
@@ -38,18 +39,15 @@ impl JsRule for UnusedOptionalPeerDependencies {
             };
             for (name, value) in meta {
                 let optional = value.get("optional").and_then(Value::as_bool).unwrap_or(false);
-                if !optional || !analysis.dependencies.was_imported(id, name) || analysis.ignores_dependency(id, name) {
+                if !optional
+                    || !analysis.dependencies.was_imported(id, name)
+                    || analysis.ignores_dependency(id, name)
+                    || analysis
+                        .dependencies
+                        .installs_for_development(analysis.workspace, id, name)
+                {
                     continue;
                 }
-                let installed = package.dependencies.iter().any(|entry| {
-                    &*entry.name == name.as_str()
-                        && matches!(
-                            entry.kind,
-                            DependencyKind::Dependencies
-                                | DependencyKind::DevDependencies
-                                | DependencyKind::OptionalDependencies
-                        )
-                });
                 let Some(peer) = package
                     .dependencies
                     .iter()
@@ -57,9 +55,6 @@ impl JsRule for UnusedOptionalPeerDependencies {
                 else {
                     continue;
                 };
-                if installed {
-                    continue;
-                }
                 out.emit(
                     diagnostic(
                         &META,

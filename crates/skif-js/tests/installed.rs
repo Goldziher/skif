@@ -12,10 +12,14 @@ use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
 fn lint(files: &[(&str, &str)]) -> Vec<Diagnostic> {
+    lint_with(files, "")
+}
+
+fn lint_with(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
     let memory = files.iter().fold(MemoryFs::new(), |fs, (path, text)| {
         fs.with_file(Path::new("/ws").join(path), text)
     });
-    let config = Config::from_toml_str("").unwrap();
+    let config = Config::from_toml_str(toml).unwrap();
     let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let registry = Registry::new(vec![Box::new(JsProvider::new(fs))]).unwrap();
@@ -153,6 +157,46 @@ fn optional_peer_dependencies_must_be_installed_for_development() {
     assert_eq!(
         names(&diagnostics, "unused-optional-peer-dependencies"),
         ["packages/a/package.json: sass"]
+    );
+}
+
+/// The root or a containing package that lists an optional peer in `dependencies`, `devDependencies` or
+/// `optionalDependencies` installs it for the member's development as well (ADR 0019, *Workspace isolation*); with
+/// `isolate-workspaces` only the member's own manifest installs it.
+#[test]
+fn an_optional_peer_the_root_installs_is_installed_for_the_member() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"r","private":true,"workspaces":["packages/*"],
+                "dependencies":{"sass":"1"},"devDependencies":{"less":"1"}}"#,
+        ),
+        (
+            "packages/a/package.json",
+            r#"{"name":"a","main":"src/index.ts","peerDependencies":{"sass":"1","less":"1","stylus":"1"},
+                "peerDependenciesMeta":{"sass":{"optional":true},"less":{"optional":true},"stylus":{"optional":true}}}"#,
+        ),
+        (
+            "packages/a/src/index.ts",
+            "import \"sass\";\nimport \"less\";\nimport \"stylus\";\n",
+        ),
+    ];
+    assert_eq!(
+        names(&lint(&files), "unused-optional-peer-dependencies"),
+        ["packages/a/package.json: stylus"]
+    );
+    let mut isolated = names(
+        &lint_with(&files, "[js]\nisolate-workspaces = true\n"),
+        "unused-optional-peer-dependencies",
+    );
+    isolated.sort();
+    assert_eq!(
+        isolated,
+        [
+            "packages/a/package.json: less",
+            "packages/a/package.json: sass",
+            "packages/a/package.json: stylus"
+        ]
     );
 }
 
