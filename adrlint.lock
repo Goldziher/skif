@@ -119,7 +119,7 @@ blake3 = "d38046b32687582ac4100d0d6fef0b2d07e8950f5a3700545812e1239a8cf5f8"
 [adrs."adrs/0024-cli-contract.md"]
 number = 24
 status = "accepted"
-blake3 = "880498a243d362b66188c01a47fe240a573a3b771234389371fa34692fd0c29d"
+blake3 = "3bfd0b2fd717a694daad254ac77348a47a340950584631d86e0f0c3fde6a70f4"
 
 [adrs."adrs/0025-skif-migrate.md"]
 number = 25
@@ -164,7 +164,7 @@ blake3 = "f0a5517a727dd934ad547d2e17bd47689f15eba02d71dc413c8336da93186963"
 [adrs."adrs/0033-attribution-and-vendoring.md"]
 number = 33
 status = "accepted"
-blake3 = "1bba40a3c9a64ea25e88d3199817705e39af4daa18617a50cc7161c94148572b"
+blake3 = "938b925db25579b7fafee97cfdecfbb930816ddf27ac814f3da363a658c01142"
 
 [adrs."adrs/0034-type-aware-analysis-on-tsrs.md"]
 number = 34
