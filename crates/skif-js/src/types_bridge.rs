@@ -465,9 +465,7 @@ fn note_timings(
     if let Some(run) = programs.map(skif_js_types::TypePrograms::shared_files) {
         skif_core::timing::note(format_args!(
             "js types: shared declaration files of the run so far: {} parsed, {} reused, {} parsed unshared",
-            run.parsed,
-            run.reused,
-            run.unshared
+            run.parsed, run.reused, run.unshared
         ));
     }
     if let Some(peak) = skif_js_types::arena_peak_bytes() {
