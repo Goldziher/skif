@@ -311,14 +311,16 @@ manifest, not by listing findings:
   run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or
   `project.json` names), which knip does not read there. A binary on a `package.json` that knip reports anything on
   stays compared. So is an export, type or duplicate only skif reports in a file of knip's workspaces that a file below
-  such a project imports (the import scan of `imported-by-knip-unused-file`): skif's analysis of the workspace does not
-  read the importer, and knip does.
+  such a project imports (the import scan of `imported-by-knip-unused-file`), and an enum or namespace member only skif
+  reports there that such a file reads (`Phase.Start`, `api.Phase.Start`, through the re-exports in between) or whose
+  enum or namespace it uses as a whole: skif's analysis of the workspace does not read the importer, and knip does.
 - `skipped-directory`: a finding only knip reports in a file below a directory skif's file discovery skips by name
   (`node_modules`, `dist`, `.next`, `.vercel` and the other build output names, `out`, `target` and `coverage`
   directly in a package directory, and hidden directories other than tool ones such as `.github`), unless the
   directory is a workspace member. On skif's side, an export, type or duplicate only skif reports in a file of knip's
-  workspaces that a file below such a directory imports (`.devcontainer/*.test.mjs`) is `skipped-directory` too; the
-  harness scans the hidden directories for such importers, none of the build output ones.
+  workspaces that a file below such a directory imports (`.devcontainer/*.test.mjs`), and an enum or namespace member
+  such a file uses as `non-member-project` describes, is `skipped-directory` too; the harness scans the hidden
+  directories for such importers, none of the build output ones.
 - `published-source`: an unused TypeScript file only knip reports whose path its package publishes with a built
   extension (`main`, `module`, `types`, `bin`, an `exports` leaf with `*` patterns, as `.js`, `.mjs`, `.cjs`, `.jsx` or
   a `.d.ts` variant) or without one (`./out/main`). A published path below a build directory (`dist`, `lib`, `out`,
