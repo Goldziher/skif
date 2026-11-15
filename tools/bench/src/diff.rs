@@ -602,6 +602,36 @@ mod tests {
     }
 
     #[test]
+    fn samples_keep_as_many_keys_as_the_limit_allows() {
+        let one_sided: Vec<String> = (0..SAMPLE_LIMIT + 2).map(|n| format!("k{n}")).collect();
+        let names: Vec<&str> = one_sided.iter().map(String::as_str).collect();
+        let skif = keys(&[("files", names.as_slice())]);
+        let tool = keys(&[("files", &["t"])]);
+        let (_, default) = compare(&skif, &tool);
+        assert_eq!(default["files"].skif_only, names[..SAMPLE_LIMIT]);
+        let (_, two) = compare_sampled(&skif, &tool, 2);
+        assert_eq!(two["files"].skif_only, ["k0", "k1"]);
+        assert_eq!(two["files"].tool_only, ["t"]);
+        let (_, all) = compare_sampled(&skif, &tool, usize::MAX);
+        assert_eq!(all["files"].skif_only, names);
+
+        let classify = |_: Side, _: &str, _: &str| Some("x");
+        assert_eq!(split_known(&skif, &tool, &classify).samples["x"].len(), SAMPLE_LIMIT);
+        assert_eq!(
+            split_known_sampled(&skif, &tool, &classify, usize::MAX).samples["x"].len(),
+            SAMPLE_LIMIT + 3
+        );
+    }
+
+    #[test]
+    fn a_sample_limit_is_a_count_or_all() {
+        assert_eq!(parse_sample_limit("12"), Ok(12));
+        assert_eq!(parse_sample_limit("all"), Ok(usize::MAX));
+        assert!(parse_sample_limit("many").is_err());
+        assert!(parse_sample_limit("-1").is_err());
+    }
+
+    #[test]
     fn check_accepts_small_drift_and_rejects_large() {
         let base = baseline(&[("r", Entry::compared(counts(0, 100, 1000)))]);
         let near = baseline(&[("r", Entry::compared(counts(2, 108, 1090)))]);
