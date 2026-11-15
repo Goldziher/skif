@@ -1062,15 +1062,17 @@ outside production mode, a config is judged against the manifest of its own pack
 
 `declare module 'pkg'` declares the package, so its imports need no dependency, and so does a pattern with a literal
 start (`declare module 'pkg/*'`) for the imports it matches. A declared subpath (`declare module 'pkg/data.json'`)
-declares that module only: the package's other imports still need it listed. An import that an alias leads into
-another package (`react` to `preact/compat`) is covered by a declaration of any module of that package. A specifier
-that names a workspace package is an import of that package also when a `tsconfig` mapping or a bundler alias resolves
-it into the package's directory, to generated code there included; an alias into other code (`ui/*` to `./src/ui/*`
-beside a workspace package `ui`) stays local. Such a local import uses no listed dependency either: with `ui` in
-`dependencies` and every import of `ui/...` mapped into `./src/ui`, `unused-dependencies` reports `ui`, as the
-compiler never reaches the package. knip counts the dependency as used. An aliased import that reaches no file (a
-missing target, generated code not there yet, a computed alias) still uses the listed package its name starts with
-([ADR 0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
+declares that module only: the package's other imports still need it listed. Such a declaration in a script (a file
+without top-level `import` or `export`) stands in for the package and uses no listed `pkg`; in a module file the block
+augments the package, which uses it. An import that an alias leads into another package (`react` to `preact/compat`)
+is covered by a declaration of any module of that package. A specifier that names a workspace package is an import of
+that package also when a `tsconfig` mapping or a bundler alias resolves it into the package's directory, to generated
+code there included; an alias into other code (`ui/*` to `./src/ui/*` beside a workspace package `ui`) stays local.
+Such a local import uses no listed dependency either: with `ui` in `dependencies` and every import of `ui/...` mapped
+into `./src/ui`, `unused-dependencies` reports `ui`, as the compiler never reaches the package. knip counts the
+dependency as used. An aliased import that reaches no file (a missing target, generated code not there yet, a computed
+alias) still uses the listed package its name starts with ([ADR
+0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
 
 A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
 with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or
