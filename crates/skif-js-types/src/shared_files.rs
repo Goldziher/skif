@@ -48,8 +48,9 @@ use tsrs_diagnostics::Message;
 use tsrs_tsoptions::{Mapper, ParsedCommandLine};
 use tsrs_vfs::FS;
 
-use crate::SharedFileCounts;
+use crate::shared_configs::ConfigReader;
 use crate::vfs::BomFiles;
+use crate::{SharedConfigCounts, SharedFileCounts};
 
 /// The first chunk of a shared file's region; it grows as the parse needs and is trimmed to what parse and bind used.
 const FIRST_CHUNK: usize = 64 << 10;
@@ -165,30 +166,60 @@ impl Counts {
             unshared: self.unshared.load(Ordering::Relaxed),
         }
     }
+
+    /// The counts, of configs.
+    pub(crate) fn config_snapshot(&self) -> SharedConfigCounts {
+        let SharedFileCounts {
+            parsed,
+            reused,
+            unshared,
+        } = self.snapshot();
+        SharedConfigCounts {
+            parsed,
+            reused,
+            unshared,
+        }
+    }
+
+    pub(crate) fn count_parsed(&self) {
+        self.parsed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn count_reused(&self) {
+        self.reused.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn count_unshared(&self) {
+        self.unshared.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
-/// The compiler host of one program: `inner`'s, except that a shared file comes from the run's cache.
+/// The compiler host of one program: `inner`'s, except that a shared file comes from the run's cache and the config of
+/// a project reference from the run's configs (`shared_configs`).
 pub(crate) struct SharingHost {
     inner: Arc<dyn CompilerHost>,
     files: Arc<SharedFiles>,
     boms: Arc<BomFiles>,
     counts: Arc<Counts>,
+    configs: Arc<ConfigReader>,
 }
 
 impl SharingHost {
-    /// `inner`, reading the shared files from `files`; `boms` is the record of `inner`'s file system, and `counts`
-    /// those of the analysis that builds the program.
+    /// `inner`, reading the shared files from `files` and the configs of project references with `configs`; `boms`
+    /// is the record of `inner`'s file system, and `counts` those of the analysis that builds the program.
     pub(crate) fn new(
         inner: Arc<dyn CompilerHost>,
         files: Arc<SharedFiles>,
         boms: Arc<BomFiles>,
         counts: Arc<Counts>,
+        configs: Arc<ConfigReader>,
     ) -> Self {
         Self {
             inner,
             files,
             boms,
             counts,
+            configs,
         }
     }
 }
@@ -230,8 +261,10 @@ impl CompilerHost for SharingHost {
         self.inner.content_mapper_project()
     }
 
-    fn get_resolved_project_reference(&self, file_name: &str, path: tspath::Path) -> Option<P<ParsedCommandLine>> {
-        self.inner.get_resolved_project_reference(file_name, path)
+    /// The config of a project reference, read once for the run (`shared_configs`) as `inner` reads it: the names asked
+    /// for are absolute, so the current directory of the parse changes nothing; `None` when it cannot be read.
+    fn get_resolved_project_reference(&self, file_name: &str, _path: tspath::Path) -> Option<P<ParsedCommandLine>> {
+        self.configs.config(file_name).config
     }
 }
 

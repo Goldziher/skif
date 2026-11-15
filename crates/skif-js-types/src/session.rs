@@ -12,7 +12,9 @@
 //! no more cores than there are, and their programs ([`TypePrograms`](crate::TypePrograms)), so that a program the
 //! judged files of several roots go to is built once for the run. Every program reads the bundled lib files and the
 //! declaration files below `node_modules` from the files the run shares (`shared_files`), the run's or, without shared
-//! programs, the analysis's: each is parsed and bound once instead of once per program.
+//! programs, the analysis's: each is parsed and bound once instead of once per program. The plannings and the programs
+//! read their configs, those the project references of a program reach and those they extend, from the configs the
+//! run shares (`shared_configs`) in the same way: each is read and parsed once instead of once per planning and program.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
@@ -34,6 +36,7 @@ use crate::owner::ProgramOwner;
 use crate::programs::{self, ConfigHost, Lookups, Placement, PlannedProgram, ProgramPlan};
 use crate::query::{self, FileFacts, QueryContext};
 use crate::resident::{Claim, ProgramKey, Resident, Ticket};
+use crate::shared_configs::ConfigReader;
 use crate::shared_files::{self, SharedFiles, SharingHost};
 use crate::vfs::{self, BomFiles};
 use crate::{ENGINE, ProgramTiming, TypeBuild, TypeError, TypeFacts, TypeInput, TypePackage, TypeQuery, TypeTimings};
@@ -83,11 +86,21 @@ pub(crate) fn start<'scope, 'env>(
         .programs
         .as_ref()
         .map_or_else(Arc::default, crate::TypePrograms::files);
+    let cwd = vfs::tsrs_path(&build.root);
+    let configs = Arc::new(ConfigReader::new(
+        build
+            .programs
+            .as_ref()
+            .map_or_else(Arc::default, crate::TypePrograms::configs),
+        Arc::default(),
+        ConfigHost::new(Arc::clone(&fs), cwd.clone()),
+    ));
     let shared = Arc::new(Shared {
-        cwd: vfs::tsrs_path(&build.root),
+        cwd,
         fs,
         boms,
         files,
+        configs,
         file_counts: Arc::default(),
         pool: types_pool(build.threads),
         cores,
@@ -181,6 +194,7 @@ impl PendingTypes<'_> {
         facts.timings.threads = judged.threads;
         facts.timings.waited = asked.elapsed();
         facts.timings.shared_files = shared.file_counts.snapshot();
+        (facts.timings.shared_configs, facts.timings.shared_extended_configs) = shared.configs.counts();
         drop(region);
         Ok(facts)
     }
@@ -196,14 +210,13 @@ impl PendingTypes<'_> {
         if self.cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
             return Err(TypeError::Cancelled);
         }
-        let host = ConfigHost::new(Arc::clone(&self.shared.fs), self.shared.cwd.clone());
         // What this planning allocates is freed when the analysis ends.
         let region = Region::new_scratch(SCRATCH_CHUNK);
         let start = Instant::now();
         let (plan, _) = panic::catch_unwind(AssertUnwindSafe(|| {
             self.shared.on_pool(|| {
                 let _scope = region.enter();
-                programs::plan_programs(input, &host, &planned.lookups)
+                programs::plan_programs(input, &self.shared.configs, &planned.lookups)
             })
         }))
         .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))?;
@@ -251,6 +264,8 @@ struct Shared {
     files: Arc<SharedFiles>,
     /// How the programs this analysis builds got those files.
     file_counts: Arc<shared_files::Counts>,
+    /// The configs the plannings and programs read: the run's, with shared programs, else the analysis's own.
+    configs: Arc<ConfigReader>,
     /// The workspace root as tsrs names files, the current directory configs are parsed in.
     cwd: String,
     /// The early plan, put by the planning thread.
@@ -473,8 +488,7 @@ struct Coordinated {
 /// Plans the early files of `shared`, puts the plan for the host and builds and walks the programs until the host's
 /// plan is done or given up.
 fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Coordinated {
-    let host = ConfigHost::new(Arc::clone(&shared.fs), shared.cwd.clone());
-    // What planning allocates (the parsed configs) is freed when the programs are.
+    // What planning allocates is freed when the programs are; the configs it reads stay with the shared configs.
     let region = Region::new_scratch(SCRATCH_CHUNK);
     let start = Instant::now();
     let query = TypeQuery::default();
@@ -483,7 +497,7 @@ fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Coordinated {
         panic::catch_unwind(AssertUnwindSafe(|| {
             shared.on_pool(|| {
                 let _scope = region.enter();
-                programs::plan_programs(&input, &host, &Lookups::new())
+                programs::plan_programs(&input, &shared.configs, &Lookups::new())
             })
         }))
         .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))
@@ -506,7 +520,6 @@ fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Coordinated {
     }));
     let session = Session {
         shared,
-        host: &host,
         early: &early,
         cancel,
         single_threaded: parallelism.single_threaded,
@@ -935,7 +948,6 @@ type Target = (Arc<Judged>, usize);
 
 struct Session<'a> {
     shared: &'a Shared,
-    host: &'a ConfigHost,
     early: &'a Early,
     cancel: Option<&'a AtomicBool>,
     single_threaded: bool,
@@ -1108,7 +1120,11 @@ impl Session<'_> {
         };
         let resident = Arc::new(Resident::new(
             (owner, loader_regions, region),
-            (Arc::clone(&self.shared.boms), Arc::clone(&self.shared.files)),
+            (
+                Arc::clone(&self.shared.boms),
+                Arc::clone(&self.shared.files),
+                self.shared.configs.configs(),
+            ),
             ProgramKey::new(path, self.single_threaded),
             checkers,
             start.elapsed(),
@@ -1144,7 +1160,7 @@ impl Session<'_> {
         checkers: usize,
         listed: bool,
     ) -> Option<(ProgramOwner, Arc<ProgramRegions>, Vec<String>)> {
-        let mut config = programs::parse_config(path, self.host)?;
+        let mut config = self.shared.configs.parse_own(path)?;
         let base = config.compiler_options()?;
         let files = if listed {
             config.file_names().to_vec()
@@ -1178,6 +1194,7 @@ impl Session<'_> {
             Arc::clone(&self.shared.files),
             Arc::clone(&self.shared.boms),
             Arc::clone(&self.shared.file_counts),
+            Arc::clone(&self.shared.configs),
         ));
         let mut options = ProgramOptions::new(P::new(config), compiler_host);
         // Referenced projects contribute their sources, as editors and tsrs-lint read them.
