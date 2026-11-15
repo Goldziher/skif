@@ -15,6 +15,7 @@ use skif_core::{DirEntry, FileSystem};
 
 use crate::detect;
 use crate::manifest::parse_value;
+use crate::marker::is_package_manifest;
 use crate::pattern::{self, Expander};
 use crate::pnpm;
 use crate::workspace::LOCKFILES;
@@ -508,8 +509,11 @@ fn resolved(fs: &dyn FileSystem, root: &Path, dir: &Path, links: &mut HashMap<Pa
 /// Decides which of `candidates` are roots, given the member directories of each workspace (`members` is keyed by
 /// workspace directory), sorted by path.
 ///
-/// Every workspace is a root. A package is a root when it is not a workspace and neither it nor a directory above
-/// it is a member of any workspace. Members reached through a symbolic link count as the directory they point to.
+/// Every workspace is a root. A package is a root when it is not a workspace, neither it nor a directory above
+/// it is a member of any workspace, and its `package.json` makes a package ([`is_package_manifest`]) or no directory
+/// above it among the candidates holds a `package.json`: a marker such as `{"type": "commonjs"}` leaves its files to
+/// the package above, whose analysis reads them. Members reached through a symbolic link count as the directory they
+/// point to.
 #[must_use]
 pub fn claim_roots(
     fs: &dyn FileSystem,
@@ -529,11 +533,21 @@ pub fn claim_roots(
             .iter()
             .filter(|package| !candidates.workspaces.contains(*package))
             .filter(|package| !package.ancestors().any(|ancestor| owned.contains(ancestor)))
+            .filter(|package| !is_marker_below_a_package(fs, candidates, package))
             .cloned()
             .map(RootKind::Package),
     );
     roots.sort_by(|a, b| a.path().cmp(b.path()));
     roots
+}
+
+/// Whether the `package.json` of `dir` makes no package and a directory above it among `candidates` holds one, so
+/// the files of `dir` are linted with that package.
+fn is_marker_below_a_package(fs: &dyn FileSystem, candidates: &Candidates, dir: &Path) -> bool {
+    dir.ancestors()
+        .skip(1)
+        .any(|ancestor| candidates.packages.contains(ancestor))
+        && !is_package_manifest(fs, dir)
 }
 
 /// Finds every root below `start` with the default configuration, as the tests of this module need it. The
@@ -668,6 +682,66 @@ mod tests {
             .with_file("/r/packages/a/package.json", r#"{"name": "a"}"#)
             .with_file("/r/examples/e/package.json", r#"{"name": "e"}"#);
         assert_eq!(discover(&fs), ["ws:/r", "pkg:/r/examples/e"]);
+    }
+
+    #[test]
+    fn a_manifest_that_makes_no_package_below_a_package_is_not_a_root() {
+        for marker in [
+            r#"{"type": "commonjs"}"#,
+            r#"{"type": "module", "sideEffects": false}"#,
+            r##"{"imports": {"#x": "./x.js"}}"##,
+            "{}",
+        ] {
+            let fs = MemoryFs::new()
+                .with_file("/r/package.json", r#"{"name": "app", "private": true}"#)
+                .with_file("/r/scripts/package.json", marker);
+            assert_eq!(discover(&fs), ["pkg:/r"], "scripts/package.json: {marker}");
+        }
+    }
+
+    #[test]
+    fn a_marker_manifest_below_a_workspace_member_or_root_package_is_not_a_root() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "root", "workspaces": ["packages/*"]}"#)
+            .with_file("/r/packages/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/packages/a/esm/package.json", r#"{"type": "module"}"#)
+            .with_file("/r/scripts/package.json", r#"{"type": "module"}"#);
+        assert_eq!(discover(&fs), ["ws:/r"]);
+    }
+
+    #[test]
+    fn a_subpath_manifest_the_package_above_publishes_is_not_a_root() {
+        let fs = MemoryFs::new()
+            .with_file("/r/pkg/package.json", r#"{"name": "pkg", "files": ["server"]}"#)
+            .with_file("/r/pkg/server/package.json", r#"{"main": "index.js"}"#)
+            .with_file("/r/pkg/client/package.json", r#"{"main": "index.js"}"#);
+        assert_eq!(discover(&fs), ["pkg:/r/pkg", "pkg:/r/pkg/client"]);
+    }
+
+    #[test]
+    fn a_marker_manifest_with_no_package_above_it_is_a_root() {
+        let fs = MemoryFs::new()
+            .with_file("/r/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n")
+            .with_file("/r/p/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/scripts/package.json", r#"{"type": "module"}"#)
+            .with_file("/r/tools/package.json", r#"{"type": "module"}"#)
+            .with_file("/r/tools/inner/package.json", r#"{"type": "module"}"#);
+        assert_eq!(discover(&fs), ["ws:/r", "pkg:/r/scripts", "pkg:/r/tools"]);
+    }
+
+    #[test]
+    fn a_manifest_with_fields_of_a_package_next_to_a_marker_field_is_a_root() {
+        for manifest in [
+            r#"{"name": "tool", "type": "module"}"#,
+            r#"{"type": "module", "dependencies": {"x": "1.0.0"}}"#,
+            r#"{"type": "module", "scripts": {"build": "tsc"}}"#,
+            r#"{"type": "module""#,
+        ] {
+            let fs = MemoryFs::new()
+                .with_file("/r/package.json", r#"{"name": "app"}"#)
+                .with_file("/r/tool/package.json", manifest);
+            assert_eq!(discover(&fs), ["pkg:/r", "pkg:/r/tool"], "tool/package.json: {manifest}");
+        }
     }
 
     #[test]

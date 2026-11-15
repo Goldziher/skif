@@ -248,6 +248,11 @@ skif -r --format json    # one document with a "roots" array
 - A directory that declares a workspace is always a root of its own, also when it sits inside another workspace. A
   workspace needs no root `package.json`: a `pnpm-workspace.yaml` or a `rush.json` alone is enough, and the members
   are linted while the rules about the root manifest are skipped.
+- A `package.json` that makes no package is no root when another `package.json` at or below the start path lies above
+  it: one holding only `type`, `sideEffects` or `imports` (`{"type": "commonjs"}` in a `scripts` folder), or only
+  `main`, `module`, `types`, `typings` or `browser` in a directory the package above publishes as a subpath. Its
+  files belong to the package above, which lints them once. With no `package.json` above it, such a directory is a
+  root of its own.
 - A standalone package below another root (an example, a template) is linted, but `root-package-manager-field` does
   not report for it; the rule still reports for every workspace and for the outermost root.
 - The search skips `node_modules`, hidden directories, symbolic links, anything a `.gitignore` or `.ignore`
