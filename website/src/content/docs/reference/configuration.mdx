@@ -729,11 +729,13 @@ member is also exempt when its own JSDoc carries a tag that exempts an export (`
 **`unused-class-members`** (a warning) reports the methods, fields and accessors of a used exported class that no
 module reads, like knip 5's `classMembers` (knip 6 dropped the issue type). With `type-aware` (the default), in a file
 the TypeScript checker covers a member counts as read when a typed read reaches it: through its own class, a union, a
-base class it overrides or an interface it implements, or when the class is used as a whole. A read the checker cannot
-settle (a receiver of type `any`, an unresolved module, a dependency that is not installed) and every read in a file
-it does not cover (a Vue, Svelte or Astro template, a file in no program) still credits every member of that name, so
-missing types never add a finding. Without types, in a package with no `tsconfig.json`, or with `type-aware = false`,
-a member counts as read when any module of the graph reads a property of its name on any object: `x.name`,
+base class it overrides or an interface it implements (also by inheriting the member: a read through `ICell` reaches
+`BaseCell.getRange` when `CodeCell extends BaseCell implements ICell`), or when the class is used as a whole. A read
+the checker cannot settle (a receiver of type `any`, an unresolved module, a dependency that is not installed) and
+every read in a file it does not cover (a Vue, Svelte or Astro template, a file in no program) still credits every
+member of that name, so missing types never add a finding. Without types, in a package with no `tsconfig.json`, or
+with `type-aware = false`, a member counts as read when any module of the graph reads a property of its name on any
+object: `x.name`,
 `x?.name`, `x['name']`, a destructured key, `this.name`, `super.name`, a string literal type or call argument
 (`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. An element access whose key is a
 constant reads the string the constant holds: `x[KEY]` with `const KEY = '__v_skip'`, `x[Flags.SKIP]` with
