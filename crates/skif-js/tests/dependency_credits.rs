@@ -178,6 +178,37 @@ fn a_package_that_ships_its_own_types_does_not_use_its_types_package() {
     );
 }
 
+/// A used host that declares the package as a peer does not make its `@types` package used either: TypeScript still
+/// reads the types the package ships.
+#[test]
+fn the_types_package_of_a_typed_peer_of_a_used_host_is_unused() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"lint-utils":"1.0.0"},"devDependencies":{"eslint":"9.0.0","@types/eslint":"9.0.0"}}"#,
+        ),
+        (
+            "node_modules/eslint/package.json",
+            r#"{"name":"eslint","version":"9.0.0","types":"lib/types/index.d.ts"}"#,
+        ),
+        ("node_modules/eslint/lib/types/index.d.ts", "export namespace Rule {}\n"),
+        (
+            "node_modules/lint-utils/package.json",
+            r#"{"name":"lint-utils","version":"1.0.0","main":"index.js","peerDependencies":{"eslint":">=8"}}"#,
+        ),
+        ("node_modules/lint-utils/index.js", "module.exports = {};\n"),
+        (
+            "src/index.ts",
+            "import type { Rule } from 'eslint';\nimport utils from 'lint-utils';\n\
+             export const rule = (context: Rule.RuleContext): unknown => [context, utils];\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["package.json: @types/eslint"]
+    );
+}
+
 #[test]
 fn only_a_types_file_the_installed_package_holds_replaces_its_types_package() {
     let diagnostics = lint(&[

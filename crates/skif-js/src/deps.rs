@@ -1035,7 +1035,7 @@ fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>
 /// so the verdict and the evidence come from the same facts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Use {
-    /// A module imports it, re-exports it, declares or augments it as a module, or imports the package it types.
+    /// A module imports it, re-exports it, augments it as a module, or imports the package it types.
     Import(ModuleId),
     /// A test module mocks it.
     Mock(ModuleId),
@@ -1598,9 +1598,10 @@ impl DependencyUsage {
                     );
                 });
             }
-            // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
-            // out of `imports`: declaring a module the project does not list is not an unlisted import.
-            for name in module.info.ambient_modules.iter().chain(&module.info.augmented_modules) {
+            // `declare module 'pkg'` in a module file augments the package, which has to be installed for that to
+            // compile. It stays out of `imports`: augmenting a module the project does not list is not an unlisted
+            // import. The same block in a script declares the module in place of the package, so it uses none.
+            for name in &module.info.augmented_modules {
                 self.reference_listed(module.owner, name);
             }
             if let Some(pragma) = module.info.jsx_import_source.as_deref()
@@ -2219,7 +2220,12 @@ impl DependencyUsage {
             if UNPAIRED_TYPES.contains(&typed.as_str()) {
                 return Some(Credit::UnpairedTypes);
             }
-            if referenced.contains_key(typed) && !self.ships_types(Listed::Package(id), typed) {
+            // TypeScript reads the types a package declares itself, so its `@types` package is unused, also as the
+            // peer of a used host, as in knip's `DependencyDeputy`.
+            if self.ships_types(Listed::Package(id), typed) {
+                return None;
+            }
+            if referenced.contains_key(typed) {
                 return Some(Credit::TypesOf(typed.clone()));
             }
         }
