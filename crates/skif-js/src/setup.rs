@@ -1279,6 +1279,16 @@ impl Setup {
         global || package
     }
 
+    /// Whether the dependency `name` of package `id` is on an `ignore-dependencies` list of the configuration, the
+    /// top-level one or the package's; the references plugins say are never reported do not count.
+    pub(crate) fn user_ignores_dependency(&self, id: PackageId, name: &str) -> bool {
+        let global = self.global_ignore_dependencies.is_match(name);
+        let package = self
+            .package(id)
+            .is_some_and(|setup| setup.user_ignore_dependencies.is_match(name));
+        global || package
+    }
+
     /// Whether the binary `name` of package `id` is on an ignore list, or is a build tool usually installed on the
     /// machine ([`is_machine_binary`]) while `ignore-global-binaries` is on.
     pub(crate) fn ignores_binary(&self, id: PackageId, name: &str) -> bool {

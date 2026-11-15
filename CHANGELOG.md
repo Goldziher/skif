@@ -84,7 +84,7 @@ All notable changes to this project are documented here. The format follows
   is read with these set apart), `published-file`, `paths-before-packages` and `uninstalled-project` (the
   turborepo-examples root the corpus install leaves out).
 - **Comparison harness**: more known deviations of the knip comparison, for uses knip does not read
-  ([ADR NNNN](adrs/NNNN-uses-knip-does-not-read.md)): `heft-config` (from skif's plugin resolver),
+  ([ADR 0058](adrs/0058-uses-knip-does-not-read.md)): `heft-config` (from skif's plugin resolver),
   `type-asserted-require`, `module-object-values`, `commonjs-default-import`, `template-literal-import`,
   `installed-main`, `type-referenced-members`, `knip-node-modules-name`, `raw-glob-read` and `typescript-twin`;
   `knip-dot-ignore` also sets apart what only a hidden file uses, `used-in-knip-unused-file` the peers of a package such
@@ -133,6 +133,12 @@ All notable changes to this project are documented here. The format follows
   abort the host ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 
 ### Changed
+
+- `unused-dev-dependencies` reports a `devDependencies` entry of a package that the same manifest lists in
+  `dependencies`, used or not ("is listed in `devDependencies` and in `dependencies`"), with the unsafe fix that
+  removes it: the production entry installs the package for development as well. knip reports it too
+  ([ADR 0057](adrs/0057-redundant-dev-entries-and-installed-optional-peers.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)).
 
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
 
@@ -251,6 +257,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: a classic script that a Vite `index.html` loads from the public directory
+  (`<script src="/static/init.js">` for `public/static/init.js`) is an entry. The `vite` and `vitest` plugins look up
+  a `/`-rooted script in `publicDir` (`public` by default) as well as below the root, and skip leading path segments
+  that are base-path placeholders (`/{{BASE_PATH}}/static/init.js`, `/%BASE%/init.js`). Before, such scripts were
+  reported unused.
 - `unused-exports`, `unused-namespace-exports`: the default import of a `CommonJS` module without a `default` export
   (`import lib from "./lib.js"` of a file with `module.exports = { a, b }` or `exports.a = …`) binds its
   `module.exports` object, as `esModuleInterop` and bundlers do. The properties read through it
@@ -288,6 +299,16 @@ All notable changes to this project are documented here. The format follows
   (`` require(`./locales/${lang}/messages`) `` loads `locales/en/messages.js`). Before, only files directly matching
   the glob counted, and directory commands were reported with what they import
   ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-optional-peer-dependencies` ([ADR 0057](adrs/0057-redundant-dev-entries-and-installed-optional-peers.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)):
+  - An optional peer that the root or a containing package lists in `dependencies`, `devDependencies` or
+    `optionalDependencies` is installed for the member too, as for any other use outside `isolate-workspaces`, and is
+    no longer reported there.
+  - A package a bundler keeps external (tsdown `deps.neverBundle`) no longer silences the finding; only the
+    `ignore-dependencies` lists of the configuration do.
+  - The `types` of a `tsconfig` a package extends through `node_modules` (a Heft rig profile) that the first of that
+    config's own `typeRoots` holding them finds in the rig's install come with the rig: they no longer make the
+    extending package use its optional peer `@types/node`, so it is not told to install it.
 - `unused-files`: a Playwright `webServer.command` that the config computes is read, so the file it runs is no longer
   reported and the binaries it runs are judged. Each branch of a condition the config cannot decide counts, and in a
   template literal a substitution whose value is not known (a port from the environment) reads as a shell variable

@@ -479,6 +479,38 @@ fn typescript_types_found_in_local_type_roots_name_no_package() {
     assert_eq!(deps(out), BTreeSet::from(["node", "vitest"]));
 }
 
+/// The `types` of an installed config (a rig profile below `node_modules`) are no package of the project when the
+/// first of the config's `typeRoots` that holds them is one of the rig's own install (`../../node_modules/@types`,
+/// relative to the profile); one that the project's own root (`${configDir}/node_modules/@types`) holds first, or
+/// that no root holds, still is.
+#[test]
+fn typescript_types_an_installed_config_finds_in_its_own_type_roots_name_no_package() {
+    let results = resolve(
+        &[
+            (
+                "tsconfig.json",
+                r#"{"extends":"./node_modules/rig/profiles/default/tsconfig-base.json"}"#,
+            ),
+            (
+                "node_modules/rig/profiles/default/tsconfig-base.json",
+                r#"{"compilerOptions":{"typeRoots":["${configDir}/node_modules/@types","../../node_modules/@types"],"types":["jest","node","mocha"]}}"#,
+            ),
+            (
+                "node_modules/rig/node_modules/@types/node/package.json",
+                r#"{"name":"@types/node"}"#,
+            ),
+            (
+                "node_modules/rig/node_modules/@types/jest/package.json",
+                r#"{"name":"@types/jest"}"#,
+            ),
+            ("node_modules/@types/jest/package.json", r#"{"name":"@types/jest"}"#),
+        ],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    assert_eq!(deps(out), BTreeSet::from(["jest", "mocha", "rig"]));
+}
+
 /// TypeScript 6 reads `types: ["*"]` as every `@types` package (every Nx 24 `tsconfig.base.json` sets it): `*` names
 /// no package, while the names beside it still do.
 #[test]
@@ -794,6 +826,66 @@ fn vite_root_moves_index_html_and_rooted_paths() {
         &["vite"],
     );
     assert!(output(&results, "vite").entries_incomplete);
+}
+
+/// Vite serves its `publicDir` at `/`, so a classic script `index.html` loads from `/static/a.js` may be
+/// `public/static/a.js`; a leading `{{BASE_PATH}}` segment is the base path a server fills in. `publicDir` moves the
+/// directory and `false` turns it off.
+#[test]
+fn vite_index_html_scripts_from_the_public_dir() {
+    let html = r#"<html><script src="/{{BASE_PATH}}/static/init.js"></script><script src="/%BASE%/boot.js"></script><script src="/local.js"></script><script type="module" src="/src/main.ts"></script></html>"#;
+    let files = [
+        ("index.html", html),
+        ("public/static/init.js", "window.init = 1;"),
+        ("public/boot.js", "window.boot = 1;"),
+        ("public/local.js", "window.shadowed = 1;"),
+        ("local.js", "window.local = 1;"),
+        ("src/main.ts", "export {};"),
+        ("assets/static/init.js", "window.moved = 1;"),
+    ];
+    let production = |config: &str| {
+        let mut all: Vec<(&str, &str)> = files.to_vec();
+        all.push(("vite.config.ts", config));
+        let results = resolve(&all, &["vite"]);
+        output(&results, "vite")
+            .production_entries
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<String>>()
+    };
+    let set = |entries: &[&str]| {
+        entries
+            .iter()
+            .map(|entry| (*entry).to_owned())
+            .collect::<BTreeSet<String>>()
+    };
+
+    assert_eq!(
+        production("export default { base: process.env.BASE };"),
+        set(&[
+            "static/init.js",
+            "public/static/init.js",
+            "boot.js",
+            "public/boot.js",
+            "local.js",
+            "public/local.js",
+            "src/main.ts",
+        ])
+    );
+    assert_eq!(
+        production(r#"export default { publicDir: "assets" };"#),
+        set(&[
+            "static/init.js",
+            "assets/static/init.js",
+            "boot.js",
+            "local.js",
+            "src/main.ts"
+        ])
+    );
+    assert_eq!(
+        production("export default { publicDir: false };"),
+        set(&["static/init.js", "boot.js", "local.js", "src/main.ts"])
+    );
 }
 
 #[test]
