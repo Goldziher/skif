@@ -1399,8 +1399,16 @@ mod tests {
     #[test]
     fn a_program_gets_no_more_checkers_than_judged_files() {
         assert_eq!(schedule(16, &[1, 2, 3, 400]).checkers, [1, 2, 3, 8]);
-        assert_eq!(schedule(16, &[0]).checkers, [1], "a program without judged files still has a checker");
-        assert_eq!(schedule(16, &[3]).checkers, [3], "a lone program's even share is capped too");
+        assert_eq!(
+            schedule(16, &[0]).checkers,
+            [1],
+            "a program without judged files still has a checker"
+        );
+        assert_eq!(
+            schedule(16, &[3]).checkers,
+            [3],
+            "a lone program's even share is capped too"
+        );
     }
 
     #[test]
