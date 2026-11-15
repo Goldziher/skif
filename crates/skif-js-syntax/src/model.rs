@@ -37,8 +37,9 @@ pub enum ImportKind {
     /// `vi.mock("x")`, `jest.mock("x")` and the other test-runner calls that name a module: the test loads or
     /// replaces the module, which keeps a local file reachable but is not an import of a dependency.
     Mock,
-    /// `new URL("./x", import.meta.url)`, which the parser does not report: the file is loaded as a program of its own
-    /// (a worker, an asset), so every export of it counts as used, as for an entry. Also a stylesheet `url()` outside
+    /// `new URL("./x", import.meta.url)` and `new Worker(path.join(__dirname, "x.js"))`, which the parser does not
+    /// report: the file is loaded as a program of its own (a worker, an asset), so every export of it counts as used,
+    /// as for an entry. Also a stylesheet `url()` outside
     /// an import that names a file of a package (`url("@scope/pkg/a.woff2")`, `url(~pkg/a.svg)`).
     Url,
 }
