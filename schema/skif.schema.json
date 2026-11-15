@@ -151,7 +151,7 @@
         "use-tsconfig-files": false,
         "include-fixtures": false,
         "use-public-hoisting": false,
-        "type-aware": true,
+        "type-aware": false,
         "discovery": "auto",
         "cycles": {
           "allow": [],
@@ -1181,8 +1181,8 @@
         },
         "type-aware": {
           "type": "boolean",
-          "description": "Resolve member reads with the TypeScript type checker, so a read through a typed receiver (`this.x`, a\nparameter, a variable of a class type) credits the member it reaches rather than every member of that name.\nSlower, more accurate member findings; on by default. A package without usable types (no `tsconfig.json`,\nplain JavaScript, uninstalled dependencies) keeps the name-based analysis, and the report says which. Off\n(`type-aware = false`, `skif --no-type-aware`) runs no type checker at all.",
-          "default": true
+          "description": "Resolve member reads with the TypeScript type checker, so a read through a typed receiver (`this.x`, a\nparameter, a variable of a class type) credits the member it reaches rather than every member of that name.\nSlower, more accurate member findings; off by default (`type-aware = true`, `skif --type-aware` turn it on).\nA package without usable types (no `tsconfig.json`, plain JavaScript, uninstalled dependencies) keeps the\nname-based analysis, and the report says which. Off runs no type checker at all.",
+          "default": false
         },
         "discovery": {
           "$ref": "#/$defs/JsDiscovery",
