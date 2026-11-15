@@ -58,7 +58,7 @@ use output::{emit_error, emit_error_with};
 /// A panic in skif that reaches this call is caught and exits 2, as in the binary; the panic hook prints the message
 /// and its location to stderr, and with `--format json` stdout also receives the `error` document (kind `internal`)
 /// naming both. A panic that skif catches itself on the way, such as one inside the type checker that falls back to
-/// the untyped analysis (ADR 0045), does not end the run.
+/// the untyped analysis (ADR 0034), does not end the run.
 ///
 /// To learn the location, the first call chains a hook in front of the process's panic hook (`std::panic::set_hook`),
 /// once per process; it records the panic for the thread that raised it and then calls the hook it replaced, so the
@@ -131,7 +131,7 @@ fn internal_error(report: &str) -> CliError {
 ///
 /// A panic exits 2 as in [`run`]. The release binary unwinds (`panic = "unwind"`) instead of aborting, so the panic
 /// reaches this call, and a panic skif catches on the way, inside the type checker, falls back to the untyped
-/// analysis instead of ending the process (ADR 0045).
+/// analysis instead of ending the process (ADR 0034).
 pub fn run_to_exit(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
     if let Err(error) = env::enter_bazel_run_directory() {

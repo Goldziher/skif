@@ -274,7 +274,7 @@ impl MemberOf {
     }
 }
 
-/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0046).
+/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0034).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -292,7 +292,7 @@ pub struct TypedEvidence {
     pub unresolved_readers: Vec<String>,
 }
 
-/// Why one member of an exported class, enum or namespace counts as used or not (ADR 0042, ADR 0018).
+/// Why one member of an exported class, enum or namespace counts as used or not (ADR 0018).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -1040,7 +1040,7 @@ impl JsAnalysis<'_> {
     }
 
     /// Why `member` of the enum or namespace behind `export` of `module` counts as used or not: the uses without
-    /// types, and the typed reads and whole uses that add to them (ADR 0044).
+    /// types, and the typed reads and whole uses that add to them (ADR 0034).
     fn explain_enum_member(
         &self,
         module: &Module,

@@ -1,5 +1,5 @@
 //! Heft: the packages its config files extend and the plugin packages they load, and the configs of the rig that a
-//! project's `config/rig.json` names (ADR 0037).
+//! project's `config/rig.json` names (ADR 0015).
 //!
 //! A rig package ships `profiles/<profile>/config/*.json` and `profiles/<profile>/tsconfig*.json` for the projects
 //! that name it; in the rig itself these profiles are its own configs.

@@ -1,4 +1,4 @@
-//! The owner of one tsrs program, which gives the program's memory back when it is dropped (ADR 0045).
+//! The owner of one tsrs program, which gives the program's memory back when it is dropped (ADR 0034).
 
 use tsrs_compiler::{Program, ProgramOptions};
 
@@ -26,7 +26,7 @@ impl ProgramOwner {
 impl Drop for ProgramOwner {
     #[expect(
         unsafe_code,
-        reason = "tsrs leaks each program from a box; only `free_unshared_program` gives its arenas back (ADR 0045)"
+        reason = "tsrs leaks each program from a box; only `free_unshared_program` gives its arenas back (ADR 0034)"
     )]
     fn drop(&mut self) {
         // A program dropped while a panic inside tsrs unwinds may be half updated, and a second panic while freeing

@@ -228,7 +228,7 @@ impl<'a> Emitter<'a> {
         std::mem::take(&mut self.config_judgements)
     }
 
-    /// Records how far a provider's type-aware analysis covered its packages (ADR 0044), for
+    /// Records how far a provider's type-aware analysis covered its packages (ADR 0034), for
     /// [`Report::type_aware`](skif_core::Report::type_aware).
     pub fn report_type_aware(&mut self, summary: TypeAwareSummary) {
         self.type_aware.push(summary);

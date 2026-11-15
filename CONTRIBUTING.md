@@ -37,7 +37,7 @@ the same checks on commit; do not commit with `--no-verify`. Commits are convent
 corpus (`tools/bench/corpus.toml`) and print the per-repository differences; `mise run corpus:check` checks both against
 the baselines committed in `tools/bench/baselines`, as the weekly `corpus` workflow does. A change that moves
 the findings of a rule on real code refreshes the baselines with `--write-baseline` in the same pull request
-(see `tools/bench/README.md`, [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)). `mise run bench`
+(see `tools/bench/README.md`, [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). `mise run bench`
 exits non-zero when a speed target of ADR 0001 fails.
 
 `mise run schema:check` regenerates the JSON Schema of `skif.toml` and fails when `schema/skif.schema.json`
@@ -94,7 +94,7 @@ linker without installing.
 ## Upgrading tsrs
 
 tsrs, the TypeScript checker behind type-aware analysis, is upgraded on its own, never alongside other work
-([ADR 0045](adrs/0045-tsrs-dependency-policy.md)):
+([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)):
 
 1. Move every `tsrs_*` entry of `[workspace.dependencies]` to the new version together, each as an exact `=` pin;
    `scripts/check-pins.sh` fails otherwise. Only `skif-js-types` may depend on them, and `skif` without default
@@ -107,7 +107,7 @@ tsrs, the TypeScript checker behind type-aware analysis, is upgraded on its own,
    `LICENSE` texts of the release), copy it over every other `ATTRIBUTIONS.md`, and run `scripts/check-headers.sh`
    and `scripts/check-package-contents.sh`.
 5. Attach the evidence to the change: the parity run, the typed-versus-untyped comparison on the corpus, the
-   benchmark against the budget of [ADR 0047](adrs/0047-performance-budget-with-types.md), and
+   benchmark against the budget of [ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md), and
    `repeated_analyses_free_their_arenas`.
 
 ## Architecture decisions

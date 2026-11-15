@@ -1,6 +1,6 @@
 //! One analysis: plan the programs, build a few at a time (the largest first, each with checkers in proportion to its
 //! share of the judged files), walk their judged files on their checkers, copy the facts out and free each program as
-//! soon as its walk ends (ADR 0044, ADR 0045).
+//! soon as its walk ends (ADR 0034).
 //!
 //! The programs can start before the host knows its query ([`start`]): they are planned from the files that may be
 //! judged, and the first ones build while the host works the query out. Each waits, built, until
@@ -43,7 +43,7 @@ const SCRATCH_CHUNK: usize = 1 << 20;
 const CORES_PER_PROGRAM: usize = 4;
 /// The most checkers a program gets while other programs are built beside it. Each checker holds its own type
 /// caches: on the largest repository of the corpus, 16 checkers on its main program raised peak memory past the
-/// budget of ADR 0047 without a shorter run than 8.
+/// budget of ADR 0029 without a shorter run than 8.
 const MOST_SHARED_CHECKERS: usize = 8;
 
 /// Runs the analysis of `input`.

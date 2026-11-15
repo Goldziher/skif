@@ -1,11 +1,11 @@
-//! Which members of exported classes are used, for `unused-class-members` and `explain-usage` (ADR 0042).
+//! Which members of exported classes are used, for `unused-class-members` and `explain-usage` (ADR 0018).
 //!
 //! The rule keeps two questions apart. Which members are left alone whatever reads them (decorated, type-only,
 //! inherited from a base class outside the project, implementing an interface, public API, tagged or listed in
 //! `ignore-members`) is decided here from the declarations, by [`exemption`]. Which members are read is asked of a
 //! [`MemberUsage`]: [`NameReads`] credits a member when any module of the graph reads a property of its name, the
 //! approximation that needs no type information, and [`TypedMemberUsage`] takes the uses from the type checker where
-//! it covered the declaring file (ADR 0044, ADR 0046).
+//! it covered the declaring file (ADR 0034).
 
 use std::collections::VecDeque;
 
@@ -97,7 +97,7 @@ impl MemberUsage for NameReads {
     }
 }
 
-/// Member use with types (ADR 0046). In a declaring file the checker covered, a member is used when a typed read
+/// Member use with types (ADR 0034). In a declaring file the checker covered, a member is used when a typed read
 /// reaches it, its class is used as a whole, a covered file reads its name through a receiver the checker could not
 /// type, or a file the checker did not cover (a Vue, Svelte or Astro template, a file in no program) reads its name.
 /// A declaring file the checker did not cover, a private name and every member without typed facts keep

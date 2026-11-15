@@ -8,7 +8,7 @@
 # as optional dependencies; each platform package must ship its .node addon. This is what turns a missing
 # artifact (the loader is generated, not committed) into a failed job instead of a broken release. Every package
 # also carries LICENSE and ATTRIBUTIONS.md, the notices the MIT and ISC code inside the addon requires, and its
-# ATTRIBUTIONS.md holds the tsrs section that the checker's Apache-2.0 NOTICE requires (ADR 0045).
+# ATTRIBUTIONS.md holds the tsrs section that the checker's Apache-2.0 NOTICE requires (ADR 0033).
 set -euo pipefail
 
 dir="${1:?usage: check-npm-tarballs.sh <directory-of-tarballs> <version>}"

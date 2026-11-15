@@ -1,4 +1,4 @@
-//! How far the type-aware analysis covered each package of a run (ADR 0044).
+//! How far the type-aware analysis covered each package of a run (ADR 0034).
 //!
 //! The JS analysis resolves member reads with the TypeScript type checker where a package has usable types and falls
 //! back to the name-based analysis elsewhere. A [`Report`](crate::Report) carries a [`TypeAwareSummary`] so a

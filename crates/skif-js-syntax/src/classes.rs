@@ -1,5 +1,5 @@
 //! The members and heritage of exported classes, and the property names a file reads and writes, for
-//! `unused-class-members` (ADR 0042).
+//! `unused-class-members` (ADR 0018).
 //!
 //! Without type information a property read cannot be tied to the class it reads from, so a file records every
 //! property name it reads on any object and the rule credits a member by its name. The class side records what the

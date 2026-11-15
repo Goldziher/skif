@@ -1,4 +1,4 @@
-//! The type-aware facts of one JS analysis (ADR 0044, ADR 0046): the declarations whose member reads skif judges are
+//! The type-aware facts of one JS analysis (ADR 0034): the declarations whose member reads skif judges are
 //! asked of the TypeScript checker of `skif-js-types`, and the answer is kept by module so the member rules can read
 //! it without knowing the checker.
 //!
@@ -480,7 +480,7 @@ mod asked {
     }
 
     /// The declarations whose members the rules judge: every used exported class with the members it does not
-    /// exempt (ADR 0042), and every used enum and namespace export with its untagged members (ADR 0018) that are not
+    /// exempt (ADR 0018), and every used enum and namespace export with its untagged members that are not
     /// used without types. Private names (`#count`) are left to their own module, as without types.
     pub(super) fn build_query(analysis: &JsAnalysis<'_>) -> (TypeQuery, DeclKeys) {
         let mut query = TypeQuery::default();
@@ -527,7 +527,7 @@ mod asked {
                 if judged.peek().is_none() {
                     continue;
                 }
-                // Types only add uses (ADR 0044): a member used without types is used whatever the checker finds, so
+                // Types only add uses (ADR 0034): a member used without types is used whatever the checker finds, so
                 // only the others are asked about, which spares the checker the reads of their names.
                 let members = judged
                     .filter(|member| !analysis.member_used_without_types(module, export, member))

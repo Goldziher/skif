@@ -7,7 +7,7 @@ skif runs as a server for the tools you write code with. The servers and watch m
 nothing else to install. The design is recorded in
 [ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md). The servers and
 watch mode analyse without the TypeScript type checker, as `--no-type-aware` does, so their member findings are the
-name-based ones ([ADR 0044](https://github.com/Goldziher/skif/blob/main/adrs/0044-type-aware-analysis-on-tsrs.md)).
+name-based ones ([ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ## Agent skill
 
@@ -124,9 +124,9 @@ Parsing source files is the largest part of a JavaScript analysis. skif keeps th
 a key of its file name, its text and the parser's version, so an unchanged file is not parsed again and a changed
 file always is: the cache never changes a report. Everything else (configuration, manifests, the module graph, the
 rules) is computed on every run. The design is recorded in
-[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-and-benchmarks.md)
+[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)
 and, for multi-root runs,
-[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-and-benchmarks.md).
+[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md).
 
 - **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
   root (or below the invocation directory of a multi-root run, and in `$TEST_TMPDIR/skif/` under `bazel test`);

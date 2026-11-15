@@ -231,7 +231,7 @@ fn ignored_member_reached_from_the_root_snapshot() {
 }
 
 /// knip's `class-members` fixture (knip 5.88.1): the members its test reports, except `AbstractClass.implemented`,
-/// which skif keeps used because `ExtendedClass` declares the same name and a module reads it (ADR 0042). The members
+/// which skif keeps used because `ExtendedClass` declares the same name and a module reads it (ADR 0018). The members
 /// React's `Component` declares (`render`, `componentDidMount`), `private` members and the members of an implemented
 /// interface are not judged.
 #[test]

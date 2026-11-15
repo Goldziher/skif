@@ -27,11 +27,11 @@ All notable changes to this project are documented here. The format follows
   one of them is enabled; `InputSource::reached_inputs` gives it for the source files the host hands it. A
   `skif-js-plugins` host that resolves plugins itself keeps the single pass of `resolve_plugins_in`, or splits it with
   `resolve_pass_in`, `PluginPass` and `PackageSources::reached`
-  ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
+  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
   [#233](https://github.com/Goldziher/skif/issues/233)).
 
 - **`skif-cli` library users**: `install_panic_hook` is removed. `run_to_exit` now catches a panic itself and exits 2,
-  as `run` does, so a binary built on it needs no hook ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
+  as `run` does, so a binary built on it needs no hook ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ### Added
 
@@ -40,7 +40,7 @@ All notable changes to this project are documented here. The format follows
   reads are resolved with the TypeScript type checker, which is slower and gives more accurate member findings; turning
   it off is faster and less accurate for member findings. The flag overrides every workspace table. The language
   server, `skif mcp` and `--watch` run without types
-  ([ADR 0044](adrs/0044-type-aware-analysis-on-tsrs.md)).
+  ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - **Type-aware coverage in the report**: the JSON report carries a `type-aware` object (`enabled`, `engine` and each
   package's `dir`, `name`, `state` `typed`, `partial` or `untyped`, `reason` and `untyped-files`), SARIF carries it in
   the run's `properties`, and the human output prints one `types:` line before the summary when a package is partial
@@ -57,7 +57,8 @@ All notable changes to this project are documented here. The format follows
   `FILE#Enum.member` and `FILE#Namespace.member` too (`of`: `enum` or `namespace`). `SKIF_TIMINGS` prints a
   `js types <root>:` line with the planning time, the build and query times summed over the programs, the wall time,
   the program count and the threads, then one line for each of the five slowest programs with its judged and total
-  files, its checkers and its build and query times ([ADR 0046](adrs/0046-typed-member-semantics.md)). The library
+  files, its checkers and its build and query times ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md),
+  [ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)). The library
   gives them as `TypeTimings` (`planning`, `programs`, `queries`, `wall`, `threads`, `per_program` of
   `ProgramTiming`, `slowest`).
 - **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
@@ -71,26 +72,25 @@ All notable changes to this project are documented here. The format follows
   that no module reads, following knip 5's `classMembers`. Without type information a member counts as read when any
   module reads a property of its name; decorated members and classes, members a base class outside the project may
   declare, implemented interface members, classes exposed by an entry file, tagged members and `ignore-members`
-  names are not judged ([ADR 0042](adrs/0042-unused-class-members.md)).
+  names are not judged ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
 - `skif explain-usage FILE#Class.member` explains one class member: the modules that read its name, the exemption
   that applies and the verdict.
 - `ignore-members` also exempts class members.
 - **Comparison harness**: the knip comparison sets apart more known deviations, decided from the checkout's files,
   manifests, TypeScript configurations and an import scan with skif's parser
-  ([ADR 0040](adrs/0040-more-known-deviations-of-the-knip-comparison.md), amending
-  [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)): `rush-provided-command`, `shell-builtin`,
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)): `rush-provided-command`, `shell-builtin`,
   `global-binary` (read from skif's own binary tables), `data-uri`, `ambient-module`, `own-tsconfig-paths`,
   `replaced-knip-config`, `whole-enum-use` (ADR 0018 stands: a whole use credits every member, and enum-member recall
   is read with these set apart), `published-file`, `paths-before-packages` and `uninstalled-project` (the
   turborepo-examples root the corpus install leaves out).
 - **Comparison harness**: more known deviations of the knip comparison, for uses knip does not read
-  ([ADR 0058](adrs/0058-uses-knip-does-not-read.md)): `heft-config` (from skif's plugin resolver),
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)): `heft-config` (from skif's plugin resolver),
   `type-asserted-require`, `module-object-values`, `commonjs-default-import`, `template-literal-import`,
   `installed-main`, `type-referenced-members`, `knip-node-modules-name`, `raw-glob-read` and `typescript-twin`;
   `knip-dot-ignore` also sets apart what only a hidden file uses, `used-in-knip-unused-file` the peers of a package such
   a file imports, and `imported-by-knip-unused-file` the members such a file reads.
 - **Comparison harness**: more known deviations of the knip comparison, for how knip reads a module
-  ([ADR 0060](adrs/0060-how-knip-reads-a-module.md)): `opaque-dynamic-import`, `dynamic-import-default`,
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)): `opaque-dynamic-import`, `dynamic-import-default`,
   `jest-require-actual`, `spied-namespace`, `enumerated-namespace`, `namespace-re-export`,
   `typescript-commonjs-export`, `node-test-entry`, `ng-package-entry` and `import-type-qualifier`;
   `tsconfig-declaration-file` also sets apart what a declaration entry re-exports, `published-source` what a file
@@ -106,7 +106,7 @@ All notable changes to this project are documented here. The format follows
   the packages they extend and load are used, and so is `@rushstack/heft`; its `profiles/*/tsconfig*.json` are read
   too, and the packages their compiler options name (`types`, `importHelpers`) are used by the rig but never unlisted
   at it, as they apply to the projects extending the profile. The table holds 213 plugins
-  ([ADR 0037](adrs/0037-heft-and-rig-packages.md), [#230](https://github.com/Goldziher/skif/issues/230)).
+  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md), [#230](https://github.com/Goldziher/skif/issues/230)).
 - **Public API** ([#230](https://github.com/Goldziher/skif/issues/230)): `PluginInput::SharedConfig` of
   `skif-js-plugins`, a config file a package ships for the packages that extend it.
 - **Public API** ([#229](https://github.com/Goldziher/skif/issues/229)): `ExtractedConfig::environment_variants` of
@@ -123,21 +123,21 @@ All notable changes to this project are documented here. The format follows
 - **Public API** ([#239](https://github.com/Goldziher/skif/issues/239)): `OverrideScope::idle_patterns` and
   `IdleReason` of `skif-config`, and `Options::with_root_anchored` of `skif-migrate`.
 - **Public API**: the `skif-js-types` crate, the type-aware facts from the TypeScript checker of tsrs
-  ([ADR 0044](adrs/0044-type-aware-analysis-on-tsrs.md)). `analyze` builds one program per `tsconfig.json` or
+  ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)). `analyze` builds one program per `tsconfig.json` or
   `jsconfig.json` that holds a judged file, found as TypeScript finds it (solution configs followed through their
   references, `[js] tsconfig` for the root package), and answers which members of the asked classes, enums and
   namespaces typed reads reach, directly, through a base class or through an implemented interface
-  ([ADR 0046](adrs/0046-typed-member-semantics.md)); which declarations are used as a whole; which reads it could not
+  ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)); which declarations are used as a whole; which reads it could not
   settle; and the coverage of every package with the reason it is not fully typed. A panic inside the checker leaves
   that program's packages untyped (`checker-failed`), and every program's memory is freed before `analyze` returns.
   The `plain-ptrs` feature builds tsrs without its fixed address reservation
-  ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
+  ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - `ATTRIBUTIONS.md` has a "tsrs (and TypeScript)" section with the full NOTICE and the Apache-2.0 licence of tsrs, the
   TypeScript checker behind type-aware analysis, and ships in every crate, binary archive and npm package; the
-  release checks fail when it is missing ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
+  release checks fail when it is missing ([ADR 0033](adrs/0033-attribution-and-vendoring.md)).
 - The `plain-ptrs` feature of `skif` (and `skif-js`, `skif-js-types`) makes tsrs use plain pointers instead of its
   fixed address-space reservation; the npm addon enables it, so the reservation cannot collide with Node.js's and
-  abort the host ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
+  abort the host ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ### Changed
 
@@ -147,13 +147,13 @@ All notable changes to this project are documented here. The format follows
   such a call used no export, and `unused-exports` reported the methods of a worker and the default export of a
   loader. Type exports are still reported unless an importer names them or a used export's signature mentions them.
   `explain-usage` says `resolve: its path, loaded by it: every value export`
-  ([ADR 0059](adrs/0059-resolve-calls-use-the-values-of-the-module.md),
+  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md),
   [#165](https://github.com/Goldziher/skif/issues/165)).
 
 - `unused-dev-dependencies` reports a `devDependencies` entry of a package that the same manifest lists in
   `dependencies`, used or not ("is listed in `devDependencies` and in `dependencies`"), with the unsafe fix that
   removes it: the production entry installs the package for development as well. knip reports it too
-  ([ADR 0057](adrs/0057-redundant-dev-entries-and-installed-optional-peers.md),
+  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
   [#98](https://github.com/Goldziher/skif/issues/98)).
 
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
@@ -165,7 +165,7 @@ All notable changes to this project are documented here. The format follows
   `tsconfig.json` lists it in `files` (now a `typescript` plugin entry). Once a module imports it, `unused-types` and
   `unused-exports` report what no importer uses, and what only an unimported one uses is no longer kept in use, as in
   knip. Declaration files are still never reported by `unused-files`
-  ([ADR 0054](adrs/0054-module-declaration-files-are-modules.md)). `skif-js-syntax` gains `ModuleInfo::module_file`,
+  ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)). `skif-js-syntax` gains `ModuleInfo::module_file`,
   `ModuleInfo::global_augmentation` and `ModuleInfo::declares_without_import`; the parse cache schema is raised.
 
 - **Type-aware scheduling**: the programs with the most judged files are built first, and a program gets checkers in
@@ -183,7 +183,7 @@ All notable changes to this project are documented here. The format follows
   root Jest config, two n8n Vite configs): that run is timed and compared, and published with the reason. The summary
   records each target's run counts (`summary.json` schema 6), the published tables name a capped target's counts, and
   the workflow frees disk space for the installs before it builds
-  ([ADR 0041](adrs/0041-benchmarks-on-large-repositories.md)).
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 
 - **Benchmarks with types**: `skif-bench run` times every corpus repository and the module graph case with types (the
   default) and with `--no-type-aware`, and measures each mode's peak RSS with `/usr/bin/time`. `summary.json` (schema
@@ -208,7 +208,7 @@ All notable changes to this project are documented here. The format follows
 - **Comparison harness**: `bazel-build-file` also covers the files the `glob` include patterns of a Bazel test target's
   `srcs` and `data` match (a `js_test`, or a rule with `testonly = True`, its `exclude` patterns not applied) and the
   `srcs` and `data` of `ng_project`, as skif's Bazel plugin reads them
-  ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md)).
+  ([ADR 0031](adrs/0031-bazel.md)).
 
 - **Comparison harness with types**: `skif-bench parity` runs skif twice per repository, with types (the run compared
   with knip) and with `--no-type-aware`. A one-sided finding no other deviation explains is the new `type-resolved`
@@ -217,22 +217,22 @@ All notable changes to this project are documented here. The format follows
   header records the mode (`mode`), and `tools/bench/baselines/type-aware.json` holds the typed-versus-untyped counts,
   recorded with `--write-baseline` and checked with `--check`. `--no-untyped-pass` skips the second run; no baseline
   is recorded that way. Both baselines need recording
-  ([ADR 0046](adrs/0046-typed-member-semantics.md), [ADR 0050](adrs/0050-knip-comparison-against-the-typed-run.md)).
+  ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md), [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 
 - **Performance** ([#233](https://github.com/Goldziher/skif/issues/233)): the `execa`, `zx` and `nano-spawn` plugins
   read the commands of the source files the module graph reaches, as knip does, from the texts the graph already
   read, instead of every source file of each package that lists or inherits the library. A member that inherits a
   root's `execa` no longer reads its test fixtures, which on a large monorepo took most of the JS setup. A file such a
   command runs (`execa("node", ["scripts/next.mjs"])`) is an entry as before, and the graph is built again to reach it
-  ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md)).
+  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md)).
 
 - **`unlisted-binaries`, `unused-dependencies`**: a command in a source file nothing imports or runs, such as a test
   fixture's `execa("x")`, runs no binary, so it is no longer reported unlisted and no longer credits the package that
-  provides it ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
+  provides it ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
   [#233](https://github.com/Goldziher/skif/issues/233)).
 
 - **JS**, result-changing: `paths` named like a dependency resolve as TypeScript resolves them, a deliberate
-  departure from knip ([ADR 0038](adrs/0038-paths-before-packages.md),
+  departure from knip ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md),
   [#222](https://github.com/Goldziher/skif/issues/222)). The `paths` of `[js.workspaces.<dir>.paths]` are tried before
   installed packages and workspace members, so `src/*` to `./src/*` beside a member named `src` reaches the local file
   instead of the member's, and that file is no longer reported by `unused-files`; a mapping whose targets are missing
@@ -243,7 +243,7 @@ All notable changes to this project are documented here. The format follows
 
 - Release binaries unwind on panic (`panic = "unwind"`) instead of aborting, so a panic inside the type checker can
   fall back to the untyped analysis. A panic that ends a run still exits 2, prints its message to stderr and, with
-  `--format json`, writes one `internal` error document ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
+  `--format json`, writes one `internal` error document ([ADR 0027](adrs/0027-distribution-and-release.md)).
 
 ### Performance
 
@@ -252,7 +252,7 @@ All notable changes to this project are documented here. The format follows
   program no judged file needs is freed unwalked. The files placed while planning the early programs are not
   searched again once the judged files are known. Findings do not depend on which programs started early. A
   sequential run keeps building them after the graph. `SKIF_TIMINGS` names the time the analysis waited once the
-  graph was done and how many programs started before it ([ADR 0047](adrs/0047-performance-budget-with-types.md)).
+  graph was done and how many programs started before it ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 
 - **Type-aware analysis of several roots** (`--recursive`, several paths): the roots linted at once take the cores of
   their TypeScript programs from one budget of the machine's cores instead of each from cores of its own, so the
@@ -289,11 +289,11 @@ All notable changes to this project are documented here. The format follows
   specifier from that location, so the package is the dependency of the package there. Only `import.meta.url`,
   `import.meta.filename` and `__filename` make the call resolve from the file. Before, the package was reported as an
   unlisted dependency of the file's package. The parse cache schema is raised
-  ([ADR 0061](adrs/0061-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md), [#242](https://github.com/Goldziher/skif/issues/242)).
 - `unlisted-dependencies`: the `cliPackageName` of a `@rushstack/heft-storybook-plugin` task no longer has to be listed
   by the project: the plugin resolves it from the storykit package, whose dependency it is. A listing in the project
   is still used; the `storykitPackageName` is still required
-  ([ADR 0061](adrs/0061-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md), [#242](https://github.com/Goldziher/skif/issues/242)).
 - `unlisted-dependencies`, `unused-dependencies`: the stylesheet a `tailwindcss --input` (`-i`) script compiles is an
   entry, so the packages its `@import`s name are used, and reported when no manifest lists them, as knip has it.
   Before, such a stylesheet was not read unless a module imported it
@@ -334,7 +334,7 @@ All notable changes to this project are documented here. The format follows
 - `unused-dependencies`: a module declaration file that exports nothing and loads a module for its effect
   (`import "sst"`, `/// <reference path="…" />`, as SST's generated `sst-env.d.ts`) is an entry again, so the package it
   loads is no longer reported as unused. A declaration file with an export stays a module
-  ([ADR 0055](adrs/0055-exportless-declaration-files-that-load-a-module.md)).
+  ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 - `unused-files`: a `require()`, `import()` or `require.resolve()` of a `const` that holds a path built from the file's
   directory (`const entry = require("node:path").resolve(__dirname, "cli/entry.js")`, then `require(entry)`, also in a
   nested function) loads the file the path names, so it and what it imports are no longer reported. The read is
@@ -361,7 +361,7 @@ All notable changes to this project are documented here. The format follows
   (`` require(`./locales/${lang}/messages`) `` loads `locales/en/messages.js`). Before, only files directly matching
   the glob counted, and directory commands were reported with what they import
   ([#100](https://github.com/Goldziher/skif/issues/100)).
-- `unused-optional-peer-dependencies` ([ADR 0057](adrs/0057-redundant-dev-entries-and-installed-optional-peers.md),
+- `unused-optional-peer-dependencies` ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
   [#98](https://github.com/Goldziher/skif/issues/98)):
   - An optional peer that the root or a containing package lists in `dependencies`, `devDependencies` or
     `optionalDependencies` is installed for the member too, as for any other use outside `isolate-workspaces`, and is
@@ -386,7 +386,8 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md), [#165](https://github.com/Goldziher/skif/issues/165)).
 - Files reached only through framework and build entry points are no longer `unused-files`, so the class members
   only they read are no longer `unused-class-members`
-  ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md), [#240](https://github.com/Goldziher/skif/issues/240)):
+  ([ADR 0031](adrs/0031-bazel.md), [ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
+  [#240](https://github.com/Goldziher/skif/issues/240)):
   - A relative import into a package's own build output that was never built (`require('./dist/client/link')` in a
     file the package publishes beside `dist`) resolves to the source the output is built from, as a published path
     does.
@@ -403,7 +404,7 @@ All notable changes to this project are documented here. The format follows
   `preact/compat`, `React.lazy`, `next/dynamic`, and `@loadable/component` without `resolveComponent`) uses the
   default export only, so the module's named exports that nothing else reads are reported, as knip reports them.
   Returned to any other call, it still uses the whole module, and `skif explain-usage` names the call
-  ([ADR 0048](adrs/0048-dynamic-imports-returned-to-a-call.md), [#237](https://github.com/Goldziher/skif/issues/237)).
+  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md), [#237](https://github.com/Goldziher/skif/issues/237)).
 - A config method or function value that changes and returns the value a call gives it, such as a Storybook
   `viteFinal`, `webpackFinal` or `rsbuildFinal` hook that spreads the bundler config, no longer leaves the whole config
   partly unknown, so the package is no longer incomplete (`unknown-spread`) and `unused-files` and the
@@ -417,17 +418,17 @@ All notable changes to this project are documented here. The format follows
   `jsconfig.json` or `tsconfig.json`, which the `typescript` plugin reads as lookup directories and aliases (a
   `jsconfig.json` enables it by itself): when both map `*` to the same directories in a different order, the import
   reaches the configured target, and the file the compiler config tries first is the one reported by `unused-files`
-  ([ADR 0038](adrs/0038-paths-before-packages.md), [#238](https://github.com/Goldziher/skif/issues/238)).
+  ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md), [#238](https://github.com/Goldziher/skif/issues/238)).
 - `unused-class-members`: a field that exists only for the type checker is no longer reported: a `declare` field
   (`declare protected readonly _Options: Options`) and a nominal brand or phantom field typed `void`, `never`,
   `undefined` or `unique symbol` with no value but `undefined` (`readonly _rgbaBrand: void = undefined`,
   `readonly __brand!: unique symbol`). A `void` field with a real initialiser is still judged, and `explain-usage`
-  names the exemption ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
+  names the exemption ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
 - `unused-class-members`: an element access whose key is a constant reads the member the constant names:
   `target[ReactiveFlags.SKIP]` with `enum ReactiveFlags { SKIP = '__v_skip' }` reads `__v_skip`, as do a string
   `const` and a property of an `as const` object, in the same module or imported, also through a namespace import or
   a re-export. A key held by a `let`, a plain object or a parameter still reads nothing
-  ([ADR 0043](adrs/0043-type-only-class-fields-and-constant-element-keys.md)).
+  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
 - `unused-class-members`: a default-exported class is judged like a named one. With types, an anonymous
   `export default class {}` is asked of the checker like a named class, so a member read only on another class is
   reported (`default.paint`) instead of credited by name. A class exported under two names (`export class C` beside
@@ -438,9 +439,9 @@ All notable changes to this project are documented here. The format follows
   each implementing class has under that name, its own or one it inherits from a base class anywhere up its chain,
   also when the interface inherits the member from another interface. `BaseCell.getRange` of
   `class CodeCell extends BaseCell implements ICell {}` is no longer reported; base members the interface does not
-  declare still are ([ADR 0046](adrs/0046-typed-member-semantics.md)).
+  declare still are ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
-  the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
+  the package: the import still loads the listed package at runtime, so it is used, as before ADR 0013.
 - A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
   the flags' values: the value is no longer read as the command, so the binary and the file it runs are found.
 - `unused-enum-members`: an imported enum named only in a type annotation (`value: E`, `x as E | null`) no longer counts as used as a whole, so its unread members are reported, as they already were for an enum annotated in its own file. Type arguments (`Record<E, X>`), template literal types and mapped types still use every member.
@@ -452,7 +453,7 @@ All notable changes to this project are documented here. The format follows
   `@vitest/coverage-v8` unlisted in every package calling its factory. A package named however the environment is set,
   or under a test that reads something else, is reported as before. This holds for every plugin that derives package
   names from config values. A config with such a test is evaluated three times
-  ([ADR 0036](adrs/0036-packages-named-on-an-environment-gated-branch.md),
+  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
   [#229](https://github.com/Goldziher/skif/issues/229)).
 - A compiler option of a `tsconfig` that a package extends through its own `node_modules`
   (`"extends": "./node_modules/<rig>/profiles/app/tsconfig-base.json"`, and what that profile extends in turn) applies
@@ -503,7 +504,7 @@ All notable changes to this project are documented here. The format follows
   `Report::other_project_build_sources`. Pass those below the root, made relative to the nested root that owns them,
   to `RunOptions::with_extra_build_sources` of its run, and credit those outside it as the files of
   `other_project_files` are; a host that reads only `other_project_files` no longer makes them used
-  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
   [#226](https://github.com/Goldziher/skif/issues/226)).
 
 ### Added
@@ -576,7 +577,7 @@ All notable changes to this project are documented here. The format follows
   imports or names as an entry stays an entry. A package of the nested root that such a build source belongs to is no
   longer taken as one another root imports, so `unused-subpath-exports` now judges its `exports` unless an enclosing
   root imports or runs one of its files
-  ([ADR 0034](adrs/0034-build-sources-handed-to-a-nested-root.md),
+  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
   [#226](https://github.com/Goldziher/skif/issues/226)).
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
@@ -652,7 +653,7 @@ All notable changes to this project are documented here. The format follows
   `unused-files` and `unused-dependencies`. Such an entry in build output that maps to no source file makes its
   package incomplete with the new cause `unmapped-entry`, whose `file` is the entry, instead of being dropped while
   the package was judged; an entry into nothing outside build output is still no entry
-  ([ADR 0035](adrs/0035-plugin-entries-in-build-output.md)).
+  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md)).
 
 ## [0.4.0] - 2026-11-12
 
@@ -1171,9 +1172,7 @@ All notable changes to this project are documented here. The format follows
   `nested-workspace-root`: a `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares
   `workspaces`. Both skip gitignored files and take `allow`, globs of files kept on purpose, each a string or
   `{ name, reason }`
-  ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
-  [ADR 0012](adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md),
-  [ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
+  ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md), [ADR 0012](adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md),
   [#140](https://github.com/Goldziher/skif/issues/140)).
 - `stale-patched-dependencies` (`warn`): a `patchedDependencies` entry (pnpm, or Bun's root `package.json`) whose
   `name@version` the lockfile no longer resolves or records without the patch, a missing patch file or one outside
@@ -1222,7 +1221,6 @@ All notable changes to this project are documented here. The format follows
   version findings with `name@specifier`; the commands take the lint flags, cover several roots (`-r`) and exit `2`
   when the configuration does not apply the baseline. The GitHub Action runs them, also with `from-sherif: true`
   ([ADR 0023](adrs/0023-baselines.md),
-  [ADR 0023](adrs/0023-baselines.md),
   [#114](https://github.com/Goldziher/skif/issues/114)).
 - `[[ignore]] files`: globs of the files a finding is located in, relative to the workspace root
   ([ADR 0023](adrs/0023-baselines.md)).
@@ -1254,7 +1252,7 @@ All notable changes to this project are documented here. The format follows
 - **Library API**:
   - `skif`: `Linter::for_targets`, `for_targets_with_cache`, `shared_modules` and `with_shared_modules`
     (`SharedModules`) share one module cache across roots
-    ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md));
+    ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md));
     `settle_shared_config` decides shared `stale-js-config` findings as `skif -r` does; `join_lexical`,
     `Target::retain_ignore` and `Target::locate`; `ignore_matches` lists the findings each `[[ignore]]` entry matches.
   - `skif-lint`: `RunOptions::with_fs` and `LintContext::fs` give rules the host's file system. `skif-rules`:
@@ -1309,7 +1307,7 @@ All notable changes to this project are documented here. The format follows
   and refuses a comparison tool in `corpus.toml` that is not pinned to an exact version. `refresh-numbers.mjs` publishes
   only a summary from a GitHub-hosted workflow run of clean checkouts with no `invalid` check, in which no tool exited
   with an error other than a declared knip failure the run matched, and names the harness commit when it differs from
-  the measured one ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md)).
+  the measured one ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 
 ### Changed
 
@@ -1363,7 +1361,7 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)).
 - **Multi-root runs** (`skif -r`) parse a file several roots reach once per run instead of once per root, also without
   `--cache`; `--performance` adds the cache's hits, misses and waits per root
-  ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md),
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md),
   [#144](https://github.com/Goldziher/skif/issues/144)).
 - `--fix` over several roots writes the fixes of every root before it lints again or runs an install step; when a
   later root fails, the earlier roots' install steps are reported as skipped and the run exits `2`
@@ -1436,7 +1434,7 @@ All notable changes to this project are documented here. The format follows
   scenario's expectation.
 - `mise run bench:publish` is removed: the published speed tables come from the `bench` workflow and
   `mise run bench:import`; `mise run bench` still measures locally
-  ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md)).
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 
 ### Fixed
 
@@ -1518,8 +1516,7 @@ All notable changes to this project are documented here. The format follows
   ([#110](https://github.com/Goldziher/skif/issues/110)).
 - **Multi-root runs**: a file another root uses or reaches is no longer reported by `unused-files` or deleted by
   `--allow-remove-files`, and a dependency only a nested root uses counts for the enclosing manifest that lists it
-  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
-  [ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md), [#98](https://github.com/Goldziher/skif/issues/98),
+  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md), [#98](https://github.com/Goldziher/skif/issues/98),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - **Shared `stale-js-config`**: a finding about a config file several roots read is reported once, at the highest
   severity, and decided over the reports the run shows (after `--fix`, `--workspace`, `--include`, `--exclude`)
@@ -1531,8 +1528,7 @@ All notable changes to this project are documented here. The format follows
   `npm --prefix`, `pnpm -C`, `yarn --cwd` or with a `cwd` option runs in that directory, so its binaries and
   scripts are credited to the package there; `$GITHUB_WORKSPACE` and `${{ github.workspace }}` name the workspace
   root; a `cd` inside a subshell ends with it
-  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
-  [ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md)).
+  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md)).
 - **Member binaries**: under pnpm's and Bun's isolated linkers, Yarn Berry and Rush, a member's binary satisfies only
   the packages that depend on it, as those link it; under pnpm's hoisted linker (`nodeLinker: hoisted` in
   `pnpm-workspace.yaml`, or `node-linker=hoisted` in the root `.npmrc` only before pnpm 11) it satisfies every
@@ -1635,12 +1631,12 @@ All notable changes to this project are documented here. The format follows
   `--cache-location <DIR>` moves the store; the cache is keyed by each file's name and text and never changes the
   report. `--watch`, `skif lsp` and `skif mcp` keep an in-memory cache for as long as they run. Library hosts pass a
   `ModuleCache` to `Linter::with_module_cache`; `MemoryModuleCache` is the in-process one
-  ([ADR 0029](adrs/0029-performance-caching-and-benchmarks.md),
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `skif lsp` lints the editor's unsaved buffers: it takes the full text on every change, lints a project 250
   milliseconds after its last change, and offers fixes for unsaved documents at positions in the buffer, with the
   document version in `documentChanges` when the client supports it. Library hosts overlay buffers on a file system
-  with `BufferFs` ([#44](https://github.com/Goldziher/skif/issues/44), [ADR 0029](adrs/0029-performance-caching-and-benchmarks.md)).
+  with `BufferFs` ([#44](https://github.com/Goldziher/skif/issues/44), [ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 - `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`,
   `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`,
   `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`
@@ -1807,15 +1803,15 @@ All notable changes to this project are documented here. The format follows
 - The knip comparison counts knip-only exports, types, namespace exports and types, and enum and namespace members in
   a package skif lists under `incomplete-packages` as `not-judged-by-skif`, as it did for files and dependencies:
   skif does not report them there either
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The knip comparison records the configuration files knip could not load (`ERROR: Error loading`, exit 2) in
   `parity.json`, their number in the baseline and `parity.md`, and counts knip-only findings in their packages as the
   `knip-config-error` deviation instead of as differences; create-t3-turbo and vue-core have such files
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The `fixture-file` deviation of the knip comparison covers only `fixtures` and `__fixtures__`, the directories skif
   does not report; knip-only files below `fixture`, `testdata`, `test_root`, `__testfixtures__` or `*-fixtures`, which
   skif judges, count as differences unless they are test files
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The parity baseline is refreshed for create-t3-turbo, vue-core, tanstack-query, jest, babel, cal-com, mastra,
   vscode, npm-cli and rushstack, and the README's agreement with knip is measured on the nine of them compared. The
   old figures counted babel's fixture files, which skif no longer reports, as shared; n8n, angular, opencode,
@@ -2241,16 +2237,16 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `mise run diff:syncpack` compares its policy findings with a pinned syncpack, on the policy fixtures and a pinned
   corpus of 16 public repositories (`skif-bench corpus fetch`, `mise run corpus:fetch`). Counts are committed under
   `tools/bench/baselines`, `--check` fails on drift, and a weekly `corpus` workflow runs it
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 - **Known deviations in the comparison harness**: `mise run parity` and `mise run diff:syncpack` report intended
   differences from knip and syncpack apart from the one-sided counts (a separate column and section with the reason),
   and `--check` ignores them. syncpack runs with `--dependency-types prod,dev,local` and an empty configuration,
   Rush projects are fed to it as sources and `unresolved-catalog-references` is compared; knip runs with an empty
   configuration (`--repo-knip-config` opts out), enum and namespace members are keyed by member name, noisy stdout
   no longer skips a repository, and `corpus.toml` takes `recursive`, `install-command` and `install-timeout-secs` per
-  repository ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)). The namespace rules are
+  repository ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). The namespace rules are
   compared with the `exports` and `types` items knip reports with a `namespace`, and with `nsExports` and `nsTypes`
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)).
+  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
 - **Benchmark targets are enforced**: `skif-bench run` exits non-zero when an ADR 0001 target fails, measures a
   10,000-file module graph, and `mise run bench:publish` writes `tools/bench/results` and refreshes the numbers table.
 - **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the

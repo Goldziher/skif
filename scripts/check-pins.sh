@@ -2,7 +2,7 @@
 # Fails unless the dependency declarations follow the workspace conventions:
 #   - the oxc crates in [workspace.dependencies] use caret ranges, and all but oxc_resolver name one release, see
 #     ADR 0013;
-#   - the tsrs crates in [workspace.dependencies] use exact `=` pins to one version, see ADR 0045;
+#   - the tsrs crates in [workspace.dependencies] use exact `=` pins to one version, see ADR 0034;
 #   - every dependency of a member crate is inherited with `workspace = true`.
 #
 # Usage: scripts/check-pins.sh

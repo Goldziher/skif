@@ -1,5 +1,5 @@
 //! The untyped pass of the parity harness: skif's findings with types (its default, the run compared with knip)
-//! against the same run with `--no-type-aware`, per rule (ADR 0046).
+//! against the same run with `--no-type-aware`, per rule (ADR 0021).
 //!
 //! A finding only one mode reports is set apart from the knip comparison as the `type-resolved` deviation
 //! ([`type_resolved`]). The counts per rule are checked against their own baseline, whose comparison tool is skif

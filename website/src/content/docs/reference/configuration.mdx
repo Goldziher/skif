@@ -128,8 +128,7 @@ RUN npm ci
 `# skif-ignore-file <rule> -- <reason>` covers the whole file, and a comment without rule ids covers every toolchain
 rule. `foreign-package-manager-command` does not report read-only commands (`npm view`, `npm whoami`, `yarn info`) or
 a global install of the workspace's own manager (`npm install -g pnpm@9`). See
-[ADR 0011](https://github.com/Goldziher/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md)
-and [ADR 0011](https://github.com/Goldziher/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md).
+[ADR 0011](https://github.com/Goldziher/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md).
 
 ### `[[ignore]]`
 
@@ -700,7 +699,7 @@ ahead of the aliases tools declare, the `paths` of the workspace's `tsconfig.jso
 as TypeScript tries `compilerOptions.paths`, ahead of `baseUrl`, installed packages and workspace members: `"src/*" = ["./src/*"]` beside a member or an installed package named `src` reaches
 the workspace's own `src/` files. A key whose targets are all missing falls through to the package. knip tries the
 package first and reports the local file as unused
-([ADR 0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
+([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 
 **`tsconfig`** names the TypeScript configuration of the root package, relative to the workspace root, which is read
 in place of its `tsconfig.json`: its `paths`, `baseUrl` and `rootDirs` resolve the imports of the root package's
@@ -765,9 +764,7 @@ any of them, also through `export default` of an import. A finding names a defau
 shows the typed read that reaches the member and the files that read its name (with types, those the checker did not
 cover or could not settle), or why the member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an
 enum or namespace member the same way
-([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md),
-[ADR 0043](https://github.com/Goldziher/skif/blob/main/adrs/0043-type-only-class-fields-and-constant-element-keys.md),
-[ADR 0046](https://github.com/Goldziher/skif/blob/main/adrs/0046-typed-member-semantics.md)).
+([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md), [ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 With types, `unused-enum-members` and `unused-namespace-members` also count a typed read (an enum read through an
 alias, a namespace member read through `this`) and a typed use of the whole declaration; types only add uses, so these
@@ -974,7 +971,7 @@ installed) keeps the name-based analysis for the files concerned and loses no fi
 reason (see [output formats](../cli/#output-formats)). `type-aware = false`, or `skif --no-type-aware`, which also
 overrides every `[js.workspaces]` table, runs no type checker at all and is faster and less accurate for member
 findings. The language server, `skif mcp` and `--watch` run without types
-([ADR 0044](https://github.com/Goldziher/skif/blob/main/adrs/0044-type-aware-analysis-on-tsrs.md)).
+([ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ```toml
 [js.workspaces."packages/legacy"]
@@ -1025,7 +1022,7 @@ constant, and that the config cannot decide. A shared Vitest config that spreads
 when `process.env.COVERAGE_ENABLED === 'true'` makes `@vitest/coverage-v8` a use of each package that lists it, and
 unlisted in none. skif reads such a config with every test on the environment taken as true, then as false, and a
 package named in both readings, or under a test that reads something else (`existsSync('.coverage')`), is reported
-as before ([ADR 0036](https://github.com/Goldziher/skif/blob/main/adrs/0036-packages-named-on-an-environment-gated-branch.md)).
+as before ([ADR 0016](https://github.com/Goldziher/skif/blob/main/adrs/0016-config-evaluation-and-incomplete-entries.md)).
 A config that imports the package it names is reported once, for the import. What a config takes from a module of
 another workspace package (an imported shared config) is judged against that package, except a bundler alias
 `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }` of Vite, Vitest, webpack or
@@ -1073,7 +1070,7 @@ Such a local import uses no listed dependency either: with `ui` in `dependencies
 into `./src/ui`, `unused-dependencies` reports `ui`, as the compiler never reaches the package. knip counts the
 dependency as used. An aliased import that reaches no file (a missing target, generated code not there yet, a computed
 alias) still uses the listed package its name starts with ([ADR
-0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
+0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 
 A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
 with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or

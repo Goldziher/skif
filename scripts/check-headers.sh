@@ -2,7 +2,7 @@
 # Fails unless every source file of the vendored skif-specifier crate starts with an attribution header:
 # either `// Vendored from syncpack ...` or `// Added for skif (not in syncpack) ...` (ADR 0033). Code derived from
 # sherif and knip is not vendored file by file and carries no header; ATTRIBUTIONS.md covers it, and its sections,
-# Modifications lists and recorded commits are checked below, as is the tsrs section its NOTICE requires (ADR 0045).
+# Modifications lists and recorded commits are checked below, as is the tsrs section its NOTICE requires (ADR 0033).
 #
 # Usage: scripts/check-headers.sh
 set -euo pipefail
@@ -52,7 +52,7 @@ for needle in "b25639c96bfff334519a189605e609a4ed5ae801" "Copyright (c) 2022-202
   fi
 done
 
-# The tsrs section records the commit, the licence and the NOTICE of the checker (ADR 0045).
+# The tsrs section records the commit, the licence and the NOTICE of the checker (ADR 0033).
 tsrs_section="$(sed -n '/^## tsrs (and TypeScript)$/,$p' ATTRIBUTIONS.md)"
 for needle in "2903e168561c7f709cc7825c7ca91705d2e2316d" "Copyright 2026 Max Schwenk and the tsrs contributors" "NOTICES AND INFORMATION" "Apache License"; do
   if ! grep -qF "$needle" <<<"$tsrs_section"; then
