@@ -257,6 +257,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-dev-dependencies`, `unused-dependencies`: the `@types` package of a package that declares its own types
+  (`@types/eslint` beside `eslint` 9) is unused also when a used dependency declares that package as a peer, as knip
+  has it. TypeScript reads the types the package ships, so the peer counts for neither. Before, the peer rule
+  credited the `@types` package.
 - `unused-files`: a classic script that a Vite `index.html` loads from the public directory
   (`<script src="/static/init.js">` for `public/static/init.js`) is an entry. The `vite` and `vitest` plugins look up
   a `/`-rooted script in `publicDir` (`public` by default) as well as below the root, and skip leading path segments
