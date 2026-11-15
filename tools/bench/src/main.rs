@@ -215,6 +215,10 @@ struct ParityArgs {
     /// Baseline file of the typed and untyped counts per rule (counts only).
     #[arg(long, default_value = DEFAULT_TYPE_AWARE_BASELINE)]
     type_aware_baseline: PathBuf,
+    /// Sample findings the full report lists per category, known deviation and side: a count, or `all` to list every
+    /// one-sided finding. Baselines hold counts only, so this changes no baseline.
+    #[arg(long, default_value_t = diff::SAMPLE_LIMIT, value_parser = diff::parse_sample_limit)]
+    samples: usize,
     #[command(flatten)]
     gate: GateArgs,
 }
@@ -369,6 +373,7 @@ fn main() -> Result<()> {
             gate: args.gate.gate(args.baseline),
             untyped_pass: !args.no_untyped_pass,
             type_aware_baseline: args.type_aware_baseline,
+            samples: args.samples,
         }),
         Command::SyncpackDiff(args) => syncpack::run(&syncpack::Options {
             skif: args.skif,

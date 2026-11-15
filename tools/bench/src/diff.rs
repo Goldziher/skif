@@ -14,8 +14,22 @@ use serde::{Deserialize, Serialize};
 pub type Keys = BTreeMap<String, BTreeSet<String>>;
 
 pub const BASELINE_SCHEMA: u32 = 1;
-/// Sample keys kept per category and side in the full report.
+/// Sample keys kept per category and side in the full report, unless a run asks for another number.
 pub const SAMPLE_LIMIT: usize = 5;
+
+/// The number of sample keys a command-line value asks for: a count, or `all` for every key (`usize::MAX`).
+///
+/// # Errors
+///
+/// When the value is neither `all` nor a count.
+pub fn parse_sample_limit(value: &str) -> Result<usize, String> {
+    if value == "all" {
+        return Ok(usize::MAX);
+    }
+    value
+        .parse()
+        .map_err(|error| format!("`{value}` is no count of samples and not `all`: {error}"))
+}
 
 /// How the findings of skif and a comparison tool overlap in one category.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,7 +39,7 @@ pub struct Counts {
     pub both: usize,
 }
 
-/// A few keys from each side, for the full report only.
+/// Keys from each side, at most a sample limit per side, for the full report only.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Samples {
     pub skif_only: Vec<String>,
@@ -265,8 +279,18 @@ pub struct Split {
 }
 
 /// Takes the one-sided findings that `classify` assigns to a deviation (given the side, category and key) out of
-/// both sets. Findings present on both sides are never classified.
+/// both sets, keeping [`SAMPLE_LIMIT`] samples per deviation. Findings present on both sides are never classified.
 pub fn split_known(skif: &Keys, tool: &Keys, classify: &dyn Fn(Side, &str, &str) -> Option<&'static str>) -> Split {
+    split_known_sampled(skif, tool, classify, SAMPLE_LIMIT)
+}
+
+/// [`split_known`], keeping up to `limit` samples per deviation.
+pub fn split_known_sampled(
+    skif: &Keys,
+    tool: &Keys,
+    classify: &dyn Fn(Side, &str, &str) -> Option<&'static str>,
+    limit: usize,
+) -> Split {
     let empty = BTreeSet::new();
     let mut split = Split::default();
     for category in skif.keys().chain(tool.keys()).collect::<BTreeSet<_>>() {
@@ -288,7 +312,7 @@ pub fn split_known(skif: &Keys, tool: &Keys, classify: &dyn Fn(Side, &str, &str)
                             counts.tool_only += 1;
                         }
                         let samples = split.samples.entry(id.to_owned()).or_default();
-                        if samples.len() < SAMPLE_LIMIT {
+                        if samples.len() < limit {
                             samples.push(format!("{category}|{key}"));
                         }
                     }
@@ -343,8 +367,18 @@ pub fn known_section(tool: &str, deviations: &[Deviation], entries: &BTreeMap<St
     out
 }
 
-/// Splits the findings of skif and a tool into only-skif, only-tool and both, per category.
+/// Splits the findings of skif and a tool into only-skif, only-tool and both, per category, with [`SAMPLE_LIMIT`]
+/// samples per side.
 pub fn compare(skif: &Keys, tool: &Keys) -> (BTreeMap<String, Counts>, BTreeMap<String, Samples>) {
+    compare_sampled(skif, tool, SAMPLE_LIMIT)
+}
+
+/// [`compare`], with up to `limit` samples per category and side.
+pub fn compare_sampled(
+    skif: &Keys,
+    tool: &Keys,
+    limit: usize,
+) -> (BTreeMap<String, Counts>, BTreeMap<String, Samples>) {
     let empty = BTreeSet::new();
     let mut counts = BTreeMap::new();
     let mut samples = BTreeMap::new();
@@ -362,8 +396,8 @@ pub fn compare(skif: &Keys, tool: &Keys) -> (BTreeMap<String, Counts>, BTreeMap<
         samples.insert(
             category.clone(),
             Samples {
-                skif_only: a.difference(b).take(SAMPLE_LIMIT).cloned().collect(),
-                tool_only: b.difference(a).take(SAMPLE_LIMIT).cloned().collect(),
+                skif_only: a.difference(b).take(limit).cloned().collect(),
+                tool_only: b.difference(a).take(limit).cloned().collect(),
             },
         );
         counts.insert(category.clone(), found);

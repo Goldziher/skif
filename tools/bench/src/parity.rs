@@ -421,6 +421,8 @@ pub struct Options {
     pub untyped_pass: bool,
     /// The baseline of the typed and untyped counts per rule; recorded and checked with [`Options::gate`]'s flags.
     pub type_aware_baseline: PathBuf,
+    /// Sample findings the full report keeps per category, known deviation and side (`usize::MAX` for all).
+    pub samples: usize,
 }
 
 /// Makes a path relative to the checkout with `/` separators.
@@ -4537,14 +4539,19 @@ fn parity_repo(
         installed,
     );
     let classifier = facts.classifier(repo, options, (&skif_found, &knip_found), knip_run.rush_root, &layout);
-    let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
-        with_type_resolved(
-            classifier.classify(side, category, key),
-            (side, category, key),
-            untyped_found.as_ref(),
-        )
-    });
-    let (counts, samples) = diff::compare(&split.skif, &split.tool);
+    let split = diff::split_known_sampled(
+        &skif_found,
+        &knip_found,
+        &|side, category, key| {
+            with_type_resolved(
+                classifier.classify(side, category, key),
+                (side, category, key),
+                untyped_found.as_ref(),
+            )
+        },
+        options.samples,
+    );
+    let (counts, samples) = diff::compare_sampled(&split.skif, &split.tool, options.samples);
     let detail = json!({
         "status": COMPARED,
         "installed": installed,
@@ -4631,9 +4638,10 @@ fn untyped_pass(
         }
     };
     let (root, _) = dirs;
-    let (counts, samples) = diff::compare(
+    let (counts, samples) = diff::compare_sampled(
         &type_aware::rule_keys(&typed.doc, root),
         &type_aware::rule_keys(&doc, root),
+        options.samples,
     );
     Ok(UntypedPass {
         detail: json!({
