@@ -7989,7 +7989,15 @@ vi.mock("mocked-package");
                      js_binary(name = \"run\", entry_point = \"run.mts\", data = [\"data.json\"])\n\
                      js_unknown(name = \"x\", srcs = [\"unknown.mts\"])\n\
                      \"tail.mts\".format(x)\n";
-        let literals: Vec<(String, String, String)> = rule_literals(build);
+        let literals: Vec<(String, String, String)> = rule_calls(build)
+            .into_iter()
+            .flat_map(|call| {
+                let rule = call.rule;
+                call.literals
+                    .into_iter()
+                    .map(move |(attribute, literal)| (rule.clone(), attribute, literal))
+            })
+            .collect();
         let named = |rule: &str, attribute: &str| -> Vec<&str> {
             literals
                 .iter()
@@ -8040,7 +8048,8 @@ vi.mock("mocked-package");
             .filter(|(path, _)| is_build_file(path))
             .map(|(path, source)| ((*path).to_owned(), (*source).to_owned()))
             .collect();
-        let sources = bazel_sources(&build_files, &is_file, &read);
+        let files: Vec<String> = sources.keys().map(|path| (*path).to_owned()).collect();
+        let sources = bazel_sources(&build_files, &files, &is_file, &read);
         assert_eq!(
             sources,
             strings(&[
@@ -8049,8 +8058,8 @@ vi.mock("mocked-package");
                 "adev/pipeline/index.mts",
                 "adev/pipeline/run.mts",
             ]),
-            "a label of another package, a missing file, a rule skif does not read and a repository without \
-             rules_js name none"
+            "a label of another package, a missing file, a rule skif does not read, the glob of a target that is no \
+             test and a repository without rules_js name none"
         );
         let knip_unused = strings(&[
             "adev/pipeline/index.mts",
@@ -8089,6 +8098,53 @@ vi.mock("mocked-package");
                 "{category} {key}"
             );
         }
+    }
+
+    #[test]
+    fn the_glob_patterns_of_a_bazel_test_target_name_build_sources() {
+        let build = "ts_project(\n    name = \"test_lib\",\n    testonly = True,\n    srcs = glob(\n        \
+                     [\"*_spec.ts\", \"testing/**/*.ts\"],\n        exclude = [\"skipped_spec.ts\"],\n    ) + \
+                     [\"extra.ts\"],\n)\n\
+                     ng_project(name = \"specs\", testonly = True, srcs = native.glob(include = [\"ng/*.ts\"]))\n\
+                     js_test(name = \"run\", entry_point = \"run.mjs\", data = glob([\"fixtures/*.mjs\"]))\n\
+                     ts_project(name = \"lib\", srcs = glob([\"src/*.ts\"]))\n\
+                     ts_project(name = \"maybe\", testonly = False, srcs = glob([\"maybe/*.ts\"]))\n\
+                     ts_project(name = \"nested\", testonly = True, srcs = select({\"//:on\": glob([\"on/*.ts\"])}))\n\
+                     ts_project(name = \"climbs\", testonly = True, srcs = glob([\"../up/*.ts\"]))\n";
+        let sources = BTreeMap::from([
+            ("MODULE.bazel", "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n"),
+            ("pkg/BUILD.bazel", build),
+            ("pkg/a_spec.ts", "export {};\n"),
+            ("pkg/skipped_spec.ts", "export {};\n"),
+            ("pkg/extra.ts", "export {};\n"),
+            ("pkg/testing/deep/helper.ts", "export {};\n"),
+            ("pkg/ng/b.spec.ts", "export {};\n"),
+            ("pkg/fixtures/c.mjs", "export {};\n"),
+            ("pkg/run.mjs", "export {};\n"),
+            ("pkg/src/d.ts", "export {};\n"),
+            ("pkg/maybe/e.ts", "export {};\n"),
+            ("pkg/on/f.ts", "export {};\n"),
+            ("up/g.ts", "export {};\n"),
+            ("other/a_spec.ts", "export {};\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let build_files = vec![("pkg/BUILD.bazel".to_owned(), build.to_owned())];
+        let files: Vec<String> = sources.keys().map(|path| (*path).to_owned()).collect();
+        assert_eq!(
+            bazel_sources(&build_files, &files, &is_file, &read),
+            strings(&[
+                "pkg/a_spec.ts",
+                "pkg/extra.ts",
+                "pkg/fixtures/c.mjs",
+                "pkg/ng/b.spec.ts",
+                "pkg/run.mjs",
+                "pkg/skipped_spec.ts",
+                "pkg/testing/deep/helper.ts",
+            ]),
+            "the include patterns of a test target's glob match below its BUILD file, its exclude patterns are not \
+             applied, and the glob of a production target, one inside select and one that climbs out name none"
+        );
     }
 
     #[test]
