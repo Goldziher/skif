@@ -249,7 +249,6 @@ All notable changes to this project are documented here. The format follows
   (`import "sst"`, `/// <reference path="…" />`, as SST's generated `sst-env.d.ts`) is an entry again, so the package it
   loads is no longer reported as unused. A declaration file with an export stays a module
   ([ADR 0055](adrs/0055-exportless-declaration-files-that-load-a-module.md)).
-
 - `unused-files`: a `require()`, `import()` or `require.resolve()` of a `const` that holds a path built from the file's
   directory (`const entry = require("node:path").resolve(__dirname, "cli/entry.js")`, then `require(entry)`, also in a
   nested function) loads the file the path names, so it and what it imports are no longer reported. The read is
