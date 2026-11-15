@@ -18,8 +18,8 @@ library.
   [knip](https://github.com/webpro-nl/knip) lineage.
 - **Type-aware member analysis.** Where a package has a `tsconfig.json` or `jsconfig.json`, the TypeScript checker
   of [tsrs](https://github.com/oxc-project/tsrs) resolves each read of a class, enum or namespace member to the
-  declaration it reaches. It is on by default and slower than the name-based analysis; `--no-type-aware` turns it
-  off (see [`type-aware`](../../reference/configuration/#js)).
+  declaration it reaches. It is opt-in, since it is slower than the name-based analysis: `--type-aware` or
+  `[js] type-aware = true` turns it on (see [`type-aware`](../../reference/configuration/#js)).
 
 Every check is a rule with a stable kebab-case id, a category (`manifest`, `workspace`, `policy`, `catalog`,
 `js`), a default level (`off`, `info`, `warn`, `error`) and a fix safety. See the [rules overview](../../rules/).

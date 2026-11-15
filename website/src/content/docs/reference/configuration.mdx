@@ -735,13 +735,13 @@ member is also exempt when its own JSDoc carries a tag that exempts an export (`
 **`include-entry-exports`** may be set per workspace.
 
 **`unused-class-members`** (a warning) reports the methods, fields and accessors of a used exported class that no
-module reads, like knip 5's `classMembers` (knip 6 dropped the issue type). With `type-aware` (the default), in a file
+module reads, like knip 5's `classMembers` (knip 6 dropped the issue type). With `type-aware` (off by default), in a file
 the TypeScript checker covers a member counts as read when a typed read reaches it: through its own class, a union, a
 base class it overrides or an interface it implements (also by inheriting the member: a read through `ICell` reaches
 `BaseCell.getRange` when `CodeCell extends BaseCell implements ICell`), or when the class is used as a whole. A read
 the checker cannot settle (a receiver of type `any`, an unresolved module, a dependency that is not installed) and
 every read in a file it does not cover (a Vue, Svelte or Astro template, a file in no program) still credits every
-member of that name, so missing types never add a finding. Without types, in a package with no `tsconfig.json`, or
+member of that name, so missing types never add a finding. Without types (the default), in a package with no `tsconfig.json`, or
 with `type-aware = false`, a member counts as read when any module of the graph reads a property of its name on any
 object: `x.name`,
 `x?.name`, `x['name']`, a destructured key, `this.name`, `super.name`, a string literal type or call argument
@@ -965,26 +965,33 @@ counted: they make every installed package resolvable everywhere, so counting th
 `unlisted-dependencies` off. Binaries are not affected: a hoisted package's binary is still credited only to a
 package that lists it.
 
-**`type-aware`** (default `true`; per workspace too, where unset inherits the top level) resolves member reads with
-the TypeScript type checker: slower, more accurate member findings; on by default. A read through a typed receiver
+**`type-aware`** (default `false`; per workspace too, where unset inherits the top level) resolves member reads with
+the TypeScript type checker: slower, more accurate member findings. `type-aware = true`, or `skif --type-aware`, which
+also overrides every `[js.workspaces]` table, turns it on. A read through a typed receiver
 (`this.x`, a parameter or variable of a class type) then counts for the member it reaches instead of every member of
 that name. Each file is checked with the program of its nearest `tsconfig.json` (or `jsconfig.json`). A package
 without usable types (no `tsconfig.json`, plain JavaScript, a `tsconfig.json` that does not parse, dependencies not
 installed) keeps the name-based analysis for the files concerned and loses no finding; the report names it and the
-reason (see [output formats](../cli/#output-formats)). `type-aware = false`, or `skif --no-type-aware`, which also
-overrides every `[js.workspaces]` table, runs no type checker at all and is faster and less accurate for member
-findings. The language server, `skif mcp` and `--watch` run without types
+reason (see [output formats](../cli/#output-formats)). With it off, the default, skif runs no type checker at all, which is
+faster and less accurate for member findings; `skif --no-type-aware` keeps types off over the file and every
+`[js.workspaces]` table. The language server, `skif mcp` and `--watch` run without types
 ([ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 Types cost time and memory: each TypeScript program reads and binds its files a second time, beside the module
-graph. The [benchmarks](../../guides/benchmarks/) time every repository with types and with `--no-type-aware` and
-publish the peak memory of both, and the `bench` workflow fails a run in which types take more than 3x the untyped
+graph, and parses the TypeScript lib and `@types` files again, so on a 4-vCPU runner a typed run takes 3 to 25 times
+as long as the default one (babel 18.2 s against 1.0 s, tanstack-query 10.0 s against 0.41 s), longer than knip on
+some repositories. That is why types are off by default until programs share those files. The
+[benchmarks](../../guides/benchmarks/) time every repository with `--type-aware` and without types and publish the
+peak memory of both, and the `bench` workflow fails a run in which types take more than 3x the untyped
 time on the largest repository or 2x in the median, or more than 4 GiB of peak memory on any target
 ([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)). The programs of a run, also of several roots, share one budget of the machine's cores, which
 also bounds how many are in memory at once. A build of the `skif` crate without its `type-aware` feature, or of `skif-cli` with
 `--no-default-features`, has no type checker and reports every package untyped (`not-built`).
 
 ```toml
+[js]
+type-aware = true
+
 [js.workspaces."packages/legacy"]
 type-aware = false
 ```

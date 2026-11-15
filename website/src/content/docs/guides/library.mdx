@@ -40,7 +40,8 @@ let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
 
 `js-analysis` is off by default so a host that already embeds oxc keeps its own copy, and `type-aware` for the same
 reason. Without `type-aware`, `[js] type-aware` has no effect and the report lists every package as untyped with the
-reason `not-built`. The `skif-cli` binary enables `type-aware` by default, and the npm addon enables it with
+reason `not-built`. With the feature, `[js] type-aware` is still off by default, as in the CLI. The `skif-cli`
+binary enables the `type-aware` feature by default, so `--type-aware` needs no rebuild, and the npm addon enables it with
 `plain-ptrs`, since tsrs's fixed reservation of 32 GiB of address space can collide with the one of Node.js. A panic
 inside the checker is caught and leaves the packages of that program untyped (`checker-failed`); the build must
 unwind on panic for that, as the release binaries do. Roots linted at once take the cores of their TypeScript
