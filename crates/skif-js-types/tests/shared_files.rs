@@ -100,11 +100,18 @@ fn widgets(dir: &'static str, config: String) -> Pkg {
 /// The workspace of `pkgs` with the `shapes` dependency installed at the root, and `extra` files.
 fn workspace(pkgs: &[Pkg], extra: &[(&str, &str)]) -> Workspace {
     let mut files = vec![
-        ("node_modules/shapes/package.json".to_owned(), SHAPES_MANIFEST.to_owned()),
+        (
+            "node_modules/shapes/package.json".to_owned(),
+            SHAPES_MANIFEST.to_owned(),
+        ),
         ("node_modules/shapes/index.d.ts".to_owned(), SHAPES.to_owned()),
     ];
     for pkg in pkgs {
-        files.extend(pkg.files.iter().map(|(rel, text)| (format!("{}/{rel}", pkg.dir), text.clone())));
+        files.extend(
+            pkg.files
+                .iter()
+                .map(|(rel, text)| (format!("{}/{rel}", pkg.dir), text.clone())),
+        );
     }
     files.extend(extra.iter().map(|(rel, text)| ((*rel).to_owned(), (*text).to_owned())));
     Workspace::from_owned(files)
@@ -171,12 +178,11 @@ fn split(counts: SharedFileCounts) -> (usize, usize, usize) {
 fn files_of_one_program(workspace: &Workspace, pkg: &Pkg) -> usize {
     let facts = analyse(workspace, &[pkg], &widgets_query(workspace, &[pkg]), None);
     let (parsed, reused, unshared) = counts(&facts);
-    assert_eq!(
-        (reused, unshared),
-        (0, 0),
-        "one program reads each shared file once"
+    assert_eq!((reused, unshared), (0, 0), "one program reads each shared file once");
+    assert!(
+        parsed > 1,
+        "the program reads the lib files and the dependency's declaration file"
     );
-    assert!(parsed > 1, "the program reads the lib files and the dependency's declaration file");
     parsed
 }
 
@@ -200,7 +206,7 @@ fn programs_of_one_analysis_parse_each_shared_file_once_and_keep_their_facts() {
     // Each package alone, with programs that share no file with another program.
     let alone: Vec<TypeFacts> = both
         .iter()
-        .map(|pkg| analyse(&workspace, &[pkg], &query, Some(threads(THREADS))))
+        .map(|&pkg| analyse(&workspace, &[pkg], &query, Some(threads(THREADS))))
         .collect();
     let mut expected_reads = alone[0].reads.clone();
     expected_reads.extend(alone[1].reads.clone());
@@ -222,7 +228,11 @@ fn a_program_built_after_another_was_freed_reads_the_files_that_one_parsed() {
     // One thread builds one program at a time, and frees each once its walk ends, before the next is built.
     let facts = analyse(&workspace, &both, &widgets_query(&workspace, &both), Some(threads(1)));
     assert_eq!(counts(&facts), (files, files, 0));
-    assert_eq!(facts.reads, widget_reads(2), "the second program answers on the freed one's parse");
+    assert_eq!(
+        facts.reads,
+        widget_reads(2),
+        "the second program answers on the freed one's parse"
+    );
 }
 
 #[test]
@@ -243,7 +253,12 @@ fn options_that_change_only_how_project_files_parse_still_share_the_declaration_
     let workspace = workspace(&pkgs, &[]);
     let files = files_of_one_program(&workspace, &pkgs[0]);
     let both = [&pkgs[0], &pkgs[1]];
-    let facts = analyse(&workspace, &both, &widgets_query(&workspace, &both), Some(threads(THREADS)));
+    let facts = analyse(
+        &workspace,
+        &both,
+        &widgets_query(&workspace, &both),
+        Some(threads(THREADS)),
+    );
     assert_eq!(counts(&facts), (files, files, 0));
     assert_eq!(facts.reads, widget_reads(2));
 }
@@ -252,10 +267,7 @@ fn options_that_change_only_how_project_files_parse_still_share_the_declaration_
 fn a_projects_own_declaration_file_is_parsed_by_each_program_that_includes_it() {
     let lone = Pkg {
         dir: "packages/lone",
-        files: vec![
-            ("tsconfig.json", TSCONFIG.to_owned()),
-            ("src/lone.ts", LONE.to_owned()),
-        ],
+        files: vec![("tsconfig.json", TSCONFIG.to_owned()), ("src/lone.ts", LONE.to_owned())],
     };
     let scaled = |dir: &'static str| Pkg {
         dir,
@@ -276,7 +288,12 @@ fn a_projects_own_declaration_file_is_parsed_by_each_program_that_includes_it() 
     )]);
     let libs = counts(&analyse(&workspace, &[&pkgs[0]], &lone_query, None)).0;
     let both = [&pkgs[1], &pkgs[2]];
-    let facts = analyse(&workspace, &both, &widgets_query(&workspace, &both), Some(threads(THREADS)));
+    let facts = analyse(
+        &workspace,
+        &both,
+        &widgets_query(&workspace, &both),
+        Some(threads(THREADS)),
+    );
     assert_eq!(
         counts(&facts),
         (libs + 1, libs + 1, 0),
