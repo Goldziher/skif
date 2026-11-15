@@ -1199,7 +1199,7 @@ for the `rootDir` option (the config's directory by default) and anchoring the e
 a backreference) leaves the package's files unjudged. `testPathIgnorePatterns` is not applied, as knip does not apply it
 either. A test file resolves its imports as every other file does, in TypeScript's order: when `sum.ts` and `sum.js`
 sit side by side, `../sum` and `../sum.js` name `sum.ts`, while Jest (whose default `moduleFileExtensions` lists `js`
-before `ts`) and knip load `sum.js`. Jest's `moduleFileExtensions` is not read. A `.js` file beside a `.ts` file of the
+before `ts`) loads `sum.js` and knip resolves both to it. Jest's `moduleFileExtensions` is not read. A `.js` file beside a `.ts` file of the
 same name is most often the build output of that file, which this order keeps from standing in for its source; a
 hand-written twin that only such imports reach is reported by `unused-files`, so list it in `entry` or `ignore`. A Playwright `testMatch` regular expression becomes a glob
 when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
