@@ -264,6 +264,17 @@ fn table() {
             &["wtr"],
             &["spec/listed.js", "unit.test.ts"],
         ),
+        // The Tailwind CLI compiles the stylesheet `--input` (`-i`) names; `--output` takes a value that is no input.
+        files(
+            "tailwindcss --input src/styles.css --output dist/out.css --minify",
+            &["tailwindcss"],
+            &["src/styles.css"],
+        ),
+        files(
+            "tailwindcss -c tailwind.config.js -i src/app.css -o dist/app.css",
+            &["tailwindcss"],
+            &["src/app.css"],
+        ),
         // retry-cli's short and long value flags, as knip lists them.
         files(
             "retry -n 3 --factor 2 -t 100 --max-timeout 500 tsx scripts/a.ts",
