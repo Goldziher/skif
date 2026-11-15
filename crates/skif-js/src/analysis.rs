@@ -638,6 +638,7 @@ impl<'a> JsAnalysis<'a> {
         let run = TypeRun {
             fs: &disk,
             sequential,
+            budget: modules.and_then(ModuleParser::type_budget),
             cancel,
             wanted: types,
         };

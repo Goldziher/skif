@@ -117,8 +117,27 @@ impl TypeState {
     }
 }
 
-/// What one analysis hands the checker: the file system to read through, the threads it may use and the host's
-/// cancellation flag; `wanted` is false when no rule of the run reads typed facts.
+/// The cores the type-aware analyses of a run over several roots share, so that together they build and check no more
+/// programs at once than one analysis does; empty in a build without the checker. Cloning it shares the same cores.
+#[derive(Clone)]
+pub(crate) struct SharedBudget {
+    #[cfg(feature = "type-aware")]
+    budget: skif_js_types::TypeBudget,
+}
+
+/// A budget of every core of the machine.
+impl Default for SharedBudget {
+    fn default() -> Self {
+        Self {
+            #[cfg(feature = "type-aware")]
+            budget: skif_js_types::TypeBudget::new(None),
+        }
+    }
+}
+
+/// What one analysis hands the checker: the file system to read through, the threads it may use, the cores it shares
+/// with the other analyses of the run, if it shares any, and the host's cancellation flag; `wanted` is false when no
+/// rule of the run reads typed facts.
 #[derive(Clone, Copy)]
 #[cfg_attr(
     not(feature = "type-aware"),
@@ -127,6 +146,7 @@ impl TypeState {
 pub(crate) struct TypeRun<'r> {
     pub fs: &'r Arc<dyn FileSystem>,
     pub sequential: bool,
+    pub budget: Option<&'r SharedBudget>,
     pub cancel: Option<&'r AtomicBool>,
     pub wanted: bool,
 }
@@ -213,6 +233,9 @@ fn started<'scope, 'env>(
     let mut build = TypeBuild::new(Arc::clone(inputs.fs), root.clone(), packages);
     if let Some(tsconfig) = &setup.root_tsconfig {
         build = build.with_tsconfig_override(tsconfig.clone());
+    }
+    if let Some(shared) = inputs.budget {
+        build = build.with_budget(shared.budget.clone());
     }
     EarlyTypes {
         pending: Some(skif_js_types::start(scope, build, inputs.cancel)),
@@ -340,6 +363,9 @@ fn checked(
     if inputs.sequential {
         input = input.with_threads(NonZeroUsize::MIN);
     }
+    if let Some(shared) = inputs.budget {
+        input = input.with_budget(&shared.budget);
+    }
     if let Some(cancel) = inputs.cancel {
         input = input.with_cancel(cancel);
     }
@@ -377,12 +403,13 @@ fn note_timings(root: &std::path::Path, timings: &skif_js_types::TypeTimings) {
         return;
     }
     skif_core::timing::note(format_args!(
-        "js types {}: planning {} ms, programs {} ms, queries {} ms (summed), wall {} ms, waited {} ms, {} programs \
-         ({} started before the graph was done), {} threads",
+        "js types {}: planning {} ms, programs {} ms, queries {} ms, waiting for cores {} ms (summed), wall {} ms, \
+         waited {} ms, {} programs ({} started before the graph was done), {} threads",
         root.display(),
         timings.planning.as_millis(),
         timings.programs.as_millis(),
         timings.queries.as_millis(),
+        timings.cores_waited.as_millis(),
         timings.wall.as_millis(),
         timings.waited.as_millis(),
         timings.per_program.len(),
