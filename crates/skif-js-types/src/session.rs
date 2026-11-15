@@ -78,7 +78,7 @@ pub(crate) fn start<'scope, 'env>(
         std::thread::Builder::new()
             .name("skif-types-plan".to_owned())
             .spawn_scoped(scope, move || {
-                panic::catch_unwind(AssertUnwindSafe(|| coordinate(&shared, cancel))).unwrap_or_else(|payload| {
+                panic::catch_unwind(AssertUnwindSafe(|| Ok(coordinate(&shared, cancel)))).unwrap_or_else(|payload| {
                     // The host waits for the early plan; a panic before it was put must not leave it waiting.
                     shared
                         .planned
@@ -401,7 +401,7 @@ struct Coordinated {
 
 /// Plans the early files of `shared`, puts the plan for the host and builds and walks the programs until the host's
 /// plan is done or given up.
-fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Result<Coordinated, TypeError> {
+fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Coordinated {
     let host = ConfigHost::new(Arc::clone(&shared.fs), shared.cwd.clone());
     // What planning allocates (the parsed configs) is freed when the programs are.
     let region = Region::new_scratch(SCRATCH_CHUNK);
@@ -419,7 +419,7 @@ fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Result<Coordinate
         Ok(planned) => planned,
         Err(error) => {
             shared.planned.put(Err(error));
-            return Ok(Coordinated::default());
+            return Coordinated::default();
         }
     };
     let parallelism = Parallelism::new(shared.build.threads, plan.programs.len());
@@ -448,11 +448,11 @@ fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Result<Coordinate
     let Session { outcomes, regions, .. } = session;
     drop(regions);
     drop(region);
-    Ok(Coordinated {
+    Coordinated {
         outcomes: outcomes.into_inner().unwrap_or_else(PoisonError::into_inner),
         wall,
         spawn_error: spawn_error.map(|error| error.to_string()),
-    })
+    }
 }
 
 /// The outcome of every program of `judged`, once the threads are done.

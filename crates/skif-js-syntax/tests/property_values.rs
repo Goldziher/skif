@@ -138,14 +138,14 @@ fn a_local_that_shadows_a_top_level_binding_is_unknown() {
 /// [`TEMPLATE_SUBSTITUTION`], which the shell reads as a variable, while the same property read as a value is unknown.
 #[test]
 fn a_command_keeps_the_known_text_of_a_template_with_unknown_substitutions() {
-    let source = r#"
+    let source = r"
         const port = process.env.PORT;
         const built = !!process.env.CI;
         const command = built
           ? `bun run build && bun e2e/serve.ts --port ${port}`
           : `bun run dev -- --port ${port} --strictPort`;
         export default defineConfig({ webServer: { command }, other: { command: `${tool()} start` } });
-    "#;
+    ";
     let path = Path::new("playwright.config.ts");
     assert_eq!(
         extract_property_commands(source, path, "command"),
