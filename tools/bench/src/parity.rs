@@ -1605,7 +1605,10 @@ fn imported_exports(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) ->
     let mut found = Vec::new();
     for (import, target) in module_targets(path, module, resolver) {
         if import.names.is_empty() {
-            if matches!(import.kind, ImportKind::Dynamic | ImportKind::Require | ImportKind::Resolve) {
+            if matches!(
+                import.kind,
+                ImportKind::Dynamic | ImportKind::Require | ImportKind::Resolve
+            ) {
                 found.push((target, WHOLE_MODULE.to_owned()));
             }
             continue;

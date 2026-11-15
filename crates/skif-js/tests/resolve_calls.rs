@@ -134,7 +134,10 @@ fn the_exports_of_a_module_loaded_by_its_resolved_path_are_used() {
             "src/worker.ts",
             "export type Job = { id: string };\nexport function setup(): void {}\nexport function run(id: string): string { return id; }\n",
         ),
-        ("src/loader.ts", "export default function loader(source: string): string { return source; }\n"),
+        (
+            "src/loader.ts",
+            "export default function loader(source: string): string { return source; }\n",
+        ),
     ]);
     assert_eq!(found(&diagnostics, "unused-files"), none());
     assert_eq!(found(&diagnostics, "unused-exports"), none(), "{diagnostics:#?}");
