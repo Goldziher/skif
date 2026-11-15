@@ -302,7 +302,11 @@ fn a_read_through_an_interface_credits_the_member_the_implementing_class_inherit
                 .map(|(class, members)| workspace.decl("src/cell.ts", DeclKind::Class, class, members))
                 .collect(),
         );
-        let facts = run(&workspace, &[package("", "app", &["src/cell.ts", "src/use.ts"])], &query);
+        let facts = run(
+            &workspace,
+            &[package("", "app", &["src/cell.ts", "src/use.ts"])],
+            &query,
+        );
         assert_case(
             case,
             &facts,

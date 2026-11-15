@@ -243,11 +243,7 @@ mod tests {
     fn a_read_through_an_interface_credits_the_member_a_class_inherits_from_an_asked_base() {
         let found = Found {
             reads: vec![read("/ws/disposable.ts", 17, "dispose")],
-            implementations: BTreeSet::from([implementation(
-                ("/ws/disposable.ts", 17),
-                "dispose",
-                ("/ws/a.ts", 13),
-            )]),
+            implementations: BTreeSet::from([implementation(("/ws/disposable.ts", 17), "dispose", ("/ws/a.ts", 13))]),
             ..Found::default()
         };
         assert_eq!(reads(&credit(&candidates(), &found)), [(0, vec!["dispose"])]);
