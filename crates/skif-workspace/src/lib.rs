@@ -25,6 +25,7 @@ mod git_index;
 mod lerna;
 mod lockfile;
 mod manifest;
+mod marker;
 mod npmrc;
 mod package;
 mod parallel;
@@ -46,6 +47,7 @@ pub use lockfile::{
     pnpm_project_document, snapshot_key, split_key,
 };
 pub use manifest::{DependencyEntry, FieldSpans, Manifest};
+pub use marker::{is_package_manifest, subpath_entries};
 pub use npmrc::npmrc_entries;
 pub use package::{Package, PackageId};
 pub use parallel::{join, map_ordered};
