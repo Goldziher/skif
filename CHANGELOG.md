@@ -234,6 +234,11 @@ All notable changes to this project are documented here. The format follows
   `export default C`, or `export { C, C as default }`) is reported once instead of once per export, and is public API
   when an entry file exposes either name, also through `export default C` of an imported `C`.
   `skif explain-usage FILE#Foo.member` finds the member of `export default class Foo` by the name the finding gives.
+- `unused-class-members`: with types, a read through an interface (`c.getRange()` with `c: ICell`) credits the member
+  each implementing class has under that name, its own or one it inherits from a base class anywhere up its chain,
+  also when the interface inherits the member from another interface. `BaseCell.getRange` of
+  `class CodeCell extends BaseCell implements ICell {}` is no longer reported; base members the interface does not
+  declare still are ([ADR 0046](adrs/0046-typed-member-semantics.md)).
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 - A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
