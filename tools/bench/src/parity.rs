@@ -14,10 +14,16 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{TSTypeName, TSTypeQuery, TSTypeReference};
+use oxc_ast_visit::{Visit, walk};
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 use serde_json::{Value, json};
 use skif_js::{IncompleteScopeGlobs, is_out_dir, n8n_load_paths, source_candidates};
+use skif_js_plugins::plugins::heft;
 use skif_js_plugins::scripts::{IGNORED_BINARIES, is_machine_binary, is_shell_builtin};
-use skif_js_plugins::{GlobCache, PluginContext, resolve_plugins};
+use skif_js_plugins::{GlobCache, PluginContext, PluginId, PluginOutput, resolve_plugins};
 use skif_js_syntax::{Export, ExportKind, Import, ImportKind, ImportedKind, ModuleInfo, ParseOptions, parse_module};
 use skif_workspace::{FileSystem, OsFs, declared_member_dirs};
 
@@ -112,6 +118,16 @@ pub const KNIP_DOT_IGNORE: &str = "knip-dot-ignore";
 pub const REEXPORT_ALIAS: &str = "re-export-alias";
 pub const TSCONFIG_DECLARATION_FILE: &str = "tsconfig-declaration-file";
 pub const MODULE_OBJECT_TYPES: &str = "module-object-types";
+pub const HEFT_CONFIG: &str = "heft-config";
+pub const TYPE_ASSERTED_REQUIRE: &str = "type-asserted-require";
+pub const TEMPLATE_LITERAL_IMPORT: &str = "template-literal-import";
+pub const COMMONJS_DEFAULT_IMPORT: &str = "commonjs-default-import";
+pub const INSTALLED_MAIN: &str = "installed-main";
+pub const TYPE_REFERENCED_MEMBERS: &str = "type-referenced-members";
+pub const MODULE_OBJECT_VALUES: &str = "module-object-values";
+pub const KNIP_NODE_MODULES_NAME: &str = "knip-node-modules-name";
+pub const RAW_GLOB_READ: &str = "raw-glob-read";
+pub const TYPESCRIPT_TWIN: &str = "typescript-twin";
 
 /// The name of a file of git ignore patterns.
 const GITIGNORE: &str = ".gitignore";
@@ -194,6 +210,10 @@ const IMPORTED_EXPORT_CATEGORIES: [&str; 5] = ["exports", "types", "nsExports", 
 /// The categories whose findings name a member of an enum or namespace export, `<file>|<member>`.
 const MEMBER_CATEGORIES: [&str; 2] = ["enumMembers", "namespaceMembers"];
 
+/// The categories whose findings name a value export of a file, `<file>|<export>`: what a `require` or a use of a module
+/// object reads, which holds no type.
+const VALUE_EXPORT_CATEGORIES: [&str; 2] = ["exports", "nsExports"];
+
 /// The categories whose findings name a type export of a file, `<file>|<type>`.
 const TYPE_CATEGORIES: [&str; 2] = ["types", "nsTypes"];
 
@@ -204,7 +224,7 @@ const IMPORT_CATEGORIES: [&str; 2] = ["unlisted", "unresolved"];
 const DECLARATION_EXTENSIONS: [&str; 3] = [".d.ts", ".d.mts", ".d.cts"];
 
 /// The text a file holds when skif's parser can find a whole use of a module object in it (`import()`, `require` or a
-/// namespace import); the files without any are not parsed for [`module_object_types`].
+/// namespace import); the files without any are not parsed for [`module_object_credits`].
 const WHOLE_USE_MARKERS: [&str; 3] = ["import(", "require(", "* as "];
 
 /// The name that stands for every export of a file among the exports an import uses ([`unused_file_credits`]): a
@@ -249,7 +269,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 38] = [
+pub const KNIP_DEVIATIONS: [Deviation; 48] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -324,7 +344,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 38] = [
     },
     Deviation {
         id: USED_IN_KNIP_UNUSED_FILE,
-        reason: "knip reports these dependencies as unused, and a file of the same workspace that knip lists as unused and skif does not imports the package (an import scan of those files with skif's parser; an `@types/` package counts as imported with its runtime package). knip does not analyse an unused file, so it never sees the import skif credits; the disagreement is the file, which `files` already counts once. The harness does not check that the scanned import is the one skif credits",
+        reason: "knip reports these dependencies as unused, and a file of the same workspace that knip lists as unused and skif does not imports the package (an import scan of those files with skif's parser; an `@types/` package counts as imported with its runtime package). knip does not analyse an unused file, so it never sees the import skif credits; the disagreement is the file, which `files` already counts once. A dependency the manifest lists is set apart too when the installed manifest of a package so imported names it in `peerDependencies`, as skif and knip credit the peers of a used package. The harness does not check that the scanned import is the one skif credits",
     },
     Deviation {
         id: USED_IN_SKIF_UNUSED_FILE,
@@ -332,7 +352,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 38] = [
     },
     Deviation {
         id: IMPORTED_BY_KNIP_UNUSED_FILE,
-        reason: "knip reports these exports, types and duplicate exports as unused, and a file that knip lists as unused and skif does not imports them by relative path, by a specifier its own tsconfig `paths` map (the nearest `tsconfig.json` or `jsconfig.json` with its `extends` and `baseUrl`) or by the name of a workspace package (mapped to the source of what its manifest publishes): by name, through a namespace whose members it reads, or as a whole module (a namespace used as a whole, `import()`, `require`), directly or through the `export … from` and `export *` re-exports of the files in between (an import scan of those files with skif's parser). knip does not analyse an unused file, so it never sees the import skif credits; the disagreement is the importing file, which `files` already counts once. The in-file counterpart of `used-in-knip-unused-file`; the harness does not check that skif credits the export through that import",
+        reason: "knip reports these exports, types and duplicate exports as unused, and a file that knip lists as unused and skif does not imports them by relative path, by a specifier its own tsconfig `paths` map (the nearest `tsconfig.json` or `jsconfig.json` with its `extends` and `baseUrl`) or by the name of a workspace package (mapped to the source of what its manifest publishes): by name, through a namespace whose members it reads, or as a whole module (a namespace used as a whole, `import()`, `require`), directly or through the `export … from` and `export *` re-exports of the files in between (an import scan of those files with skif's parser). knip does not analyse an unused file, so it never sees the import skif credits; the disagreement is the importing file, which `files` already counts once. The same holds for these enum and namespace members knip reports unused that such a file reads (`BrevoNode.INTERCEPTORS`), through a named or default import or a namespace member, or uses as a whole. The in-file counterpart of `used-in-knip-unused-file`; the harness does not check that skif credits the export through that import",
     },
     Deviation {
         id: IMPORTED_BY_SKIF_UNUSED_FILE,
@@ -384,7 +404,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 38] = [
     },
     Deviation {
         id: KNIP_DOT_IGNORE,
-        reason: "skif reports these findings (anything but manifest findings) in a file that knip does not read because of a `./` pattern of a `.gitignore` below the checkout root (`./storage/` in `packages/core/.gitignore`): git matches no path with such a pattern, since no path has a `.` segment, while knip drops the `./` when it joins the pattern to the `.gitignore`'s directory and ignores every file and directory of that name at any depth below it. knip neither reports such a file unused nor analyses what it exports. The harness reads the `.gitignore` files outside the directories its file scan skips, and only patterns without wildcards",
+        reason: "skif reports these findings (anything but manifest findings) in a file that knip does not read because of a `./` pattern of a `.gitignore` below the checkout root (`./storage/` in `packages/core/.gitignore`): git matches no path with such a pattern, since no path has a `.` segment, while knip drops the `./` when it joins the pattern to the `.gitignore`'s directory and ignores every file and directory of that name at any depth below it. knip neither reports such a file unused nor analyses what it exports or imports. On knip's side, these dependencies knip reports unused that such a file of the same workspace imports (`lru-cache` of mastra's `packages/core/src/processors/memory`), and these exports and types knip reports unused that such a file imports, by the import scan of `imported-by-knip-unused-file`; a file skif reports unused credits nothing. The harness reads the `.gitignore` files outside the directories its file scan skips, and only patterns without wildcards",
     },
     Deviation {
         id: REEXPORT_ALIAS,
@@ -397,6 +417,46 @@ pub const KNIP_DEVIATIONS: [Deviation; 38] = [
     Deviation {
         id: MODULE_OBJECT_TYPES,
         reason: "skif reports these types, and an import uses their file as a whole module object (`import()` or `require` of the module, or a namespace import used as a whole, directly or through the `export … from` and `export *` re-exports of the files in between, as skif's parser reads it in any code file of the checkout): knip records such a use as opaque and credits every export of the module, types included, while skif's whole use of a module object counts its value exports only (ADR 0018). Only the files that hold `import(`, `require(` or `* as ` are parsed",
+    },
+    Deviation {
+        id: HEFT_CONFIG,
+        reason: "knip reports these dependencies as unused, and skif's `heft` plugin credits them (ADR 0037): a Heft config of the project (`config/heft.json`, `config/rig.json`, `config/jest.config.json`, ...) or of a rig's profile (`profiles/<profile>/` of the rig itself or of the installed rig `config/rig.json` names) names them, or they are peers of a package so named. knip has no Heft plugin. The harness runs skif's plugin resolver for each project that owns such a finding and takes what the `heft` plugin references, and what any plugin references from a file of a rig profile (the `tslib` an `importHelpers` of a profile's `tsconfig-base.json` needs)",
+    },
+    Deviation {
+        id: TYPE_ASSERTED_REQUIRE,
+        reason: "knip reports these exports and namespace exports as unused, and a code file of the checkout loads their file with a `require` whose result a TypeScript `as` asserts a type of (`require('./x') as typeof import('./x')`), directly or through the `export … from` and `export *` re-exports of the files in between: knip does not follow a `require` wrapped in `as`, skif reads the names it takes. The harness finds such a `require` in the source text and resolves its specifier as the import scan of `imported-by-knip-unused-file` does; it does not check which names skif credits through it",
+    },
+    Deviation {
+        id: TEMPLATE_LITERAL_IMPORT,
+        reason: "knip reports these files as unused, and a `require` or `import()` of a template literal with a relative start (`require(`./commands/${c}`)` in npm's `lib/npm.js`) matches them, or such a file reaches them by relative imports through other files only knip reports unused: skif reads the template literal as a glob, each substitution a `*` within one path segment (`./commands/*`), knip resolves no computed specifier. The harness takes the globs from skif's parser and matches them as skif's graph does, an extensionless last segment with any code extension",
+    },
+    Deviation {
+        id: COMMONJS_DEFAULT_IMPORT,
+        reason: "knip reports these exports and namespace exports as unused, and a code file of the checkout default-imports their CommonJS file (`module.exports`, no `default` export) and reads them as properties of the binding (`import routing from './ci-routing.cjs'; const { a } = routing;`): skif binds the default import of a CommonJS module to its `module.exports` object and reads its properties like the members of a namespace, knip takes the import for a use of `default` only. The harness reads the imports and member reads with skif's parser",
+    },
+    Deviation {
+        id: INSTALLED_MAIN,
+        reason: "knip reports these files as unused, and the installed file that the `main` of their project's manifest names below `node_modules` (`node_modules/expo/AppEntry.js` of an Expo app) imports them by relative path, or such a file reaches them by relative imports through other files only knip reports unused: skif makes the `main` an entry and follows its relative imports back into the project, knip reads nothing in `node_modules`",
+    },
+    Deviation {
+        id: TYPE_REFERENCED_MEMBERS,
+        reason: "skif reports these enum and namespace members as unused, and a code file of the checkout imports their enum, or their namespace with exported members (an interface or type merged with a namespace), by name from the member's file without an alias and refers to it as a type (`x: E`, `typeof E`): knip skips the member findings of an export that an importer refers to so while `nsTypes` is not reported (`getMemberIssues` in its `graph/analyze.js`), a type reference names the enum type and reads no member for skif. The harness reads the imports with skif's parser and the type references with oxc",
+    },
+    Deviation {
+        id: MODULE_OBJECT_VALUES,
+        reason: "knip reports these exports and namespace exports as unused, and an import in a code file of the checkout uses their file as a whole module object, as skif's parser reads it (a namespace spread or put in an object literal, passed to a call such as `vi.mocked(ns)`, a `require` a callback returns), directly or through the `export … from` and `export *` re-exports of the files in between: skif credits every value export of a module used as a whole (ADR 0018), knip does not take these uses for one. Only the files that hold `import(`, `require(` or `* as ` are parsed",
+    },
+    Deviation {
+        id: KNIP_NODE_MODULES_NAME,
+        reason: "skif reports these findings (anything but manifest findings) in a file whose path holds `node_modules` inside a name and below no `node_modules` directory (`node_modules_in_sandbox.test.mjs`): knip skips every path that contains the text (`isInNodeModules` in its `util/path.js`), so it neither reports such a file unused nor analyses it",
+    },
+    Deviation {
+        id: RAW_GLOB_READ,
+        reason: "skif reports these files as unused, and an `import.meta.glob` that reads the matched files as text (`query: '?raw'`) matches them, or such a file reaches them by relative imports through other files only skif reports unused: knip counts the glob as a use of its files, skif reads their text and keeps none of them in use. The harness matches the globs from skif's parser as skif's graph does",
+    },
+    Deviation {
+        id: TYPESCRIPT_TWIN,
+        reason: "skif reports these JavaScript files (`.js`, `.jsx`, `.mjs`, `.cjs`) as unused, a TypeScript file of the same stem lies beside each, and a code file of the checkout names it by a relative specifier with its extension (`require('../sum.js')` beside `sum.ts`): skif resolves the specifier in TypeScript's order, to the TypeScript twin, knip to the file it names",
     },
     Deviation {
         id: REPLACED_KNIP_CONFIG,
@@ -1754,18 +1814,18 @@ impl PluginEntries {
     }
 }
 
-/// The entries skif's plugin resolver (`skif_js_plugins::resolve_plugins`) gives for the project in `dir` of the
-/// checkout at `root`, as skif's run of the project as a package of a root of its own resolves them: with the
-/// dependencies, scripts and name of its `manifest`, no dependency of an enclosing workspace, the default plugin
-/// configuration, `is_root` when the project is the root of its run, and `members`, the directories of the other
-/// packages of that run below it (relative to it), whose sources are theirs.
-fn plugin_entries(
+/// What skif's plugin resolver (`skif_js_plugins::resolve_plugins`) gives for the project in `dir` of the checkout at
+/// `root`, as skif's run of the project as a package of a root of its own resolves it: with the dependencies, scripts
+/// and name of its `manifest`, no dependency of an enclosing workspace, the default plugin configuration, `is_root`
+/// when the project is the root of its run, and `members`, the directories of the other packages of that run below it
+/// (relative to it), whose sources are theirs.
+fn project_plugins(
     fs: &dyn FileSystem,
     root: &Path,
     (dir, is_root): (&str, bool),
     manifest: &Value,
     members: &[String],
-) -> PluginEntries {
+) -> Vec<(PluginId, PluginOutput)> {
     let abs_dir = root.join(dir);
     let dependencies: Vec<String> = DEPENDENCY_FIELDS
         .iter()
@@ -1796,9 +1856,22 @@ fn plugin_entries(
         sources: None,
         members,
     };
+    resolve_plugins(&ctx)
+}
+
+/// The entries of the project in `dir` that skif's plugins give ([`project_plugins`]): their entry globs, and the code
+/// files among the configs they read, relative to the project.
+fn plugin_entries(
+    fs: &dyn FileSystem,
+    root: &Path,
+    (dir, is_root): (&str, bool),
+    manifest: &Value,
+    members: &[String],
+) -> PluginEntries {
+    let abs_dir = root.join(dir);
     let mut patterns = Vec::new();
     let mut configs = BTreeSet::new();
-    for (_, output) in resolve_plugins(&ctx) {
+    for (_, output) in project_plugins(fs, root, (dir, is_root), manifest, members) {
         patterns.extend(output.entries);
         configs.extend(output.config_files.iter().filter_map(|path| {
             let relative = path.strip_prefix(&abs_dir).ok()?.to_str()?.replace('\\', "/");
@@ -2732,7 +2805,7 @@ struct Classifier<'a> {
     /// The same for the entry files (default and plugin ones, [`entry_modules`]) of the projects that are not knip
     /// workspaces and that a recursive skif run lints as root packages.
     root_entry_reexports: &'a BTreeSet<String>,
-    /// The files only knip reports unused that are Bazel build sources or that those reach (`bazel_reach`).
+    /// The files only knip reports unused that are Bazel build sources or that those reach (`reach_from_sources`).
     bazel_sources: &'a BTreeSet<String>,
     /// `<file>|<export>` for every export the files below a project that is not a knip workspace import
     /// (`import_credits`).
@@ -2757,10 +2830,43 @@ struct Classifier<'a> {
     /// The files only skif reports unused that one of `tsconfig_declarations` reaches by relative imports (`reach`).
     declaration_reach: &'a BTreeSet<String>,
     /// The `types` and `nsTypes` keys only skif reports whose file an import uses as a whole module object
-    /// (`module_object_types`).
+    /// (`module_objects`).
     module_object_types: &'a BTreeSet<String>,
     /// The projects without installed packages that own a one-sided finding (`uninstalled_projects`).
     uninstalled_projects: &'a BTreeSet<String>,
+    /// The enum and namespace member keys only knip reports that a file only knip reports unused uses
+    /// (`members_used_by`).
+    knip_unused_members: &'a BTreeSet<String>,
+    /// `<manifest>|<package>` for every package a file that a `./` pattern of a nested `.gitignore` hides from knip
+    /// imports, with their peers (`unused_file_imports`, `with_peer_credits`).
+    knip_dot_ignore_imports: &'a BTreeSet<String>,
+    /// `<file>|<export>` for every export such a file imports (`unused_file_credits`).
+    knip_dot_ignore_credits: &'a BTreeSet<String>,
+    /// `<manifest>|<package>` for every dependency skif's Heft support credits (`heft_credits`).
+    heft_credits: &'a BTreeSet<String>,
+    /// `<file>|*` for every file a `require` wrapped in `as` loads (`type_asserted_require_credits`).
+    type_asserted_requires: &'a BTreeSet<String>,
+    /// The `exports` and `nsExports` keys only knip reports whose file an import uses as a whole module object
+    /// (`module_objects`).
+    module_object_values: &'a BTreeSet<String>,
+    /// The `exports` and `nsExports` keys only knip reports that a default import of their `CommonJS` file reads
+    /// (`commonjs_default_members`).
+    commonjs_default_members: &'a BTreeSet<String>,
+    /// The files only knip reports unused that a template literal `require` or `import()` matches or that those reach
+    /// (`template_import_targets`, `reach_from_sources`).
+    template_import_reach: &'a BTreeSet<String>,
+    /// The files only knip reports unused that an installed `main` imports or that those reach
+    /// (`installed_main_imports`, `reach_from_sources`).
+    installed_main_reach: &'a BTreeSet<String>,
+    /// The enum and namespace member keys only skif reports whose export an importer refers to as a type
+    /// (`type_referenced_members`).
+    type_referenced_members: &'a BTreeSet<String>,
+    /// The files only skif reports unused that an `import.meta.glob` reading text matches or that those reach
+    /// (`raw_glob_targets`, `reach_from_sources`).
+    raw_glob_reach: &'a BTreeSet<String>,
+    /// The JavaScript files only skif reports unused that an import names beside a TypeScript twin
+    /// (`typescript_twin_files`).
+    typescript_twins: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     /// knip ran with the harness's empty configuration instead of the repository's own.
@@ -2787,6 +2893,10 @@ impl Classifier<'_> {
                 .or_else(|| {
                     (!MANIFEST_CATEGORIES.contains(&category) && in_dot_slash_ignore(self.knip_dot_ignores, path))
                         .then_some(KNIP_DOT_IGNORE)
+                })
+                .or_else(|| {
+                    (!MANIFEST_CATEGORIES.contains(&category) && named_like_node_modules(path))
+                        .then_some(KNIP_NODE_MODULES_NAME)
                 })
                 .or_else(|| (category == "duplicates" && self.reexport_aliases.contains(key)).then_some(REEXPORT_ALIAS))
                 .or_else(|| {
@@ -2815,6 +2925,12 @@ impl Classifier<'_> {
                     (TYPE_CATEGORIES.contains(&category) && self.module_object_types.contains(key))
                         .then_some(MODULE_OBJECT_TYPES)
                 })
+                .or_else(|| {
+                    (MEMBER_CATEGORIES.contains(&category) && self.type_referenced_members.contains(key))
+                        .then_some(TYPE_REFERENCED_MEMBERS)
+                })
+                .or_else(|| (category == "files" && self.raw_glob_reach.contains(key)).then_some(RAW_GLOB_READ))
+                .or_else(|| (category == "files" && self.typescript_twins.contains(key)).then_some(TYPESCRIPT_TWIN))
                 .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
                 .or_else(config_error);
         }
@@ -2850,8 +2966,17 @@ impl Classifier<'_> {
                 (credited || built).then_some(BAZEL_BUILD_FILE)
             })
             .or_else(|| {
-                imported_by_unused_file(self.knip_unused_credits, category, key).then_some(IMPORTED_BY_KNIP_UNUSED_FILE)
+                let member = MEMBER_CATEGORIES.contains(&category) && self.knip_unused_members.contains(key);
+                (member || imported_by_unused_file(self.knip_unused_credits, category, key))
+                    .then_some(IMPORTED_BY_KNIP_UNUSED_FILE)
             })
+            .or_else(|| {
+                (used_in_unused_file(self.knip_dot_ignore_imports, category, key)
+                    || imported_by_unused_file(self.knip_dot_ignore_credits, category, key))
+                .then_some(KNIP_DOT_IGNORE)
+            })
+            .or_else(|| (IMPORTED_CATEGORIES.contains(&category) && self.heft_credits.contains(key)).then_some(HEFT_CONFIG))
+            .or_else(|| self.unread_load(category, key))
             .or_else(|| {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
             })
@@ -2862,6 +2987,28 @@ impl Classifier<'_> {
             })
             .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
             .or_else(config_error)
+    }
+
+    /// The deviation a finding only knip reports is when skif loads its file, or reads its export, through code knip
+    /// reads no import from: a `require` wrapped in `as`, a whole use of the module object, a default import of a
+    /// `CommonJS` module, a template literal `require` or `import()`, or an installed `main`.
+    fn unread_load(&self, category: &str, key: &str) -> Option<&'static str> {
+        if category == "files" {
+            if self.template_import_reach.contains(key) {
+                return Some(TEMPLATE_LITERAL_IMPORT);
+            }
+            return self.installed_main_reach.contains(key).then_some(INSTALLED_MAIN);
+        }
+        if !VALUE_EXPORT_CATEGORIES.contains(&category) {
+            return None;
+        }
+        if credited(self.type_asserted_requires, key) {
+            return Some(TYPE_ASSERTED_REQUIRE);
+        }
+        if self.commonjs_default_members.contains(key) {
+            return Some(COMMONJS_DEFAULT_IMPORT);
+        }
+        self.module_object_values.contains(key).then_some(MODULE_OBJECT_VALUES)
     }
 
     /// Whether a one-sided finding follows from knip making the declaration files a workspace's `tsconfig.json`
@@ -3574,24 +3721,36 @@ fn outside_members(
     resolver: &Resolver<'_>,
     read: &SourceReader<'_>,
 ) -> (BTreeSet<String>, BTreeSet<String>) {
+    let (non_member, skipped) = outside_importers(files, layout);
+    (
+        members_used_by(members, non_member, resolver, read),
+        members_used_by(members, skipped, resolver, read),
+    )
+}
+
+/// The keys of `members` (`<file>|<member>`, enum and namespace members) that the files of `importers` use
+/// ([`member_uses`], followed through re-exports, [`credited_members`]). A file `read` cannot read or parse uses
+/// nothing.
+fn members_used_by<'f>(
+    members: &BTreeSet<String>,
+    importers: impl IntoIterator<Item = &'f str>,
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
     let options = ParseOptions {
         in_file_references: false,
         member_accesses: true,
     };
-    let credits = |importers: Vec<&str>| {
-        let seeds = importers
-            .into_iter()
-            .filter_map(|file| {
-                read(file)
-                    .and_then(|source| parse_module(Path::new(file), &source, &options).ok())
-                    .map(|module| member_uses(file, &module, resolver))
-            })
-            .flatten()
-            .collect();
-        credited_members(members, &follow_reexports(seeds, resolver, read), read)
-    };
-    let (non_member, skipped) = outside_importers(files, layout);
-    (credits(non_member), credits(skipped))
+    let seeds = importers
+        .into_iter()
+        .filter_map(|file| {
+            read(file)
+                .and_then(|source| parse_module(Path::new(file), &source, &options).ok())
+                .map(|module| member_uses(file, &module, resolver))
+        })
+        .flatten()
+        .collect();
+    credited_members(members, &follow_reexports(seeds, resolver, read), read)
 }
 
 /// The enum exports of a file: the name, the member names, and whether the file uses the enum as a whole itself
@@ -3671,20 +3830,11 @@ fn whole_enum_members(
         .collect()
 }
 
-/// The keys of `types` (`<file>|<type>`, the types only skif reports) whose file a code file of `files` uses as a whole
-/// module object ([`whole_uses`]: `import()`, `require`, a namespace used as a whole), directly or through the
-/// re-exports of the files in between ([`follow_reexports`]). knip credits every export of such a module, types
-/// included; skif's whole use reaches its values only (ADR 0018). Only the files holding one of [`WHOLE_USE_MARKERS`]
-/// are parsed; `read` gives a file's source.
-fn module_object_types(
-    types: &BTreeSet<String>,
-    files: &[String],
-    resolver: &Resolver<'_>,
-    read: &SourceReader<'_>,
-) -> BTreeSet<String> {
-    if types.is_empty() {
-        return BTreeSet::new();
-    }
+/// `<file>|*` for every file that a code file of `files` uses as a whole module object ([`whole_uses`]: `import()`,
+/// `require`, a namespace used as a whole), and for the exports such a file re-exports, followed through the files in
+/// between ([`follow_reexports`]). Only the files holding one of [`WHOLE_USE_MARKERS`] are parsed; `read` gives a file's
+/// source.
+fn module_object_credits(files: &[String], resolver: &Resolver<'_>, read: &SourceReader<'_>) -> BTreeSet<String> {
     let options = ParseOptions {
         in_file_references: false,
         member_accesses: true,
@@ -3703,8 +3853,465 @@ fn module_object_types(
             );
         }
     }
-    let credits = follow_reexports(seeds, resolver, read);
-    types.iter().filter(|key| credited(&credits, key)).cloned().collect()
+    follow_reexports(seeds, resolver, read)
+}
+
+/// The keys of `keys` (`<file>|<export>`) that `credits` ([`module_object_credits`]) holds: their file is used as a
+/// whole module object. On skif's side these are the types only skif reports, since knip credits every export of such a
+/// module, types included, while skif's whole use reaches its values only (ADR 0018); on knip's side the value exports
+/// only knip reports, a whole use knip does not record as one.
+fn module_objects(keys: &BTreeSet<String>, credits: &BTreeSet<String>) -> BTreeSet<String> {
+    keys.iter().filter(|key| credited(credits, key)).cloned().collect()
+}
+
+/// `<manifest>|<package>` for every dependency of the projects in `dirs` that skif's Heft support credits (ADR 0037),
+/// with the peers of those ([`with_peer_credits`]): in a project where the `heft` plugin is enabled, what it references
+/// ([`project_plugins`]), and what any plugin references from a file of a rig profile ([`in_rig_profile`]), such as the
+/// `tslib` an `importHelpers` of a profile's `tsconfig-base.json` needs. `manifest` reads the `package.json` of a
+/// directory; a directory without one credits nothing.
+fn heft_credits<'d>(
+    dirs: impl IntoIterator<Item = &'d str>,
+    fs: &dyn FileSystem,
+    root: &Path,
+    manifest: &ManifestReader<'_>,
+) -> BTreeSet<String> {
+    let mut credits = BTreeSet::new();
+    for dir in dirs {
+        let Some(listed) = manifest(dir) else { continue };
+        let abs_dir = root.join(dir);
+        let listing = joined(dir, "package.json");
+        let outputs = project_plugins(fs, root, (dir, dir.is_empty()), &listed, &[]);
+        if !outputs.iter().any(|(id, _)| *id == heft::ID) {
+            continue;
+        }
+        for (id, output) in outputs {
+            for reference in output.referenced_dependencies {
+                let from = reference
+                    .from
+                    .strip_prefix(&abs_dir)
+                    .ok()
+                    .and_then(Path::to_str)
+                    .map(|relative| relative.replace('\\', "/"));
+                if id == heft::ID || from.as_deref().is_some_and(in_rig_profile) {
+                    credits.insert(format!("{listing}|{}", reference.name));
+                }
+            }
+        }
+    }
+    with_peer_credits(credits, manifest)
+}
+
+/// Whether `relative`, a path below a project directory, lies in a profile of a rig: `profiles/<profile>/…` of the
+/// project itself, a rig, or of an installed package, `node_modules/<rig>/profiles/<profile>/…`.
+fn in_rig_profile(relative: &str) -> bool {
+    let parts: Vec<&str> = relative.split('/').collect();
+    let start = match parts.as_slice() {
+        ["node_modules", scope, _, ..] if scope.starts_with('@') => 3,
+        ["node_modules", _, ..] => 2,
+        _ => 0,
+    };
+    matches!(parts.get(start..), Some(["profiles", profile, _, ..]) if !profile.is_empty())
+}
+
+/// The specifiers of the `require` calls in `text` whose result a TypeScript `as` asserts a type of
+/// (`require('./x') as typeof import('./x')`), read from the text: `require(` not preceded by a name character, a
+/// quoted specifier, `)` and `as` followed by whitespace.
+fn type_asserted_requires(text: &str) -> Vec<&str> {
+    const CALL: &str = "require(";
+    let mut found = Vec::new();
+    for (at, _) in text.match_indices(CALL) {
+        let named = text[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|before| before.is_alphanumeric() || matches!(before, '_' | '$' | '.'));
+        if named {
+            continue;
+        }
+        let rest = text[at + CALL.len()..].trim_start();
+        let Some(quote) = rest.chars().next().filter(|c| matches!(*c, '\'' | '"')) else {
+            continue;
+        };
+        let body = &rest[1..];
+        let Some(end) = body.find(quote) else { continue };
+        let asserted = body[end + 1..]
+            .trim_start()
+            .strip_prefix(')')
+            .and_then(|after| after.trim_start().strip_prefix("as"))
+            .is_some_and(|after| after.starts_with(char::is_whitespace));
+        if asserted {
+            found.push(&body[..end]);
+        }
+    }
+    found
+}
+
+/// `<file>|*` for every file that a code file of `files` loads with a `require` whose result an `as` asserts a type of
+/// ([`type_asserted_requires`]), resolved as `resolver` resolves a specifier, and for the exports such a file
+/// re-exports ([`follow_reexports`]). Only the files holding `require(` are scanned; `read` gives a file's source.
+fn type_asserted_require_credits(
+    files: &[String],
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let mut seeds = Vec::new();
+    for file in files {
+        let Some(source) = read(file) else { continue };
+        if !source.contains("require(") {
+            continue;
+        }
+        seeds.extend(
+            type_asserted_requires(&source)
+                .into_iter()
+                .filter_map(|specifier| resolver.resolve(file, specifier))
+                .map(|target| (target, WHOLE_MODULE.to_owned())),
+        );
+    }
+    follow_reexports(seeds, resolver, read)
+}
+
+/// The files of `files` that a `require` or `import()` of a template literal with a relative start matches
+/// ([`is_template_call`]): skif's parser reads each substitution as a `*` within one path segment (`./commands/${c}`
+/// reads `./commands/*`). Only the files holding a call of a template literal (``(` ``) are parsed.
+fn template_import_targets(files: &[String], read: &SourceReader<'_>) -> BTreeSet<String> {
+    glob_targets(files, read, "(`", &|source, import| {
+        import.kind == ImportKind::ImportMetaGlob && is_template_call(source, import)
+    })
+}
+
+/// The files of `files` that an `import.meta.glob` reading the matched files as text (`query: '?raw'`,
+/// [`ImportKind::SourceGlob`]) matches. Only the files holding `import.meta.glob` are parsed.
+fn raw_glob_targets(files: &[String], read: &SourceReader<'_>) -> BTreeSet<String> {
+    glob_targets(files, read, "import.meta.glob", &|_, import| import.kind == ImportKind::SourceGlob)
+}
+
+/// The files of `files` that the glob imports `keep` takes (given the importer's text) of a file holding `marker`
+/// match, as skif's graph expands a glob (`expand_glob` in `crates/skif-js/src/graph.rs`): the pattern joined to the
+/// importer's directory, a last segment without an extension or wildcard also matching with any code extension, and
+/// the importer itself left out. A rooted (`/x`) or negated pattern matches nothing here. `read` gives a file's source;
+/// a file it cannot read or parse imports nothing.
+fn glob_targets(
+    files: &[String],
+    read: &SourceReader<'_>,
+    marker: &str,
+    keep: &dyn Fn(&str, &Import) -> bool,
+) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    let mut found = BTreeSet::new();
+    for file in files {
+        let Some(source) = read(file) else { continue };
+        if !source.contains(marker) {
+            continue;
+        }
+        let Ok(module) = parse_module(Path::new(file), &source, &options) else {
+            continue;
+        };
+        let patterns: Vec<String> = module
+            .imports
+            .iter()
+            .filter(|import| keep(&source, import) && !import.specifier.starts_with(['/', '!']))
+            .filter_map(|import| join_relative(parent_dir(file), &import.specifier))
+            .flat_map(|joined| {
+                let last = joined.rsplit('/').next().unwrap_or_default();
+                let extensionless = (!last.is_empty() && !last.contains(['.', '*', '?', '[', '{']))
+                    .then(|| format!("{joined}.{{{}}}", CODE_EXTENSIONS.join(",")));
+                std::iter::once(joined).chain(extensionless)
+            })
+            .collect();
+        if patterns.is_empty() {
+            continue;
+        }
+        let globs = IncompleteScopeGlobs::new(patterns);
+        found.extend(
+            files
+                .iter()
+                .filter(|candidate| *candidate != file && globs.is_match(candidate))
+                .cloned(),
+        );
+    }
+    found
+}
+
+/// Whether the glob `import` of the file whose text is `source` is a `require` or `import()` call of a template
+/// literal: its text starts with `require` or `import(` and holds a backtick, unlike an `import.meta.glob` pattern.
+fn is_template_call(source: &str, import: &Import) -> bool {
+    let (Ok(start), Ok(end)) = (usize::try_from(import.span.start), usize::try_from(import.span.end)) else {
+        return false;
+    };
+    source.get(start..end).is_some_and(|text| {
+        let call = text.trim_start();
+        (call.starts_with("require") || call.starts_with("import(")) && call.contains('`')
+    })
+}
+
+/// Whether `path` holds `node_modules` inside a name (`node_modules_in_sandbox.test.mjs`) and has no `node_modules`
+/// directory: knip skips every path that contains the text (`isInNodeModules` in its `util/path.js`), skif only the
+/// files below a `node_modules` directory.
+fn named_like_node_modules(path: &str) -> bool {
+    path.contains("node_modules") && !path.split('/').any(|segment| segment == "node_modules")
+}
+
+/// The files of `unused` (files only skif reports unused) that are JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`) beside a
+/// TypeScript file of the same stem and that a code file of `files` names by a relative specifier with that extension
+/// (`require('../sum.js')`, read as [`stub_specifiers`] reads them): skif resolves such a specifier in TypeScript's
+/// order, to the TypeScript twin, while knip takes the file it names. Only the files whose text holds the name of such
+/// a file are scanned; `read` gives a file's source.
+fn typescript_twin_files(
+    unused: &BTreeSet<&str>,
+    files: &[String],
+    is_file: &FileProbe<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let twinned: BTreeSet<&str> = unused
+        .iter()
+        .copied()
+        .filter(|path| {
+            BUILT_EXTENSIONS
+                .iter()
+                .find_map(|extension| path.strip_suffix(extension))
+                .is_some_and(|stem| TYPESCRIPT_EXTENSIONS.iter().any(|ts| is_file(&format!("{stem}.{ts}"))))
+        })
+        .collect();
+    if twinned.is_empty() {
+        return BTreeSet::new();
+    }
+    let names: BTreeSet<&str> = twinned
+        .iter()
+        .map(|path| path.rsplit('/').next().unwrap_or(*path))
+        .collect();
+    let mut found = BTreeSet::new();
+    for file in files {
+        let Some(source) = read(file) else { continue };
+        if !names.iter().any(|name| source.contains(name)) {
+            continue;
+        }
+        for specifier in stub_specifiers(&source) {
+            if let Some(target) = join_relative(parent_dir(file), &specifier)
+                && twinned.contains(target.as_str())
+            {
+                found.insert(target);
+            }
+        }
+    }
+    found
+}
+
+/// Whether a default import of the parsed module binds its `module.exports` object: a `CommonJS` module without a
+/// `default` export (`binds_module_exports` in `crates/skif-js/src/usage.rs`).
+fn binds_module_exports(module: &ModuleInfo) -> bool {
+    module.has_cjs_exports && !module.exports.iter().any(|export| export.name == "default")
+}
+
+/// The keys of `exports` (`<file>|<export>`, exports only knip reports) of a `CommonJS` file ([`binds_module_exports`])
+/// that a code file of `files` reads as a property of a default import of the file that does not escape
+/// (`import routing from './ci-routing.cjs'; const { a } = routing;`), as skif's parser records the member reads.
+/// Only the files whose text names the stem of such a file are parsed; `read` gives a file's source.
+fn commonjs_default_members(
+    exports: &BTreeSet<String>,
+    files: &[String],
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let files_of: BTreeSet<&str> = exports.iter().map(|key| key_path(key)).collect();
+    let targets: BTreeSet<&str> = files_of
+        .into_iter()
+        .filter(|file| {
+            read(file)
+                .and_then(|source| parse_module(Path::new(file), &source, &ParseOptions::default()).ok())
+                .is_some_and(|module| binds_module_exports(&module))
+        })
+        .collect();
+    if targets.is_empty() {
+        return BTreeSet::new();
+    }
+    let stems: BTreeSet<&str> = targets
+        .iter()
+        .map(|target| {
+            let name = target.rsplit('/').next().unwrap_or(*target);
+            name.split('.').next().unwrap_or(name)
+        })
+        .collect();
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let mut credits = BTreeSet::new();
+    for file in files {
+        let Some(source) = read(file) else { continue };
+        if !stems.iter().any(|stem| source.contains(stem)) {
+            continue;
+        }
+        let Ok(module) = parse_module(Path::new(file), &source, &options) else {
+            continue;
+        };
+        for (import, target) in module_targets(file, &module, resolver) {
+            if !targets.contains(target.as_str()) {
+                continue;
+            }
+            for name in &import.names {
+                if matches!(name.kind, ImportedKind::Default) && name.local.is_some() && !name.escapes {
+                    credits.extend(name.accessed_members.iter().map(|member| format!("{target}|{member}")));
+                }
+            }
+        }
+    }
+    exports.intersection(&credits).cloned().collect()
+}
+
+/// The files that the installed file each project of `dirs` names as its `main` below `node_modules`
+/// (`node_modules/expo/AppEntry.js`) imports by relative path, joined to the path the manifest names
+/// ([`relative_imports`]): skif makes the `main` an entry and follows its imports back into the project. A project
+/// whose `main` lies elsewhere, or whose installed file `read` cannot read, gives none.
+fn installed_main_imports<'d>(
+    dirs: impl IntoIterator<Item = &'d str>,
+    layout: &Layout<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    for dir in dirs {
+        let Some(manifest) = (layout.manifest)(dir) else { continue };
+        let Some(main) = manifest.get("main").and_then(Value::as_str) else {
+            continue;
+        };
+        let main = main.strip_prefix("./").unwrap_or(main);
+        if !main.starts_with("node_modules/") {
+            continue;
+        }
+        let path = joined(dir, main);
+        if let Some(source) = read(&path) {
+            found.extend(relative_imports(&path, &source, layout.is_file));
+        }
+    }
+    found
+}
+
+/// The names a TypeScript file writes as a type reference (`x: E`, `Array<E>`) or a type query (`typeof E`) by a plain
+/// identifier, as knip's `TSTypeReference` and `TSTypeQuery` visitors record a reference of an imported binding.
+#[derive(Default)]
+struct TypeReferenceNames {
+    names: BTreeSet<String>,
+}
+
+impl<'a> Visit<'a> for TypeReferenceNames {
+    fn visit_ts_type_reference(&mut self, it: &TSTypeReference<'a>) {
+        if let TSTypeName::IdentifierReference(id) = &it.type_name {
+            self.names.insert(id.name.as_str().to_owned());
+        }
+        walk::walk_ts_type_reference(self, it);
+    }
+
+    fn visit_ts_type_query(&mut self, it: &TSTypeQuery<'a>) {
+        if let Some(TSTypeName::IdentifierReference(id)) = it.expr_name.as_ts_type_name() {
+            self.names.insert(id.name.as_str().to_owned());
+        }
+        walk::walk_ts_type_query(self, it);
+    }
+}
+
+/// The names the file `path` refers to as a type ([`TypeReferenceNames`]); empty for a file oxc has no source type
+/// for.
+fn type_reference_names(path: &str, source: &str) -> BTreeSet<String> {
+    let Ok(source_type) = SourceType::from_path(path) else {
+        return BTreeSet::new();
+    };
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, source_type).parse();
+    let mut visitor = TypeReferenceNames::default();
+    visitor.visit_program(&parsed.program);
+    visitor.names
+}
+
+/// The keys of `members` (`<file>|<member>`, enum and namespace members only skif reports) whose enum, or namespace
+/// with exported members, a code file of `files` imports by name from the member's file itself, without an alias, and
+/// refers to as a type ([`type_reference_names`]): knip skips the member findings of an export whose importers hold
+/// such a reference while `nsTypes` is not reported (`getMemberIssues` in knip's `graph/analyze.js`). Only the files
+/// whose text names one of the exports are parsed; `read` gives a file's source.
+fn type_referenced_members(
+    members: &BTreeSet<String>,
+    files: &[String],
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let mut holders: BTreeMap<&str, Vec<(String, Vec<String>)>> = BTreeMap::new();
+    for key in members {
+        let path = key_path(key);
+        if holders.contains_key(path) {
+            continue;
+        }
+        let found = read(path)
+            .and_then(|source| parse_module(Path::new(path), &source, &ParseOptions::default()).ok())
+            .map_or_default(|module| {
+                module
+                    .exports
+                    .iter()
+                    .filter_map(|export| {
+                        let names: Vec<String> = export
+                            .enum_members
+                            .iter()
+                            .chain(&export.namespace_members)
+                            .map(|member| member.name.clone())
+                            .collect();
+                        (!names.is_empty()).then(|| (export.name.clone(), names))
+                    })
+                    .collect()
+            });
+        holders.insert(path, found);
+    }
+    let wanted: BTreeSet<&str> = holders.values().flatten().map(|(name, _)| name.as_str()).collect();
+    if wanted.is_empty() {
+        return BTreeSet::new();
+    }
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    let mut referenced: BTreeSet<String> = BTreeSet::new();
+    for file in files {
+        let Some(source) = read(file) else { continue };
+        if !wanted.iter().any(|name| source.contains(name)) {
+            continue;
+        }
+        let Ok(module) = parse_module(Path::new(file), &source, &options) else {
+            continue;
+        };
+        let imported: Vec<String> = module_targets(file, &module, resolver)
+            .into_iter()
+            .filter(|(_, target)| holders.contains_key(target.as_str()))
+            .flat_map(|(import, target)| {
+                import.names.iter().filter_map(move |name| match &name.kind {
+                    ImportedKind::Named(export) if name.local.as_deref() == Some(export.as_str()) => {
+                        Some(format!("{target}|{export}"))
+                    }
+                    _ => None,
+                })
+            })
+            .collect();
+        if imported.is_empty() {
+            continue;
+        }
+        let types = type_reference_names(file, &source);
+        referenced.extend(
+            imported
+                .into_iter()
+                .filter(|key| key.rsplit_once('|').is_some_and(|(_, name)| types.contains(name))),
+        );
+    }
+    members
+        .iter()
+        .filter(|key| {
+            let Some((path, member)) = key.split_once('|') else {
+                return false;
+            };
+            holders.get(path).is_some_and(|found| {
+                found.iter().any(|(name, names)| {
+                    names.iter().any(|known| known == member) && referenced.contains(&format!("{path}|{name}"))
+                })
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 /// Whether `path` is a `BUILD.bazel` or `BUILD` file.
@@ -4122,10 +4729,10 @@ fn bazel_sources(
     found
 }
 
-/// The files only knip reports as unused (`unused` but not `other_unused`) that are Bazel build sources
-/// ([`bazel_sources`]) or that such a file reaches by relative imports through other such files ([`reach`]): skif uses
-/// the files a rule builds from and what they import.
-fn bazel_reach(
+/// The files only one tool reports as unused (`unused` but not `other_unused`) that are among `sources` or that such a
+/// file reaches by relative imports through other such files ([`reach`]): the other tool uses what it reaches from
+/// `sources`, the Bazel build sources ([`bazel_sources`]) or the files that skif loads where knip reads no import.
+fn reach_from_sources(
     sources: &BTreeSet<String>,
     (unused, other_unused): (&BTreeSet<String>, &BTreeSet<String>),
     is_file: &FileProbe<'_>,
@@ -4664,6 +5271,18 @@ struct Facts {
     declaration_reach: BTreeSet<String>,
     module_object_types: BTreeSet<String>,
     uninstalled_projects: BTreeSet<String>,
+    knip_unused_members: BTreeSet<String>,
+    knip_dot_ignore_imports: BTreeSet<String>,
+    knip_dot_ignore_credits: BTreeSet<String>,
+    heft_credits: BTreeSet<String>,
+    type_asserted_requires: BTreeSet<String>,
+    module_object_values: BTreeSet<String>,
+    commonjs_default_members: BTreeSet<String>,
+    template_import_reach: BTreeSet<String>,
+    installed_main_reach: BTreeSet<String>,
+    type_referenced_members: BTreeSet<String>,
+    raw_glob_reach: BTreeSet<String>,
+    typescript_twins: BTreeSet<String>,
 }
 
 impl Facts {
@@ -4731,13 +5350,47 @@ impl Facts {
             .iter()
             .flat_map(|category| one_sided(skif, knip, category))
             .collect();
+        let knip_values: BTreeSet<String> = VALUE_EXPORT_CATEGORIES
+            .iter()
+            .flat_map(|category| one_sided(knip, skif, category))
+            .collect();
+        let object_credits = if skif_types.is_empty() && knip_values.is_empty() {
+            BTreeSet::new()
+        } else {
+            module_object_credits(&files, &resolver, &read_source)
+        };
+        let knip_members: BTreeSet<String> = MEMBER_CATEGORIES
+            .iter()
+            .flat_map(|category| one_sided(knip, skif, category))
+            .collect();
+        let knip_only_unused: BTreeSet<&str> = knip_unused.difference(skif_unused).map(String::as_str).collect();
+        let knip_dot_ignores = dot_slash_ignores(
+            &gitignores
+                .iter()
+                .filter_map(|path| Some((path.clone(), read_source(path.as_str())?)))
+                .collect::<Vec<_>>(),
+        );
+        let dot_ignored: BTreeSet<String> = files
+            .iter()
+            .filter(|file| in_dot_slash_ignore(&knip_dot_ignores, file))
+            .cloned()
+            .collect();
+        let dependency_owners: BTreeSet<String> = IMPORTED_CATEGORIES
+            .iter()
+            .flat_map(|category| one_sided(knip, skif, category))
+            .map(|key| parent_dir(key_path(&key)).to_owned())
+            .collect();
+        let file_owners: BTreeSet<String> = knip_only_unused.iter().map(|file| owner_dir(file, &is_project)).collect();
         Self {
             not_judged: not_judged_dirs(skif_doc),
             foreign_paths: foreign_tsconfig_paths_keys(skif_doc, root),
             knip_errors,
             knip_failed,
             knip_manifests: knip_manifests(knip),
-            knip_unused_imports: unused_file_imports(knip_unused, skif_unused, &read_source, &workspace_of),
+            knip_unused_imports: with_peer_credits(
+                unused_file_imports(knip_unused, skif_unused, &read_source, &workspace_of),
+                layout.manifest,
+            ),
             skif_unused_imports: unused_file_imports(skif_unused, knip_unused, &read_source, &workspace_of),
             published_reach: published_reach(knip_unused, skif_unused, layout, &read_source),
             knip_unused_credits: unused_file_credits(knip_unused, skif_unused, &resolver, &read_source),
@@ -4746,7 +5399,7 @@ impl Facts {
                 bazel_credits(&build_files, layout.is_file, &read_source),
                 layout.manifest,
             ),
-            bazel_sources: bazel_reach(
+            bazel_sources: reach_from_sources(
                 &bazel_sources(&build_files, &files, layout.is_file, &read_source),
                 (knip_unused, skif_unused),
                 layout.is_file,
@@ -4768,12 +5421,12 @@ impl Facts {
             skipped_credits,
             non_member_members,
             skipped_members,
-            knip_dot_ignores: dot_slash_ignores(
-                &gitignores
-                    .iter()
-                    .filter_map(|path| Some((path.clone(), read_source(path.as_str())?)))
-                    .collect::<Vec<_>>(),
+            knip_dot_ignore_imports: with_peer_credits(
+                unused_file_imports(&dot_ignored, skif_unused, &read_source, &workspace_of),
+                layout.manifest,
             ),
+            knip_dot_ignore_credits: unused_file_credits(&dot_ignored, skif_unused, &resolver, &read_source),
+            knip_dot_ignores,
             reexport_aliases: reexport_alias_duplicates(&one_sided(skif, knip, "duplicates"), &read_source),
             unimported_declarations: unimported_declarations(
                 &knip_imports
@@ -4795,7 +5448,57 @@ impl Facts {
                     &read_source,
                 )
             },
-            module_object_types: module_object_types(&skif_types, &files, &resolver, &read_source),
+            module_object_types: module_objects(&skif_types, &object_credits),
+            module_object_values: module_objects(&knip_values, &object_credits),
+            knip_unused_members: if knip_members.is_empty() {
+                BTreeSet::new()
+            } else {
+                members_used_by(&knip_members, knip_only_unused.iter().copied(), &resolver, &read_source)
+            },
+            heft_credits: heft_credits(dependency_owners.iter().map(String::as_str), &OsFs, root, layout.manifest),
+            type_asserted_requires: if knip_values.is_empty() {
+                BTreeSet::new()
+            } else {
+                type_asserted_require_credits(&files, &resolver, &read_source)
+            },
+            commonjs_default_members: commonjs_default_members(&knip_values, &files, &resolver, &read_source),
+            template_import_reach: if knip_only_unused.is_empty() {
+                BTreeSet::new()
+            } else {
+                reach_from_sources(
+                    &template_import_targets(&files, &read_source),
+                    (knip_unused, skif_unused),
+                    layout.is_file,
+                    &read_source,
+                )
+            },
+            installed_main_reach: reach_from_sources(
+                &installed_main_imports(file_owners.iter().map(String::as_str), layout, &read_source),
+                (knip_unused, skif_unused),
+                layout.is_file,
+                &read_source,
+            ),
+            type_referenced_members: if skif_members.is_empty() {
+                BTreeSet::new()
+            } else {
+                type_referenced_members(&skif_members, &files, &resolver, &read_source)
+            },
+            raw_glob_reach: if skif_only_unused.is_empty() {
+                BTreeSet::new()
+            } else {
+                reach_from_sources(
+                    &raw_glob_targets(&files, &read_source),
+                    (skif_unused, knip_unused),
+                    layout.is_file,
+                    &read_source,
+                )
+            },
+            typescript_twins: typescript_twin_files(
+                &skif_only_unused,
+                &files,
+                layout.is_file,
+                &read_source,
+            ),
             tsconfig_declarations,
             uninstalled_projects: if installed {
                 uninstalled_projects((skif, knip), &is_project, &has_packages)
@@ -4850,6 +5553,18 @@ impl Facts {
             declaration_reach: &self.declaration_reach,
             module_object_types: &self.module_object_types,
             uninstalled_projects: &self.uninstalled_projects,
+            knip_unused_members: &self.knip_unused_members,
+            knip_dot_ignore_imports: &self.knip_dot_ignore_imports,
+            knip_dot_ignore_credits: &self.knip_dot_ignore_credits,
+            heft_credits: &self.heft_credits,
+            type_asserted_requires: &self.type_asserted_requires,
+            module_object_values: &self.module_object_values,
+            commonjs_default_members: &self.commonjs_default_members,
+            template_import_reach: &self.template_import_reach,
+            installed_main_reach: &self.installed_main_reach,
+            type_referenced_members: &self.type_referenced_members,
+            raw_glob_reach: &self.raw_glob_reach,
+            typescript_twins: &self.typescript_twins,
             rush_root,
             replaced_knip_config: !options.repo_knip_config,
             layout,
@@ -6404,6 +7119,18 @@ mod tests {
             declaration_reach: &NO_KEYS,
             module_object_types: &NO_KEYS,
             uninstalled_projects: &NO_KEYS,
+            knip_unused_members: &NO_KEYS,
+            knip_dot_ignore_imports: &NO_KEYS,
+            knip_dot_ignore_credits: &NO_KEYS,
+            heft_credits: &NO_KEYS,
+            type_asserted_requires: &NO_KEYS,
+            module_object_values: &NO_KEYS,
+            commonjs_default_members: &NO_KEYS,
+            template_import_reach: &NO_KEYS,
+            installed_main_reach: &NO_KEYS,
+            type_referenced_members: &NO_KEYS,
+            raw_glob_reach: &NO_KEYS,
+            typescript_twins: &NO_KEYS,
             rush_root: false,
             replaced_knip_config: false,
             layout,
@@ -8584,7 +9311,7 @@ vi.mock("mocked-package");
             "adev/pipeline/globbed/a.mts",
             "plain/a.mts",
         ]);
-        let reached = bazel_reach(&sources, (&knip_unused, &BTreeSet::new()), &is_file, &read);
+        let reached = reach_from_sources(&sources, (&knip_unused, &BTreeSet::new()), &is_file, &read);
         assert_eq!(
             reached,
             strings(&[
@@ -8593,7 +9320,7 @@ vi.mock("mocked-package");
                 "adev/pipeline/lib/util.mts",
             ])
         );
-        assert!(bazel_reach(&sources, (&knip_unused, &knip_unused), &is_file, &read).is_empty());
+        assert!(reach_from_sources(&sources, (&knip_unused, &knip_unused), &is_file, &read).is_empty());
 
         let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
         let classifier = Classifier {
@@ -9683,7 +10410,8 @@ vi.mock("mocked-package");
             "app-store/helpers.ts|HelperOptions",
             "app-store/lonely.ts|LonelyType",
         ]);
-        let found = module_object_types(&types, &files, &resolver, &read);
+        let credits = module_object_credits(&files, &resolver, &read);
+        let found = module_objects(&types, &credits);
         assert_eq!(
             found,
             strings(&[
@@ -9693,7 +10421,7 @@ vi.mock("mocked-package");
             ]),
             "an `import()` uses its module as a whole, also through `export *`; a named import and no import do not"
         );
-        assert!(module_object_types(&BTreeSet::new(), &files, &resolver, &read).is_empty());
+        assert!(module_objects(&BTreeSet::new(), &credits).is_empty());
         let classifier = Classifier {
             module_object_types: &found,
             ..bare(&layout)
@@ -9731,5 +10459,717 @@ vi.mock("mocked-package");
                 "{side:?} {category} {key}"
             );
         }
+    }
+
+    /// The manifests among `sources`, by directory: what `<dir>/package.json` holds, parsed.
+    fn manifests_in(sources: &BTreeMap<&str, &str>) -> BTreeMap<String, Rc<Value>> {
+        sources
+            .iter()
+            .filter_map(|(path, text)| {
+                let dir = path.strip_suffix("package.json")?.trim_end_matches('/');
+                Some((dir.to_owned(), Rc::new(serde_json::from_str(text).unwrap())))
+            })
+            .collect()
+    }
+
+    /// Asserts how `classifier` classifies each `(side, category, key)` of `cases`.
+    fn assert_classified(classifier: &Classifier<'_>, cases: &[(Side, &str, &str, Option<&str>)]) {
+        for (side, category, key, expected) in cases {
+            assert_eq!(
+                classifier.classify(*side, category, key),
+                *expected,
+                "{side:?} {category} {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn dependencies_heft_configs_and_rig_profiles_credit_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "app/package.json",
+                r#"{ "name": "app", "devDependencies": { "@rushstack/heft": "1", "@rushstack/heft-lint-plugin": "1", "local-rig": "1", "left-pad": "1" } }"#,
+            ),
+            (
+                "app/config/heft.json",
+                r#"{ "phasesByName": { "build": { "tasksByName": { "lint": { "taskPlugin": { "pluginPackage": "@rushstack/heft-lint-plugin" } } } } } }"#,
+            ),
+            ("app/config/rig.json", r#"{ "rigPackageName": "local-rig" }"#),
+            (
+                "rig/package.json",
+                r#"{ "name": "local-rig", "dependencies": { "@rushstack/heft": "1", "@rushstack/heft-jest-plugin": "1", "jest-environment-node": "1", "unused-dep": "1" } }"#,
+            ),
+            (
+                "rig/profiles/default/config/heft.json",
+                r#"{ "phasesByName": { "test": { "tasksByName": { "jest": { "taskPlugin": { "pluginPackage": "@rushstack/heft-jest-plugin" } } } } } }"#,
+            ),
+            (
+                "rig/node_modules/@rushstack/heft-jest-plugin/package.json",
+                r#"{ "name": "@rushstack/heft-jest-plugin", "peerDependencies": { "jest-environment-node": "*" } }"#,
+            ),
+            (
+                "plain/package.json",
+                r#"{ "name": "plain", "dependencies": { "@rushstack/heft-lint-plugin": "1" } }"#,
+            ),
+            (
+                "plain/config/heft.json",
+                r#"{ "heftPlugins": [{ "pluginPackage": "@rushstack/heft-lint-plugin" }] }"#,
+            ),
+        ]);
+        let mut memory = MemoryFs::new();
+        for (path, source) in &sources {
+            memory = memory.with_file(format!("/repo/{path}"), source);
+        }
+        let manifests = manifests_in(&sources);
+        let manifest = |dir: &str| manifests.get(dir).cloned();
+        let credits = heft_credits(["app", "rig", "plain", "missing"], &memory, Path::new("/repo"), &manifest);
+        assert_eq!(
+            credits,
+            strings(&[
+                "app/package.json|@rushstack/heft-lint-plugin",
+                "app/package.json|local-rig",
+                "rig/package.json|@rushstack/heft",
+                "rig/package.json|@rushstack/heft-jest-plugin",
+                "rig/package.json|jest-environment-node",
+            ]),
+            "a project's Heft configs, a rig's own profiles and the peers of what they load; a project that neither \
+             depends on Heft nor has a `config/rig.json` enables no `heft` plugin"
+        );
+        for (path, expected) in [
+            ("profiles/default/config/heft.json", true),
+            ("node_modules/@acme/web-rig/profiles/app/tsconfig-base.json", true),
+            ("node_modules/web-rig/profiles/app/tsconfig-base.json", true),
+            ("config/heft.json", false),
+            ("src/profiles/default/config.json", false),
+            ("profiles/default", false),
+            ("node_modules/@acme/web-rig/config/heft.json", false),
+        ] {
+            assert_eq!(in_rig_profile(path), expected, "{path}");
+        }
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(strings(&["app", "rig", "plain"]), &manifest, &is_file);
+        let classifier = Classifier {
+            heft_credits: &credits,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "devDependencies",
+                    "app/package.json|@rushstack/heft-lint-plugin",
+                    Some(HEFT_CONFIG),
+                ),
+                (
+                    Side::Tool,
+                    "dependencies",
+                    "rig/package.json|jest-environment-node",
+                    Some(HEFT_CONFIG),
+                ),
+                (Side::Tool, "devDependencies", "app/package.json|left-pad", None),
+                (Side::Tool, "dependencies", "rig/package.json|unused-dep", None),
+                (
+                    Side::Tool,
+                    "dependencies",
+                    "plain/package.json|@rushstack/heft-lint-plugin",
+                    None,
+                ),
+                (
+                    Side::Skif,
+                    "devDependencies",
+                    "app/package.json|@rushstack/heft-lint-plugin",
+                    None,
+                ),
+            ],
+        );
+    }
+
+    #[test]
+    fn findings_knip_misses_for_files_a_nested_dot_slash_ignore_hides_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            ("packages/core/.gitignore", "./memory\n"),
+            (
+                "packages/core/src/processors/memory/cache.ts",
+                "import { LRUCache } from 'lru-cache';\nimport { topic } from '../../agent/topic';\n\
+                 console.log(LRUCache, topic);\n",
+            ),
+            (
+                "packages/core/src/agent/topic.ts",
+                "export const topic = 1;\nexport const other = 2;\n",
+            ),
+            ("packages/core/src/index.ts", "import { z } from 'zod';\nconsole.log(z);\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let ignores = dot_slash_ignores(&[("packages/core/.gitignore".to_owned(), "./memory\n".to_owned())]);
+        let hidden: BTreeSet<String> = sources
+            .keys()
+            .filter(|file| in_dot_slash_ignore(&ignores, file))
+            .map(|file| (*file).to_owned())
+            .collect();
+        assert_eq!(hidden, strings(&["packages/core/src/processors/memory/cache.ts"]));
+        let workspace_of = |_: &str| "packages/core".to_owned();
+        let imports = unused_file_imports(&hidden, &BTreeSet::new(), &read, &workspace_of);
+        let credits = unused_file_credits(&hidden, &BTreeSet::new(), &resolver, &read);
+        let classifier = Classifier {
+            knip_dot_ignore_imports: &imports,
+            knip_dot_ignore_credits: &credits,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "dependencies",
+                    "packages/core/package.json|lru-cache",
+                    Some(KNIP_DOT_IGNORE),
+                ),
+                (
+                    Side::Tool,
+                    "exports",
+                    "packages/core/src/agent/topic.ts|topic",
+                    Some(KNIP_DOT_IGNORE),
+                ),
+                (Side::Tool, "dependencies", "packages/core/package.json|zod", None),
+                (Side::Tool, "exports", "packages/core/src/agent/topic.ts|other", None),
+                (Side::Skif, "dependencies", "packages/core/package.json|lru-cache", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn requires_a_typescript_as_asserts_a_type_of_are_read_from_the_text() {
+        let text = "const a = require('./a') as typeof import('./a');\n\
+                    const b = (require(\"./b\")\n  as typeof import('./b'));\n\
+                    const c = require('./c');\n\
+                    const d = myrequire('./d') as D;\n\
+                    const e = require('./e') asserted;\n\
+                    const f = require(name) as F;\n";
+        assert_eq!(type_asserted_requires(text), ["./a", "./b"]);
+    }
+
+    #[test]
+    fn exports_of_a_module_a_type_asserted_require_loads_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/stream-ops.ts",
+                "let m = require('./stream-ops.node') as typeof import('./stream-ops.node');\nexport const go = m.go;\n",
+            ),
+            (
+                "src/stream-ops.node.ts",
+                "export const go = 1;\nexport * from './shared';\n",
+            ),
+            ("src/shared.ts", "export const helper = 1;\n"),
+            ("src/plain.ts", "const p = require('./other');\nconsole.log(p.lonely);\n"),
+            ("src/other.ts", "export const lonely = 1;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let credits = type_asserted_require_credits(&files, &resolver, &read);
+        assert_eq!(credits, strings(&["src/shared.ts|*", "src/stream-ops.node.ts|*"]));
+        let classifier = Classifier {
+            type_asserted_requires: &credits,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "exports",
+                    "src/stream-ops.node.ts|go",
+                    Some(TYPE_ASSERTED_REQUIRE),
+                ),
+                (Side::Tool, "nsExports", "src/shared.ts|helper", Some(TYPE_ASSERTED_REQUIRE)),
+                (Side::Tool, "exports", "src/other.ts|lonely", None),
+                (Side::Tool, "types", "src/stream-ops.node.ts|go", None),
+                (Side::Skif, "exports", "src/stream-ops.node.ts|go", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn files_a_template_literal_require_matches_and_what_they_reach_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "lib/npm.js",
+                "const load = (c) => require(`./commands/${c}`);\nmodule.exports = load;\n",
+            ),
+            (
+                "lib/commands/access.js",
+                "const base = require('../base-cmd.js');\nmodule.exports = base;\n",
+            ),
+            ("lib/commands/stage/index.js", "module.exports = 1;\n"),
+            ("lib/commands/stage/list.js", "module.exports = 2;\n"),
+            ("lib/base-cmd.js", "module.exports = 3;\n"),
+            ("lib/meta.js", "const all = import.meta.glob(`./meta/*.js`);\n"),
+            ("lib/meta/one.js", "module.exports = 4;\n"),
+            ("lib/orphan.js", "module.exports = 5;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let targets = template_import_targets(&files, &read);
+        assert_eq!(
+            targets,
+            strings(&["lib/commands/access.js", "lib/commands/stage/index.js"]),
+            "a substitution stands for one path segment, or a directory's `index`; an `import.meta.glob` is no \
+             template literal call"
+        );
+        let knip_unused = strings(&[
+            "lib/base-cmd.js",
+            "lib/commands/access.js",
+            "lib/commands/stage/index.js",
+            "lib/commands/stage/list.js",
+            "lib/meta/one.js",
+            "lib/orphan.js",
+        ]);
+        let reached = reach_from_sources(&targets, (&knip_unused, &BTreeSet::new()), &is_file, &read);
+        assert_eq!(
+            reached,
+            strings(&["lib/base-cmd.js", "lib/commands/access.js", "lib/commands/stage/index.js"])
+        );
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            template_import_reach: &reached,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Tool, "files", "lib/commands/access.js", Some(TEMPLATE_LITERAL_IMPORT)),
+                (Side::Tool, "files", "lib/base-cmd.js", Some(TEMPLATE_LITERAL_IMPORT)),
+                (Side::Tool, "files", "lib/commands/stage/list.js", None),
+                (Side::Tool, "files", "lib/orphan.js", None),
+                (Side::Skif, "files", "lib/commands/access.js", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn exports_a_default_import_of_a_commonjs_module_reads_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "scripts/routing.cjs",
+                "function a() {}\nfunction b() {}\nfunction c() {}\nmodule.exports = { a, b, c };\n",
+            ),
+            (
+                "scripts/routing.test.ts",
+                "import routing from './routing.cjs';\nconst { a } = routing;\nrouting.b();\n",
+            ),
+            ("scripts/esm.ts", "export default {};\nexport const d = 1;\n"),
+            ("scripts/esm.test.ts", "import esm from './esm';\nconst { d } = esm;\nconsole.log(d);\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let exports = strings(&[
+            "scripts/esm.ts|d",
+            "scripts/routing.cjs|a",
+            "scripts/routing.cjs|b",
+            "scripts/routing.cjs|c",
+        ]);
+        let found = commonjs_default_members(&exports, &files, &resolver, &read);
+        assert_eq!(
+            found,
+            strings(&["scripts/routing.cjs|a", "scripts/routing.cjs|b"]),
+            "the properties read through the default import of `module.exports`; an ES module's default is no \
+             module object"
+        );
+        let classifier = Classifier {
+            commonjs_default_members: &found,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Tool, "exports", "scripts/routing.cjs|a", Some(COMMONJS_DEFAULT_IMPORT)),
+                (Side::Tool, "nsExports", "scripts/routing.cjs|b", Some(COMMONJS_DEFAULT_IMPORT)),
+                (Side::Tool, "exports", "scripts/routing.cjs|c", None),
+                (Side::Tool, "exports", "scripts/esm.ts|d", None),
+                (Side::Skif, "exports", "scripts/routing.cjs|a", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn files_an_installed_main_imports_and_what_they_reach_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "examples/rn/package.json",
+                r#"{ "name": "rn", "main": "node_modules/expo/AppEntry.js" }"#,
+            ),
+            (
+                "examples/rn/node_modules/expo/AppEntry.js",
+                "import App from '../../App';\nregister(App);\n",
+            ),
+            (
+                "examples/rn/App.tsx",
+                "import { List } from './src/List';\nexport default function App() { return List; }\n",
+            ),
+            ("examples/rn/src/List.tsx", "export const List = 1;\n"),
+            ("examples/rn/src/Orphan.tsx", "export const Orphan = 1;\n"),
+            ("examples/web/package.json", r#"{ "name": "web", "main": "dist/index.js" }"#),
+            ("examples/web/dist/index.js", "import '../src/page';\n"),
+            ("examples/web/src/page.ts", "export const page = 1;\n"),
+        ]);
+        let manifests = manifests_in(&sources);
+        let manifest = |dir: &str| manifests.get(dir).cloned();
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(strings(&["examples/rn", "examples/web"]), &manifest, &is_file);
+        let imports = installed_main_imports(["examples/rn", "examples/web", "missing"], &layout, &read);
+        assert_eq!(
+            imports,
+            strings(&["examples/rn/App.tsx"]),
+            "a `main` outside `node_modules` is the project's own file"
+        );
+        let knip_unused = strings(&[
+            "examples/rn/App.tsx",
+            "examples/rn/src/List.tsx",
+            "examples/rn/src/Orphan.tsx",
+            "examples/web/src/page.ts",
+        ]);
+        let reached = reach_from_sources(&imports, (&knip_unused, &BTreeSet::new()), &is_file, &read);
+        assert_eq!(reached, strings(&["examples/rn/App.tsx", "examples/rn/src/List.tsx"]));
+        let classifier = Classifier {
+            installed_main_reach: &reached,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Tool, "files", "examples/rn/src/List.tsx", Some(INSTALLED_MAIN)),
+                (Side::Tool, "files", "examples/rn/src/Orphan.tsx", None),
+                (Side::Tool, "files", "examples/web/src/page.ts", None),
+                (Side::Skif, "files", "examples/rn/App.tsx", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn value_exports_of_a_module_used_as_a_whole_object_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "nodes/methods/listSearch.ts",
+                "export async function searchA() {}\nexport async function searchB() {}\n",
+            ),
+            (
+                "nodes/Node.ts",
+                "import * as listSearch from './methods/listSearch';\nexport const methods = { listSearch };\n",
+            ),
+            ("nodes/helpers.ts", "export const used = 1;\nexport const unusedHelper = 2;\n"),
+            ("nodes/user.ts", "import * as helpers from './helpers';\nconsole.log(helpers.used);\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let credits = module_object_credits(&files, &resolver, &read);
+        let values = module_objects(
+            &strings(&["nodes/helpers.ts|unusedHelper", "nodes/methods/listSearch.ts|searchA"]),
+            &credits,
+        );
+        assert_eq!(values, strings(&["nodes/methods/listSearch.ts|searchA"]));
+        let classifier = Classifier {
+            module_object_values: &values,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "nsExports",
+                    "nodes/methods/listSearch.ts|searchA",
+                    Some(MODULE_OBJECT_VALUES),
+                ),
+                (Side::Tool, "exports", "nodes/helpers.ts|unusedHelper", None),
+                (Side::Tool, "types", "nodes/methods/listSearch.ts|searchA", None),
+                (Side::Skif, "nsExports", "nodes/methods/listSearch.ts|searchA", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn members_of_an_export_an_importer_refers_to_as_a_type_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            ("common/charCode.ts", "export const enum CharCode { Hash = 35, Digit0 = 48 }\n"),
+            (
+                "common/color.ts",
+                "import { CharCode } from './charCode';\n\
+                 export function digit(code: CharCode): number { return code === CharCode.Digit0 ? 0 : 1; }\n",
+            ),
+            (
+                "common/result.ts",
+                "export type CompareResult = number;\n\
+                 export namespace CompareResult { export function isLess(r: CompareResult) { return r < 0; } }\n\
+                 export enum Mode { A, B }\n",
+            ),
+            (
+                "common/compare.ts",
+                "import { CompareResult, Mode } from './result';\n\
+                 export const g = (r: CompareResult) => Mode.A;\n",
+            ),
+            ("common/flags.ts", "export enum Flag { On, Off }\n"),
+            (
+                "common/use-flag.ts",
+                "import { Flag as F } from './flags';\nexport const h = (f: F) => f;\n",
+            ),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        assert_eq!(
+            type_reference_names("common/use-flag.ts", "type T = typeof Q;\nlet x: Array<P> = [];\nlet y = z as R.S;\n"),
+            strings(&["Array", "P", "Q"])
+        );
+        let members = strings(&[
+            "common/charCode.ts|Hash",
+            "common/flags.ts|Off",
+            "common/result.ts|B",
+            "common/result.ts|isLess",
+        ]);
+        let found = type_referenced_members(&members, &files, &resolver, &read);
+        assert_eq!(
+            found,
+            strings(&["common/charCode.ts|Hash", "common/result.ts|isLess"]),
+            "an enum used only as a value and one imported under an alias stay compared"
+        );
+        let classifier = Classifier {
+            type_referenced_members: &found,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "enumMembers", "common/charCode.ts|Hash", Some(TYPE_REFERENCED_MEMBERS)),
+                (
+                    Side::Skif,
+                    "namespaceMembers",
+                    "common/result.ts|isLess",
+                    Some(TYPE_REFERENCED_MEMBERS),
+                ),
+                (Side::Skif, "enumMembers", "common/result.ts|B", None),
+                (Side::Skif, "enumMembers", "common/flags.ts|Off", None),
+                (Side::Tool, "enumMembers", "common/charCode.ts|Hash", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn members_a_file_only_knip_lists_unused_reads_split_off_on_knip_side() {
+        let sources = BTreeMap::from([
+            (
+                "nodes/Brevo/GenericFunctions.ts",
+                "export namespace BrevoNode {\n  export const INTERCEPTORS = new Map();\n  export const OTHER = 1;\n}\n",
+            ),
+            (
+                "nodes/Brevo/AttributeDescription.ts",
+                "import { BrevoNode } from './GenericFunctions';\nconsole.log(BrevoNode.INTERCEPTORS);\n",
+            ),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let members = strings(&[
+            "nodes/Brevo/GenericFunctions.ts|INTERCEPTORS",
+            "nodes/Brevo/GenericFunctions.ts|OTHER",
+        ]);
+        let used = members_used_by(&members, ["nodes/Brevo/AttributeDescription.ts"], &resolver, &read);
+        assert_eq!(used, strings(&["nodes/Brevo/GenericFunctions.ts|INTERCEPTORS"]));
+        let classifier = Classifier {
+            knip_unused_members: &used,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "namespaceMembers",
+                    "nodes/Brevo/GenericFunctions.ts|INTERCEPTORS",
+                    Some(IMPORTED_BY_KNIP_UNUSED_FILE),
+                ),
+                (Side::Tool, "namespaceMembers", "nodes/Brevo/GenericFunctions.ts|OTHER", None),
+                (
+                    Side::Skif,
+                    "namespaceMembers",
+                    "nodes/Brevo/GenericFunctions.ts|INTERCEPTORS",
+                    None,
+                ),
+            ],
+        );
+    }
+
+    #[test]
+    fn peers_of_a_package_a_file_only_knip_lists_unused_imports_are_used_in_that_file() {
+        let sources = BTreeMap::from([
+            (
+                "app/package.json",
+                r#"{ "name": "app", "dependencies": { "@react-navigation/stack": "1", "react-native-screens": "1", "left-pad": "1" } }"#,
+            ),
+            (
+                "app/node_modules/@react-navigation/stack/package.json",
+                r#"{ "name": "@react-navigation/stack", "peerDependencies": { "react-native-screens": "*" } }"#,
+            ),
+            (
+                "app/App.tsx",
+                "import { createStackNavigator } from '@react-navigation/stack';\nconsole.log(createStackNavigator);\n",
+            ),
+        ]);
+        let manifests = manifests_in(&sources);
+        let manifest = |dir: &str| manifests.get(dir).cloned();
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let workspace_of = |_: &str| "app".to_owned();
+        let imports = with_peer_credits(
+            unused_file_imports(&strings(&["app/App.tsx"]), &BTreeSet::new(), &read, &workspace_of),
+            &manifest,
+        );
+        assert_eq!(
+            imports,
+            strings(&[
+                "app/package.json|@react-navigation/stack",
+                "app/package.json|react-native-screens",
+            ])
+        );
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(strings(&["app"]), &manifest, &is_file);
+        let classifier = Classifier {
+            knip_unused_imports: &imports,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (
+                    Side::Tool,
+                    "dependencies",
+                    "app/package.json|react-native-screens",
+                    Some(USED_IN_KNIP_UNUSED_FILE),
+                ),
+                (Side::Tool, "dependencies", "app/package.json|left-pad", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn findings_in_paths_knip_takes_for_node_modules_split_off_on_skif_side() {
+        for (path, expected) in [
+            ("js/private/test/node_modules_in_sandbox.test.mjs", true),
+            ("src/my_node_modules/index.js", true),
+            ("app/node_modules/pkg/node_modules_x.js", false),
+            ("src/modules.js", false),
+        ] {
+            assert_eq!(named_like_node_modules(path), expected, "{path}");
+        }
+        with_classifier(&[], &[], &[], |classifier| {
+            assert_classified(
+                classifier,
+                &[
+                    (
+                        Side::Skif,
+                        "files",
+                        "js/private/test/node_modules_in_sandbox.test.mjs",
+                        Some(KNIP_NODE_MODULES_NAME),
+                    ),
+                    (
+                        Side::Skif,
+                        "exports",
+                        "src/my_node_modules/index.js|x",
+                        Some(KNIP_NODE_MODULES_NAME),
+                    ),
+                    (Side::Skif, "files", "src/modules.js", None),
+                    (Side::Skif, "files", "app/node_modules/pkg/node_modules_x.js", None),
+                    (Side::Tool, "files", "js/private/test/node_modules_in_sandbox.test.mjs", None),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn files_an_import_meta_glob_reads_as_text_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            (
+                "src/app/views.ts",
+                "const raw = import.meta.glob('../components/*.vue', { query: '?raw' });\n\
+                 const modules = import.meta.glob('./*.vue');\nconsole.log(raw, modules);\n",
+            ),
+            ("src/components/Button.vue", "<template><div /></template>\n"),
+            ("src/app/Local.vue", "<template><span /></template>\n"),
+            ("src/other/Lonely.vue", "<template><p /></template>\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let targets = raw_glob_targets(&files, &read);
+        assert_eq!(targets, strings(&["src/components/Button.vue"]), "a glob loading modules reads no text");
+        let skif_unused = strings(&["src/components/Button.vue", "src/other/Lonely.vue"]);
+        let reached = reach_from_sources(&targets, (&skif_unused, &BTreeSet::new()), &is_file, &read);
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            raw_glob_reach: &reached,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "files", "src/components/Button.vue", Some(RAW_GLOB_READ)),
+                (Side::Skif, "files", "src/other/Lonely.vue", None),
+                (Side::Tool, "files", "src/components/Button.vue", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn javascript_files_named_beside_a_typescript_twin_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            ("ex/sum.ts", "export default 1;\n"),
+            ("ex/sum.js", "module.exports = 1;\n"),
+            (
+                "ex/__tests__/sum.test.js",
+                "const a = require('../sum.ts');\nconst b = require('../sum.js');\nconst c = require('../lone.js');\n",
+            ),
+            ("ex/other.ts", "export default 2;\n"),
+            ("ex/other.js", "module.exports = 2;\n"),
+            ("ex/user.js", "const o = require('./other');\n"),
+            ("ex/lone.js", "module.exports = 3;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let unused: BTreeSet<&str> = ["ex/sum.js", "ex/other.js", "ex/lone.js"].into_iter().collect();
+        let twins = typescript_twin_files(&unused, &files, &is_file, &read);
+        assert_eq!(
+            twins,
+            strings(&["ex/sum.js"]),
+            "a twin no specifier names with its extension, and a file without a twin, stay compared"
+        );
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let classifier = Classifier {
+            typescript_twins: &twins,
+            ..bare(&layout)
+        };
+        assert_classified(
+            &classifier,
+            &[
+                (Side::Skif, "files", "ex/sum.js", Some(TYPESCRIPT_TWIN)),
+                (Side::Skif, "files", "ex/other.js", None),
+                (Side::Tool, "files", "ex/sum.js", None),
+            ],
+        );
     }
 }

@@ -241,8 +241,9 @@ lists under `files` is the `in-knip-unused-file` known deviation, and a finding 
 reports unused is `in-skif-unused-file`; unused files themselves and the manifest categories (`dependencies`,
 `devDependencies`, `optionalPeerDependencies`, `binaries`) stay compared. A dependency only knip reports unused is
 `used-in-knip-unused-file` when a file of the same workspace that only knip lists under `files` imports the package
-(an `@types/` package when it imports the runtime package); a file both tools report unused credits the package on
-neither side, so its dependencies stay compared: the harness parses those files with skif's parser
+(an `@types/` package when it imports the runtime package), and when the installed manifest of a package so imported
+names it in `peerDependencies`, as both tools credit the peers of a used package; a file both tools report unused
+credits the package on neither side, so its dependencies stay compared: the harness parses those files with skif's parser
 (`skif-js-syntax`) for their bare imports, requires, re-exports and dynamic imports. knip does not analyse such a
 file, so it never sees the import skif credits; the harness does not check that this import is the one skif counts.
 The mirror, a dependency only skif reports unused that a file of the same workspace only skif reports unused
@@ -253,8 +254,9 @@ configuration map (the nearest `tsconfig.json` or `jsconfig.json` with its `exte
 by the name of a workspace package (mapped to the source of what its manifest publishes), by name, through a
 namespace whose members it reads, or as a whole module (a namespace used as a whole, `import()`, `require`), directly
 or through the `export … from` and `export *` re-exports of the files in between (a star re-export forwards only the
-names the re-exporting file does not export itself). The mirror on skif's side is `imported-by-skif-unused-file`. Enum and namespace members stay
-compared: their key names the member, not the export an import reads.
+names the re-exporting file does not export itself). The mirror on skif's side is `imported-by-skif-unused-file`. An
+enum or namespace member only knip reports is `imported-by-knip-unused-file` too when such a file reads it
+(`BrevoNode.INTERCEPTORS`) or uses its export as a whole; on skif's side members stay compared.
 
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
@@ -379,14 +381,20 @@ manifest, not by listing findings:
   skif's `duplicate-exports` skips entry modules, whose names are all public API. Duplicates in entries that only
   skif's plugins or the configuration make stay compared.
 
-Two known deviations on skif's side follow from how knip reads a file:
+Three known deviations on skif's side follow from how knip reads a file:
 
 - `knip-dot-ignore`: a finding only skif reports (anything but a manifest finding) in a file that a `./` pattern of a
   `.gitignore` below the checkout root hides from knip. git matches no path with `./storage/`, since no path has a `.`
   segment; knip joins every pattern of a nested `.gitignore` to its directory, which drops the `./`, and ignores every
   file and directory named `storage` at any depth below it (mastra's `packages/core/.gitignore` hides
-  `src/storage/**`). knip neither reports such a file unused nor analyses its exports. The harness reads the
-  `.gitignore` files its file scan reaches and takes only patterns without wildcards.
+  `src/storage/**`). knip neither reports such a file unused nor analyses its exports or imports, so on knip's side
+  a dependency of the same workspace such a file imports (with its peers), and an export or type such a file
+  imports, are set apart as well: the import scans of `used-in-knip-unused-file` and `imported-by-knip-unused-file`
+  over the hidden files skif does not report unused (mastra's `lru-cache`, `posthog-node` and `rollup`). The harness
+  reads the `.gitignore` files its file scan reaches and takes only patterns without wildcards.
+- `knip-node-modules-name`: a finding only skif reports (anything but a manifest finding) in a file whose path holds
+  `node_modules` inside a name, below no `node_modules` directory (rules_js's `node_modules_in_sandbox.test.mjs`):
+  knip skips every path that contains the text (`isInNodeModules` in its `util/path.js`).
 - `re-export-alias`: a duplicate export only skif reports whose aliases (`export const b = a`) each name an export of
   the group initialised with an imported binding (`export const a = importedA`), no name being `default`. knip takes
   `export const a = importedA` for a re-export of the import and records no alias of a re-export, so it sees no
@@ -414,13 +422,52 @@ Two more follow from what knip makes an entry and how it credits a module object
   `import("./<app>/lib/CrmService")`, so the `CrmService` types are skif's only. Only the files that hold `import(`,
   `require(` or `* as ` are parsed.
 
+More follow from what knip reads no use in, where skif reads one with its parser or plugins:
+
+- `heft-config`: a dependency only knip reports unused that skif's `heft` plugin credits (ADR 0037): a project's
+  `config/heft.json`, `config/rig.json` or `config/jest.config.json`, or a rig's profile (`profiles/<profile>/` of the
+  rig itself, or of the installed rig a `config/rig.json` names) names it, or it is the peer of a package so named.
+  knip has no Heft plugin. The harness runs skif's plugin resolver (`skif-js-plugins`) for each project that owns such
+  a finding and takes what the `heft` plugin references, and what any plugin references from a rig profile's file
+  (the `tslib` an `importHelpers` of a profile's `tsconfig-base.json` needs).
+- `type-asserted-require`: an export or namespace export only knip reports in a file that a code file loads with a
+  `require` whose result an `as` asserts a type of (`require('./x') as typeof import('./x')`, next.js's
+  `stream-ops.ts`), or that such a file re-exports. knip does not follow a `require` wrapped in `as`. The harness
+  finds such a `require` in the text and resolves it as the import scan of `imported-by-knip-unused-file` does.
+- `module-object-values`: an export or namespace export only knip reports in a file that an import uses as a whole
+  module object, as skif's parser reads it (n8n's `methods = { listSearch, loadOptions }`, a namespace spread or
+  passed to `vi.mocked`, a `require` a callback returns), or that such a file re-exports. skif credits every value
+  export of such a module (ADR 0018); knip does not take these uses for whole ones.
+- `commonjs-default-import`: an export or namespace export only knip reports in a CommonJS file (`module.exports`, no
+  `default` export) that a default import reads as a property (`import routing from './ci-routing.cjs'` and then
+  `const { a } = routing` in mastra's `.github/scripts`). skif binds the default import to `module.exports`; knip
+  takes it for a use of `default`.
+- `template-literal-import`: an unused file only knip reports that a `require` or `import()` of a template literal
+  with a relative start matches (npm's ``require(`./commands/${c}`)`` in `lib/npm.js`), or that such a file reaches by
+  relative imports through other files only knip reports unused. skif reads each substitution as a `*` within one
+  path segment and matches the glob as its graph does; knip resolves no computed specifier.
+- `installed-main`: an unused file only knip reports that the installed file the `main` of its project names below
+  `node_modules` imports by relative path (`node_modules/expo/AppEntry.js` imports `../../App` in an Expo app), or that
+  such a file reaches. skif makes the `main` an entry; knip reads nothing in `node_modules`.
+- `type-referenced-members`: an enum or namespace member only skif reports whose enum, or namespace with exported
+  members (a type merged with a namespace, vscode's `CompareResult`), a code file imports by name from the member's
+  file without an alias and refers to as a type (`code: CharCode`, `typeof E`). knip skips the member findings of an
+  export an importer refers to so while `nsTypes` is not reported (`getMemberIssues` in its `graph/analyze.js`);
+  for skif a type reference reads no member. The harness reads the type references with oxc.
+- `raw-glob-read`: an unused file only skif reports that an `import.meta.glob` reading the matched files as text
+  matches (`import.meta.glob('../../**/*.vue', { query: '?raw' })` in n8n's `editor-ui`), or that such a file reaches.
+  knip counts the glob as a use; skif reads the files' text and keeps none of them in use.
+- `typescript-twin`: an unused JavaScript file only skif reports that lies beside a TypeScript file of the same stem
+  and that a code file names with its extension (`require('../sum.js')` beside `sum.ts` in jest's
+  `examples/typescript`). skif resolves the specifier in TypeScript's order, to the twin; knip to the file it names.
+
 `non-member-project`, `published-source`, `published-file` and `entry-module-duplicate` check where a finding is, not
-why skif has no finding there. npm's `lib/commands` files that skif reaches through a computed `require` in
-`lib/npm.js` stay compared: the harness cannot check them from its data. See
+why skif has no finding there. See
 [ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness.md),
 [ADR 0040](../../adrs/0040-more-known-deviations-of-the-knip-comparison.md),
 [ADR 0053](../../adrs/0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) and
-[ADR 0056](../../adrs/0056-knip-tsconfig-declaration-entries-and-module-object-types.md).
+[ADR 0056](../../adrs/0056-knip-tsconfig-declaration-entries-and-module-object-types.md) and
+[ADR NNNN](../../adrs/NNNN-uses-knip-does-not-read.md).
 
 **Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
 has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no
