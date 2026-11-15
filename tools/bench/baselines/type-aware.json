@@ -100,7 +100,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "babel": {
       "status": "compared",
@@ -203,7 +203,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "cal-com": {
       "status": "compared",
@@ -311,7 +311,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "create-t3-turbo": {
       "status": "compared",
@@ -339,7 +339,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "jest": {
       "status": "compared",
@@ -427,7 +427,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "mastra": {
       "status": "compared",
@@ -580,7 +580,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "n8n": {
       "status": "compared",
@@ -693,7 +693,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "next-js": {
       "status": "compared",
@@ -866,7 +866,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "npm-cli": {
       "status": "compared",
@@ -934,7 +934,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "nx-examples-integrated": {
       "status": "compared",
@@ -957,7 +957,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "opencode": {
       "status": "compared",
@@ -1055,7 +1055,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "rules-js": {
       "status": "compared",
@@ -1138,7 +1138,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "rushstack": {
       "status": "compared",
@@ -1216,7 +1216,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "tanstack-query": {
       "status": "compared",
@@ -1279,7 +1279,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "turborepo-examples": {
       "status": "compared",
@@ -1327,7 +1327,7 @@
       },
       "installed": false,
       "recursive": true,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "vercel-examples": {
       "status": "compared",
@@ -1445,7 +1445,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "vscode": {
       "status": "compared",
@@ -1583,7 +1583,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     },
     "vue-core": {
       "status": "compared",
@@ -1651,7 +1651,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "4d9cd2d946c0"
+      "skif_rev": "fd077afde26d"
     }
   }
 }
