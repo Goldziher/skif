@@ -2502,9 +2502,7 @@ impl Classifier<'_> {
                     (!MANIFEST_CATEGORIES.contains(&category) && in_dot_slash_ignore(self.knip_dot_ignores, path))
                         .then_some(KNIP_DOT_IGNORE)
                 })
-                .or_else(|| {
-                    (category == "duplicates" && self.reexport_aliases.contains(key)).then_some(REEXPORT_ALIAS)
-                })
+                .or_else(|| (category == "duplicates" && self.reexport_aliases.contains(key)).then_some(REEXPORT_ALIAS))
                 .or_else(|| {
                     self.skif_non_member_project(category, path)
                         .then_some(NON_MEMBER_PROJECT)
@@ -3064,7 +3062,10 @@ fn dot_slash_ignores(gitignores: &[(String, String)]) -> Vec<(String, Vec<String
                 continue;
             }
             let segments: Vec<String> = pattern.split('/').map(str::to_owned).collect();
-            if segments.iter().any(|segment| segment.is_empty() || segment == "." || segment == "..") {
+            if segments
+                .iter()
+                .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+            {
                 continue;
             }
             found.push((dir.to_owned(), segments));
@@ -4210,11 +4211,10 @@ impl Facts {
         let workspace_of = |file: &str| owner_dir(file, &|dir: &str| layout.is_workspace(dir));
         let (knip_unused, skif_unused) = (unused_files(knip), unused_files(skif));
         let resolver = Resolver::new(layout, &read_source);
-        let (gitignores, files): (Vec<String>, Vec<String>) = checkout_files(root, &|name: &str| {
-            name == GITIGNORE || has_code_extension(name)
-        })
-        .into_iter()
-        .partition(|path| path.rsplit('/').next() == Some(GITIGNORE));
+        let (gitignores, files): (Vec<String>, Vec<String>) =
+            checkout_files(root, &|name: &str| name == GITIGNORE || has_code_extension(name))
+                .into_iter()
+                .partition(|path| path.rsplit('/').next() == Some(GITIGNORE));
         let build_files = read_build_files(root, &is_project);
         let knip_unlisted = one_sided(knip, skif, "unlisted");
         let root_packages = skif_root_packages(skif_doc);
@@ -7675,7 +7675,10 @@ vi.mock("mocked-package");
         assert!(!gql_entries.contains("lib/other.ts"));
         assert!(!PluginEntries::none().contains("lib/gql/graphql.ts"));
         assert_eq!(
-            packages_below(&strings(&["", "templates/kyc", "templates/kyc/portal", "templates/kycx"]), "templates/kyc"),
+            packages_below(
+                &strings(&["", "templates/kyc", "templates/kyc/portal", "templates/kycx"]),
+                "templates/kyc"
+            ),
             ["portal"]
         );
 
@@ -7710,7 +7713,10 @@ vi.mock("mocked-package");
             ]
         );
         let (_, not_root) = entry_modules(&keys, &files, &layout, (&BTreeSet::new(), entries_of));
-        assert!(not_root.is_empty(), "a project skif does not lint as a root package has no entries here");
+        assert!(
+            not_root.is_empty(),
+            "a project skif does not lint as a root package has no entries here"
+        );
         let root_entry_reexports = entry_reexports(defaults, &resolver, &read);
         let classifier = Classifier {
             root_entry_reexports: &root_entry_reexports,
@@ -7733,7 +7739,11 @@ vi.mock("mocked-package");
                 "templates/kyc/src/mastra/workflows/steps/collect.ts|resumeSchema",
                 None,
             ),
-            ("nsTypes", "examples/gql/lib/gql/graphql.ts|Maybe", Some(NON_MEMBER_PROJECT)),
+            (
+                "nsTypes",
+                "examples/gql/lib/gql/graphql.ts|Maybe",
+                Some(NON_MEMBER_PROJECT),
+            ),
             ("types", "examples/gql/lib/other.ts|Other", None),
             ("enumMembers", "templates/kyc/src/mastra/tools/start.ts|A", None),
         ] {
@@ -7756,7 +7766,10 @@ vi.mock("mocked-package");
             ),
         ]);
         let sources = BTreeMap::from([
-            ("packages/next/client.js", "module.exports = require('./dist/client/index')\n"),
+            (
+                "packages/next/client.js",
+                "module.exports = require('./dist/client/index')\n",
+            ),
             ("packages/next/client.d.ts", "export * from './dist/client/index'\n"),
             ("packages/next/app.js", "module.exports = require('./compat/app')\n"),
             ("packages/next/dist/server/next.js", "require('../client/other');\n"),
@@ -7787,7 +7800,10 @@ vi.mock("mocked-package");
         let reach = published_reach(&knip_unused, &BTreeSet::new(), &layout, &read);
         assert_eq!(
             reach,
-            strings(&["packages/next/src/client/helper.ts", "packages/next/src/client/index.tsx"])
+            strings(&[
+                "packages/next/src/client/helper.ts",
+                "packages/next/src/client/index.tsx"
+            ])
         );
         let classifier = Classifier {
             published_reach: &reach,
@@ -7845,7 +7861,12 @@ vi.mock("mocked-package");
                 "packages/core/src/storage/logs.ts|createLog|log",
                 Some(KNIP_DOT_IGNORE),
             ),
-            (Side::Skif, "files", "packages/core/src/storage/old.ts", Some(KNIP_DOT_IGNORE)),
+            (
+                Side::Skif,
+                "files",
+                "packages/core/src/storage/old.ts",
+                Some(KNIP_DOT_IGNORE),
+            ),
             (Side::Skif, "exports", "packages/core/src/other.ts|x", None),
             (Side::Tool, "exports", "packages/core/src/storage/logs.ts|x", None),
         ] {
@@ -7866,7 +7887,10 @@ vi.mock("mocked-package");
                  export const DailyLocationType = importedDaily;\n\
                  export const CalVideoLocationType = DailyLocationType;\n",
             ),
-            ("menu.ts", "export const inset = 'pl-1';\nexport const labelInset = inset;\n"),
+            (
+                "menu.ts",
+                "export const inset = 'pl-1';\nexport const labelInset = inset;\n",
+            ),
             (
                 "with-default.ts",
                 "import { a } from './a';\nexport const b = a;\nexport const c = b;\nexport default c;\n",
