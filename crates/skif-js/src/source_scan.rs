@@ -152,6 +152,28 @@ mod tests {
     }
 
     #[test]
+    fn a_worker_path_built_from_dirname_is_a_whole_module_import() {
+        let source = "const a = new Worker(path.join(__dirname, \"../workers/slots.worker.js\"));\n\
+                      const b = new Worker( resolve(__dirname, 'jobs', 'run.js') );\n\
+                      new Worker(path.join(process.cwd(), 'x.js'));\nnew Worker(path.join(__dirname, name));\n\
+                      new Worker(path.join(__dirname, '/abs.js'));\nnew Worker('./relative-to-cwd.js');";
+        let mut info = ModuleInfo::default();
+        add_textual_imports(&mut info, source);
+        let found: Vec<(&str, ImportKind)> = info
+            .imports
+            .iter()
+            .map(|import| (import.specifier.as_str(), import.kind))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("../workers/slots.worker.js", ImportKind::Url),
+                ("./jobs/run.js", ImportKind::Url)
+            ]
+        );
+    }
+
+    #[test]
     fn a_url_target_is_added_next_to_a_named_import_of_the_same_file() {
         let source =
             "import { a } from './a.ts';\nnew URL('./a.ts', import.meta.url);\nnew URL('./a.ts', import.meta.url);";
