@@ -272,6 +272,10 @@ All notable changes to this project are documented here. The format follows
   `import.meta.filename` and `__filename` make the call resolve from the file. Before, the package was reported as an
   unlisted dependency of the file's package. The parse cache schema is raised
   ([ADR NNNN](adrs/NNNN-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+- `unlisted-dependencies`: the `cliPackageName` of a `@rushstack/heft-storybook-plugin` task no longer has to be listed
+  by the project: the plugin resolves it from the storykit package, whose dependency it is. A listing in the project
+  is still used; the `storykitPackageName` is still required
+  ([ADR NNNN](adrs/NNNN-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
 - `unused-dependencies`, `unused-dev-dependencies`: the `next` plugin names `react` and `react-dom` for a package
   without a `next.config` only when the package depends on `next` itself. A package that inherits the plugin from the
   root's `next` (a test fixture package of the workspace) is judged by its own uses of React. Before, its `react` was
