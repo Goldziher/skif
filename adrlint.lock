@@ -144,7 +144,7 @@ blake3 = "bd22d2380cada08e296ad5c262bdb65f13e02ec94caa154c50925d924a1d156c"
 [adrs."adrs/0029-performance-caching-benchmarks-and-budgets.md"]
 number = 29
 status = "accepted"
-blake3 = "56a456d4a663e958aa33a93f4f7d17b77b33f287ba85c432064bd9b407909a18"
+blake3 = "8bc4473ad8cca9a935a6c6c60e3d30661ac04edce10e6c57647b9cc543bb5bad"
 
 [adrs."adrs/0030-supported-versions-and-the-end-to-end-matrix.md"]
 number = 30
@@ -169,4 +169,4 @@ blake3 = "938b925db25579b7fafee97cfdecfbb930816ddf27ac814f3da363a658c01142"
 [adrs."adrs/0034-type-aware-analysis-on-tsrs.md"]
 number = 34
 status = "accepted"
-blake3 = "c9b8bf73b9cd342ef8235753ccf2d4a248acc9ca17d391f289bcba25e0b27ab4"
+blake3 = "17558ad77eb714ff56671aeef78fa4128c015487c6bd612c9ba48fad541b0cb8"

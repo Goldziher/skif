@@ -39,32 +39,42 @@ losing its speed and without failing on projects that have no types?
 
 ## Considered Options
 
-* tsrs alongside oxc behind one boundary crate with exact pins, on by default, switchable off, untyped per package
-  where types are missing
-* tsrs, opt-in (off by default)
+* tsrs alongside oxc behind one boundary crate with exact pins, opt-in (off by default), untyped per package where
+  types are missing
+* tsrs alongside oxc behind the same boundary, on by default and switchable off
 * Type information from `tsc` or `tsserver` run as a child process
 * No type awareness: improve the name-based heuristics only
 
 ## Decision Outcome
 
-Chosen option: "tsrs alongside oxc behind one boundary crate with exact pins, on by default, switchable off, untyped
-per package where types are missing", because it gives the accurate answer wherever a project has types, keeps the
-untyped analysis everywhere else, lets a user trade accuracy for speed in one switch, and confines tsrs and its
-process-level choices to one crate.
+Chosen option: "tsrs alongside oxc behind one boundary crate with exact pins, opt-in (off by default), untyped per
+package where types are missing", because it gives the accurate answer wherever a project with types asks for it,
+keeps the untyped analysis everywhere else, lets a user trade speed for accuracy in one switch, and confines tsrs and
+its process-level choices to one crate.
+
+It is opt-in because of what a typed run costs today. Every TypeScript program parses the lib and `@types` files
+again, and on a 4-vCPU GitHub runner the benchmark of
+[ADR 0029](0029-performance-caching-benchmarks-and-budgets.md) measured typed runs at 3 to 25 times the untyped time,
+and slower than knip: babel 18.2 s typed against 1.0 s untyped and 5.3 s for knip, tanstack-query 10.0 s against
+0.41 s and 3.4 s, n8n 32.2 s against 6.1 s, vscode 14.7 s against 4.3 s and 14.2 s. That breaks the budget of
+ADR 0029 and the speed skif is chosen for. Types become the default again once the programs of a run share their
+parsed lib and `@types` files, which a new ADR records.
 
 ### The engine and its switches
 
 * tsrs runs alongside oxc. oxc stays the only source of the graph and of the syntax facts; types only add answers about
   which declaration a member read reaches.
-* Type awareness is on by default: `[js] type-aware = true`
-  ([ADR 0005](0005-the-js-table-ignore-lists-and-suppression-reasons.md)). `[js] type-aware = false`,
-  `[js.workspaces."<dir>"] type-aware = false`, the CLI flag `--no-type-aware`
-  ([ADR 0024](0024-cli-contract.md)) and the npm option `noTypeAware` turn it off. With it off no tsrs code runs and no
-  memory is reserved for it.
+* Type awareness is off by default: `[js] type-aware = false`
+  ([ADR 0005](0005-the-js-table-ignore-lists-and-suppression-reasons.md)). `[js] type-aware = true`,
+  `[js.workspaces."<dir>"] type-aware = true`, the CLI flag `--type-aware` ([ADR 0024](0024-cli-contract.md)) and the
+  npm option `typeAware` turn it on; `--type-aware` also overrides every workspace that sets the key. `--no-type-aware`
+  and the npm option `noTypeAware` keep it off over the configuration and win over the option that turns it on; the
+  two flags conflict. With it off no tsrs code runs and no memory is reserved for it.
 * The facade's Cargo feature `type-aware` is off by default, as `js-analysis` is
-  ([ADR 0003](0003-library-api-and-embedding.md)); the CLI and the npm addon enable it. A build without it reports every
-  package untyped with the reason `not-built`.
-* `skif lsp`, `skif mcp` and `--watch` run untyped ([ADR 0028](0028-editors-agents-and-git-hooks.md)).
+  ([ADR 0003](0003-library-api-and-embedding.md)); the CLI and the npm addon enable it, so `--type-aware` needs no
+  other build. A build without it reports every package untyped with the reason `not-built`.
+* `skif lsp`, `skif mcp` and `--watch` run untyped ([ADR 0028](0028-editors-agents-and-git-hooks.md));
+  `--type-aware` conflicts with `--watch`.
 
 ### The boundary
 
@@ -141,11 +151,15 @@ process-level choices to one crate.
 
 * Good, because member findings in typed projects are as precise as the checker, the precision of
   TypeScript's language service.
-* Good, because a project without types loses nothing, and one switch restores the untyped speed.
+* Good, because a project without types loses nothing, the default run keeps the untyped speed, and one switch
+  turns on the precise member findings.
 * Good, because hosts that do not want tsrs never build it, the addon cannot abort Node.js through a reservation, and
   upgrades are visible and measured.
-* Bad, because typed runs read and bind every file of each program a second time, beside oxc's parse; the cost is
-  published and budgeted, not avoided.
+* Bad, because typed runs read and bind every file of each program a second time, beside oxc's parse, and parse the
+  lib and `@types` files once per program; the cost is published and budgeted, not avoided, and keeps types off by
+  default until those files are shared.
+* Bad, because the default run keeps the less accurate member findings, and users who never turn types on never get
+  the precise ones.
 * Bad, because skif takes on a large pre-release dependency with process-level constraints, the CLI binary grows by the
   checker, the emitter crates tsrs's compiler pulls in and the embedded `lib.*.d.ts` files, and the boundary copies
   every fact into owned types.
@@ -161,9 +175,14 @@ process-level choices to one crate.
   `typed_mode_only_removes_enum_and_namespace_findings`,
   `a_package_without_tsconfig_keeps_name_based_class_member_findings`, `uninstalled_dependencies_credit_reads_by_name`,
   `a_vue_template_reading_a_class_member_by_name_keeps_it_used`, `the_report_summarizes_a_mixed_workspace`,
-  `a_workspace_that_turns_types_off_is_reported_disabled`, `explain_usage_names_the_typed_evidence` and
+  `a_workspace_that_turns_types_off_is_reported_disabled`, `types_are_off_by_default`,
+  `a_workspace_that_turns_types_on_is_typed_under_the_off_default`, `explain_usage_names_the_typed_evidence` and
   `explain_usage_names_reads_credited_by_name_through_unresolved_receivers`.
-* `crates/skif-js/tests/type_aware_off.rs`: `no_type_aware_runs_no_checker`.
+* `crates/skif-js/tests/type_aware_off.rs`: `types_off_by_default_by_the_file_or_by_no_type_aware_run_no_checker`.
+* `crates/skif-config/tests/config.rs`: `defaults_are_sensible`, `type_aware_wins_over_the_file_and_every_workspace`,
+  `no_type_aware_wins_over_the_file_and_every_workspace`, `no_type_aware_wins_over_type_aware` and
+  `the_file_turns_types_on_over_the_off_default`; `crates/skif-cli/src/args.rs`:
+  `type_aware_and_no_type_aware_conflict` and `type_aware_conflicts_with_watch`.
 * `crates/skif-js-types/tests/members.rs`:
   `a_typed_receiver_credits_its_class_and_not_a_same_named_member_of_another_class`,
   `a_union_receiver_credits_the_member_on_every_class_of_the_union`,
@@ -188,21 +207,22 @@ process-level choices to one crate.
 * `crates/skif-js-types/tests/arenas.rs`: `repeated_analyses_free_their_arenas`.
 * `scripts/check-pins.sh` fails unless every tsrs crate is pinned with `=` to one version;
   `scripts/check-dependency-tree.sh` fails when a crate other than `skif-js-types` reaches a tsrs crate or `skif`
-  without default features does; `scripts/npm-smoke.sh` runs the addon with and without `noTypeAware`.
+  without default features does; `scripts/npm-smoke.sh` runs the addon with `typeAware` and with `noTypeAware`.
 
 ## Pros and Cons of the Options
 
-### tsrs alongside oxc behind one boundary crate with exact pins, on by default, switchable off, untyped per package where types are missing
+### tsrs alongside oxc behind one boundary crate with exact pins, opt-in (off by default), untyped per package where types are missing
 
-* Good, because the accurate answer is the default where it is available, and untyped packages keep the untyped
-  analysis.
+* Good, because the default run keeps the untyped speed, and untyped packages keep the untyped analysis when types are
+  on.
 * Good, because the constraints of tsrs are handled in one crate and stay out of the rest of skif.
-* Bad, because the default run is slower than an untyped run.
-
-### tsrs, opt-in (off by default)
-
-* Good, because the default run keeps the untyped speed.
 * Bad, because most users never turn it on and keep the less accurate member findings.
+
+### tsrs alongside oxc behind the same boundary, on by default and switchable off
+
+* Good, because the accurate answer is the default where it is available.
+* Bad, because the default run takes 3 to 25 times the untyped time while every program parses the lib and `@types`
+  files again, slower than knip on babel and tanstack-query.
 
 ### Type information from `tsc` or `tsserver` run as a child process
 
