@@ -142,6 +142,7 @@ All notable changes to this project are documented here. The format follows
   `explain-usage` says `resolve: its path, loaded by it: every value export`
   ([ADR 0059](adrs/0059-resolve-calls-use-the-values-of-the-module.md),
   [#165](https://github.com/Goldziher/skif/issues/165)).
+
 - `unused-dev-dependencies` reports a `devDependencies` entry of a package that the same manifest lists in
   `dependencies`, used or not ("is listed in `devDependencies` and in `dependencies`"), with the unsafe fix that
   removes it: the production entry installs the package for development as well. knip reports it too
