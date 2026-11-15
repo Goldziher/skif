@@ -392,6 +392,22 @@ Two known deviations on skif's side follow from how knip reads a file:
   `export const a = importedA` for a re-export of the import and records no alias of a re-export, so it sees no
   duplicate; skif counts every name that holds the one value. The harness reads the aliases with skif's parser.
 
+One more follows from what knip makes an entry:
+
+- `tsconfig-declaration-file`: knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the
+  `tsconfig.json` of one of its workspaces compiles a production entry, whose exports are public and whose imports it
+  reads: the paths `files` lists and the files the `include` globs match (everything below the configuration's
+  directory when neither is set), less the `exclude` globs, `node_modules`, the `outDir` and hidden directories, read
+  through `extends` with each list relative to the configuration that sets it. skif judges a module declaration file
+  like any module and makes it an entry only when something else does (ADR 0054 and 0055). Set apart are the exports,
+  types and members only skif reports in such a file (vscode's `extensions/git/src/api/git.d.ts`, cal-com's
+  `packages/types/*.d.ts`); the unlisted dependencies and unresolved imports only knip reports in one that no code file
+  imports (cal-com's `packages/types/AppGetServerSideProps.d.ts` and `next-auth`), as the import scan of
+  `imported-by-knip-unused-file` resolves imports, a declaration file also named by its stem with or without a built
+  extension when no source file takes the specifier; and the unused files only skif reports that such a file reaches by
+  relative imports, directly or through other files only skif reports unused (the files angular's
+  `*_isolated.golden.d.ts` compliance files import).
+
 `non-member-project`, `published-source`, `published-file` and `entry-module-duplicate` check where a finding is, not
 why skif has no finding there. npm's `lib/commands` files that skif reaches through a computed `require` in
 `lib/npm.js` stay compared: the harness cannot check them from its data. See

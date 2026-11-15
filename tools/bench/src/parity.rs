@@ -110,6 +110,7 @@ pub const UNINSTALLED_PROJECT: &str = "uninstalled-project";
 pub const TYPE_RESOLVED: &str = "type-resolved";
 pub const KNIP_DOT_IGNORE: &str = "knip-dot-ignore";
 pub const REEXPORT_ALIAS: &str = "re-export-alias";
+pub const TSCONFIG_DECLARATION_FILE: &str = "tsconfig-declaration-file";
 
 /// The name of a file of git ignore patterns.
 const GITIGNORE: &str = ".gitignore";
@@ -192,6 +193,12 @@ const IMPORTED_EXPORT_CATEGORIES: [&str; 5] = ["exports", "types", "nsExports", 
 /// The categories whose findings name a member of an enum or namespace export, `<file>|<member>`.
 const MEMBER_CATEGORIES: [&str; 2] = ["enumMembers", "namespaceMembers"];
 
+/// The categories whose findings name an import of a file that a tool reads: `<file>|<specifier>`.
+const IMPORT_CATEGORIES: [&str; 2] = ["unlisted", "unresolved"];
+
+/// The extensions of a declaration file, as knip's `IS_DTS` matches them.
+const DECLARATION_EXTENSIONS: [&str; 3] = [".d.ts", ".d.mts", ".d.cts"];
+
 /// The name that stands for every export of a file among the exports an import uses ([`unused_file_credits`]): a
 /// namespace used as a whole, `import()` or `require` of the module, or a star re-export of it.
 const WHOLE_MODULE: &str = "*";
@@ -234,7 +241,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 36] = [
+pub const KNIP_DEVIATIONS: [Deviation; 37] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -374,6 +381,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 36] = [
     Deviation {
         id: REEXPORT_ALIAS,
         reason: "skif reports these duplicate exports, in which every alias (`export const b = a`) names an export of the group that is itself initialised with an imported binding (`export const a = importedA`), and no name is `default`: knip takes such an export for a re-export of the import and records no alias of a re-export, so it reports no duplicate, while skif's `duplicate-exports` counts every name that holds the one value. The harness reads the aliases with skif's parser",
+    },
+    Deviation {
+        id: TSCONFIG_DECLARATION_FILE,
+        reason: "knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the `tsconfig.json` of one of its workspaces compiles a production entry: the files its `files` lists and its `include` globs select (everything below the configuration's directory when it sets neither), less its `exclude` globs, `node_modules` and the `outDir`, as knip reads the configuration and those it `extends`. The exports of an entry are public and its imports are read. skif judges a module declaration file like any module, an entry only when something else makes it one (ADR 0054, ADR 0055). Set apart: the exports, types and members skif reports in such a declaration file; the unlisted dependencies and unresolved imports knip reports in one that no code file of the checkout imports (relative, through the importer's tsconfig `paths` or as a subpath of a workspace package, by its stem with or without a built extension), whose imports skif never reads; and the unused files only skif reports that such a declaration file reaches by relative imports, directly or through other files only skif reports unused, which knip reaches from the entry",
     },
     Deviation {
         id: REPLACED_KNIP_CONFIG,
@@ -2318,9 +2329,15 @@ fn build_source(out_dir: &str, root_dir: &str, rel: &str) -> Option<String> {
 
 /// Whether `path` names a declaration file (`.d.ts`, `.d.mts`, `.d.cts`).
 fn is_declaration(path: &str) -> bool {
-    [".d.ts", ".d.mts", ".d.cts"]
+    declaration_stem(path).is_some()
+}
+
+/// The path of a declaration file without its declaration extension ([`DECLARATION_EXTENSIONS`]); `None` for another
+/// file.
+fn declaration_stem(path: &str) -> Option<&str> {
+    DECLARATION_EXTENSIONS
         .iter()
-        .any(|suffix| path.ends_with(suffix))
+        .find_map(|extension| path.strip_suffix(extension))
 }
 
 /// Whether the last segment of an `include` pattern names a file: it has a stem and a code extension.
@@ -2412,6 +2429,244 @@ fn build_dir_reader(root: &Path) -> impl Fn(&str) -> Vec<(String, String)> + '_ 
     }
 }
 
+/// A `files`, `include` or `exclude` list of a TypeScript configuration, with the directory of the configuration that
+/// sets it, which its entries are relative to.
+type LocatedEntries = (String, Vec<String>);
+
+/// What a TypeScript configuration sets of the files of its program, itself or through the configurations it
+/// `extends`: each list with the directory of the configuration that sets it, and the `outDir`, relative to the
+/// checkout.
+#[derive(Debug, Default)]
+struct ProgramSelection {
+    files: Option<LocatedEntries>,
+    include: Option<LocatedEntries>,
+    exclude: Option<LocatedEntries>,
+    out_dir: Option<String>,
+}
+
+/// What the configuration file `config` sets of `files`, `include`, `exclude` and `outDir`, itself or through the
+/// configurations it `extends` (a later entry of an `extends` list over an earlier one, the configuration itself over
+/// all of them), up to [`MAX_EXTENDS`] links, as knip reads them with `get-tsconfig`; `config_dir` is the directory of
+/// the configuration being resolved. Nothing for a file that cannot be read or is not JSON with comments.
+fn program_selection(
+    config: &str,
+    config_dir: &str,
+    (read, is_file): (&SourceReader<'_>, &FileProbe<'_>),
+    depth: usize,
+) -> ProgramSelection {
+    let Some(value) = read(config).and_then(|text| serde_json::from_str::<Value>(&strip_jsonc(&text)).ok()) else {
+        return ProgramSelection::default();
+    };
+    let dir = parent_dir(config);
+    let mut selection = ProgramSelection::default();
+    let mut extends = Vec::new();
+    if let Some(entries) = value.get("extends") {
+        collect_strings(entries, &mut extends);
+    }
+    if depth < MAX_EXTENDS {
+        for entry in &extends {
+            if let Some(file) = extended_config(dir, entry, is_file) {
+                let inherited = program_selection(&file, config_dir, (read, is_file), depth + 1);
+                selection.files = inherited.files.or(selection.files);
+                selection.include = inherited.include.or(selection.include);
+                selection.exclude = inherited.exclude.or(selection.exclude);
+                selection.out_dir = inherited.out_dir.or(selection.out_dir);
+            }
+        }
+    }
+    let located = |key: &str| {
+        value.get(key).map(|entries| {
+            let mut found = Vec::new();
+            collect_strings(entries, &mut found);
+            (dir.to_owned(), found)
+        })
+    };
+    selection.files = located("files").or(selection.files);
+    selection.include = located("include").or(selection.include);
+    selection.exclude = located("exclude").or(selection.exclude);
+    if let Some(out_dir) = value
+        .get("compilerOptions")
+        .and_then(|options| options.get("outDir"))
+        .and_then(Value::as_str)
+        .and_then(|out_dir| config_path(dir, config_dir, out_dir))
+    {
+        selection.out_dir = Some(out_dir);
+    }
+    selection
+}
+
+/// An entry of a `files`, `include` or `exclude` list of the configuration in `dir` as a path or glob relative to the
+/// checkout, as knip's `loadTSConfig` resolves it: with `expand_dirs`, an entry without a wildcard whose last segment
+/// has no extension names a directory and stands for everything below it. `None` for an absolute entry or one that
+/// leaves the checkout.
+fn program_entry(dir: &str, config_dir: &str, entry: &str, expand_dirs: bool) -> Option<String> {
+    if entry.starts_with('/') {
+        return None;
+    }
+    let path = config_path(dir, config_dir, entry)?;
+    let trimmed = entry.trim_end_matches('/');
+    let last = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    let names_directory = !entry.contains(['*', '?']) && (last == "." || last == ".." || !last.contains('.'));
+    Some(if expand_dirs && names_directory {
+        joined(&path, "**/*")
+    } else {
+        path
+    })
+}
+
+/// The declaration files among `files` that the `tsconfig.json` in the directory `dir` compiles, as knip's
+/// `loadTSConfig` selects them ([`program_selection`]): the paths `files` lists, and the files the `include` globs
+/// match (`**/*` below `dir` when neither `include` nor `files` is set) that no `exclude` glob, `node_modules` below
+/// `dir` or the `outDir` matches, and that have no hidden segment, which knip's globs skip. Empty without a
+/// `tsconfig.json`.
+fn program_declarations(
+    dir: &str,
+    files: &[String],
+    (read, is_file): (&SourceReader<'_>, &FileProbe<'_>),
+) -> Vec<String> {
+    let config = joined(dir, "tsconfig.json");
+    if !is_file(&config) {
+        return Vec::new();
+    }
+    let selection = program_selection(&config, dir, (read, is_file), 0);
+    let resolved = |located: &LocatedEntries, expand_dirs: bool| -> Vec<String> {
+        let (base, entries) = located;
+        entries
+            .iter()
+            .filter_map(|entry| program_entry(base, dir, entry, expand_dirs))
+            .collect()
+    };
+    let listed: BTreeSet<String> = selection
+        .files
+        .as_ref()
+        .map_or_default(|located| resolved(located, false).into_iter().collect());
+    let include = match (&selection.include, &selection.files) {
+        (Some(located), _) => resolved(located, true),
+        (None, None) => vec![joined(dir, "**/*")],
+        (None, Some(_)) => Vec::new(),
+    };
+    let exclude = selection
+        .exclude
+        .as_ref()
+        .map_or_default(|located| resolved(located, true))
+        .into_iter()
+        .chain(std::iter::once(joined(dir, "node_modules/**")))
+        .chain(selection.out_dir.iter().map(|out_dir| joined(out_dir, "**")))
+        .map(|glob| format!("!{glob}"));
+    let globs = IncompleteScopeGlobs::new(include.into_iter().chain(exclude).collect());
+    files
+        .iter()
+        .filter(|file| is_declaration(file))
+        .filter(|file| {
+            listed.contains(*file) || (!file.split('/').any(|part| part.starts_with('.')) && globs.is_match(file))
+        })
+        .cloned()
+        .collect()
+}
+
+/// The declaration files among `files` that the `tsconfig.json` of one of knip's workspaces (the root and the members
+/// with a manifest, as knip analyses them) compiles ([`program_declarations`]), which knip makes production entries.
+fn workspace_declarations(files: &[String], layout: &Layout<'_>, read: &SourceReader<'_>) -> BTreeSet<String> {
+    std::iter::once(String::new())
+        .chain(layout.members.iter().cloned())
+        .filter(|dir| (layout.manifest)(dir).is_some())
+        .flat_map(|dir| program_declarations(&dir, files, (read, layout.is_file)))
+        .collect()
+}
+
+/// The paths a module specifier of the file `importer` may name, relative to the checkout and without the extension
+/// resolution adds: a relative specifier joined to the importer's directory, each target that the `paths` of the
+/// importer's TypeScript configuration map a bare one to, and the subpath of a workspace package it names.
+fn specifier_paths(resolver: &Resolver<'_>, importer: &str, specifier: &str) -> Vec<String> {
+    if is_relative_specifier(specifier) {
+        return join_relative(parent_dir(importer), specifier).into_iter().collect();
+    }
+    let Some(name) = bare_package(specifier).filter(|_| !specifier.contains('?')) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = resolver.paths_of(parent_dir(importer)).map_or_default(|map| {
+        map.targets(specifier)
+            .iter()
+            .filter_map(|target| join_relative("", target))
+            .collect()
+    });
+    if let Some(dir) = resolver.packages.get(name) {
+        found.push(joined(dir, specifier[name.len()..].trim_start_matches('/')));
+    }
+    found
+}
+
+/// Whether a specifier that names `path` ([`specifier_paths`]) imports the declaration file `declaration`, as
+/// TypeScript resolves it: the path itself, the path without a built extension or as it is (`./api.js` and `./api` for
+/// `api.d.ts`), or the `index` of the directory it names.
+fn names_declaration(path: &str, declaration: &str) -> bool {
+    let Some(stem) = declaration_stem(declaration) else {
+        return false;
+    };
+    let without_extension = BUILT_EXTENSIONS
+        .iter()
+        .find_map(|extension| path.strip_suffix(extension))
+        .unwrap_or(path);
+    path == declaration || without_extension == stem || joined(path, "index") == stem
+}
+
+/// The declaration files of `declarations` that no code file of `files` but themselves imports: a specifier the
+/// resolver resolves names the file it resolves to, which TypeScript prefers to a declaration file beside it
+/// (`index.ts` over `index.d.ts`), and one it does not resolve names the paths of [`specifier_paths`] as
+/// [`names_declaration`] matches them. Only the files whose text names the file name of a declaration file without its extension,
+/// or its directory's name for an `index` file, are parsed; `read` gives a file's source, and a file it cannot read or
+/// parse imports nothing.
+fn unimported_declarations(
+    declarations: &BTreeSet<String>,
+    files: &[String],
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let names: BTreeSet<&str> = declarations
+        .iter()
+        .filter_map(|declaration| {
+            let stem = declaration_stem(declaration)?;
+            let name = stem.rsplit('/').next().unwrap_or(stem);
+            Some(if name == "index" { parent_dir(stem).rsplit('/').next().unwrap_or("") } else { name })
+        })
+        .filter(|name| !name.is_empty())
+        .collect();
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    let mut imported = BTreeSet::new();
+    if !names.is_empty() {
+        for file in files {
+            let Some(source) = read(file) else { continue };
+            if !names.iter().any(|name| source.contains(name)) {
+                continue;
+            }
+            let Ok(module) = parse_module(Path::new(file), &source, &options) else {
+                continue;
+            };
+            for import in &module.imports {
+                let paths = match resolver.resolve(file, &import.specifier) {
+                    Some(target) => vec![target],
+                    None => specifier_paths(resolver, file, &import.specifier),
+                };
+                for path in paths {
+                    imported.extend(
+                        declarations
+                            .iter()
+                            .filter(|declaration| *declaration != file && names_declaration(&path, declaration)),
+                    );
+                }
+            }
+        }
+    }
+    declarations
+        .iter()
+        .filter(|declaration| !imported.contains(declaration))
+        .cloned()
+        .collect()
+}
+
 /// Decides which known deviation, if any, a one-sided finding is.
 struct Classifier<'a> {
     knip_unread: &'a [String],
@@ -2478,6 +2733,13 @@ struct Classifier<'a> {
     knip_dot_ignores: &'a [(String, Vec<String>)],
     /// The `duplicates` keys only skif reports whose aliases knip takes for re-exports (`reexport_alias_duplicates`).
     reexport_aliases: &'a BTreeSet<String>,
+    /// The declaration files the `tsconfig.json` of one of knip's workspaces compiles (`tsconfig_declarations`).
+    tsconfig_declarations: &'a BTreeSet<String>,
+    /// Those of them that hold an unlisted dependency or unresolved import only knip reports and that no code file
+    /// imports (`unimported_declarations`).
+    unimported_declarations: &'a BTreeSet<String>,
+    /// The files only skif reports unused that one of `tsconfig_declarations` reaches by relative imports (`reach`).
+    declaration_reach: &'a BTreeSet<String>,
     /// The projects without installed packages that own a one-sided finding (`uninstalled_projects`).
     uninstalled_projects: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
@@ -2526,6 +2788,7 @@ impl Classifier<'_> {
                         .then_some(PATHS_BEFORE_PACKAGES)
                 })
                 .or_else(|| self.outside_use(category, key))
+                .or_else(|| self.tsconfig_declaration(side, category, key).then_some(TSCONFIG_DECLARATION_FILE))
                 .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
                 .or_else(config_error);
         }
@@ -2567,8 +2830,24 @@ impl Classifier<'_> {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
             })
             .or_else(|| (category == "enumMembers" && self.whole_enum_members.contains(key)).then_some(WHOLE_ENUM_USE))
+            .or_else(|| self.tsconfig_declaration(side, category, key).then_some(TSCONFIG_DECLARATION_FILE))
             .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
             .or_else(config_error)
+    }
+
+    /// Whether a one-sided finding follows from knip making the declaration files a workspace's `tsconfig.json`
+    /// compiles production entries: on skif's side an export, type or member in such a file, or an unused file one of
+    /// them reaches; on knip's side an unlisted dependency or unresolved import in one that no code file imports.
+    fn tsconfig_declaration(&self, side: Side, category: &str, key: &str) -> bool {
+        let path = key_path(key);
+        match side {
+            Side::Skif if category == "files" => self.declaration_reach.contains(path),
+            Side::Skif => {
+                (EXPORT_LABELS.contains(&category) || MEMBER_CATEGORIES.contains(&category))
+                    && self.tsconfig_declarations.contains(path)
+            }
+            Side::Tool => IMPORT_CATEGORIES.contains(&category) && self.unimported_declarations.contains(path),
+        }
     }
 
     /// The deviation a binary only knip reports on a `package.json` (`<manifest>|<binary>`) is: a command Rush provides
@@ -4315,6 +4594,9 @@ struct Facts {
     skipped_members: BTreeSet<String>,
     knip_dot_ignores: Vec<(String, Vec<String>)>,
     reexport_aliases: BTreeSet<String>,
+    tsconfig_declarations: BTreeSet<String>,
+    unimported_declarations: BTreeSet<String>,
+    declaration_reach: BTreeSet<String>,
     uninstalled_projects: BTreeSet<String>,
 }
 
@@ -4373,6 +4655,12 @@ impl Facts {
         };
         let has_packages =
             |dir: &str| root.join(dir).join("node_modules").is_dir() || root.join(dir).join(".pnp.cjs").is_file();
+        let tsconfig_declarations = workspace_declarations(&files, layout, &read_source);
+        let knip_imports: BTreeSet<String> = IMPORT_CATEGORIES
+            .iter()
+            .flat_map(|category| one_sided(knip, skif, category))
+            .collect();
+        let skif_only_unused: BTreeSet<&str> = skif_unused.difference(knip_unused).map(String::as_str).collect();
         Self {
             not_judged: not_judged_dirs(skif_doc),
             foreign_paths: foreign_tsconfig_paths_keys(skif_doc, root),
@@ -4417,6 +4705,27 @@ impl Facts {
                     .collect::<Vec<_>>(),
             ),
             reexport_aliases: reexport_alias_duplicates(&one_sided(skif, knip, "duplicates"), &read_source),
+            unimported_declarations: unimported_declarations(
+                &knip_imports
+                    .iter()
+                    .map(|key| key_path(key).to_owned())
+                    .filter(|path| tsconfig_declarations.contains(path))
+                    .collect(),
+                &files,
+                &resolver,
+                &read_source,
+            ),
+            declaration_reach: if skif_only_unused.is_empty() {
+                BTreeSet::new()
+            } else {
+                reach(
+                    tsconfig_declarations.iter().map(String::as_str).collect(),
+                    &skif_only_unused,
+                    layout.is_file,
+                    &read_source,
+                )
+            },
+            tsconfig_declarations,
             uninstalled_projects: if installed {
                 uninstalled_projects((skif, knip), &is_project, &has_packages)
             } else {
@@ -4465,6 +4774,9 @@ impl Facts {
             skipped_members: &self.skipped_members,
             knip_dot_ignores: &self.knip_dot_ignores,
             reexport_aliases: &self.reexport_aliases,
+            tsconfig_declarations: &self.tsconfig_declarations,
+            unimported_declarations: &self.unimported_declarations,
+            declaration_reach: &self.declaration_reach,
             uninstalled_projects: &self.uninstalled_projects,
             rush_root,
             replaced_knip_config: !options.repo_knip_config,
@@ -6015,6 +6327,9 @@ mod tests {
             skipped_members: &NO_KEYS,
             knip_dot_ignores: &[],
             reexport_aliases: &NO_KEYS,
+            tsconfig_declarations: &NO_KEYS,
+            unimported_declarations: &NO_KEYS,
+            declaration_reach: &NO_KEYS,
             uninstalled_projects: &NO_KEYS,
             rush_root: false,
             replaced_knip_config: false,
@@ -9026,5 +9341,207 @@ vi.mock("mocked-package");
             classifier.classify(Side::Tool, "files", "examples/app/.cache/a.ts"),
             Some(NOT_JUDGED)
         );
+    }
+
+    #[test]
+    fn the_declaration_files_a_workspace_tsconfig_compiles_are_the_ones_knip_makes_entries() {
+        let sources = BTreeMap::from([
+            ("tsconfig.json", r#"{ "files": ["typings/listed.d.ts"] }"#),
+            (
+                "packages/types/tsconfig.json",
+                r#"{ // inherits the selection
+                    "extends": "./tsconfig.base.json", "exclude": ["legacy"] }"#,
+            ),
+            (
+                "packages/types/tsconfig.base.json",
+                r#"{ "include": ["."], "compilerOptions": { "outDir": "build" } }"#,
+            ),
+            (
+                "packages/app/tsconfig.json",
+                r#"{ "include": ["src", "../../shared/api.d.ts"] }"#,
+            ),
+            ("packages/plain/tsconfig.json", "{}"),
+            ("tools/tsconfig.json", "{}"),
+        ]);
+        let manifest = manifests_of(&[
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            ("packages/types", json!({ "name": "@acme/types" })),
+            ("packages/app", json!({ "name": "@acme/app" })),
+            ("packages/bare", json!({ "name": "@acme/bare" })),
+            ("packages/plain", json!({ "name": "@acme/plain" })),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(
+            strings(&["packages/types", "packages/app", "packages/bare", "packages/plain"]),
+            &manifest,
+            &is_file,
+        );
+        let files: Vec<String> = [
+            "typings/listed.d.ts",
+            "typings/other.d.ts",
+            "packages/types/Calendar.d.ts",
+            "packages/types/nested/schedule.d.mts",
+            "packages/types/utils.ts",
+            "packages/types/legacy/old.d.ts",
+            "packages/types/build/index.d.ts",
+            "packages/types/.cache/cached.d.ts",
+            "packages/app/src/env.d.ts",
+            "packages/app/other.d.ts",
+            "shared/api.d.ts",
+            "packages/bare/bare.d.ts",
+            "packages/plain/plain.d.ts",
+            "tools/tool.d.ts",
+        ]
+        .iter()
+        .map(|file| (*file).to_owned())
+        .collect();
+        assert_eq!(
+            workspace_declarations(&files, &layout, &read),
+            strings(&[
+                "typings/listed.d.ts",
+                "packages/types/Calendar.d.ts",
+                "packages/types/nested/schedule.d.mts",
+                "packages/app/src/env.d.ts",
+                "shared/api.d.ts",
+                "packages/plain/plain.d.ts",
+            ]),
+            "`files` alone selects no more; an inherited `include` stays relative to its configuration, less \
+             `exclude`, the `outDir` and hidden directories; `include` may name files outside the workspace; no \
+             `include` and no `files` select everything; a workspace without a `tsconfig.json` and a project that \
+             is not a workspace select nothing"
+        );
+    }
+
+    #[test]
+    fn declaration_files_no_code_file_imports_are_told_apart_from_imported_ones() {
+        let sources = BTreeMap::from([
+            ("packages/types/Calendar.d.ts", "export interface Calendar { id: string }\n"),
+            (
+                "packages/types/AppGetServerSideProps.d.ts",
+                "import type { Session } from 'next-auth';\nexport type Props = Session;\n",
+            ),
+            ("src/api/git.d.ts", "export interface API { state: string }\n"),
+            ("src/typings/index.d.ts", "export type Typing = 1;\n"),
+            ("src/lone.d.ts", "import 'missing';\nexport {};\n"),
+            ("src/button/index.ts", "export const Button = 1;\n"),
+            (
+                "src/button/index.d.ts",
+                "import { Base } from '../component';\nexport declare class Button extends Base {}\n",
+            ),
+            (
+                "apps/web/page.ts",
+                "import type { Calendar } from '@acme/types/Calendar';\nexport const page: Calendar = { id: '' };\n",
+            ),
+            (
+                "src/main.ts",
+                "import type { API } from './api/git.js';\nimport type { Typing } from './typings';\n\
+                 import { Button } from './button';\nexport const main = Button;\n",
+            ),
+            ("src/mentions.ts", "export const lone = 'lone';\n"),
+        ]);
+        let manifest = manifests_of(&[
+            ("", json!({ "name": "root", "workspaces": ["packages/*", "apps/*"] })),
+            ("packages/types", json!({ "name": "@acme/types" })),
+            ("apps/web", json!({ "name": "web" })),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(strings(&["packages/types", "apps/web"]), &manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let declarations = strings(&[
+            "packages/types/Calendar.d.ts",
+            "packages/types/AppGetServerSideProps.d.ts",
+            "src/api/git.d.ts",
+            "src/typings/index.d.ts",
+            "src/lone.d.ts",
+            "src/button/index.d.ts",
+        ]);
+        assert_eq!(
+            unimported_declarations(&declarations, &files, &resolver, &read),
+            strings(&[
+                "packages/types/AppGetServerSideProps.d.ts",
+                "src/lone.d.ts",
+                "src/button/index.d.ts"
+            ]),
+            "a workspace package subpath, a built extension and a directory's `index` import a declaration file; a \
+             file that only names one does not, and a source beside it takes the import"
+        );
+        assert!(unimported_declarations(&BTreeSet::new(), &files, &resolver, &read).is_empty());
+    }
+
+    #[test]
+    fn findings_that_knip_s_tsconfig_declaration_entries_explain_split_off() {
+        let sources = BTreeMap::from([
+            (
+                "src/golden.d.ts",
+                "import { SomeDirective } from './some.directive';\nexport declare class Golden {}\n",
+            ),
+            (
+                "src/some.directive.ts",
+                "import { base } from './base';\nexport class SomeDirective { b = base; }\n",
+            ),
+            ("src/base.ts", "export const base = 1;\n"),
+            ("src/other.ts", "export const other = 1;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let only: BTreeSet<&str> = ["src/some.directive.ts", "src/base.ts", "src/other.ts"].into_iter().collect();
+        let reached = reach(vec!["src/golden.d.ts"], &only, &is_file, &read);
+        assert_eq!(reached, strings(&["src/some.directive.ts", "src/base.ts"]));
+        let manifest = manifests_of(&[
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            ("packages/types", json!({ "name": "@acme/types" })),
+        ]);
+        let layout = Layout::new(strings(&["packages/types"]), &manifest, &is_file);
+        let declarations = strings(&[
+            "packages/types/Calendar.d.ts",
+            "packages/types/AppGetServerSideProps.d.ts",
+            "src/golden.d.ts",
+        ]);
+        let unimported = strings(&["packages/types/AppGetServerSideProps.d.ts"]);
+        let classifier = Classifier {
+            tsconfig_declarations: &declarations,
+            unimported_declarations: &unimported,
+            declaration_reach: &reached,
+            ..bare(&layout)
+        };
+        for (side, category, key, expected) in [
+            (Side::Skif, "types", "packages/types/Calendar.d.ts|Calendar", Some(TSCONFIG_DECLARATION_FILE)),
+            (
+                Side::Skif,
+                "exports",
+                "packages/types/Calendar.d.ts|ProviderResult",
+                Some(TSCONFIG_DECLARATION_FILE),
+            ),
+            (Side::Skif, "enumMembers", "src/golden.d.ts|Auto", Some(TSCONFIG_DECLARATION_FILE)),
+            (Side::Skif, "files", "src/some.directive.ts", Some(TSCONFIG_DECLARATION_FILE)),
+            (Side::Skif, "files", "src/base.ts", Some(TSCONFIG_DECLARATION_FILE)),
+            (
+                Side::Tool,
+                "unlisted",
+                "packages/types/AppGetServerSideProps.d.ts|next-auth",
+                Some(TSCONFIG_DECLARATION_FILE),
+            ),
+            (
+                Side::Tool,
+                "unresolved",
+                "packages/types/AppGetServerSideProps.d.ts|./dist/index.js",
+                Some(TSCONFIG_DECLARATION_FILE),
+            ),
+            (Side::Skif, "files", "src/other.ts", None),
+            (Side::Skif, "types", "src/types.ts|Calendar", None),
+            (Side::Skif, "duplicates", "packages/types/Calendar.d.ts|a|b", None),
+            (Side::Skif, "unlisted", "packages/types/AppGetServerSideProps.d.ts|next-auth", None),
+            (Side::Tool, "unlisted", "packages/types/Calendar.d.ts|next", None),
+            (Side::Tool, "types", "packages/types/Calendar.d.ts|Calendar", None),
+        ] {
+            assert_eq!(
+                classifier.classify(side, category, key),
+                expected,
+                "{side:?} {category} {key}"
+            );
+        }
     }
 }
