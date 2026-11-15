@@ -204,7 +204,11 @@ fn ambient_declaration_files_are_entries() {
 #[test]
 fn only_declaration_files_that_apply_without_an_import_are_entries() {
     let cases: &[(&str, &str, &[&str])] = &[
-        ("src/globals.d.ts", "declare const TARGET: import('./target').Target;\n", &[]),
+        (
+            "src/globals.d.ts",
+            "declare const TARGET: import('./target').Target;\n",
+            &[],
+        ),
         (
             "src/augment.d.ts",
             "import type { Target } from './target';\ndeclare module 'kit' {\n  interface Options { target: Target }\n}\n",
@@ -251,7 +255,10 @@ fn unused_types_of_an_imported_module_declaration_file_are_reported() {
                 "src/index.ts",
                 "import type { Used } from './api';\nexport const value: Used = 1;\n",
             ),
-            ("src/api.d.ts", "export type Used = number;\nexport type Unused = string;\n"),
+            (
+                "src/api.d.ts",
+                "export type Used = number;\nexport type Unused = string;\n",
+            ),
         ],
         "",
     );
@@ -286,7 +293,10 @@ fn published_and_listed_module_declaration_files_are_entries() {
                 "src/index.ts",
                 "import type { Used } from './api';\nexport const value: Used = 1;\n",
             ),
-            ("src/api.d.ts", "export type Used = number;\nexport type Public = string;\n"),
+            (
+                "src/api.d.ts",
+                "export type Used = number;\nexport type Public = string;\n",
+            ),
             (file, text),
         ];
         if !manifest.is_empty() {

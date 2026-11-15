@@ -301,7 +301,7 @@ namespace`) or another module (`declare module "x"`). Any other declaration file
 `package.json` publishes it (`types`, `typings`, the `types` condition of `exports`), a `tsconfig.json` lists it in
 `files` or an `entry` glob names it. Otherwise it is judged like a TypeScript module once a module imports it, so
 `unused-types` and `unused-exports` report what no importer uses, as knip does
-([ADR NNNN](https://github.com/Goldziher/skif/blob/main/adrs/NNNN-module-declaration-files-are-modules.md)).
+([ADR 0054](https://github.com/Goldziher/skif/blob/main/adrs/0054-module-declaration-files-are-modules.md)).
 
 A namespace passed as an argument is a use of the whole module in both tools, with one exception in skif: a
 test-runner spy with a literal member name (`vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")`, Jasmine's `spyOn(ns, "a")`)

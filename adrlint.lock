@@ -265,3 +265,8 @@ blake3 = "757b422b76058424cbec926b5c1bcc0703c48f5986d6ddce728e75d6eda01c62"
 number = 53
 status = "accepted"
 blake3 = "4ea3b5076f171ca865d5d30f882736a7b7effe081e6b0a7c730d9458045b036d"
+
+[adrs."adrs/0054-module-declaration-files-are-modules.md"]
+number = 54
+status = "accepted"
+blake3 = "a60a26b8ef9974883e8fd94c10f5f156c8463427a3ef1405ea6e49c26b37ab4c"

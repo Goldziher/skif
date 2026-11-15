@@ -137,7 +137,7 @@ All notable changes to this project are documented here. The format follows
   `tsconfig.json` lists it in `files` (now a `typescript` plugin entry). Once a module imports it, `unused-types` and
   `unused-exports` report what no importer uses, and what only an unimported one uses is no longer kept in use, as in
   knip. Declaration files are still never reported by `unused-files`
-  ([ADR NNNN](adrs/NNNN-module-declaration-files-are-modules.md)). `skif-js-syntax` gains `ModuleInfo::module_file`,
+  ([ADR 0054](adrs/0054-module-declaration-files-are-modules.md)). `skif-js-syntax` gains `ModuleInfo::module_file`,
   `ModuleInfo::global_augmentation` and `ModuleInfo::declares_without_import`; the parse cache schema is raised.
 
 - **Type-aware scheduling**: the programs with the most judged files are built first, and a program gets checkers in
