@@ -111,6 +111,7 @@ pub const TYPE_RESOLVED: &str = "type-resolved";
 pub const KNIP_DOT_IGNORE: &str = "knip-dot-ignore";
 pub const REEXPORT_ALIAS: &str = "re-export-alias";
 pub const TSCONFIG_DECLARATION_FILE: &str = "tsconfig-declaration-file";
+pub const MODULE_OBJECT_TYPES: &str = "module-object-types";
 
 /// The name of a file of git ignore patterns.
 const GITIGNORE: &str = ".gitignore";
@@ -193,11 +194,18 @@ const IMPORTED_EXPORT_CATEGORIES: [&str; 5] = ["exports", "types", "nsExports", 
 /// The categories whose findings name a member of an enum or namespace export, `<file>|<member>`.
 const MEMBER_CATEGORIES: [&str; 2] = ["enumMembers", "namespaceMembers"];
 
+/// The categories whose findings name a type export of a file, `<file>|<type>`.
+const TYPE_CATEGORIES: [&str; 2] = ["types", "nsTypes"];
+
 /// The categories whose findings name an import of a file that a tool reads: `<file>|<specifier>`.
 const IMPORT_CATEGORIES: [&str; 2] = ["unlisted", "unresolved"];
 
 /// The extensions of a declaration file, as knip's `IS_DTS` matches them.
 const DECLARATION_EXTENSIONS: [&str; 3] = [".d.ts", ".d.mts", ".d.cts"];
+
+/// The text a file holds when skif's parser can find a whole use of a module object in it (`import()`, `require` or a
+/// namespace import); the files without any are not parsed for [`module_object_types`].
+const WHOLE_USE_MARKERS: [&str; 3] = ["import(", "require(", "* as "];
 
 /// The name that stands for every export of a file among the exports an import uses ([`unused_file_credits`]): a
 /// namespace used as a whole, `import()` or `require` of the module, or a star re-export of it.
@@ -241,7 +249,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 37] = [
+pub const KNIP_DEVIATIONS: [Deviation; 38] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -385,6 +393,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 37] = [
     Deviation {
         id: TSCONFIG_DECLARATION_FILE,
         reason: "knip makes every declaration file (`.d.ts`, `.d.mts`, `.d.cts`) that the `tsconfig.json` of one of its workspaces compiles a production entry: the files its `files` lists and its `include` globs select (everything below the configuration's directory when it sets neither), less its `exclude` globs, `node_modules` and the `outDir`, as knip reads the configuration and those it `extends`. The exports of an entry are public and its imports are read. skif judges a module declaration file like any module, an entry only when something else makes it one (ADR 0054, ADR 0055). Set apart: the exports, types and members skif reports in such a declaration file; the unlisted dependencies and unresolved imports knip reports in one that no code file of the checkout imports (relative, through the importer's tsconfig `paths` or as a subpath of a workspace package, by its stem with or without a built extension), whose imports skif never reads; and the unused files only skif reports that such a declaration file reaches by relative imports, directly or through other files only skif reports unused, which knip reaches from the entry",
+    },
+    Deviation {
+        id: MODULE_OBJECT_TYPES,
+        reason: "skif reports these types, and an import uses their file as a whole module object (`import()` or `require` of the module, or a namespace import used as a whole, directly or through the `export … from` and `export *` re-exports of the files in between, as skif's parser reads it in any code file of the checkout): knip records such a use as opaque and credits every export of the module, types included, while skif's whole use of a module object counts its value exports only (ADR 0018). Only the files that hold `import(`, `require(` or `* as ` are parsed",
     },
     Deviation {
         id: REPLACED_KNIP_CONFIG,
@@ -2740,6 +2752,9 @@ struct Classifier<'a> {
     unimported_declarations: &'a BTreeSet<String>,
     /// The files only skif reports unused that one of `tsconfig_declarations` reaches by relative imports (`reach`).
     declaration_reach: &'a BTreeSet<String>,
+    /// The `types` and `nsTypes` keys only skif reports whose file an import uses as a whole module object
+    /// (`module_object_types`).
+    module_object_types: &'a BTreeSet<String>,
     /// The projects without installed packages that own a one-sided finding (`uninstalled_projects`).
     uninstalled_projects: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
@@ -2789,6 +2804,10 @@ impl Classifier<'_> {
                 })
                 .or_else(|| self.outside_use(category, key))
                 .or_else(|| self.tsconfig_declaration(side, category, key).then_some(TSCONFIG_DECLARATION_FILE))
+                .or_else(|| {
+                    (TYPE_CATEGORIES.contains(&category) && self.module_object_types.contains(key))
+                        .then_some(MODULE_OBJECT_TYPES)
+                })
                 .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
                 .or_else(config_error);
         }
@@ -3638,6 +3657,46 @@ fn whole_enum_members(
                 })
             })
         })
+        .cloned()
+        .collect()
+}
+
+/// The keys of `types` (`<file>|<type>`, the types only skif reports) whose file a code file of `files` uses as a whole
+/// module object ([`whole_uses`]: `import()`, `require`, a namespace used as a whole), directly or through the
+/// re-exports of the files in between ([`follow_reexports`]). knip credits every export of such a module, types
+/// included; skif's whole use reaches its values only (ADR 0018). Only the files holding one of [`WHOLE_USE_MARKERS`]
+/// are parsed; `read` gives a file's source.
+fn module_object_types(
+    types: &BTreeSet<String>,
+    files: &[String],
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    if types.is_empty() {
+        return BTreeSet::new();
+    }
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let mut seeds = Vec::new();
+    for file in files {
+        let Some(source) = read(file) else { continue };
+        if !WHOLE_USE_MARKERS.iter().any(|marker| source.contains(marker)) {
+            continue;
+        }
+        if let Ok(module) = parse_module(Path::new(file), &source, &options) {
+            seeds.extend(
+                whole_uses(file, &module, resolver)
+                    .into_iter()
+                    .filter(|(_, name)| name == WHOLE_MODULE),
+            );
+        }
+    }
+    let credits = follow_reexports(seeds, resolver, read);
+    types
+        .iter()
+        .filter(|key| credited(&credits, key))
         .cloned()
         .collect()
 }
@@ -4597,6 +4656,7 @@ struct Facts {
     tsconfig_declarations: BTreeSet<String>,
     unimported_declarations: BTreeSet<String>,
     declaration_reach: BTreeSet<String>,
+    module_object_types: BTreeSet<String>,
     uninstalled_projects: BTreeSet<String>,
 }
 
@@ -4661,6 +4721,10 @@ impl Facts {
             .flat_map(|category| one_sided(knip, skif, category))
             .collect();
         let skif_only_unused: BTreeSet<&str> = skif_unused.difference(knip_unused).map(String::as_str).collect();
+        let skif_types: BTreeSet<String> = TYPE_CATEGORIES
+            .iter()
+            .flat_map(|category| one_sided(skif, knip, category))
+            .collect();
         Self {
             not_judged: not_judged_dirs(skif_doc),
             foreign_paths: foreign_tsconfig_paths_keys(skif_doc, root),
@@ -4725,6 +4789,7 @@ impl Facts {
                     &read_source,
                 )
             },
+            module_object_types: module_object_types(&skif_types, &files, &resolver, &read_source),
             tsconfig_declarations,
             uninstalled_projects: if installed {
                 uninstalled_projects((skif, knip), &is_project, &has_packages)
@@ -4777,6 +4842,7 @@ impl Facts {
             tsconfig_declarations: &self.tsconfig_declarations,
             unimported_declarations: &self.unimported_declarations,
             declaration_reach: &self.declaration_reach,
+            module_object_types: &self.module_object_types,
             uninstalled_projects: &self.uninstalled_projects,
             rush_root,
             replaced_knip_config: !options.repo_knip_config,
@@ -6330,6 +6396,7 @@ mod tests {
             tsconfig_declarations: &NO_KEYS,
             unimported_declarations: &NO_KEYS,
             declaration_reach: &NO_KEYS,
+            module_object_types: &NO_KEYS,
             uninstalled_projects: &NO_KEYS,
             rush_root: false,
             replaced_knip_config: false,
@@ -9536,6 +9603,86 @@ vi.mock("mocked-package");
             (Side::Skif, "unlisted", "packages/types/AppGetServerSideProps.d.ts|next-auth", None),
             (Side::Tool, "unlisted", "packages/types/Calendar.d.ts|next", None),
             (Side::Tool, "types", "packages/types/Calendar.d.ts|Calendar", None),
+        ] {
+            assert_eq!(
+                classifier.classify(side, category, key),
+                expected,
+                "{side:?} {category} {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn types_of_a_module_an_import_uses_as_a_whole_object_split_off_on_skif_side() {
+        let sources = BTreeMap::from([
+            (
+                "app-store/crm.apps.generated.ts",
+                "export const CrmServiceMap = {\n  bigin: import('./zoho-bigin/lib/CrmService'),\n  \
+                 video: import('./barrel'),\n};\n",
+            ),
+            (
+                "app-store/zoho-bigin/lib/CrmService.ts",
+                "export type BiginToken = { token: string };\nexport interface BiginContact { id: string }\n\
+                 export default class BiginCrmService {}\n",
+            ),
+            ("app-store/barrel.ts", "export * from './video/VideoApiAdapter';\n"),
+            (
+                "app-store/video/VideoApiAdapter.ts",
+                "export type DailyEventResult = { id: string };\nexport const adapter = 1;\n",
+            ),
+            (
+                "app-store/static.ts",
+                "import { helper } from './helpers';\nexport const used = helper;\n",
+            ),
+            (
+                "app-store/helpers.ts",
+                "export type HelperOptions = { on: boolean };\nexport const helper = 1;\n",
+            ),
+            ("app-store/lonely.ts", "export type LonelyType = string;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let types = strings(&[
+            "app-store/zoho-bigin/lib/CrmService.ts|BiginContact",
+            "app-store/zoho-bigin/lib/CrmService.ts|BiginToken",
+            "app-store/video/VideoApiAdapter.ts|DailyEventResult",
+            "app-store/helpers.ts|HelperOptions",
+            "app-store/lonely.ts|LonelyType",
+        ]);
+        let found = module_object_types(&types, &files, &resolver, &read);
+        assert_eq!(
+            found,
+            strings(&[
+                "app-store/zoho-bigin/lib/CrmService.ts|BiginContact",
+                "app-store/zoho-bigin/lib/CrmService.ts|BiginToken",
+                "app-store/video/VideoApiAdapter.ts|DailyEventResult",
+            ]),
+            "an `import()` uses its module as a whole, also through `export *`; a named import and no import do not"
+        );
+        assert!(module_object_types(&BTreeSet::new(), &files, &resolver, &read).is_empty());
+        let classifier = Classifier {
+            module_object_types: &found,
+            ..bare(&layout)
+        };
+        for (side, category, key, expected) in [
+            (
+                Side::Skif,
+                "types",
+                "app-store/zoho-bigin/lib/CrmService.ts|BiginContact",
+                Some(MODULE_OBJECT_TYPES),
+            ),
+            (
+                Side::Skif,
+                "nsTypes",
+                "app-store/zoho-bigin/lib/CrmService.ts|BiginToken",
+                Some(MODULE_OBJECT_TYPES),
+            ),
+            (Side::Skif, "exports", "app-store/zoho-bigin/lib/CrmService.ts|BiginContact", None),
+            (Side::Tool, "types", "app-store/zoho-bigin/lib/CrmService.ts|BiginContact", None),
+            (Side::Skif, "types", "app-store/helpers.ts|HelperOptions", None),
         ] {
             assert_eq!(
                 classifier.classify(side, category, key),
