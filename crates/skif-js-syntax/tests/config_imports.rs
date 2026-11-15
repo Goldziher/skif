@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -1919,4 +1920,63 @@ fn a_module_of_many_functions_sharing_one_helper_is_analysed_quickly() {
     let elapsed = started.elapsed();
     assert!(elapsed < std::time::Duration::from_secs(30), "took {elapsed:?}");
     assert_eq!(config.get("plugins"), Some(&ConfigValue::Array(vec![s("a")])));
+}
+
+/// A loader of the modules of `files` that counts how often it is asked for each, by path.
+struct Counting<'f> {
+    files: &'f Files,
+    loads: RefCell<BTreeMap<PathBuf, usize>>,
+}
+
+impl ModuleLoader for Counting<'_> {
+    fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
+        let found = self.files.load(from, specifier)?;
+        *self.loads.borrow_mut().entry(found.0.clone()).or_default() += 1;
+        Some(found)
+    }
+
+    fn is_installed(&self, from: &Path, specifier: &str) -> bool {
+        self.files.is_installed(from, specifier)
+    }
+
+    fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
+        self.files.holds_no_code(from, specifier)
+    }
+}
+
+/// A config whose test on the environment is left undecided is evaluated again with the test taken as true and as
+/// false, and each evaluation starts from the modules the first one found: every module the config reaches is asked of
+/// the loader, and analysed, once for the three.
+#[test]
+fn the_environment_variants_of_a_config_share_the_modules_it_reaches() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { make } from './a';\nexport default { name: process.env.CI ? make('ci') : make('local') };",
+        ),
+        (
+            "/ws/app/a.ts",
+            "import { suffix } from './b';\nexport function make(name: string) { suffix(); return name; }\n",
+        ),
+        ("/ws/app/b.ts", "export function suffix() { return 'x'; }\n"),
+    ]);
+    let counting = Counting {
+        files: &loader,
+        loads: RefCell::new(BTreeMap::new()),
+    };
+    let path = Path::new("/ws/app/config.ts");
+    let found =
+        extract_config(loader.0[path], path, Some(&counting as &dyn ModuleLoader)).expect("config is understood");
+    assert_eq!(
+        found.value,
+        obj(vec![("name", ConfigValue::OneOf(vec![s("ci"), s("local")]))])
+    );
+    assert_eq!(
+        found.environment_variants,
+        [obj(vec![("name", s("ci"))]), obj(vec![("name", s("local"))])]
+    );
+    assert_eq!(
+        counting.loads.into_inner(),
+        BTreeMap::from([(PathBuf::from("/ws/app/a.ts"), 1), (PathBuf::from("/ws/app/b.ts"), 1)])
+    );
 }

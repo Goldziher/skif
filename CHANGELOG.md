@@ -236,6 +236,13 @@ All notable changes to this project are documented here. The format follows
   `PendingTypes::finish` returns the facts `analyze` gives for the judged files it is handed. `TypeTimings` gains
   `waited` and `early`.
 
+- **Config evaluation**: a JavaScript or TypeScript config with a test on the environment the evaluator cannot decide
+  (`process.env.CI ? a : b`) is evaluated three times, as found, with the test true and with it false; the three now
+  share what the analysis of the modules the config imports found, which does not depend on the environment, instead
+  of each loading and analysing them again. In a project whose configs import its own packages (a Babel config
+  importing `@babel/core` of the workspace), that analysis was most of the time spent reading plugin configs. The
+  values found do not change ([#233](https://github.com/Goldziher/skif/issues/233)).
+
 ### Fixed
 
 - `unused-files`: a `require()`, `import()` or `require.resolve()` of a `const` that holds a path built from the file's
