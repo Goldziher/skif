@@ -286,6 +286,22 @@ All notable changes to this project are documented here. The format follows
   names from config values. A config with such a test is evaluated three times
   ([ADR 0036](adrs/0036-packages-named-on-an-environment-gated-branch.md),
   [#229](https://github.com/Goldziher/skif/issues/229)).
+- A compiler option of a `tsconfig` that a package extends through its own `node_modules`
+  (`"extends": "./node_modules/<rig>/profiles/app/tsconfig-base.json"`, and what that profile extends in turn) applies
+  to the package, as TypeScript merges the chain: the `tslib` that its `importHelpers` needs, and the packages its
+  `types`, `jsxImportSource` and `plugins` name, are uses of the extending package's manifest, so a listed `tslib` is no
+  longer `unused-dependencies`. The installed config itself is still not judged
+  ([#99](https://github.com/Goldziher/skif/issues/99)).
+- A bundler alias `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }`) that a
+  shared config factory of another workspace package builds is judged against the package whose Vite, Vitest, webpack
+  or Next.js config calls the factory, as the bundler resolves it from that package's files: listed there, it is used
+  and no longer `unlisted-dependencies` at the factory's module. `skif-js-plugins` gains
+  `PluginInput::ImporterDependency` for such a package ([#96](https://github.com/Goldziher/skif/issues/96)).
+- A type-only re-export (`export type { JSONSchema7 } from 'json-schema'`, `export type * from 'pkg'`) is satisfied by
+  the listed `@types` package, as a type-only import is, since TypeScript resolves its types from either: it is no
+  longer `unlisted-dependencies`, and the `@types` package is used. An unlisted type-only import or re-export advises
+  adding the package or its types package (`@types/json-schema`), not only the package, which may ship no types.
+  `UnlistedImport` gains `type_only` ([#96](https://github.com/Goldziher/skif/issues/96)).
 
 ## [0.5.0] - 2026-11-14
 

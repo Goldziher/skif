@@ -255,3 +255,46 @@ fn the_main_of_a_subpath_directory_published_through_files_is_an_entry() {
     assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: left-pad"]);
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
 }
+
+/// A type-only re-export (`export type { T } from 'pkg'`) is erased like `import type`, so TypeScript finds its types
+/// in `@types/pkg` too: the listed `@types` package satisfies it and is used. Listed by no one, the finding names the
+/// types package as a fix besides the package, which may ship no types (`json-schema`).
+#[test]
+fn a_type_only_reexport_is_satisfied_by_the_types_package() {
+    let source = "export type { JSONSchema7 } from 'json-schema';\nexport type * from 'estree';\n";
+    let listed = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"@types/json-schema":"7.0.15","@types/estree":"1.0.8"}}"#,
+        ),
+        ("src/index.ts", source),
+    ]);
+    assert_eq!(found(&listed, "unlisted-dependencies"), none(), "{listed:#?}");
+    assert_eq!(found(&listed, "unused-dev-dependencies"), none(), "{listed:#?}");
+    let unlisted = lint(&[
+        ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
+        ("src/index.ts", source),
+    ]);
+    let helps: Vec<(String, Option<String>)> = unlisted
+        .iter()
+        .filter(|d| d.rule.as_str() == "unlisted-dependencies")
+        .map(|d| (d.dependency.clone().unwrap_or_default(), d.help.clone()))
+        .collect();
+    assert_eq!(
+        helps,
+        [
+            (
+                "estree".to_owned(),
+                Some("add `estree` or its types package `@types/estree` to the dependencies of `app`".to_owned())
+            ),
+            (
+                "json-schema".to_owned(),
+                Some(
+                    "add `json-schema` or its types package `@types/json-schema` to the dependencies of `app`"
+                        .to_owned()
+                )
+            ),
+        ],
+        "{unlisted:#?}"
+    );
+}

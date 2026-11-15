@@ -652,6 +652,10 @@ impl Collector<'_, '_> {
                     let named_by = self.named_by(from, config, &name);
                     self.dependency(DepRef::new(name, &named_by, false, config.is_some()));
                 }
+                // Resolved from the reader's files, it stays with the config whichever module builds it.
+                PluginInput::ImporterDependency(name) => {
+                    self.dependency(DepRef::new(name, from, false, config.is_some()));
+                }
                 PluginInput::ReaderDependency { name, span } => self.dependency(DepRef {
                     reader_lists: true,
                     span: Some(span),
@@ -1126,7 +1130,7 @@ fn environment_gated(
                 .resolve_config(&ConfigAst { value, ..*config }, ctx)
                 .into_iter()
                 .filter_map(|input| match input {
-                    PluginInput::Dependency(name) => Some(name),
+                    PluginInput::Dependency(name) | PluginInput::ImporterDependency(name) => Some(name),
                     _ => None,
                 })
                 .collect()
@@ -1135,7 +1139,9 @@ fn environment_gated(
     inputs
         .into_iter()
         .map(|input| match input {
-            PluginInput::Dependency(name) if !required.iter().all(|names| names.contains(&name)) => {
+            PluginInput::Dependency(name) | PluginInput::ImporterDependency(name)
+                if !required.iter().all(|names| names.contains(&name)) =>
+            {
                 PluginInput::OptionalDependency(name)
             }
             other => other,

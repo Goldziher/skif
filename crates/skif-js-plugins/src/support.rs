@@ -740,7 +740,7 @@ pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<P
         if target.is_none()
             && let Some(package) = replacement.as_str().and_then(package_name)
         {
-            out.push(PluginInput::Dependency(package));
+            out.push(PluginInput::ImporterDependency(package));
         }
         out.push(PluginInput::Alias { find, target });
     }

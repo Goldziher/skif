@@ -316,7 +316,8 @@ struct ImportSite<'s> {
     target: Option<&'s Target>,
     module: ModuleId,
     span: Option<Span>,
-    /// It brings in types only and is not a re-export, so an `@types` package can stand in for the package.
+    /// It brings in types only (`import type`, `export type … from`), so an `@types` package can stand in for the
+    /// package, as TypeScript resolves the types of either.
     type_only: bool,
     /// The importing file is a declaration file (`.d.ts`, `.d.mts`, `.d.cts`).
     declaration: bool,
@@ -342,6 +343,9 @@ pub struct UnlistedImport {
     /// The `paths` pattern of another package's TypeScript configuration that maps the specifier, when the
     /// configuration the importing file follows maps it not.
     pub foreign_paths: Option<ForeignMapping>,
+    /// The import brings in types only, so the package's `DefinitelyTyped` package (`@types/…`) would satisfy it as
+    /// well.
+    pub type_only: bool,
 }
 
 /// A `paths` pattern of a TypeScript configuration the importing file does not follow.
@@ -1524,10 +1528,10 @@ impl DependencyUsage {
                         // nor need one listed.
                         continue;
                     }
-                    // knip's strict mode counts every import of a declaration file as type-only, so a listed `@types`
-                    // package stands in for the package.
-                    let type_only = (resolved.type_only && kind != Some(ImportKind::ExportFrom))
-                        || (self.mode.strict() && declaration);
+                    // A type-only re-export (`export type { T } from 'pkg'`) is erased like a type-only import, so
+                    // TypeScript finds its types in `@types/pkg` as well. knip's strict mode counts every import of a
+                    // declaration file as type-only, so a listed `@types` package stands in for the package.
+                    let type_only = resolved.type_only || (self.mode.strict() && declaration);
                     let import = module.info.imports.get(resolved.import);
                     let site = ImportSite {
                         owner: module.owner,
@@ -1653,6 +1657,7 @@ impl DependencyUsage {
             specifier: site.specifier.to_owned(),
             target: site.target.cloned(),
             foreign_paths: None,
+            type_only: site.type_only,
         });
     }
 
@@ -1770,6 +1775,9 @@ impl DependencyUsage {
                     .entry(dependency.file.as_path())
                     .or_insert_with(|| judged_config(workspace, setup, fs, &dependency.file));
                 let Some((owner, file)) = verdict.clone() else {
+                    if dependency.reader_may_list {
+                        self.credit_installed_compiler_option(workspace, reader, dependency);
+                    }
                     continue;
                 };
                 // A reference to the reader's own install is the reader's, whichever package holds the file.
@@ -1784,6 +1792,29 @@ impl DependencyUsage {
                 });
             }
         }
+    }
+
+    /// A compiler option of a config the package `reader` extends through a `node_modules` directory (a rig profile's
+    /// `importHelpers`): TypeScript merges it into the reader's options, so the package it names is a use of the
+    /// manifest of `reader` that lists it. The installed config is not judged, so nothing is reported when none does.
+    fn credit_installed_compiler_option(
+        &mut self,
+        workspace: &Workspace,
+        reader: PackageId,
+        dependency: &ConfigDependency,
+    ) {
+        let Some(file) = relative(&dependency.file, &workspace.root) else {
+            return;
+        };
+        if !file.split('/').any(|part| part == "node_modules") {
+            return;
+        }
+        let name = dependency.name.as_str();
+        self.with_via(Use::Config(PathBuf::from(file)), |usage| {
+            usage.is_satisfied(workspace, reader, name, (dependency.type_only, false), |usage, name| {
+                usage.find_listed(reader, name)
+            });
+        });
     }
 
     /// The package `dependency` that the config `file` (relative to the root) of package `owner` names: a use of the
