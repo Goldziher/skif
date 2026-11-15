@@ -64,3 +64,4 @@ old one.
 | 0054 | [Module Declaration Files Are Modules](0054-module-declaration-files-are-modules.md) | accepted |
 | 0055 | [Exportless Declaration Files That Load a Module Are Entries](0055-exportless-declaration-files-that-load-a-module.md) | accepted |
 | 0056 | [knip's tsconfig Declaration Entries and Its Opaque Module Objects](0056-knip-tsconfig-declaration-entries-and-module-object-types.md) | accepted |
+| NNNN | [Uses knip Does Not Read: Heft Configs, Computed Loads, Type References and Paths knip Skips](NNNN-uses-knip-does-not-read.md) | accepted |
