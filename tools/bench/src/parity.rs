@@ -2639,7 +2639,11 @@ fn unimported_declarations(
         .filter_map(|declaration| {
             let stem = declaration_stem(declaration)?;
             let name = stem.rsplit('/').next().unwrap_or(stem);
-            Some(if name == "index" { parent_dir(stem).rsplit('/').next().unwrap_or("") } else { name })
+            Some(if name == "index" {
+                parent_dir(stem).rsplit('/').next().unwrap_or("")
+            } else {
+                name
+            })
         })
         .filter(|name| !name.is_empty())
         .collect();
@@ -2803,7 +2807,10 @@ impl Classifier<'_> {
                         .then_some(PATHS_BEFORE_PACKAGES)
                 })
                 .or_else(|| self.outside_use(category, key))
-                .or_else(|| self.tsconfig_declaration(side, category, key).then_some(TSCONFIG_DECLARATION_FILE))
+                .or_else(|| {
+                    self.tsconfig_declaration(side, category, key)
+                        .then_some(TSCONFIG_DECLARATION_FILE)
+                })
                 .or_else(|| {
                     (TYPE_CATEGORIES.contains(&category) && self.module_object_types.contains(key))
                         .then_some(MODULE_OBJECT_TYPES)
@@ -2849,7 +2856,10 @@ impl Classifier<'_> {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
             })
             .or_else(|| (category == "enumMembers" && self.whole_enum_members.contains(key)).then_some(WHOLE_ENUM_USE))
-            .or_else(|| self.tsconfig_declaration(side, category, key).then_some(TSCONFIG_DECLARATION_FILE))
+            .or_else(|| {
+                self.tsconfig_declaration(side, category, key)
+                    .then_some(TSCONFIG_DECLARATION_FILE)
+            })
             .or_else(|| self.uninstalled(category, key).then_some(UNINSTALLED_PROJECT))
             .or_else(config_error)
     }
@@ -3694,11 +3704,7 @@ fn module_object_types(
         }
     }
     let credits = follow_reexports(seeds, resolver, read);
-    types
-        .iter()
-        .filter(|key| credited(&credits, key))
-        .cloned()
-        .collect()
+    types.iter().filter(|key| credited(&credits, key)).cloned().collect()
 }
 
 /// Whether `path` is a `BUILD.bazel` or `BUILD` file.
@@ -9483,7 +9489,10 @@ vi.mock("mocked-package");
     #[test]
     fn declaration_files_no_code_file_imports_are_told_apart_from_imported_ones() {
         let sources = BTreeMap::from([
-            ("packages/types/Calendar.d.ts", "export interface Calendar { id: string }\n"),
+            (
+                "packages/types/Calendar.d.ts",
+                "export interface Calendar { id: string }\n",
+            ),
             (
                 "packages/types/AppGetServerSideProps.d.ts",
                 "import type { Session } from 'next-auth';\nexport type Props = Session;\n",
@@ -9554,7 +9563,9 @@ vi.mock("mocked-package");
         ]);
         let is_file = |file: &str| sources.contains_key(file);
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
-        let only: BTreeSet<&str> = ["src/some.directive.ts", "src/base.ts", "src/other.ts"].into_iter().collect();
+        let only: BTreeSet<&str> = ["src/some.directive.ts", "src/base.ts", "src/other.ts"]
+            .into_iter()
+            .collect();
         let reached = reach(vec!["src/golden.d.ts"], &only, &is_file, &read);
         assert_eq!(reached, strings(&["src/some.directive.ts", "src/base.ts"]));
         let manifest = manifests_of(&[
@@ -9575,15 +9586,30 @@ vi.mock("mocked-package");
             ..bare(&layout)
         };
         for (side, category, key, expected) in [
-            (Side::Skif, "types", "packages/types/Calendar.d.ts|Calendar", Some(TSCONFIG_DECLARATION_FILE)),
+            (
+                Side::Skif,
+                "types",
+                "packages/types/Calendar.d.ts|Calendar",
+                Some(TSCONFIG_DECLARATION_FILE),
+            ),
             (
                 Side::Skif,
                 "exports",
                 "packages/types/Calendar.d.ts|ProviderResult",
                 Some(TSCONFIG_DECLARATION_FILE),
             ),
-            (Side::Skif, "enumMembers", "src/golden.d.ts|Auto", Some(TSCONFIG_DECLARATION_FILE)),
-            (Side::Skif, "files", "src/some.directive.ts", Some(TSCONFIG_DECLARATION_FILE)),
+            (
+                Side::Skif,
+                "enumMembers",
+                "src/golden.d.ts|Auto",
+                Some(TSCONFIG_DECLARATION_FILE),
+            ),
+            (
+                Side::Skif,
+                "files",
+                "src/some.directive.ts",
+                Some(TSCONFIG_DECLARATION_FILE),
+            ),
             (Side::Skif, "files", "src/base.ts", Some(TSCONFIG_DECLARATION_FILE)),
             (
                 Side::Tool,
@@ -9600,7 +9626,12 @@ vi.mock("mocked-package");
             (Side::Skif, "files", "src/other.ts", None),
             (Side::Skif, "types", "src/types.ts|Calendar", None),
             (Side::Skif, "duplicates", "packages/types/Calendar.d.ts|a|b", None),
-            (Side::Skif, "unlisted", "packages/types/AppGetServerSideProps.d.ts|next-auth", None),
+            (
+                Side::Skif,
+                "unlisted",
+                "packages/types/AppGetServerSideProps.d.ts|next-auth",
+                None,
+            ),
             (Side::Tool, "unlisted", "packages/types/Calendar.d.ts|next", None),
             (Side::Tool, "types", "packages/types/Calendar.d.ts|Calendar", None),
         ] {
@@ -9680,8 +9711,18 @@ vi.mock("mocked-package");
                 "app-store/zoho-bigin/lib/CrmService.ts|BiginToken",
                 Some(MODULE_OBJECT_TYPES),
             ),
-            (Side::Skif, "exports", "app-store/zoho-bigin/lib/CrmService.ts|BiginContact", None),
-            (Side::Tool, "types", "app-store/zoho-bigin/lib/CrmService.ts|BiginContact", None),
+            (
+                Side::Skif,
+                "exports",
+                "app-store/zoho-bigin/lib/CrmService.ts|BiginContact",
+                None,
+            ),
+            (
+                Side::Tool,
+                "types",
+                "app-store/zoho-bigin/lib/CrmService.ts|BiginContact",
+                None,
+            ),
             (Side::Skif, "types", "app-store/helpers.ts|HelperOptions", None),
         ] {
             assert_eq!(
