@@ -130,6 +130,16 @@ All notable changes to this project are documented here. The format follows
 
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
 
+- **Declaration files**: only a declaration file that applies without an import is an entry: a script (no top-level
+  `import` or `export`), or a module file with `declare global`, `export as namespace` or a `declare module "x"`
+  augmentation. Any other `.d.ts`, `.d.mts` or `.d.cts` file is a module like any other, an entry only when
+  `package.json` publishes it (`types`, `typings`, the `types` condition of `exports`), an `entry` glob names it or a
+  `tsconfig.json` lists it in `files` (now a `typescript` plugin entry). Once a module imports it, `unused-types` and
+  `unused-exports` report what no importer uses, and what only an unimported one uses is no longer kept in use, as in
+  knip. Declaration files are still never reported by `unused-files`
+  ([ADR NNNN](adrs/NNNN-module-declaration-files-are-modules.md)). `skif-js-syntax` gains `ModuleInfo::module_file`,
+  `ModuleInfo::global_augmentation` and `ModuleInfo::declares_without_import`; the parse cache schema is raised.
+
 - **Type-aware scheduling**: the programs with the most judged files are built first, and a program gets checkers in
   proportion to its share of the judged files (at least the even share of the programs built at once, at most tsrs's
   count for the machine), so a repository whose root program holds most of the files no longer checks it on a quarter
