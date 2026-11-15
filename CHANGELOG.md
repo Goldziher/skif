@@ -245,6 +245,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: a classic script that a Vite `index.html` loads from the public directory
+  (`<script src="/static/init.js">` for `public/static/init.js`) is an entry. The `vite` and `vitest` plugins look up
+  a `/`-rooted script in `publicDir` (`public` by default) as well as below the root, and skip leading path segments
+  that are base-path placeholders (`/{{BASE_PATH}}/static/init.js`, `/%BASE%/init.js`). Before, such scripts were
+  reported unused.
 - `unused-exports`, `unused-namespace-exports`: the default import of a `CommonJS` module without a `default` export
   (`import lib from "./lib.js"` of a file with `module.exports = { a, b }` or `exports.a = …`) binds its
   `module.exports` object, as `esModuleInterop` and bundlers do. The properties read through it

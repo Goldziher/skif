@@ -9,8 +9,8 @@ use crate::plugin::{
 };
 use crate::plugins::postcss;
 use crate::support::{
-    Spreads, alias_inputs, convention_scope, extension_inputs, file_strings, files_path_unknown, get_in, html_entries,
-    html_entries_at, join_rel, package_name, path_unknown, strings, values_of,
+    Spreads, alias_inputs, convention_scope, extension_inputs, file_strings, files_path_unknown, get_in, join_rel,
+    package_name, path_unknown, served_html_entries, strings, values_of,
 };
 
 /// The keys Vite takes entry files from besides the project root holding `index.html`: the build inputs and the library
@@ -89,7 +89,7 @@ impl Plugin for Vite {
     }
 
     fn resolve_without_config(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        html_entries(cx, "", "index.html")
+        served_html_entries(cx, "", "index.html", Some("public"))
     }
 
     /// A merged or spread imported base config is shared between packages, so it names no file of this one; at most
@@ -124,8 +124,9 @@ pub(crate) fn html_and_build_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'
             vec![config.base.to_owned()]
         }),
     };
-    for root in &roots {
-        out.extend(html_entries(cx, root, "index.html"));
+    let public_dirs: Vec<Option<String>> = roots.iter().map(|root| public_dir(config.value, root)).collect();
+    for (root, public) in roots.iter().zip(&public_dirs) {
+        out.extend(served_html_entries(cx, root, &join_rel(root, "index.html"), public.as_deref()));
     }
     let inputs = get_in(config.value, build_input_key(config.value));
     for input in inputs.into_iter().flat_map(values_of).flat_map(file_strings) {
@@ -133,17 +134,28 @@ pub(crate) fn html_and_build_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
         {
-            for root in &roots {
-                out.extend(match input.strip_prefix('/') {
-                    Some(rooted) => html_entries(cx, root, rooted),
-                    None => html_entries_at(cx, root, &config.join(input)),
-                });
+            for (root, public) in roots.iter().zip(&public_dirs) {
+                let html_path = match input.strip_prefix('/') {
+                    Some(rooted) => join_rel(root, rooted),
+                    None => config.join(input),
+                };
+                out.extend(served_html_entries(cx, root, &html_path, public.as_deref()));
             }
         } else {
             out.push(PluginInput::ProductionEntry(config.join(input)));
         }
     }
     out
+}
+
+/// The directory, relative to the workspace, Vite serves at `/` besides `root`: `publicDir`, relative to `root`, by
+/// default `public`. `None` when the config turns it off (`publicDir: false`) or computes it.
+fn public_dir(config: &ConfigValue, root: &str) -> Option<String> {
+    match get_in(config, &["publicDir"]) {
+        None => Some(join_rel(root, "public")),
+        Some(ConfigValue::String(dir)) if !std::path::Path::new(dir).is_absolute() => Some(join_rel(root, dir)),
+        Some(_) => None,
+    }
 }
 
 /// The directories, relative to the workspace, a `root` may be: each alternative of it ([`ConfigValue::alternatives`]),
