@@ -214,7 +214,8 @@ impl CompilerHost for SharingHost {
         if !shareable(&opts.file_name) {
             return self.inner.get_source_file(opts);
         }
-        self.files.source_file(opts, self.inner.as_ref(), &self.boms, &self.counts)
+        self.files
+            .source_file(opts, self.inner.as_ref(), &self.boms, &self.counts)
     }
 
     fn get_content_mapped_source_files(
@@ -345,8 +346,14 @@ mod tests {
         let analysis = Counts::default();
         let indicators = [
             ExternalModuleIndicatorOptions::default(),
-            ExternalModuleIndicatorOptions { jsx: false, force: true },
-            ExternalModuleIndicatorOptions { jsx: true, force: false },
+            ExternalModuleIndicatorOptions {
+                jsx: false,
+                force: true,
+            },
+            ExternalModuleIndicatorOptions {
+                jsx: true,
+                force: false,
+            },
         ];
         let parsed: Vec<P<SourceFile>> = indicators
             .into_iter()
@@ -364,7 +371,11 @@ mod tests {
         let analysis = Counts::default();
         first.read(&files, &analysis).unwrap();
         assert_eq!(first.boms.offset(SHAPES), 3, "the parsing analysis read the mark");
-        assert_eq!(second.boms.offset(SHAPES), 0, "the other analysis has not read the file");
+        assert_eq!(
+            second.boms.offset(SHAPES),
+            0,
+            "the other analysis has not read the file"
+        );
         second.read(&files, &analysis).unwrap();
         assert_eq!(second.boms.offset(SHAPES), 3, "the reusing analysis knows of the mark");
         assert_eq!(files.counts(), counts(1, 1, 0));
@@ -399,7 +410,10 @@ mod tests {
                 .collect();
             handles.into_iter().map(|handle| handle.join().unwrap()).collect()
         });
-        assert!(parsed.iter().all(|&file| file == parsed[0]), "every request gets the one parse");
+        assert!(
+            parsed.iter().all(|&file| file == parsed[0]),
+            "every request gets the one parse"
+        );
         assert_eq!(files.counts(), counts(1, THREADS - 1, 0));
     }
 
@@ -414,7 +428,10 @@ mod tests {
             reader.read(&files, &analysis).unwrap()
         };
         let shared = reader.read(&files, &analysis).unwrap();
-        assert_ne!(alone, shared, "the request inside the scratch region left the cache empty");
+        assert_ne!(
+            alone, shared,
+            "the request inside the scratch region left the cache empty"
+        );
         assert_eq!(files.counts(), counts(1, 0, 1));
     }
 }
