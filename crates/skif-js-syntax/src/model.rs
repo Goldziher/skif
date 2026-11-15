@@ -600,7 +600,7 @@ pub struct ModuleInfo {
     /// one it is a script, whose declarations are global.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub module_file: bool,
-    /// A module file that adds to the global scope with a top-level `declare global { … }` or `export as namespace X`.
+    /// A module file that adds to the global scope: a top-level `declare global { … }` or `export as namespace X`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub global_augmentation: bool,
     /// The command lines the file runs through `node:child_process` (`execSync('tsc -b')`, `spawn('eslint', ['.'])`),
