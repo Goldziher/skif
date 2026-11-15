@@ -771,6 +771,48 @@ fn a_file_of_a_nested_root_that_an_outer_root_imports_is_its_entry() {
 }
 
 #[test]
+fn a_directory_whose_manifest_only_sets_the_module_type_is_linted_once_by_the_root_above() {
+    let dir = tempfile::tempdir().unwrap();
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name": "app", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2", "main": "src/index.ts"}"#,
+    );
+    put(
+        dir.path(),
+        "src/index.ts",
+        "import { used } from \"../scripts/a\";\n\nconsole.log(used);\n",
+    );
+    put(dir.path(), "scripts/package.json", r#"{"type": "commonjs"}"#);
+    put(
+        dir.path(),
+        "scripts/a.ts",
+        "export const used = 1;\n\nexport const lonely = 2;\n",
+    );
+    put(dir.path(), "scripts/b.ts", "export const orphan = 3;\n");
+
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), ["."], "{report}");
+    let mut findings = js_findings(&report);
+    findings.sort();
+    assert_eq!(
+        findings,
+        [
+            "unused-exports scripts/a.ts: export `lonely` is never imported by another module",
+            "unused-files scripts/b.ts: `scripts/b.ts` is not reachable from any entry file",
+        ],
+        "{report}"
+    );
+
+    // Without `-r` the run lints the same root and reports the same findings.
+    let (_, direct) = json(dir.path(), &[]);
+    assert!(direct.get("roots").is_none());
+    let mut direct_findings = js_findings(&direct);
+    direct_findings.sort();
+    assert_eq!(direct_findings, findings);
+}
+
+#[test]
 fn the_lint_after_fixing_judges_each_root_as_the_first_lint_did() {
     // `packages/inner` is a member of the outer workspace and a workspace of its own, so the outer root leaves it to
     // its own run; `build` is a standalone package below the outer root, which needs no `packageManager`.
