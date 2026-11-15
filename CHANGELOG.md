@@ -261,6 +261,11 @@ All notable changes to this project are documented here. The format follows
   is: the Astro compiler types the component's props, and so its default export, with it. Before, `export interface
   Props` in the frontmatter of a component that another file renders was reported unused. The analysis cache is
   invalidated ([#165](https://github.com/Goldziher/skif/issues/165)).
+- `github-actions` plugin: in a composite action, `${{ github.action_path }}` and `$GITHUB_ACTION_PATH` name the
+  directory of the action's `action.yml`, so `run: node ${{ github.action_path }}/filter.mjs` makes
+  `.github/actions/<name>/filter.mjs` an entry, also below a `working-directory`. Before, the path was read as the
+  workspace root, the file the step runs was no entry, and `unused-exports` judged its exports
+  ([#165](https://github.com/Goldziher/skif/issues/165)).
 - `unused-files`: a classic script that a Vite `index.html` loads from the public directory
   (`<script src="/static/init.js">` for `public/static/init.js`) is an entry. The `vite` and `vitest` plugins look up
   a `/`-rooted script in `publicDir` (`public` by default) as well as below the root, and skip leading path segments

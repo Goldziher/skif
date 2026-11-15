@@ -25,7 +25,8 @@ struct DirVariable {
     bare: &'static str,
 }
 
-/// The directory of the action a composite action's step runs, read as the directory the step starts in.
+/// The directory of the action a step runs: the directory of a composite action's `action.yml`, and in a workflow,
+/// which names no action of its own, the directory the step starts in.
 const ACTION_PATH: DirVariable = DirVariable {
     spellings: &[
         "${{ github.action_path }}",
@@ -63,7 +64,8 @@ impl Plugin for GithubActions {
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
-        steps(config.value, RunDefaults::default(), &mut out, 0);
+        let action_dir = is_action_manifest(config.file_name()).then_some(config.base);
+        steps(config.value, RunDefaults::default(), action_dir, &mut out, 0);
         out.extend(
             node_action_files(config.value)
                 .into_iter()
@@ -89,9 +91,21 @@ pub(crate) fn node_action_files(manifest: &ConfigValue) -> Vec<&str> {
         .collect()
 }
 
+/// Whether `file_name` is the manifest of an action (`action.yml`, `action.yaml`) rather than a workflow.
+fn is_action_manifest(file_name: &str) -> bool {
+    matches!(file_name, "action.yml" | "action.yaml")
+}
+
 /// Collects the `run` scripts of every `steps` list, wherever it is nested (`jobs.<id>.steps`, `runs.steps`).
-/// `defaults` is the `defaults.run` of the enclosing workflow or job.
-fn steps<'a>(value: &'a ConfigValue, defaults: RunDefaults<'a>, out: &mut Vec<PluginInput>, depth: u8) {
+/// `defaults` is the `defaults.run` of the enclosing workflow or job; `action_dir` is the directory of the action's
+/// manifest relative to the workspace, for an action.
+fn steps<'a>(
+    value: &'a ConfigValue,
+    defaults: RunDefaults<'a>,
+    action_dir: Option<&str>,
+    out: &mut Vec<PluginInput>,
+    depth: u8,
+) {
     if depth > 12 {
         return;
     }
@@ -110,13 +124,15 @@ fn steps<'a>(value: &'a ConfigValue, defaults: RunDefaults<'a>, out: &mut Vec<Pl
                             .as_array()
                             .into_iter()
                             .flatten()
-                            .filter_map(|item| step(item, defaults)),
+                            .filter_map(|item| step(item, defaults, action_dir)),
                     );
                 }
-                steps(child, defaults, out, depth + 1);
+                steps(child, defaults, action_dir, out, depth + 1);
             }
         }
-        ConfigValue::Array(items) => items.iter().for_each(|item| steps(item, defaults, out, depth + 1)),
+        ConfigValue::Array(items) => items
+            .iter()
+            .for_each(|item| steps(item, defaults, action_dir, out, depth + 1)),
         _ => {}
     }
 }
@@ -134,8 +150,8 @@ fn is_posix_shell(shell: &str) -> bool {
 
 /// A `run` step: a script of the workspace root, or of the directory its `working-directory` names, which may start
 /// with the workspace ([`WORKSPACE`]). A directory that is otherwise computed or outside the workspace drops the step,
-/// and so does a shell that is not POSIX.
-fn step(step: &ConfigValue, defaults: RunDefaults<'_>) -> Option<PluginInput> {
+/// and so does a shell that is not POSIX. In an action, the action's path ([`ACTION_PATH`]) is `action_dir`.
+fn step(step: &ConfigValue, defaults: RunDefaults<'_>, action_dir: Option<&str>) -> Option<PluginInput> {
     let run = step.get("run").and_then(ConfigValue::as_str)?;
     let shell = step.get("shell").and_then(ConfigValue::as_str).or(defaults.shell);
     if !shell.is_none_or(is_posix_shell) {
@@ -148,8 +164,8 @@ fn step(step: &ConfigValue, defaults: RunDefaults<'_>) -> Option<PluginInput> {
         .map_or("", str::trim);
     let dir = replace_dir(dir, &WORKSPACE, ".");
     let dir = dir.as_str();
-    let script = replace_dir(run, &ACTION_PATH, ".");
     if matches!(dir, "" | "." | "./") {
+        let script = replace_dir(run, &ACTION_PATH, &action_path(action_dir, "."));
         return Some(PluginInput::Script(replace_dir(&script, &WORKSPACE, ".")));
     }
     if dir.starts_with('/') || dir.contains(['$', '`']) {
@@ -160,8 +176,19 @@ fn step(step: &ConfigValue, defaults: RunDefaults<'_>) -> Option<PluginInput> {
         return None;
     }
     let root = vec![".."; dir.split('/').count()].join("/");
+    let script = replace_dir(run, &ACTION_PATH, &action_path(action_dir, &root));
     let script = replace_dir(&script, &WORKSPACE, &root);
     Some(PluginInput::ScriptAt { dir, script })
+}
+
+/// The action's path as a step that reaches the workspace root through `root` names it: the action's directory below
+/// that root, or, in a workflow, the directory the step starts in.
+fn action_path(action_dir: Option<&str>, root: &str) -> String {
+    match action_dir {
+        Some(dir) if !dir.is_empty() => format!("{root}/{dir}"),
+        Some(_) => root.to_owned(),
+        None => ".".to_owned(),
+    }
 }
 
 /// `text` with every spelling of `variable` replaced by `dir`, the directory it names relative to where the step
