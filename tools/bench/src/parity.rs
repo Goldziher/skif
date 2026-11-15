@@ -1668,7 +1668,7 @@ fn entry_modules(
     keys: &BTreeSet<String>,
     files: &[String],
     layout: &Layout<'_>,
-    (root_packages, entries_of): (&BTreeSet<String>, &dyn Fn(&str) -> PluginEntries),
+    (root_packages, entries_of): (&BTreeSet<String>, &EntriesOf<'_>),
 ) -> (Vec<String>, Vec<String>) {
     let is_project = |dir: &str| layout.is_project(dir);
     let projects: BTreeSet<String> = keys.iter().map(|key| owner_dir(key, &is_project)).collect();
@@ -1706,6 +1706,9 @@ fn entry_modules(
 
 /// The files skif's plugins make entries of a project: the entry globs of the plugins its manifest and files enable,
 /// and the code configuration files they read, relative to the project directory.
+/// The plugin entries skif's resolver gives the project of a directory.
+type EntriesOf<'a> = dyn Fn(&str) -> PluginEntries + 'a;
+
 struct PluginEntries {
     globs: IncompleteScopeGlobs,
     configs: BTreeSet<String>,
@@ -1751,7 +1754,7 @@ fn plugin_entries(
         .flatten()
         .filter_map(|(name, command)| Some((name.clone(), command.as_str()?.to_owned())))
         .collect();
-    let plugins = Default::default();
+    let plugins = indexmap::IndexMap::default();
     let globs = GlobCache::new();
     let ctx = PluginContext {
         dir: &abs_dir,
@@ -2049,13 +2052,13 @@ fn loaded_sources(layout: &Layout<'_>, dir: &str, loader: &str, text: &str, into
         return sources;
     }
     for specifier in stub_specifiers(text) {
-        let Some(loaded) = join_relative(parent_dir(loader), &specifier) else {
+        let Some(target) = join_relative(parent_dir(loader), &specifier) else {
             continue;
         };
-        if !dir.is_empty() && !loaded.starts_with(&format!("{dir}/")) {
+        if !dir.is_empty() && !target.starts_with(&format!("{dir}/")) {
             continue;
         }
-        let published = below(dir, &loaded);
+        let published = below(dir, &target);
         if into_output && !is_build_output(layout, dir, published) {
             continue;
         }
@@ -7702,7 +7705,7 @@ vi.mock("mocked-package");
             "examples/gql/lib/gql/graphql.ts|Maybe",
         ]);
         let (published, defaults) = entry_modules(&keys, &files, &layout, (&roots, entries_of));
-        assert!(published.is_empty());
+        assert_eq!(published, Vec::<String>::new());
         assert_eq!(
             defaults,
             [
