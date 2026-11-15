@@ -672,10 +672,7 @@ fn budget_checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
         out.push(match typed.peak_rss_bytes {
             Some(bytes) => TargetCheck {
                 target: target.target.clone(),
-                description: format!(
-                    "peak RSS with types <= {limit_mib} MiB (measured {} MiB)",
-                    mib(bytes)
-                ),
+                description: format!("peak RSS with types <= {limit_mib} MiB (measured {} MiB)", mib(bytes)),
                 status: CheckStatus::of(bytes <= budget.peak_rss_bytes, &[typed]),
             },
             None => TargetCheck {
@@ -994,7 +991,10 @@ fn type_aware_markdown(summary: &Summary, out: &mut String) {
             "| Target | types on (default), mean (ms) | types off, mean (ms) | on / off | types on (default), peak RSS (MiB) | types off, peak RSS (MiB) |\n",
         );
         out.push_str("| --- | ---: | ---: | ---: | ---: | ---: |\n");
-        let rss = |row: &ToolResult| row.peak_rss_bytes.map_or_else(|| "-".to_owned(), |bytes| mib(bytes).to_string());
+        let rss = |row: &ToolResult| {
+            row.peak_rss_bytes
+                .map_or_else(|| "-".to_owned(), |bytes| mib(bytes).to_string())
+        };
         for (target, typed, untyped) in modes {
             let _ = writeln!(
                 out,
@@ -1559,7 +1559,11 @@ pub fn run(options: &RunOptions) -> Result<()> {
     }
     let errors: Vec<String> = [
         (options.enforce, &summary.adr_0001_checks, "ADR 0001 target"),
-        (options.check_budget, &summary.type_aware_budget_checks, "type-aware budget (ADR 0029)"),
+        (
+            options.check_budget,
+            &summary.type_aware_budget_checks,
+            "type-aware budget (ADR 0029)",
+        ),
     ]
     .into_iter()
     .filter(|(enforced, _, _)| *enforced)
@@ -2596,7 +2600,10 @@ mod tests {
                     "b",
                     "types on <= 3x types off on the largest repository, the one whose untyped run takes longest (measured 1.5x: 900 ms against 600 ms)"
                 ),
-                ("corpus", "median types on / types off across 3 repositories <= 2x (measured 1.5x)"),
+                (
+                    "corpus",
+                    "median types on / types off across 3 repositories <= 2x (measured 1.5x)"
+                ),
             ]
         );
         assert!(checks.iter().all(|check| check.status == CheckStatus::Pass));
@@ -2610,9 +2617,8 @@ mod tests {
             targets[index] = target;
             not_passed(&targets)
         };
-        let fail = |target: &str, description: &str| {
-            vec![(target.to_owned(), description.to_owned(), CheckStatus::Fail)]
-        };
+        let fail =
+            |target: &str, description: &str| vec![(target.to_owned(), description.to_owned(), CheckStatus::Fail)];
         assert_eq!(
             with(1, budget_target("b", "corpus", (2100.0, Some(3000)), 600.0, 30_000.0)),
             fail(
