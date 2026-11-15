@@ -198,6 +198,122 @@ fn ambient_declaration_files_are_entries() {
     }
 }
 
+/// A declaration file that applies without an import (a script, a global or module augmentation, a UMD global) is
+/// an entry, so what it uses is used; a plain module declaration file is a module like any other, so what only it
+/// uses is unused while nothing imports it.
+#[test]
+fn only_declaration_files_that_apply_without_an_import_are_entries() {
+    let cases: &[(&str, &str, &[&str])] = &[
+        ("src/globals.d.ts", "declare const TARGET: import('./target').Target;\n", &[]),
+        (
+            "src/augment.d.ts",
+            "import type { Target } from './target';\ndeclare module 'kit' {\n  interface Options { target: Target }\n}\n",
+            &[],
+        ),
+        (
+            "src/global.d.ts",
+            "import type { Target } from './target';\ndeclare global {\n  interface Window { target: Target }\n}\n",
+            &[],
+        ),
+        (
+            "src/umd.d.ts",
+            "import type { Target } from './target';\nexport as namespace Kit;\nexport type Wrapped = Target;\n",
+            &[],
+        ),
+        (
+            "src/types.d.ts",
+            "import type { Target } from './target';\nexport type Wrapped = Target;\n",
+            &["src/target.ts: src/target.ts"],
+        ),
+    ];
+    for &(declaration, source, unused) in cases {
+        let diagnostics = lint_files(
+            &[
+                PACKAGE,
+                ("src/index.ts", "export {};\n"),
+                ("src/target.ts", "export type Target = string;\n"),
+                (declaration, source),
+            ],
+            "",
+        );
+        assert_eq!(found(&diagnostics, "unused-files"), unused, "{declaration}");
+        assert_eq!(found(&diagnostics, "unused-types"), none(), "{declaration}");
+    }
+}
+
+/// The exported types of a module declaration file that a module imports are judged like those of any module.
+#[test]
+fn unused_types_of_an_imported_module_declaration_file_are_reported() {
+    let diagnostics = lint_files(
+        &[
+            PACKAGE,
+            (
+                "src/index.ts",
+                "import type { Used } from './api';\nexport const value: Used = 1;\n",
+            ),
+            ("src/api.d.ts", "export type Used = number;\nexport type Unused = string;\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-types"), ["src/api.d.ts: Unused"]);
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
+
+/// A module declaration file that `package.json` publishes through `types` or the `types` condition of `exports`, or
+/// that a `tsconfig.json` lists in `files`, is an entry: its exported types are public.
+#[test]
+fn published_and_listed_module_declaration_files_are_entries() {
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"types":"./src/api.d.ts"}"#,
+            "",
+        ),
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"exports":{".":{"types":"./src/api.d.ts","default":"./src/index.ts"}}}"#,
+            "",
+        ),
+        (
+            "tsconfig.json",
+            r#"{"files":["src/index.ts","src/api.d.ts"]}"#,
+            r#"{"name":"app","private":true,"devDependencies":{"typescript":"5.0.0"}}"#,
+        ),
+    ];
+    for &(file, text, manifest) in cases {
+        let mut files = vec![
+            (
+                "src/index.ts",
+                "import type { Used } from './api';\nexport const value: Used = 1;\n",
+            ),
+            ("src/api.d.ts", "export type Used = number;\nexport type Public = string;\n"),
+            (file, text),
+        ];
+        if !manifest.is_empty() {
+            files.push(("package.json", manifest));
+        }
+        let diagnostics = lint_files(&files, "");
+        assert_eq!(found(&diagnostics, "unused-types"), none(), "{text}");
+    }
+}
+
+/// An `entry` glob names a module declaration file an entry, as it names any module.
+#[test]
+fn a_configured_entry_makes_a_module_declaration_file_an_entry() {
+    let files = [
+        PACKAGE,
+        ("src/index.ts", "export {};\n"),
+        ("src/target.ts", "export type Target = string;\n"),
+        (
+            "src/types.d.ts",
+            "import type { Target } from './target';\nexport type Wrapped = Target;\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "[js]\nentry = [\"src/index.ts\", \"src/types.d.ts\"]\n");
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unused-types"), none());
+}
+
 #[test]
 fn test_files_and_directories_are_entries_only_through_a_test_runner() {
     let files = [
