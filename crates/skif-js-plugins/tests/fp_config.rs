@@ -815,6 +815,47 @@ jobs:
     }
 }
 
+/// A composite action's step starts in the workspace root, and the action's path is the directory of its
+/// `action.yml`, also below a `working-directory`.
+#[test]
+fn github_actions_action_path_of_a_composite_action_is_the_action_directory() {
+    let action = r"runs:
+  using: composite
+  steps:
+    - run: node ${{ github.action_path }}/filter.mjs
+      shell: bash
+    - run: node $GITHUB_ACTION_PATH/report.mjs
+      shell: bash
+      working-directory: tools
+    - run: node ./root.mjs
+      shell: bash
+";
+    let results = run(
+        &[
+            (".github/workflows/ci.yml", "on: [push]\njobs: {}\n"),
+            (".github/actions/filter/action.yml", action),
+        ],
+        &[],
+        &[],
+    );
+    let out = output(&results, "github-actions");
+    assert_entries(
+        &out.entries,
+        &[
+            "./.github/actions/filter/filter.mjs",
+            ".github/actions/filter/report.mjs",
+            "./root.mjs",
+        ],
+    );
+    for misplaced in ["./filter.mjs", "tools/report.mjs"] {
+        assert!(
+            !out.entries.iter().any(|e| e == misplaced),
+            "{misplaced}: {:?}",
+            out.entries
+        );
+    }
+}
+
 #[test]
 fn browser_extension_manifest_below_the_root_and_index_sources() {
     let manifest = r#"{
