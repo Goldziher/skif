@@ -12,8 +12,8 @@ with `--warmup` and `--runs`) on two kinds of targets:
 | Target | Contents | Tools timed |
 | --- | --- | --- |
 | Generated workspaces | 50, 500 and 2000 packages (`--sizes`), pnpm layout, 5 % issue rate, seed 1 | `skif --no-js`, `sherif`, `syncpack lint` |
-| Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif` |
-| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
+| Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif`, `skif --no-type-aware` |
+| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-type-aware`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
 `sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, where their versions are
 declared. `tools/package.json` and `tools/package-lock.json` repeat them and pin every package they depend on; the
@@ -24,15 +24,16 @@ installs them there once with `npm ci --ignore-scripts` and times the executable
 so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be installed (no `npm`, a failed
 install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
 `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks),
-`summary.json` (schema 6: skif version, the commit of the skif source it was built from with a `-dirty` flag
+`summary.json` (schema 7: skif version, the commit of the skif source it was built from with a `-dirty` flag
 (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record and the one line
 `machine_text` that `summary.md` and the published tables print, the toolchain, the load average before and after the
 run, hyperfine version, each comparison tool's `--version`, the corpus repositories of an `--only` run, every target
 with its warmup and measured runs and, per tool, mean, stddev, median, min and max in ms and the number of runs that
-exited with an error, and for an installed
+exited with an error, on the rows of both skif modes `peak_rss_bytes`, and for an installed
 corpus repository `installed_with`, the package manager and the `--version` it reports in the checkout (where corepack
 resolves the repository's `packageManager`) or the repository's `install-command`, its `declared_knip_failure` and, on a
-knip row that failed that way, `failure` (the reason, the error line and `timed`), the skipped tools and the checks, each `pass`,
+knip row that failed that way, `failure` (the reason, the error line and `timed`), the skipped tools, and the ADR 0001
+checks and the type-aware budget checks (`type_aware_budget_checks`), each `pass`,
 `fail`, `invalid` or `not-measured`), and one raw hyperfine export per target under `raw/`. The machine record holds the
 operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the architecture,
 the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process may use and the
@@ -73,6 +74,16 @@ the four large repositories run 5 times after 1 warmup run, since knip takes ten
 the published tables name the run counts of a capped target, and an error count is out of the target's own runs.
 `bench-knip-config`, `bench-max-runs` and `bench-max-warmup` are rejected outside the bench suite, and so is an unknown
 configuration or a cap of 0 runs. hyperfine 1.x and 2.x exports are both read.
+
+Each corpus and module graph target is timed in both modes of the whole run: `skif`, with types (the default), and
+`skif --no-type-aware`, in the same hyperfine run. Each mode then runs once more under `/usr/bin/time` (`-v`, GNU time,
+on Linux; `-l` on macOS) for its peak RSS; where neither is available the RSS is `null` and its check `not-measured`.
+`summary.md` and the published tables show both modes, labelled "types on (default)" and "types off", with their peak
+RSS. The type-aware budget of ADR 0029 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: types on at most
+3x types off on the largest corpus repository (the one whose untyped run takes longest), a median of at most 2x across
+the corpus, at most 4 GiB peak RSS with types on every target, at most 5 s with types on the module graph case, and
+at least 5x faster than knip with types wherever knip completes. `--check-budget` makes `run` exit non-zero when one
+of them fails, after writing the summary; the `bench` workflow passes it.
 
 ## Targets (ADR 0001)
 

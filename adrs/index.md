@@ -66,5 +66,6 @@ old one.
 | 0056 | [knip's tsconfig Declaration Entries and Its Opaque Module Objects](0056-knip-tsconfig-declaration-entries-and-module-object-types.md) | accepted |
 | 0057 | [Redundant Development Entries, Optional Peers Installed Elsewhere and Types an Installed Config Brings](0057-redundant-dev-entries-and-installed-optional-peers.md) | accepted |
 | 0058 | [Uses knip Does Not Read: Heft Configs, Computed Loads, Type References and Paths knip Skips](0058-uses-knip-does-not-read.md) | accepted |
-| 0059 | [Resolve Calls Use the Values of the Module They Name](0059-resolve-calls-use-the-values-of-the-module.md) | accepted |
+| 0059 | [Resolve Calls Use the Values of the Module They Name](0059-resolve-calls-use-the-values-of-the-module.md) | accepted, superseded in part by [0061](0061-packages-another-package-resolves.md) |
 | 0060 | [How knip Reads a Module: Opaque Imports, Spied Namespaces, Namespace Re-exports and Entries It Makes](0060-how-knip-reads-a-module.md) | accepted |
+| 0061 | [Packages Another Package Resolves Are That Package's Dependencies](0061-packages-another-package-resolves.md) | accepted |

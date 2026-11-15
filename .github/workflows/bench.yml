@@ -4,7 +4,9 @@ name: bench
 # tools/bench/corpus.toml, on a pinned GitHub-hosted runner image, run by hand only. The harness, its mise tools and the
 # corpus come from the dispatched ref, checked out at the workspace root; the measured skif from the `ref` input,
 # checked out in measured/ (untracked there, so the harness commit stays clean). The summary records the machine, the
-# runner and the toolchain. `mise run bench:import -- <run-id>` brings the results into the repository.
+# runner and the toolchain. Each corpus and graph target is timed with types (the default) and with --no-type-aware,
+# and each mode's peak RSS is measured by /usr/bin/time; a run that breaks the type-aware budget of ADR 0029 fails
+# after its summary is written. `mise run bench:import -- <run-id>` brings the results into the repository.
 on:
   workflow_dispatch:
     inputs:
@@ -132,6 +134,15 @@ jobs:
         run: |
           npm install --global "corepack@${COREPACK_VERSION}"
           corepack enable yarn pnpm
+      # ~keep The harness reads each skif mode's peak RSS from GNU time's -v report.
+      - name: Install GNU time
+        run: |
+          set -euo pipefail
+          if [ ! -x /usr/bin/time ]; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends time
+          fi
+          /usr/bin/time --version
       - name: Build the skif to measure
         working-directory: measured
         env:
@@ -164,6 +175,7 @@ jobs:
             --warmup "$WARMUP"
             --install
             --no-enforce
+            --check-budget
           )
           if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
           target/release/skif-bench "${args[@]}"
