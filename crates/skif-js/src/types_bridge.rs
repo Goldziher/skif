@@ -147,7 +147,11 @@ impl SharedBudget {
     /// Marks the analysis of `root` done without asking the checker, so that no program is kept for it.
     #[cfg_attr(
         not(feature = "type-aware"),
-        allow(unused_variables, clippy::unused_self, reason = "only a build with the checker shares programs")
+        allow(
+            unused_variables,
+            clippy::unused_self,
+            reason = "only a build with the checker shares programs"
+        )
     )]
     fn done(&self, root: &std::path::Path) {
         #[cfg(feature = "type-aware")]
