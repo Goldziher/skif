@@ -1182,6 +1182,11 @@ either. A Playwright `testMatch` regular expression becomes a glob
 when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
 (`/.*\.e2e\.tsx?/` matches `**/*.e2e.ts{x,}*` below `testDir`); any other expression makes every script below
 `testDir` an entry.
+A Playwright `webServer` command is read as a script: the file it runs is an entry and the binaries it runs are
+judged. When the config computes it (a condition it cannot decide, a template literal with a port from the
+environment), every `command` of the config file is read instead, each branch of a condition counting and a
+substitution whose value is not known read as a shell variable
+(`` `bun e2e/serve.ts --port ${port}` `` runs `e2e/serve.ts`).
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or
 unlisted packages, and their files are not reported by `unused-files` nor their exports by `unused-exports`,
 `unused-types`, the namespace rules, `unused-enum-members` and `unused-class-members`. **`include-fixtures = true`** reports those files and
