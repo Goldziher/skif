@@ -740,7 +740,11 @@ mod tests {
             let fs = MemoryFs::new()
                 .with_file("/r/package.json", r#"{"name": "app"}"#)
                 .with_file("/r/tool/package.json", manifest);
-            assert_eq!(discover(&fs), ["pkg:/r", "pkg:/r/tool"], "tool/package.json: {manifest}");
+            assert_eq!(
+                discover(&fs),
+                ["pkg:/r", "pkg:/r/tool"],
+                "tool/package.json: {manifest}"
+            );
         }
     }
 

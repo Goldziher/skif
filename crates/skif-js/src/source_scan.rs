@@ -85,12 +85,7 @@ fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
             continue;
         }
         if let Some(specifier) = url_specifier(literal) {
-            found.push((
-                specifier,
-                ImportKind::Url,
-                start,
-                base + "import.meta.url".len(),
-            ));
+            found.push((specifier, ImportKind::Url, start, base + "import.meta.url".len()));
         }
     }
     found.sort_by_key(|(_, _, start, _)| *start);
