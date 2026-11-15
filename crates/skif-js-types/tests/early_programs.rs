@@ -142,24 +142,38 @@ fn a_given_tsconfig_that_cannot_be_read_fails_the_finish() {
 #[test]
 fn analyses_that_fill_every_thread_of_the_global_pool_finish() {
     use rayon::prelude::*;
-    let generated = generated_programs(&PROGRAM_SIZES);
+    // More source directories than tsrs lists inline, so that planning lists the rest on its rayon pool.
+    let mut files = vec![("tsconfig.json".to_owned(), common::TSCONFIG.to_owned())];
+    let mut judged = Vec::new();
+    for index in 0..100 {
+        let rel = format!("src/d{index}/m.ts");
+        files.push((rel.clone(), format!("export const value{index} = {index};\n")));
+        judged.push(rel);
+    }
+    let judged: Vec<&str> = judged.iter().map(String::as_str).collect();
+    let workspace = common::Workspace::from_owned(files);
+    let packages = vec![common::package("", "app", &judged)];
+    let query = common::query(Vec::new());
     // Twice as many analyses as the global pool has threads, one per task: every thread of the pool runs one and waits
     // for its plan, as a host does with one analysis per root.
     let analyses = rayon::current_num_threads() * 2;
     let (done, finished) = std::sync::mpsc::channel();
-    std::thread::scope(|outer| {
-        outer.spawn(|| {
-            let facts: Vec<TypeFacts> = (0..analyses)
-                .into_par_iter()
-                .with_max_len(1)
-                .map(|_| after_early_build(&generated, generated.packages.clone(), &generated.packages))
-                .collect();
-            done.send(facts.len()).unwrap();
-        });
-        assert_eq!(
-            finished.recv_timeout(std::time::Duration::from_secs(300)),
-            Ok(analyses),
-            "the analyses wait for each other's threads"
-        );
+    std::thread::spawn(move || {
+        let facts: Vec<TypeFacts> = (0..analyses)
+            .into_par_iter()
+            .with_max_len(1)
+            .map(|_| {
+                let build = TypeBuild::new(workspace.fs(), abs(""), packages.clone()).with_threads(threads());
+                std::thread::scope(|scope| start(scope, build, None).finish(&packages, &query))
+                    .expect("the analysis fails")
+            })
+            .collect();
+        done.send(facts.len()).unwrap();
     });
+    // A deadlocked pool never ends; the thread is left behind and the test fails.
+    assert_eq!(
+        finished.recv_timeout(std::time::Duration::from_secs(120)),
+        Ok(analyses),
+        "the analyses wait for each other's threads"
+    );
 }
