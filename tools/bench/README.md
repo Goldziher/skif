@@ -730,7 +730,8 @@ commit SHA or a comparison tool not to an exact version.
 successful `workflow_dispatch` run of `bench` whose commit is on `origin/main` (it runs `git fetch origin main` first)
 and whose summary names that commit as the harness's; it refuses any other run, naming its branch. It downloads that
 artifact, refreshes the speed tables of the benchmarks page (`website/src/content/docs/guides/benchmarks.mdx`) and the
-speed claims (`bench:claims`) of the comparison guide, with `refresh-numbers.mjs --bench`,
+speed claims (`bench:claims`) of the comparison guide and the README, where each claim links to the benchmarks page,
+with `refresh-numbers.mjs --bench`,
 then puts the summary into `tools/bench/results` for a commit made locally. The claims give, for each tool, the range of
 the ratios of its median to skif's over the targets it was timed on without a failure, with the median ratio from three
 targets on, each rounded down to one decimal; a knip that fails as declared is left out and named, and one that exits

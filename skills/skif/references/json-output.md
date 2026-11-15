@@ -44,6 +44,10 @@ printed there; notes and timings go to stderr.
   `file` when known) and `scope`: `"package"` when nothing in the package was judged unused, or
   `{"within": [globs]}` for the only files left unjudged. A clean report with incomplete packages is not proof that
   nothing is unused there.
+- `type-aware` (present when the JS analysis ran) says whether types were asked for (`enabled`), the checker that
+  ran (`engine`) and, per package, its `state` (`typed`, `partial` or `untyped`), the `reason` when it is not typed
+  (such as `no-tsconfig` or `unresolved-modules: N`) and `untyped-files`. Member reads in untyped files are credited
+  by name, so missing types never add a finding.
 
 With `--fix`, the document adds a `fix` object: `applied` (`rule`, `message`, `title`), `skipped` (`rule`, `message`, a
 `reason` such as `safety` or `removes-files`, and a `detail`), `changed` (the files written) and `install` (`status`
