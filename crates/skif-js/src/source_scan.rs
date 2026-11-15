@@ -5,6 +5,8 @@
 use skif_core::Span;
 use skif_js_syntax::{Import, ImportKind, ModuleInfo};
 
+use crate::resolve::CODE_EXTENSIONS;
+
 fn skip_whitespace(text: &str, position: usize) -> usize {
     position + (text.len() - position - text[position..].trim_start().len())
 }
@@ -50,6 +52,22 @@ fn in_node_modules(path: &str) -> bool {
     path.split('/').any(|segment| segment == "node_modules")
 }
 
+/// The relative specifier a `new URL` literal names: a path starting with `./` or `../`, or the bare name of a module
+/// file beside the importer (`check.mjs`), which URL resolution reads as `./check.mjs`. A bare name with a directory
+/// (`worker-package/worker.js`) is left out, as bundlers may read it as a package; so are a name without a code
+/// extension and anything with a scheme, query or fragment.
+fn url_specifier(literal: &str) -> Option<String> {
+    if literal.starts_with("./") || literal.starts_with("../") {
+        return Some(literal.to_owned());
+    }
+    let sibling = !literal.starts_with('.')
+        && !literal.contains(['/', '\\', ':', '?', '#'])
+        && literal
+            .rsplit_once('.')
+            .is_some_and(|(_, extension)| CODE_EXTENSIONS.contains(&extension));
+    sibling.then(|| format!("./{literal}"))
+}
+
 /// `(specifier, kind, start, end)` of the specifiers written in `new URL("./x", import.meta.url)`.
 fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
     let mut found = Vec::new();
@@ -62,12 +80,12 @@ fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
             continue;
         }
         let base = skip_whitespace(source, comma + 1);
-        if source[base..].starts_with("import.meta.url")
-            && (literal.starts_with("./") || literal.starts_with("../"))
-            && !in_node_modules(literal)
-        {
+        if !source[base..].starts_with("import.meta.url") || in_node_modules(literal) {
+            continue;
+        }
+        if let Some(specifier) = url_specifier(literal) {
             found.push((
-                literal.to_owned(),
+                specifier,
                 ImportKind::Url,
                 start,
                 base + "import.meta.url".len(),
