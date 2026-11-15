@@ -600,8 +600,7 @@ impl Config {
         if overrides.no_js {
             self.js.enabled = false;
         }
-        if overrides.no_type_aware || overrides.type_aware {
-            let enabled = !overrides.no_type_aware;
+        if let Some(enabled) = overrides.type_aware {
             self.js.type_aware = enabled;
             for workspace in self.js.workspaces.values_mut() {
                 if workspace.type_aware.is_some() {
