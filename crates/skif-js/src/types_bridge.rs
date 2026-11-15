@@ -417,7 +417,7 @@ fn checked(
             return (TypeState::Off(reason), Some(summary_without_types(packages, reason)));
         }
     };
-    note_timings(root, &facts.timings);
+    note_timings(root, &facts.timings, inputs.budget.map(|shared| &shared.programs));
     let summary = asked::summary(root, packages, &facts);
     let typed = Typed::new(analysis, decls, facts);
     (TypeState::Typed(Box::new(typed)), Some(summary))
@@ -428,10 +428,15 @@ fn checked(
 const SLOWEST_PROGRAMS: usize = 5;
 
 /// With timings on, the type-aware stages of the analysis at `root`: planning, the build and query times summed over
-/// the programs beside the wall time and the time the analysis waited for them once the graph was done, and the
-/// slowest programs with their sizes and checkers.
+/// the programs beside the wall time and the time the analysis waited for them once the graph was done, how its
+/// programs got the lib and `node_modules` declaration files they share with the run (and how the run's `programs`
+/// got them so far), and the slowest programs with their sizes and checkers.
 #[cfg(feature = "type-aware")]
-fn note_timings(root: &std::path::Path, timings: &skif_js_types::TypeTimings) {
+fn note_timings(
+    root: &std::path::Path,
+    timings: &skif_js_types::TypeTimings,
+    programs: Option<&skif_js_types::TypePrograms>,
+) {
     if !skif_core::timing::enabled() {
         return;
     }
@@ -449,6 +454,22 @@ fn note_timings(root: &std::path::Path, timings: &skif_js_types::TypeTimings) {
         timings.early,
         timings.threads
     ));
+    let files = timings.shared_files;
+    skif_core::timing::note(format_args!(
+        "js types {}: shared declaration files: {} parsed, {} reused, {} parsed unshared",
+        root.display(),
+        files.parsed,
+        files.reused,
+        files.unshared
+    ));
+    if let Some(run) = programs.map(skif_js_types::TypePrograms::shared_files) {
+        skif_core::timing::note(format_args!(
+            "js types: shared declaration files of the run so far: {} parsed, {} reused, {} parsed unshared",
+            run.parsed,
+            run.reused,
+            run.unshared
+        ));
+    }
     if let Some(peak) = skif_js_types::arena_peak_bytes() {
         skif_core::timing::note(format_args!(
             "js types {}: checker arenas {} MiB in use, {} MiB at most so far (process-wide)",
