@@ -1111,6 +1111,9 @@ impl JsAnalysis<'_> {
             if let Some(&reason) = self.entry_origins.get(&module.abs) {
                 return reason;
             }
+            if package.declaration_entry.is_match(&rel) {
+                return EntryReason::EntryGlob;
+            }
             if package.in_incomplete_scope(&rel) {
                 return EntryReason::IncompleteScope;
             }

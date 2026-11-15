@@ -41,7 +41,7 @@ fn default_entry() -> Vec<String> {
     ]
 }
 
-/// Ambient declaration files load without being imported.
+/// Declaration files, which are entries when they apply without being imported ([`PackageSetup::declaration_entry`]).
 fn ambient_declarations() -> Vec<String> {
     vec!["**/*.d.{ts,mts,cts}".to_owned()]
 }
@@ -373,6 +373,10 @@ pub(crate) struct PackageSetup {
     /// The `[js.workspaces]` key, as written, whose table configures the package; `None` when no table does.
     pub table_key: Option<String>,
     pub entry: Globs,
+    /// The declaration files (`.d.ts`, `.d.mts`, `.d.cts`) that are entries when the module graph finds that they apply
+    /// without being imported: a script, or a module file that augments the global scope or another module
+    /// ([`skif_js_syntax::ModuleInfo::declares_without_import`]). Another declaration file is a module like any other.
+    pub declaration_entry: Globs,
     /// Entry globs that point outside the package directory (`../shared/setup.ts`), relative to the workspace root.
     pub external_entry: Globs,
     /// Entry globs from plugins and tool configuration. Unlike the defaults they also match files that belong to a
@@ -984,7 +988,6 @@ impl Setup {
             );
 
             let mut entry = listed::user_globs(&user.entry, production, &default_entry());
-            entry.extend(ambient_declarations());
             let mut shared_sources: Vec<&String> = plugin.production_entry.iter().collect();
             if !production {
                 shared_sources.extend(plugin.entry.iter());
@@ -1085,6 +1088,11 @@ impl Setup {
                     .iter()
                     .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
             );
+            // The `!` patterns of the entries leave out declaration files as they leave out other files.
+            let declaration_entry: Vec<String> = ambient_declarations()
+                .into_iter()
+                .chain(entry.iter().filter(|pattern| pattern.starts_with('!')).cloned())
+                .collect();
             let mut entry_globs = globs.globs(&entry).with_regexes(entry_regex.clone());
             if production {
                 // The exclusions a production run makes of the plain patterns of the config apply to its own
@@ -1099,6 +1107,7 @@ impl Setup {
                 dir: abs_dir,
                 table_key,
                 entry: entry_globs,
+                declaration_entry: globs.globs(&declaration_entry),
                 external_entry,
                 shared_entry: globs.globs(&shared_entry),
                 plugin_entry: globs.globs(&plugin_entry).with_regexes(entry_regex),

@@ -33,6 +33,9 @@ pub(crate) struct EntryFiles {
     /// One that is also an entry, of its own or handed as one, stays an entry ([`crate::graph`] interns entries
     /// first). Sorted and without duplicates.
     pub build_sources: Vec<PathBuf>,
+    /// The declaration files of every package ([`PackageSetup::declaration_entry`]) that are no entry otherwise: the
+    /// module graph makes each an entry when it applies without being imported. Sorted and without duplicates.
+    pub declarations: Vec<PathBuf>,
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused, with the
     /// reason: those that publish build output or bin files none of which maps back to a source file
     /// ([`IncompleteCause::UnmappedPublished`]), those a tool configuration gives an entry in build output that maps
@@ -108,10 +111,12 @@ pub(crate) fn entry_files(
     let mut other_root_entries = BTreeSet::new();
     let mut other_root_build_sources = BTreeSet::new();
     let mut build_sources = BTreeSet::new();
+    let mut declarations = BTreeSet::new();
     let mut origins = HashMap::default();
     for mut package in found {
         entries.append(&mut package.entries);
         build_sources.append(&mut package.build_sources);
+        declarations.append(&mut package.declarations);
         unknown.extend(package.unknown);
         provided.extend(package.provided);
         other_root_entries.append(&mut package.other_root_entries);
@@ -128,8 +133,10 @@ pub(crate) fn entry_files(
     }
     entries.extend(owned_files(candidates, extra_entries));
     build_sources.extend(owned_files(candidates, extra_build_sources));
+    declarations.retain(|path| !entries.contains(path));
     EntryFiles {
         build_sources: build_sources.into_iter().collect(),
+        declarations: declarations.into_iter().collect(),
         files: entries.into_iter().collect(),
         unknown,
         provided,
@@ -161,6 +168,7 @@ struct EntryContext<'a> {
 struct PackageEntries {
     entries: BTreeSet<PathBuf>,
     build_sources: BTreeSet<PathBuf>,
+    declarations: BTreeSet<PathBuf>,
     unknown: Vec<(PackageId, IncompleteEntries)>,
     /// In the order they are found, so the merged set is built in the same order as one package after another.
     provided: Vec<PathBuf>,
@@ -193,12 +201,15 @@ impl EntryContext<'_> {
         // What provides an entry besides the configured and default globs.
         let mut from_tools = BTreeSet::new();
         let mut build_sources = BTreeSet::new();
+        let mut declarations = BTreeSet::new();
         for (candidate, rel) in owned() {
             if package_setup.entry.is_match(&rel) {
                 own.insert(candidate.abs.clone());
                 if package_setup.plugin_entry.is_match(&rel) {
                     from_tools.insert(candidate.abs.clone());
                 }
+            } else if package_setup.declaration_entry.is_match(&rel) {
+                declarations.insert(candidate.abs.clone());
             }
             if package_setup.build_source.is_match(&rel) {
                 build_sources.insert(candidate.abs.clone());
@@ -349,6 +360,7 @@ impl EntryContext<'_> {
         PackageEntries {
             entries: own,
             build_sources,
+            declarations,
             unknown,
             provided,
             other_root_entries,
