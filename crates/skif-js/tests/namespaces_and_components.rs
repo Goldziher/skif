@@ -263,6 +263,32 @@ fn a_re_exported_namespace_used_as_a_whole_uses_every_export() {
     }
 }
 
+/// A node class lists its method modules as the values of an object (`methods = { listSearch, loadOptions }`): the
+/// runtime reads any member of them, so each namespace is used as a whole, imported directly or through a barrel.
+#[test]
+fn a_namespace_placed_in_an_object_literal_uses_every_value_export() {
+    for (barrel, import) in [
+        ("export {};\n", "import * as listSearch from './shapes';\n"),
+        (
+            "export * as listSearch from './shapes';\n",
+            "import { listSearch } from './barrel';\n",
+        ),
+        (
+            "import * as listSearch from './shapes';\nexport { listSearch };\n",
+            "import { listSearch } from './barrel';\n",
+        ),
+    ] {
+        let index = format!("{import}export class Node {{\n  methods = {{ listSearch }};\n}}\n");
+        let diagnostics = lint_files(&[PACKAGE, ("index.ts", index.as_str()), ("barrel.ts", barrel), SHAPES], "");
+        assert_eq!(
+            found(&diagnostics, "unused-namespace-exports"),
+            none(),
+            "{import}: {diagnostics:#?}"
+        );
+        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{import}");
+    }
+}
+
 #[test]
 fn an_unused_re_exported_binding_is_reported_by_the_barrel() {
     let diagnostics = lint_files(
