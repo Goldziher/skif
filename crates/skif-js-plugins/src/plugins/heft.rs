@@ -30,11 +30,23 @@ const DEFAULT_PROFILE: &str = "default";
 /// Heft plugin packages that load another package the project provides, which they credit without requiring it.
 const LOADED_BY_PLUGIN: &[(&str, &[&str])] = &[("@rushstack/heft-sass-plugin", &["sass"])];
 
-/// Heft plugin packages whose task `options` name packages the plugin runs, with the option keys naming them.
-const NAMED_BY_OPTIONS: &[(&str, &[&str])] = &[(
+/// Heft plugin packages whose task `options` name packages the plugin runs, with the option keys naming them and
+/// whether the project needs the package itself. The Storybook plugin resolves its storykit from the project and the
+/// CLI package from the storykit, so the CLI is the storykit's dependency: a listing in the project is used, a missing
+/// one is no unlisted dependency.
+const NAMED_BY_OPTIONS: &[(&str, &[(&str, Need)])] = &[(
     "@rushstack/heft-storybook-plugin",
-    &["storykitPackageName", "cliPackageName"],
+    &[("storykitPackageName", Need::Project), ("cliPackageName", Need::Other)],
 )];
+
+/// Who resolves a package a task plugin's option names.
+#[derive(Clone, Copy)]
+enum Need {
+    /// The project: it must list the package.
+    Project,
+    /// Another package the plugin resolves first.
+    Other,
+}
 
 /// The Jest plugin of Heft, which runs the compiled tests of the project.
 const JEST_PLUGIN: &str = "@rushstack/heft-jest-plugin";
@@ -155,9 +167,17 @@ fn option_packages(value: &ConfigValue) -> Vec<PluginInput> {
             let keys = NAMED_BY_OPTIONS.iter().find(|(name, _)| *name == package)?.1;
             Some((plugin.get("options")?, keys))
         })
-        .flat_map(|(options, keys)| keys.iter().filter_map(|key| options.get(key)?.as_str()))
-        .filter_map(package_name)
-        .map(PluginInput::Dependency)
+        .flat_map(|(options, keys)| {
+            keys.iter()
+                .filter_map(|(key, need)| Some((options.get(key)?.as_str()?, *need)))
+        })
+        .filter_map(|(value, need)| {
+            let name = package_name(value)?;
+            Some(match need {
+                Need::Project => PluginInput::Dependency(name),
+                Need::Other => PluginInput::OptionalDependency(name),
+            })
+        })
         .collect()
 }
 
