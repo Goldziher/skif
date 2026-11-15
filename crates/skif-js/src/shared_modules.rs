@@ -1,5 +1,6 @@
 //! The module cache the linters of one run parse through (ADR 0029): a host's cache, which holds every file, or the
-//! cache of a multi-root run, which holds only the files more than one root can reach.
+//! cache of a multi-root run, which holds only the files more than one root can reach. A multi-root run's roots also
+//! share the cores of their type-aware analyses.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,8 +11,11 @@ use skif_js_syntax::{
     parse_cached,
 };
 
+use crate::types_bridge::SharedBudget;
+
 /// The module cache the linters of one run share, built by [`SharedModules::for_run`] and given to each linter with
-/// [`JsProvider::with_shared_modules`](crate::JsProvider::with_shared_modules). Cloning it shares the same cache.
+/// [`JsProvider::with_shared_modules`](crate::JsProvider::with_shared_modules), with the cores the type-aware analyses
+/// of a run over several roots share. Cloning it shares the same cache and cores.
 #[derive(Clone)]
 pub struct SharedModules {
     cache: Arc<dyn ModuleCache>,
@@ -20,6 +24,9 @@ pub struct SharedModules {
     /// The roots of the run when the cache is the run's own, which holds only the files that are not local to the
     /// root parsing them; `None` for a host's cache, which holds every file.
     roots: Option<Arc<[PathBuf]>>,
+    /// Present when several roots are linted: the cores their type-aware analyses share, so that the roots linted at
+    /// once build no more programs together than one root does.
+    types: Option<SharedBudget>,
 }
 
 impl SharedModules {
@@ -35,20 +42,25 @@ impl SharedModules {
     ///   share no code stores, copies and hashes nothing.
     /// * With several roots, a lookup of a file another root is parsing waits for that parse instead of repeating
     ///   it. One root takes no lock for that.
+    /// * With several roots, their type-aware analyses take the cores of their programs from one budget of the
+    ///   machine's cores. The facts do not depend on it.
     #[must_use]
     pub fn for_run(roots: Vec<PathBuf>, host: Option<Arc<dyn ModuleCache>>) -> Option<Self> {
         let several = roots.len() > 1;
         let coalescer = several.then(|| Arc::new(ParseCoalescer::new()));
+        let types = several.then(SharedBudget::default);
         match host {
             Some(cache) => Some(Self {
                 cache,
                 coalescer,
                 roots: None,
+                types,
             }),
             None if several => Some(Self {
                 cache: Arc::new(MemoryModuleCache::new()),
                 coalescer,
                 roots: Some(roots.into()),
+                types,
             }),
             None => None,
         }
@@ -60,6 +72,7 @@ impl SharedModules {
             cache,
             coalescer: None,
             roots: None,
+            types: None,
         }
     }
 
@@ -77,6 +90,7 @@ impl SharedModules {
             cache: self.cache.as_ref(),
             coalescer: self.coalescer.as_deref(),
             local,
+            types: self.types.as_ref(),
         }
     }
 }
@@ -108,6 +122,8 @@ pub(crate) struct ModuleParser<'a> {
     coalescer: Option<&'a ParseCoalescer>,
     /// For the run's own cache, the files it leaves out.
     local: Option<Local<'a>>,
+    /// The cores the type-aware analyses of the run share, when it lints several roots.
+    types: Option<&'a SharedBudget>,
 }
 
 /// How a parse through a [`ModuleParser`] was answered, for the timings.
@@ -121,6 +137,13 @@ pub(crate) enum Served {
     Parsed,
     /// Handed the parse another root ran while this lookup waited.
     Waited,
+}
+
+impl<'a> ModuleParser<'a> {
+    /// The cores the type-aware analyses of the run share, when it lints several roots.
+    pub(crate) const fn type_budget(&self) -> Option<&'a SharedBudget> {
+        self.types
+    }
 }
 
 impl ModuleParser<'_> {

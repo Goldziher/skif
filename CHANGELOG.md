@@ -200,6 +200,15 @@ All notable changes to this project are documented here. The format follows
   sequential run keeps building them after the graph. `SKIF_TIMINGS` names the time the analysis waited once the
   graph was done and how many programs started before it ([ADR 0047](adrs/0047-performance-budget-with-types.md)).
 
+- **Type-aware analysis of several roots** (`--recursive`, several paths): the roots linted at once take the cores of
+  their TypeScript programs from one budget of the machine's cores instead of each from cores of its own, so together
+  they build and check no more programs at once, and hold no more of them in memory, than one root does. A program
+  now holds a core for each of its checkers that has a judged file, not one for every checker, so a small program
+  leaves the rest to the others. A quarter of the cores is kept for programs that start before their root's module
+  graph is done; such a program starts early only when cores of that share are free. Findings do not change.
+  `SKIF_TIMINGS` names the time the programs of a root waited for cores. Library hosts share a `TypeBudget` of
+  `skif-js-types` between analyses with `TypeBuild::with_budget` and `TypeInput::with_budget`.
+
 - **`unused-enum-members`, `unused-namespace-members`** with types: a member already used without types is no
   longer asked of the checker, since types only add uses, so reads of its name cost no checker lookup. `explain-usage`
   shows `read` as `false` in the typed evidence of such a member; the verdict is unchanged.
