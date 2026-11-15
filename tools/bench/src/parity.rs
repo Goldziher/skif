@@ -293,7 +293,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 36] = [
     },
     Deviation {
         id: BAZEL_BUILD_FILE,
-        reason: "skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`, which knip has no plugin for: skif reports these unlisted dependencies at a `BUILD` file that names a package by label, and credits these dependencies knip reports as unused through a label of a `BUILD` file in the package's directory: a `node_modules` target of the package's Bazel package (`\":node_modules/zod\"`, `\"//:node_modules/typescript\"`) or the `package_json.bzl` of another repository (`\"@npm//packages/app:esbuild/package_json.bzl\"`), and a peer dependency of such a dependency that the package lists (one its installed `package.json` names in `peerDependencies`, optional or not, or the package an `@types/` one types), which skif credits as a peer of a used package, the harness scanning the string literals of every `BUILD` file below a Bazel root that names `aspect_rules_js` as skif does. An unused file only knip reports is `bazel-build-file` too when a literal of the `srcs` or `data` of a `js_library` or `ts_project`, or of the `entry_point` or `data` of a `js_binary`, `js_run_devserver` or `js_test`, in a top-level call of a `BUILD` file (not inside a nested `glob` or `select`) names it in the `BUILD` file's package, or when such a file reaches it by relative imports through other files only knip reports unused: skif uses the files a rule builds from and what they import. Their exports stay compared: skif judges the exports of `srcs` and `data` files, and only an `entry_point` is an entry whose exports are public",
+        reason: "skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`, which knip has no plugin for: skif reports these unlisted dependencies at a `BUILD` file that names a package by label, and credits these dependencies knip reports as unused through a label of a `BUILD` file in the package's directory: a `node_modules` target of the package's Bazel package (`\":node_modules/zod\"`, `\"//:node_modules/typescript\"`) or the `package_json.bzl` of another repository (`\"@npm//packages/app:esbuild/package_json.bzl\"`), and a peer dependency of such a dependency that the package lists (one its installed `package.json` names in `peerDependencies`, optional or not, or the package an `@types/` one types), which skif credits as a peer of a used package, the harness scanning the string literals of every `BUILD` file below a Bazel root that names `aspect_rules_js` as skif does. An unused file only knip reports is `bazel-build-file` too when a literal of the `srcs` or `data` of a `js_library`, `ts_project` or `ng_project`, or of the `entry_point` or `data` of a `js_binary`, `js_run_devserver` or `js_test`, in a top-level call of a `BUILD` file (not inside a nested `glob` or `select`) names it in the `BUILD` file's package, when an include pattern of a `glob` (also `native.glob`) that the `srcs` or `data` of a test target (`js_test`, or one of these rules with `testonly = True`) add matches it below the `BUILD` file's directory, its `exclude` patterns not applied as skif applies none, or when such a file reaches it by relative imports through other files only knip reports unused: skif uses the files a rule builds from and what they import. Their exports stay compared: skif judges the exports of `srcs` and `data` files, and only an `entry_point` is an entry whose exports are public",
     },
     Deviation {
         id: IN_KNIP_UNUSED_FILE,
@@ -421,6 +421,8 @@ pub struct Options {
     pub untyped_pass: bool,
     /// The baseline of the typed and untyped counts per rule; recorded and checked with [`Options::gate`]'s flags.
     pub type_aware_baseline: PathBuf,
+    /// Sample findings the full report keeps per category, known deviation and side (`usize::MAX` for all).
+    pub samples: usize,
 }
 
 /// Makes a path relative to the checkout with `/` separators.
@@ -3445,24 +3447,62 @@ fn starlark_strings(source: &str) -> Vec<String> {
         .collect()
 }
 
-/// The string literals of the keyword arguments of the top-level calls of Starlark `source`, as `(rule, attribute,
-/// literal)` in order. A literal inside a nested call (`glob([...])`, `select({...})`) is left out, and a method call
-/// (`"x".format(...)`) is no rule, as in skif's Bazel plugin (`calls` in `crates/skif-js-plugins/src/bazel.rs`).
-fn rule_literals(source: &str) -> Vec<(String, String, String)> {
+/// A top-level call of Starlark source as skif's Bazel plugin reads it (`Call` in
+/// `crates/skif-js-plugins/src/bazel.rs`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuleCall {
+    /// The name called (`ts_project`).
+    rule: String,
+    /// `(attribute, literal)` for each string literal of a keyword argument's value, in order. A literal inside a
+    /// nested call (`glob([...])`, `select({...})`) is left out.
+    literals: Vec<(String, String)>,
+    /// `(attribute, pattern)` for each include pattern of a `glob(...)` (also `native.glob`) that a keyword argument's
+    /// value is or adds (`[":a.ts"] + glob([...])`): the string literals of the list given first or as `include`. Its
+    /// `exclude` patterns are not read, and a `glob` inside another call (`select({...})`) is left out.
+    globs: Vec<(String, String)>,
+    /// Whether the call has the literal `testonly = True`.
+    testonly: bool,
+}
+
+/// The name of the Starlark call whose arguments are file patterns.
+const STARLARK_GLOB: &str = "glob";
+
+/// The calls at the top level of Starlark `source`, in order; a method call (`"x".format(...)`) is none, as in skif's
+/// Bazel plugin (`calls` in `crates/skif-js-plugins/src/bazel.rs`).
+fn rule_calls(source: &str) -> Vec<RuleCall> {
     let tokens = starlark_tokens(source);
     let mut found = Vec::new();
     let mut open: Vec<char> = Vec::new();
-    let mut rule: Option<String> = None;
+    let mut current: Option<RuleCall> = None;
     let mut attribute: Option<String> = None;
-    for (at, token) in tokens.iter().enumerate() {
+    let mut at = 0;
+    while let Some(token) = tokens.get(at) {
         match token {
+            StarlarkToken::Name(name)
+                if name == STARLARK_GLOB
+                    && open.len() == 1
+                    && tokens.get(at + 1) == Some(&StarlarkToken::Punct('(')) =>
+            {
+                let (patterns, next) = glob_includes(&tokens, at + 2);
+                if let (Some(call), Some(named)) = (current.as_mut(), &attribute) {
+                    call.globs
+                        .extend(patterns.into_iter().map(|pattern| (named.clone(), pattern)));
+                }
+                at = next;
+                continue;
+            }
             StarlarkToken::Punct(bracket @ ('(' | '[' | '{')) => {
                 if open.is_empty() && *bracket == '(' {
                     let called = at.checked_sub(1).and_then(|before| tokens.get(before));
                     let method =
                         at.checked_sub(2).and_then(|before| tokens.get(before)) == Some(&StarlarkToken::Punct('.'));
-                    rule = match called {
-                        Some(StarlarkToken::Name(name)) if !method => Some(name.clone()),
+                    current = match called {
+                        Some(StarlarkToken::Name(name)) if !method => Some(RuleCall {
+                            rule: name.clone(),
+                            literals: Vec::new(),
+                            globs: Vec::new(),
+                            testonly: false,
+                        }),
                         _ => None,
                     };
                     attribute = None;
@@ -3472,7 +3512,7 @@ fn rule_literals(source: &str) -> Vec<(String, String, String)> {
             StarlarkToken::Punct(')' | ']' | '}') => {
                 open.pop();
                 if open.is_empty() {
-                    rule = None;
+                    found.extend(current.take());
                     attribute = None;
                 }
             }
@@ -3482,30 +3522,84 @@ fn rule_literals(source: &str) -> Vec<(String, String, String)> {
                     && tokens.get(at + 1) == Some(&StarlarkToken::Punct('='))
                     && tokens.get(at + 2) != Some(&StarlarkToken::Punct('=')) =>
             {
+                let is_true = matches!(tokens.get(at + 2), Some(StarlarkToken::Name(value)) if value == "True")
+                    && matches!(tokens.get(at + 3), None | Some(StarlarkToken::Punct(',' | ')')));
+                if name == "testonly"
+                    && is_true
+                    && let Some(call) = current.as_mut()
+                {
+                    call.testonly = true;
+                }
                 attribute = Some(name.clone());
             }
             StarlarkToken::Text(text) => {
-                if let (Some(called), Some(named)) = (&rule, &attribute)
+                if let (Some(call), Some(named)) = (current.as_mut(), &attribute)
                     && !open.iter().skip(1).any(|bracket| *bracket == '(')
                 {
-                    found.push((called.clone(), named.clone(), text.clone()));
+                    call.literals.push((named.clone(), text.clone()));
                 }
             }
             StarlarkToken::Name(_) | StarlarkToken::Punct(_) => {}
         }
+        at += 1;
     }
+    found.extend(current);
     found
 }
 
-/// The rules of skif's Bazel plugin and the attributes whose labels name the files a rule builds from or runs
-/// (`RULES` in `crates/skif-js-plugins/src/plugins/bazel.rs`).
-const BAZEL_RULES: [(&str, &[&str]); 5] = [
-    ("js_binary", &["entry_point", "data"]),
-    ("js_run_devserver", &["entry_point", "data"]),
-    ("js_test", &["entry_point", "data"]),
-    ("js_library", &["srcs", "data"]),
-    ("ts_project", &["srcs", "data"]),
+/// The include patterns of the Starlark `glob(...)` whose arguments start at token `start`, just after its `(`, and
+/// the position after its `)`: the string literals directly in the list literal given first or as `include`
+/// (`glob_includes` in `crates/skif-js-plugins/src/bazel.rs`). The `exclude` patterns and every computed value are
+/// left out.
+fn glob_includes(tokens: &[StarlarkToken], start: usize) -> (Vec<String>, usize) {
+    let mut patterns = Vec::new();
+    let mut brackets: Vec<char> = Vec::new();
+    let mut argument = 0_usize;
+    let mut keyword: Option<&str> = None;
+    let mut at = start;
+    while let Some(token) = tokens.get(at) {
+        match token {
+            StarlarkToken::Punct(bracket @ ('(' | '[' | '{')) => brackets.push(*bracket),
+            StarlarkToken::Punct(')' | ']' | '}') if brackets.is_empty() => return (patterns, at + 1),
+            StarlarkToken::Punct(')' | ']' | '}') => {
+                brackets.pop();
+            }
+            StarlarkToken::Punct(',') if brackets.is_empty() => {
+                argument += 1;
+                keyword = None;
+            }
+            StarlarkToken::Name(name)
+                if brackets.is_empty() && tokens.get(at + 1) == Some(&StarlarkToken::Punct('=')) =>
+            {
+                keyword = Some(name.as_str());
+                at += 2;
+                continue;
+            }
+            StarlarkToken::Text(text) if brackets == ['['] => {
+                if keyword.map_or(argument == 0, |name| name == "include") {
+                    patterns.push(text.clone());
+                }
+            }
+            StarlarkToken::Name(_) | StarlarkToken::Text(_) | StarlarkToken::Punct(_) => {}
+        }
+        at += 1;
+    }
+    (patterns, at)
+}
+
+/// The rules of skif's Bazel plugin, the attributes whose labels name the files a rule builds from or runs, and
+/// whether the rule is a test (`RULES` in `crates/skif-js-plugins/src/plugins/bazel.rs`).
+const BAZEL_RULES: [(&str, &[&str], bool); 6] = [
+    ("js_binary", &["entry_point", "data"], false),
+    ("js_run_devserver", &["entry_point", "data"], false),
+    ("js_test", &["entry_point", "data"], true),
+    ("js_library", &["srcs", "data"], false),
+    ("ts_project", &["srcs", "data"], false),
+    ("ng_project", &["srcs", "data"], false),
 ];
+
+/// The attribute of [`BAZEL_RULES`] that names the file a rule runs; a `glob` there names nothing.
+const BAZEL_ENTRY_POINT: &str = "entry_point";
 
 /// The path a literal names in its own Bazel package (`package_path` in `crates/skif-js-plugins/src/bazel.rs`): a
 /// relative file (`src/a.ts`) or a target of the package written as a label (`:src/a.ts`), without a leading `./`. A
@@ -3632,26 +3726,53 @@ fn rules_js_build_files<'b>(
 
 /// The files that the `BUILD` files of a `rules_js` repository ([`rules_js_build_files`]) name in an attribute of one
 /// of skif's Bazel rules ([`BAZEL_RULES`]): the sources and data of a build and the entry point of a binary or test,
-/// each a literal that names a file of the `BUILD` file's package ([`bazel_package_path`]) that exists. A `glob`
-/// pattern and a label of another package name none, as in skif's plugin.
+/// each a literal that names a file of the `BUILD` file's package ([`bazel_package_path`]) that exists. A test target
+/// (`js_test`, or a rule with `testonly = True`) also names the files of `files` below the `BUILD` file's directory
+/// that the include patterns of a `glob` of its `srcs` or `data` match, relative to that directory, without applying
+/// its `exclude` patterns. A `glob` of any other target, one inside `select` and a label of another package name none,
+/// as in skif's plugin (ADR 0049).
 fn bazel_sources(
     build_files: &[(String, String)],
+    files: &[String],
     is_file: &FileProbe<'_>,
     read: &dyn Fn(&str) -> Option<String>,
 ) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     for (path, source, _) in rules_js_build_files(build_files, is_file, read) {
         let dir = parent_dir(path);
-        for (rule, attribute, literal) in rule_literals(source) {
-            let named = BAZEL_RULES
-                .iter()
-                .any(|(known, attributes)| *known == rule && attributes.contains(&attribute.as_str()));
-            if let Some(file) = bazel_package_path(&literal).map(|file| joined(dir, file))
-                && named
-                && is_file(&file)
-            {
-                found.insert(file);
+        for call in rule_calls(source) {
+            let Some((_, attributes, test_rule)) = BAZEL_RULES.iter().find(|(rule, _, _)| *rule == call.rule) else {
+                continue;
+            };
+            for (attribute, literal) in &call.literals {
+                if let Some(file) = bazel_package_path(literal).map(|file| joined(dir, file))
+                    && attributes.contains(&attribute.as_str())
+                    && is_file(&file)
+                {
+                    found.insert(file);
+                }
             }
+            if !(*test_rule || call.testonly) {
+                continue;
+            }
+            let patterns: Vec<String> = call
+                .globs
+                .iter()
+                .filter(|(attribute, _)| attribute != BAZEL_ENTRY_POINT && attributes.contains(&attribute.as_str()))
+                .filter_map(|(_, pattern)| bazel_package_path(pattern))
+                .map(str::to_owned)
+                .collect();
+            if patterns.is_empty() {
+                continue;
+            }
+            let globs = IncompleteScopeGlobs::new(patterns);
+            let prefix = format!("{dir}/");
+            found.extend(
+                files
+                    .iter()
+                    .filter(|file| (dir.is_empty() || file.starts_with(&prefix)) && globs.is_match(below(dir, file)))
+                    .cloned(),
+            );
         }
     }
     found
@@ -4268,7 +4389,7 @@ impl Facts {
                 layout.manifest,
             ),
             bazel_sources: bazel_reach(
-                &bazel_sources(&build_files, layout.is_file, &read_source),
+                &bazel_sources(&build_files, &files, layout.is_file, &read_source),
                 (knip_unused, skif_unused),
                 layout.is_file,
                 &read_source,
@@ -4415,14 +4536,19 @@ fn parity_repo(
         installed,
     );
     let classifier = facts.classifier(repo, options, (&skif_found, &knip_found), knip_run.rush_root, &layout);
-    let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
-        with_type_resolved(
-            classifier.classify(side, category, key),
-            (side, category, key),
-            untyped_found.as_ref(),
-        )
-    });
-    let (counts, samples) = diff::compare(&split.skif, &split.tool);
+    let split = diff::split_known_sampled(
+        &skif_found,
+        &knip_found,
+        &|side, category, key| {
+            with_type_resolved(
+                classifier.classify(side, category, key),
+                (side, category, key),
+                untyped_found.as_ref(),
+            )
+        },
+        options.samples,
+    );
+    let (counts, samples) = diff::compare_sampled(&split.skif, &split.tool, options.samples);
     let detail = json!({
         "status": COMPARED,
         "installed": installed,
@@ -4509,9 +4635,10 @@ fn untyped_pass(
         }
     };
     let (root, _) = dirs;
-    let (counts, samples) = diff::compare(
+    let (counts, samples) = diff::compare_sampled(
         &type_aware::rule_keys(&typed.doc, root),
         &type_aware::rule_keys(&doc, root),
+        options.samples,
     );
     Ok(UntypedPass {
         detail: json!({
@@ -7989,7 +8116,15 @@ vi.mock("mocked-package");
                      js_binary(name = \"run\", entry_point = \"run.mts\", data = [\"data.json\"])\n\
                      js_unknown(name = \"x\", srcs = [\"unknown.mts\"])\n\
                      \"tail.mts\".format(x)\n";
-        let literals: Vec<(String, String, String)> = rule_literals(build);
+        let literals: Vec<(String, String, String)> = rule_calls(build)
+            .into_iter()
+            .flat_map(|call| {
+                let rule = call.rule;
+                call.literals
+                    .into_iter()
+                    .map(move |(attribute, literal)| (rule.clone(), attribute, literal))
+            })
+            .collect();
         let named = |rule: &str, attribute: &str| -> Vec<&str> {
             literals
                 .iter()
@@ -8040,7 +8175,8 @@ vi.mock("mocked-package");
             .filter(|(path, _)| is_build_file(path))
             .map(|(path, source)| ((*path).to_owned(), (*source).to_owned()))
             .collect();
-        let sources = bazel_sources(&build_files, &is_file, &read);
+        let files: Vec<String> = sources.keys().map(|path| (*path).to_owned()).collect();
+        let sources = bazel_sources(&build_files, &files, &is_file, &read);
         assert_eq!(
             sources,
             strings(&[
@@ -8049,8 +8185,8 @@ vi.mock("mocked-package");
                 "adev/pipeline/index.mts",
                 "adev/pipeline/run.mts",
             ]),
-            "a label of another package, a missing file, a rule skif does not read and a repository without \
-             rules_js name none"
+            "a label of another package, a missing file, a rule skif does not read, the glob of a target that is no \
+             test and a repository without rules_js name none"
         );
         let knip_unused = strings(&[
             "adev/pipeline/index.mts",
@@ -8089,6 +8225,56 @@ vi.mock("mocked-package");
                 "{category} {key}"
             );
         }
+    }
+
+    #[test]
+    fn the_glob_patterns_of_a_bazel_test_target_name_build_sources() {
+        let build = "ts_project(\n    name = \"test_lib\",\n    testonly = True,\n    srcs = glob(\n        \
+                     [\"*_spec.ts\", \"testing/**/*.ts\"],\n        exclude = [\"skipped_spec.ts\"],\n    ) + \
+                     [\"extra.ts\"],\n)\n\
+                     ng_project(name = \"specs\", testonly = True, srcs = native.glob(include = [\"ng/*.ts\"]))\n\
+                     js_test(name = \"run\", entry_point = \"run.mjs\", data = glob([\"fixtures/*.mjs\"]))\n\
+                     ts_project(name = \"lib\", srcs = glob([\"src/*.ts\"]))\n\
+                     ts_project(name = \"maybe\", testonly = False, srcs = glob([\"maybe/*.ts\"]))\n\
+                     ts_project(name = \"nested\", testonly = True, srcs = select({\"//:on\": glob([\"on/*.ts\"])}))\n\
+                     ts_project(name = \"climbs\", testonly = True, srcs = glob([\"../up/*.ts\"]))\n";
+        let sources = BTreeMap::from([
+            (
+                "MODULE.bazel",
+                "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+            ),
+            ("pkg/BUILD.bazel", build),
+            ("pkg/a_spec.ts", "export {};\n"),
+            ("pkg/skipped_spec.ts", "export {};\n"),
+            ("pkg/extra.ts", "export {};\n"),
+            ("pkg/testing/deep/helper.ts", "export {};\n"),
+            ("pkg/ng/b.spec.ts", "export {};\n"),
+            ("pkg/fixtures/c.mjs", "export {};\n"),
+            ("pkg/run.mjs", "export {};\n"),
+            ("pkg/src/d.ts", "export {};\n"),
+            ("pkg/maybe/e.ts", "export {};\n"),
+            ("pkg/on/f.ts", "export {};\n"),
+            ("up/g.ts", "export {};\n"),
+            ("other/a_spec.ts", "export {};\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let build_files = vec![("pkg/BUILD.bazel".to_owned(), build.to_owned())];
+        let files: Vec<String> = sources.keys().map(|path| (*path).to_owned()).collect();
+        assert_eq!(
+            bazel_sources(&build_files, &files, &is_file, &read),
+            strings(&[
+                "pkg/a_spec.ts",
+                "pkg/extra.ts",
+                "pkg/fixtures/c.mjs",
+                "pkg/ng/b.spec.ts",
+                "pkg/run.mjs",
+                "pkg/skipped_spec.ts",
+                "pkg/testing/deep/helper.ts",
+            ]),
+            "the include patterns of a test target's glob match below its BUILD file, its exclude patterns are not \
+             applied, and the glob of a production target, one inside select and one that climbs out name none"
+        );
     }
 
     #[test]

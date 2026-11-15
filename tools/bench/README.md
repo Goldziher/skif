@@ -161,8 +161,9 @@ Profile with `cargo build --profile profiling` (release plus debug symbols, no s
 For each repository and issue type the report gives the number of findings only skif reports, only knip reports, and
 both report. The keys are approximations (a duplicate export is keyed by its names, an unused export by file and
 name), so the numbers measure drift and where the tools model things differently, not correctness. The full report
-with a few sample keys per side is `target/bench-results/parity.json` and `parity.md`; samples name files of the
-corpus repositories and are never committed.
+with sample keys per side is `target/bench-results/parity.json` and `parity.md`: five per category, known deviation
+and side, or as many as `--samples <N>` asks for, and every one-sided finding with `--samples all`, which lists all the
+files only one tool reports in a repository. Samples name files of the corpus repositories and are never committed.
 
 **Types.** skif runs twice per repository: with types, its default, and again with `--no-type-aware`. The typed run is
 the one compared with knip ([ADR 0050](../../adrs/0050-knip-comparison-against-the-typed-run.md)). A one-sided finding
@@ -412,10 +413,13 @@ file below a directory skif's file discovery enters (a `coverage`, `out` or `tar
 directly in the root or a package directory), in a checkout whose root holds `MODULE.bazel`, `REPO.bazel`,
 `WORKSPACE.bazel` or `WORKSPACE`, resolving each label's Bazel package from the nearest of these root files that names
 `aspect_rules_js`, as skif does. An unused file only knip reports is `bazel-build-file` too when the `srcs` or `data`
-of a `js_library` or `ts_project`, or the `entry_point` or `data` of a `js_binary`, `js_run_devserver` or `js_test`,
-name it in the `BUILD` file's package (a literal of a top-level call, `"src/a.ts"` or `":src/a.ts"`, not one inside a
-nested `glob` or `select`, as skif's plugin reads them), or when such a file reaches it by relative imports through
-other files only knip reports unused. Their exports stay compared: skif judges the exports of `srcs` and `data` files;
+of a `js_library`, `ts_project` or `ng_project`, or the `entry_point` or `data` of a `js_binary`, `js_run_devserver`
+or `js_test`, name it in the `BUILD` file's package (a literal of a top-level call, `"src/a.ts"` or `":src/a.ts"`, not
+one inside a nested `select`, as skif's plugin reads them), when the `srcs` or `data` of a test target (`js_test`, or
+any of these rules with `testonly = True`) add a `glob(...)` (also `native.glob`) whose include patterns match it below
+the `BUILD` file's directory (its `exclude` patterns are not applied, as skif applies none,
+[ADR 0049](../../adrs/0049-bazel-test-globs-and-angular-packages.md)), or when such a file reaches it by relative
+imports through other files only knip reports unused. The `glob` of a target that is no test names nothing. Their exports stay compared: skif judges the exports of `srcs` and `data` files;
 only an `entry_point` is an entry whose exports are public.
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
