@@ -2,19 +2,21 @@
 //! discovery gives it (tsserver's rules, after tsrs-lint's `find_tsconfig`), each config is built once, and a file no
 //! config includes stays untyped. skif builds no inferred program (ADR 0034).
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_core::HashSet;
-use tsrs_core::tspath;
+use tsrs_core::{P, tspath};
 use tsrs_tsoptions::{ParseConfigHost, ParsedCommandLine};
 use tsrs_vfs::FS;
 
+use crate::shared_configs::{ConfigReader, Parsed};
 use crate::vfs::tsrs_path;
-use crate::{TypeError, TypeInput};
+use crate::{TypeError, TypeInput, TypePackage};
 
 /// The host configs are parsed with: the analysis's file system and the workspace root as the current directory.
+#[derive(Clone)]
 pub(crate) struct ConfigHost {
     fs: Arc<dyn FS>,
     cwd: String,
@@ -98,14 +100,6 @@ pub(crate) enum Located {
 /// same file system reuses it instead of searching again.
 pub(crate) type Lookups = BTreeMap<(String, bool), Located>;
 
-/// What the search for a file's config found.
-enum Lookup {
-    Found(String),
-    NoConfig,
-    ConfigError,
-    Outside,
-}
-
 /// Where the search for a file's config starts.
 #[derive(Clone, Copy)]
 enum Start<'a> {
@@ -115,38 +109,42 @@ enum Start<'a> {
     Given(&'a str),
 }
 
-/// The parsed configs of one planning, by path; `None` for a config that cannot be parsed.
-type ConfigCache = skif_core::HashMap<tspath::Path, Option<ParsedCommandLine>>;
-
-/// Plans the programs of `input`: per judged file its config, deduplicated by canonical path. A file `known` holds
-/// keeps the place it has there; the others are searched. Returns the plan with the places of the searched files.
+/// Plans the programs of `input`, reading configs with `reader`: per judged file its config, deduplicated by canonical
+/// path. A file `known` holds keeps the place it has there; the others are searched. Returns the plan with the places
+/// of the searched files.
 ///
 /// # Errors
 /// [`TypeError::Config`] when the `tsconfig` given for the root package cannot be read or parsed.
 pub(crate) fn plan_programs(
     input: &TypeInput<'_>,
-    host: &ConfigHost,
+    reader: &ConfigReader,
     known: &Lookups,
 ) -> Result<(ProgramPlan, Lookups), TypeError> {
     let given = input
         .tsconfig_override
-        .map(|config| given_config(input.root, config, host))
+        .map(|config| given_config(input.root, config, reader))
         .transpose()?;
-    let mut cache = ConfigCache::default();
+    let given = given.as_deref();
+    let mut configs = Configs::new(reader);
+    configs.prefetch(input.packages.iter().flat_map(|package| {
+        let start = start_of(package, input.root, given);
+        package
+            .files
+            .iter()
+            .map(move |path| (tsrs_path(path), start))
+            .filter(move |(name, start)| !known.contains_key(&(name.clone(), matches!(start, Start::Given(_)))))
+    }));
     let mut searched = Lookups::new();
     let mut by_config: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     let mut files = Vec::new();
     for (package_index, package) in input.packages.iter().enumerate() {
-        let start = match &given {
-            Some(config) if package.dir == input.root => Start::Given(config),
-            _ => Start::Discover,
-        };
+        let start = start_of(package, input.root, given);
         for path in &package.files {
             let name = tsrs_path(path);
             let key = (name, matches!(start, Start::Given(_)));
             let cached = known.get(&key).or_else(|| searched.get(&key)).cloned();
             let located = cached.unwrap_or_else(|| {
-                let located = locate(&key.0, start, host, &mut cache);
+                let located = configs.locate(&key.0, start);
                 searched.insert(key.clone(), located.clone());
                 located
             });
@@ -182,110 +180,249 @@ pub(crate) fn plan_programs(
     Ok((ProgramPlan { programs, files }, searched))
 }
 
-/// Where the search for the config of `file` leads.
-fn locate(file: &str, start: Start<'_>, host: &ConfigHost, cache: &mut ConfigCache) -> Located {
-    match find_config(file, start, host, cache) {
-        Lookup::Found(config) => Located::Config(host.fs.realpath(&config)),
-        Lookup::NoConfig => Located::NoConfig,
-        Lookup::ConfigError => Located::ConfigError,
-        Lookup::Outside => Located::Outside,
+/// Where the search for the config of a file of `package` starts: at `given`, the config given for the package at
+/// `root`, or at the nearest config above the file.
+fn start_of<'g>(package: &TypePackage, root: &Path, given: Option<&'g str>) -> Start<'g> {
+    match given {
+        Some(config) if package.dir == root => Start::Given(config),
+        _ => Start::Discover,
     }
 }
 
 /// The `tsconfig` given for the root package, absolute, once it parses.
-fn given_config(root: &Path, config: &Path, host: &ConfigHost) -> Result<String, TypeError> {
+fn given_config(root: &Path, config: &Path, reader: &ConfigReader) -> Result<String, TypeError> {
     let name = tsrs_path(&root.join(config));
-    parse_config_reporting(&name, host).map_err(|message| TypeError::Config {
-        path: config.to_path_buf(),
-        message,
-    })?;
+    if let Some(message) = reader.config(&name).problem {
+        return Err(TypeError::Config {
+            path: config.to_path_buf(),
+            message,
+        });
+    }
     Ok(name)
 }
 
-/// Parses the config at `path`; `None` when it cannot be read or parsed.
-pub(crate) fn parse_config(path: &str, host: &ConfigHost) -> Option<ParsedCommandLine> {
-    parse_config_reporting(path, host).ok()
+/// The configs one planning met, with how far the searches through them went.
+///
+/// A search for a file's config goes as tsserver's does: the nearest config, then breadth first through its project
+/// references, then the next config above it (unless `disableSolutionSearching` is set), and the file goes to the
+/// first config visited whose program holds it. Which configs a search visits, in which order, depends only on the
+/// config it starts at, not on the file, so each search is walked once, only as far as a file needs, and a file first
+/// looks up the configs that hold it among those visited: a workspace of many configs whose test files no config
+/// holds would otherwise walk every config for each of those files.
+struct Configs<'a> {
+    reader: &'a ConfigReader,
+    /// Each config met; `None` for one that cannot be read or parsed.
+    parsed: Vec<Option<P<ParsedCommandLine>>>,
+    /// The index of each config in `parsed`, by its path as tsrs keys files.
+    by_path: skif_core::HashMap<tspath::Path, usize>,
+    /// The configs whose programs hold a file, by the file's path as tsrs keys files.
+    holders: skif_core::HashMap<tspath::Path, Vec<usize>>,
+    /// The search from a config, by the config and whether it was given for the root package.
+    searches: skif_core::HashMap<(String, bool), Search>,
 }
 
-/// Parses the config at `path`, or says why it cannot be.
-fn parse_config_reporting(path: &str, host: &ConfigHost) -> Result<ParsedCommandLine, String> {
-    let (config, diagnostics) = tsrs_tsoptions::get_parsed_command_line_of_config_file(path, None, None, host, None);
-    if !diagnostics.is_empty() {
-        return Err(messages(diagnostics.iter().map(|diagnostic| diagnostic.localize())));
-    }
-    let config = config.ok_or_else(|| format!("cannot read {path}"))?;
-    if let Some(file) = config.config_file {
-        let syntax = file.source_file.diagnostics();
-        if !syntax.is_empty() {
-            return Err(messages(syntax.iter().map(|diagnostic| diagnostic.localize())));
+/// A search as far as it went, and how it goes on.
+struct Search {
+    /// Each config visited, by its path as the search reached it and its index in [`Configs::parsed`].
+    visits: Vec<(String, usize)>,
+    /// The first visit of each config visited.
+    first: skif_core::HashMap<usize, usize>,
+    /// Whether a config on the way cannot be read or parsed.
+    errored: bool,
+    /// The config whose references the search walks; `None` once it walked them all.
+    level: Option<String>,
+    /// The configs queued at this level.
+    queue: VecDeque<String>,
+    /// Whether the config of this level stops the search at this level.
+    disable_solution_searching: bool,
+    /// Whether the search stops at its first level, as for the config given for the root package.
+    given: bool,
+    visited: HashSet<String>,
+}
+
+impl Search {
+    fn new(first: String, given: bool) -> Self {
+        Self {
+            visits: Vec::new(),
+            first: skif_core::HashMap::default(),
+            errored: false,
+            queue: VecDeque::from([first.clone()]),
+            level: Some(first),
+            disable_solution_searching: false,
+            given,
+            visited: HashSet::default(),
         }
     }
-    Ok(config)
 }
 
-fn messages(messages: impl Iterator<Item = String>) -> String {
-    messages.collect::<Vec<_>>().join("; ")
-}
+impl<'a> Configs<'a> {
+    fn new(reader: &'a ConfigReader) -> Self {
+        Self {
+            reader,
+            parsed: Vec::new(),
+            by_path: skif_core::HashMap::default(),
+            holders: skif_core::HashMap::default(),
+            searches: skif_core::HashMap::default(),
+        }
+    }
 
-/// The config whose program holds `file`, searched as tsserver does: the nearest config, then breadth first through
-/// its project references, then the next config above it (unless `disableSolutionSearching` is set).
-fn find_config(file: &str, start: Start<'_>, host: &ConfigHost, cache: &mut ConfigCache) -> Lookup {
-    let mut next = match start {
-        Start::Discover => compute_config_file_name(file, false, host),
-        Start::Given(config) => Some(config.to_owned()),
-    };
-    let file_path = host.to_path(file);
-    let mut visited = HashSet::default();
-    let mut found_any = false;
-    let mut errored = false;
-    while let Some(config_path) = next {
-        found_any = true;
-        let mut queue = VecDeque::from([config_path.clone()]);
-        let mut disable_solution_searching = false;
-        while let Some(path) = queue.pop_front() {
-            if !visited.insert(path.clone()) {
-                continue;
+    /// Reads, on the threads of the current rayon pool, the configs the searches of `files` (by name, with where
+    /// their search starts) start at and those their project references reach, so that the searches find them read:
+    /// one at a time, the planning would read every config of the workspace on one thread.
+    fn prefetch<'s>(&mut self, files: impl Iterator<Item = (String, Start<'s>)>) {
+        use rayon::prelude::*;
+
+        let reader = self.reader;
+        let host = reader.host();
+        let mut seen: BTreeSet<String> = files
+            .filter_map(|(name, start)| match start {
+                Start::Discover => compute_config_file_name(&name, false, host),
+                Start::Given(config) => Some(config.to_owned()),
+            })
+            .collect();
+        let mut wave: Vec<String> = seen.iter().cloned().collect();
+        while !wave.is_empty() {
+            let read: Vec<(String, Option<Parsed>)> = wave
+                .into_par_iter()
+                .map(|path| {
+                    let parsed = reader.prefetch(&path);
+                    (path, parsed)
+                })
+                .collect();
+            wave = Vec::new();
+            for (path, parsed) in read {
+                // Read by the search, on this thread, instead.
+                let Some(parsed) = parsed else {
+                    continue;
+                };
+                let config = parsed.usable();
+                if let Some(config) = config {
+                    wave.extend(
+                        config
+                            .resolved_project_reference_paths()
+                            .iter()
+                            .filter(|reference| seen.insert((*reference).clone()))
+                            .cloned(),
+                    );
+                }
+                self.insert(&path, config);
             }
-            let config = cache
-                .entry(host.to_path(&path))
-                .or_insert_with(|| parse_config(&path, host));
-            let Some(config) = config else {
-                errored = true;
+        }
+    }
+
+    /// Where the search for the config of `file` from `start` leads.
+    fn locate(&mut self, file: &str, start: Start<'_>) -> Located {
+        let reader = self.reader;
+        let host = reader.host();
+        let first = match start {
+            Start::Discover => compute_config_file_name(file, false, host),
+            Start::Given(config) => Some(config.to_owned()),
+        };
+        let Some(first) = first else {
+            return Located::NoConfig;
+        };
+        let given = matches!(start, Start::Given(_));
+        let key = (first, given);
+        let mut search = self
+            .searches
+            .remove(&key)
+            .unwrap_or_else(|| Search::new(key.0.clone(), given));
+        let found = self.find(&mut search, &host.to_path(file));
+        let located = match found {
+            Some(visit) => Located::Config(host.fs.realpath(&search.visits[visit].0)),
+            None if search.errored => Located::ConfigError,
+            None => Located::Outside,
+        };
+        self.searches.insert(key, search);
+        located
+    }
+
+    /// The first visit of `search` to a config whose program holds `file`, walking the search on as far as needed.
+    fn find(&mut self, search: &mut Search, file: &tspath::Path) -> Option<usize> {
+        let visited = self
+            .holders
+            .get(file)
+            .into_iter()
+            .flatten()
+            .filter_map(|config| search.first.get(config))
+            .min();
+        if let Some(&visit) = visited {
+            return Some(visit);
+        }
+        while let Some(index) = self.step(search) {
+            if self.parsed[index].is_some_and(|config| config.file_names_by_path().contains_key(file)) {
+                return Some(search.visits.len() - 1);
+            }
+        }
+        None
+    }
+
+    /// Visits the next config of `search`, reading it; returns its index, or `None` once the search is done.
+    fn step(&mut self, search: &mut Search) -> Option<usize> {
+        let reader = self.reader;
+        loop {
+            let level = search.level.clone()?;
+            let Some(path) = search.queue.pop_front() else {
+                search.level = if search.disable_solution_searching || search.given {
+                    None
+                } else {
+                    compute_config_file_name(&level, true, reader.host())
+                };
+                search.disable_solution_searching = false;
+                search.queue.extend(search.level.clone());
                 continue;
             };
-            if path == config_path {
-                disable_solution_searching = config
+            if !search.visited.insert(path.clone()) {
+                continue;
+            }
+            let index = self.config(&path);
+            let Some(config) = self.parsed[index] else {
+                search.errored = true;
+                continue;
+            };
+            if path == level {
+                search.disable_solution_searching = config
                     .compiler_options()
                     .is_some_and(|options| options.disable_solution_searching.is_true());
             }
-            if holds(config, file, &file_path) {
-                return Lookup::Found(path);
-            }
-            queue.extend(config.resolved_project_reference_paths().iter().cloned());
+            search.first.entry(index).or_insert(search.visits.len());
+            search.visits.push((path, index));
+            search
+                .queue
+                .extend(config.resolved_project_reference_paths().iter().cloned());
+            return Some(index);
         }
-        if disable_solution_searching || matches!(start, Start::Given(_)) {
-            break;
-        }
-        next = compute_config_file_name(&config_path, true, host);
     }
-    if !found_any {
-        Lookup::NoConfig
-    } else if errored {
-        Lookup::ConfigError
-    } else {
-        Lookup::Outside
-    }
-}
 
-/// Whether `config`'s program holds `file`: a solution config (no files) holds nothing, and a composite project only
-/// what its `include` and `files` can match.
-fn holds(config: &ParsedCommandLine, file: &str, file_path: &tspath::Path) -> bool {
-    !config.file_names().is_empty()
-        && (config
-            .compiler_options()
-            .is_none_or(|options| !options.composite.is_true())
-            || config.possibly_matches_file_name(file))
-        && config.file_names_by_path().contains_key(file_path)
+    /// The index of the config at `path`, read on its first visit.
+    fn config(&mut self, path: &str) -> usize {
+        if let Some(index) = self.index(path) {
+            return index;
+        }
+        let config = self.reader.config(path).usable();
+        self.insert(path, config)
+    }
+
+    fn index(&self, path: &str) -> Option<usize> {
+        self.by_path.get(&self.reader.host().to_path(path)).copied()
+    }
+
+    /// Keeps `config`, read from `path`, unless a config of its path is kept already; returns its index. A config's
+    /// program holds the files its `file_names` lists; a solution config (no files) holds none.
+    fn insert(&mut self, path: &str, config: Option<P<ParsedCommandLine>>) -> usize {
+        if let Some(index) = self.index(path) {
+            return index;
+        }
+        let index = self.parsed.len();
+        if let Some(config) = config {
+            for file in config.file_names_by_path().keys() {
+                self.holders.entry(file.clone()).or_default().push(index);
+            }
+        }
+        self.parsed.push(config);
+        self.by_path.insert(self.reader.host().to_path(path), index);
+        index
+    }
 }
 
 /// The nearest `tsconfig.json` or `jsconfig.json` above `file`; with `skip_directory`, above the config `file` (a
@@ -334,6 +471,12 @@ mod tests {
         }
     }
 
+    /// A reader of the configs of `memory`, with configs of its own.
+    fn reader(memory: MemoryFs) -> ConfigReader {
+        let (fs, _) = crate::vfs::tsrs_fs(Arc::new(memory));
+        ConfigReader::new(Arc::default(), Arc::default(), ConfigHost::new(fs, ROOT.to_owned()))
+    }
+
     fn plan_with(memory: MemoryFs, packages: &[TypePackage], given: Option<&Path>) -> Result<ProgramPlan, TypeError> {
         plan_known(memory, packages, given, &Lookups::new()).map(|(plan, _)| plan)
     }
@@ -344,14 +487,13 @@ mod tests {
         given: Option<&Path>,
         known: &Lookups,
     ) -> Result<(ProgramPlan, Lookups), TypeError> {
-        let (fs, _) = crate::vfs::tsrs_fs(Arc::new(memory));
-        let host = ConfigHost::new(fs, ROOT.to_owned());
+        let reader = reader(memory);
         let query = TypeQuery::default();
         let mut input = TypeInput::new(Arc::new(MemoryFs::new()), Path::new(ROOT), packages, &query);
         if let Some(config) = given {
             input = input.with_tsconfig_override(config);
         }
-        plan_programs(&input, &host, known)
+        plan_programs(&input, &reader, known)
     }
 
     fn plan(memory: MemoryFs, packages: &[TypePackage]) -> ProgramPlan {
@@ -587,5 +729,75 @@ mod tests {
             Lookups::from([(("/ws/b/src/b.ts".to_owned(), false), Located::NoConfig)]),
             "only the file the known places lack is searched"
         );
+    }
+
+    #[test]
+    fn a_file_two_referenced_configs_hold_goes_to_the_one_the_search_visits_first_and_a_broken_one_only_errs_last() {
+        let holding = r#"{ "include": ["../shared"] }"#;
+        let cases: [(&[&str], &str, &str); 5] = [
+            (&["./x", "./y"], "/ws/shared/f.ts", "/ws/x/tsconfig.json"),
+            (&["./y", "./x"], "/ws/shared/f.ts", "/ws/y/tsconfig.json"),
+            (&["./broken", "./x"], "/ws/shared/f.ts", "/ws/x/tsconfig.json"),
+            (&["./broken", "./x"], "/ws/other/g.ts", "ConfigError"),
+            (&["./x"], "/ws/other/g.ts", "Outside"),
+        ];
+        for (references, file, expected) in cases {
+            let references: Vec<String> = references
+                .iter()
+                .map(|path| format!(r#"{{ "path": "{path}" }}"#))
+                .collect();
+            let memory = MemoryFs::new()
+                .with_file(
+                    "/ws/tsconfig.json",
+                    format!(r#"{{ "files": [], "references": [{}] }}"#, references.join(", ")),
+                )
+                .with_file("/ws/x/tsconfig.json", holding)
+                .with_file("/ws/y/tsconfig.json", holding)
+                .with_file("/ws/broken/tsconfig.json", r#"{ "include": ["src"" }"#)
+                .with_file("/ws/shared/f.ts", "")
+                .with_file("/ws/other/g.ts", "");
+            let plan = plan(memory, &[package("/ws", &[file])]);
+            assert_eq!(placements(&plan), pairs(&[(file, expected)]), "references {references:?}");
+        }
+    }
+
+    #[test]
+    fn a_planning_reads_each_config_once_and_a_later_planning_reads_them_from_the_run() {
+        let memory = MemoryFs::new()
+            .with_file(
+                "/ws/tsconfig.json",
+                r#"{ "files": [], "references": [{ "path": "./packages/a" }, { "path": "./packages/b" }] }"#,
+            )
+            .with_file("/ws/packages/a/tsconfig.json", r#"{ "include": ["src"] }"#)
+            .with_file("/ws/packages/b/tsconfig.json", r#"{ "include": ["src"] }"#)
+            .with_file("/ws/packages/a/src/a.ts", "");
+        let tests: Vec<String> = (0..4).map(|index| format!("/ws/packages/a/test/{index}.ts")).collect();
+        let mut files = vec!["/ws/packages/a/src/a.ts", "/ws/packages/b/test/b.ts"];
+        files.extend(tests.iter().map(String::as_str));
+        let memory = files.iter().fold(memory, |memory, file| memory.with_file(*file, ""));
+        let packages = [package("/ws/packages/a", &files)];
+        let reader = reader(memory);
+        let query = TypeQuery::default();
+        let input = TypeInput::new(Arc::new(MemoryFs::new()), Path::new(ROOT), &packages, &query);
+        let (first, _) = plan_programs(&input, &reader, &Lookups::new()).unwrap();
+        let mut expected = vec![
+            ("/ws/packages/a/src/a.ts", "/ws/packages/a/tsconfig.json"),
+            ("/ws/packages/b/test/b.ts", "Outside"),
+        ];
+        expected.extend(tests.iter().map(|test| (test.as_str(), "Outside")));
+        assert_eq!(placements(&first), pairs(&expected));
+        let counts = |parsed, reused| crate::SharedConfigCounts {
+            parsed,
+            reused,
+            unshared: 0,
+        };
+        assert_eq!(
+            reader.counts().0,
+            counts(3, 0),
+            "the two package configs and the solution above them, each read once for every file outside them"
+        );
+        let (second, _) = plan_programs(&input, &reader, &Lookups::new()).unwrap();
+        assert_eq!(second, first);
+        assert_eq!(reader.counts().0, counts(3, 3), "the later planning parses no config");
     }
 }

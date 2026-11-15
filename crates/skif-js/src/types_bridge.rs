@@ -430,7 +430,8 @@ const SLOWEST_PROGRAMS: usize = 5;
 /// With timings on, the type-aware stages of the analysis at `root`: planning, the build and query times summed over
 /// the programs beside the wall time and the time the analysis waited for them once the graph was done, how its
 /// programs got the lib and `node_modules` declaration files they share with the run (and how the run's `programs`
-/// got them so far), and the slowest programs with their sizes and checkers.
+/// got them so far), how its plannings and programs got their configs, and the slowest programs with their sizes and
+/// checkers.
 #[cfg(feature = "type-aware")]
 fn note_timings(
     root: &std::path::Path,
@@ -468,6 +469,18 @@ fn note_timings(
             run.parsed, run.reused, run.unshared
         ));
     }
+    let (configs, extended) = (timings.shared_configs, timings.shared_extended_configs);
+    skif_core::timing::note(format_args!(
+        "js types {}: shared configs: {} parsed, {} reused, {} parsed unshared; extended configs: {} parsed, {} \
+         reused, {} parsed unshared",
+        root.display(),
+        configs.parsed,
+        configs.reused,
+        configs.unshared,
+        extended.parsed,
+        extended.reused,
+        extended.unshared
+    ));
     if let Some(peak) = skif_js_types::arena_peak_bytes() {
         skif_core::timing::note(format_args!(
             "js types {}: checker arenas {} MiB in use, {} MiB at most so far (process-wide)",

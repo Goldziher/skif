@@ -979,7 +979,8 @@ faster and less accurate for member findings; `skif --no-type-aware` keeps types
 
 Types cost time and memory: each TypeScript program reads and binds its files a second time, beside the module
 graph. The TypeScript lib files and the declaration files below `node_modules` (`@types` included) are parsed once
-per run and shared by its programs. Before programs shared them, a typed run on a 4-vCPU runner took 3 to 25 times as
+per run and shared by its programs, and so is each `tsconfig.json` or `jsconfig.json` that finding the programs or
+following their project references reads, with the configs it extends. Before programs shared them, a typed run on a 4-vCPU runner took 3 to 25 times as
 long as the default one (babel 18.2 s against 1.0 s, tanstack-query 10.0 s against 0.41 s), longer than knip on some
 repositories, which is why types are off by default until a typed run meets the budget below. The
 [benchmarks](../../guides/benchmarks/) time every repository with `--type-aware` and without types and publish the

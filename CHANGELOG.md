@@ -18,6 +18,14 @@ All notable changes to this project are documented here. The format follows
   and for the run, how many of those files were parsed and how many were reused; library hosts read the same counts
   from `TypeTimings::shared_files` and `TypePrograms::shared_files`
   ([#247](https://github.com/Goldziher/skif/issues/247)).
+- **Type-aware planning and programs read each `tsconfig.json` once**: the configs the planning searches, those the
+  project references of every program reach, and the configs they extend are read and parsed once per run instead of
+  once per planning and again by each program that references them, the planning reads them on every core, and it
+  searches the configs above a file once per starting config instead of once per file, so a workspace of many
+  packages whose test files no config includes no longer spends seconds placing those files. The findings do not
+  change. `SKIF_TIMINGS=1` reports how the configs were read; library hosts read the counts from
+  `TypeTimings::shared_configs`, `TypeTimings::shared_extended_configs` and `TypePrograms::shared_configs`
+  ([#247](https://github.com/Goldziher/skif/issues/247)).
 
 ## [0.6.0] - 2026-11-15
 

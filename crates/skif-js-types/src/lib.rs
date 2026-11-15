@@ -13,6 +13,7 @@ mod programs;
 mod query;
 mod resident;
 mod session;
+mod shared_configs;
 mod shared_files;
 mod vfs;
 
@@ -26,8 +27,8 @@ use skif_core::FileSystem;
 
 pub use error::TypeError;
 pub use facts::{
-    CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, SharedFileCounts,
-    TypeFacts, TypeQuery, TypeTimings,
+    CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, SharedConfigCounts,
+    SharedFileCounts, TypeFacts, TypeQuery, TypeTimings,
 };
 pub use resident::TypePrograms;
 pub use session::{PendingTypes, TypeBudget};

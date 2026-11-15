@@ -162,6 +162,11 @@ pub struct TypeTimings {
     pub per_program: Vec<ProgramTiming>,
     /// The lib and `node_modules` declaration files the programs this analysis built read, by how each got them.
     pub shared_files: SharedFileCounts,
+    /// The configs this analysis's plannings and programs read (the configs it plans files into and those their
+    /// project references reach), by how each got them.
+    pub shared_configs: SharedConfigCounts,
+    /// The configs those configs extend, by how each got them.
+    pub shared_extended_configs: SharedConfigCounts,
 }
 
 impl TypeTimings {
@@ -187,6 +192,21 @@ pub struct SharedFileCounts {
     /// Files a program took parsed and bound from the run.
     pub reused: usize,
     /// Files a program parsed for itself alone, because the thread that loaded them was in a checker's memory scope.
+    pub unshared: usize,
+}
+
+/// How the plannings and programs of an analysis got the configs they read (ADR 0034), one count per request: each
+/// config is read and parsed once for the run, the first time a planning or a program asks for it, and reused by every
+/// later request. A program still parses the config it is built from, with the configs that one extends from the run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SharedConfigCounts {
+    /// Configs a request read and parsed for the run.
+    pub parsed: usize,
+    /// Configs a request took parsed from the run.
+    pub reused: usize,
+    /// Configs a request parsed for itself alone: another thread was parsing them, or the request came from a
+    /// checker's memory scope.
     pub unshared: usize,
 }
 
