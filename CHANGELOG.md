@@ -131,10 +131,20 @@ All notable changes to this project are documented here. The format follows
 - `unused-dev-dependencies` reports a `devDependencies` entry of a package that the same manifest lists in
   `dependencies`, used or not ("is listed in `devDependencies` and in `dependencies`"), with the unsafe fix that
   removes it: the production entry installs the package for development as well. knip reports it too
-  ([ADR NNNN](adrs/NNNN-redundant-dev-entries-and-installed-optional-peers.md),
+  ([ADR 0057](adrs/0057-redundant-dev-entries-and-installed-optional-peers.md),
   [#98](https://github.com/Goldziher/skif/issues/98)).
 
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
+
+- **Declaration files**: only a declaration file that applies without an import is an entry: a script (no top-level
+  `import` or `export`), or a module file with `declare global`, `export as namespace` or a `declare module "x"`
+  augmentation. Any other `.d.ts`, `.d.mts` or `.d.cts` file is a module like any other, an entry only when
+  `package.json` publishes it (`types`, `typings`, the `types` condition of `exports`), an `entry` glob names it or a
+  `tsconfig.json` lists it in `files` (now a `typescript` plugin entry). Once a module imports it, `unused-types` and
+  `unused-exports` report what no importer uses, and what only an unimported one uses is no longer kept in use, as in
+  knip. Declaration files are still never reported by `unused-files`
+  ([ADR 0054](adrs/0054-module-declaration-files-are-modules.md)). `skif-js-syntax` gains `ModuleInfo::module_file`,
+  `ModuleInfo::global_augmentation` and `ModuleInfo::declares_without_import`; the parse cache schema is raised.
 
 - **Type-aware scheduling**: the programs with the most judged files are built first, and a program gets checkers in
   proportion to its share of the judged files (at least the even share of the programs built at once, at most tsrs's
@@ -161,6 +171,14 @@ All notable changes to this project are documented here. The format follows
   `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
   only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
   needs re-recording for the new categories.
+
+- **Comparison harness**: `skif-bench parity --samples <N>` sets how many sample findings the full report keeps per
+  category, known deviation and side (five by default), and `--samples all` lists every one-sided finding.
+
+- **Comparison harness**: `bazel-build-file` also covers the files the `glob` include patterns of a Bazel test target's
+  `srcs` and `data` match (a `js_test`, or a rule with `testonly = True`, its `exclude` patterns not applied) and the
+  `srcs` and `data` of `ng_project`, as skif's Bazel plugin reads them
+  ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md)).
 
 - **Comparison harness with types**: `skif-bench parity` runs skif twice per repository, with types (the run compared
   with knip) and with `--no-type-aware`. A one-sided finding no other deviation explains is the new `type-resolved`
@@ -206,6 +224,16 @@ All notable changes to this project are documented here. The format follows
   sequential run keeps building them after the graph. `SKIF_TIMINGS` names the time the analysis waited once the
   graph was done and how many programs started before it ([ADR 0047](adrs/0047-performance-budget-with-types.md)).
 
+- **Type-aware analysis of several roots** (`--recursive`, several paths): the roots linted at once take the cores of
+  their TypeScript programs from one budget of the machine's cores instead of each from cores of its own, so the
+  programs of all roots together hold no more cores than the machine has, which also bounds how many are in memory at
+  once; before, every root built as many at once as one root alone does. A program now holds a core for each of its
+  checkers that has a judged file, not one for every checker, so a small program leaves the rest to the others. A
+  quarter of the cores is kept for programs that start before their root's module graph is done; such a program starts
+  early only when cores of that share are free. Findings do not change. `SKIF_TIMINGS` names the time the programs of
+  a root waited for cores. Library hosts share a `TypeBudget` of `skif-js-types` between analyses with
+  `TypeBuild::with_budget` and `TypeInput::with_budget`.
+
 - **`unused-enum-members`, `unused-namespace-members`** with types: a member already used without types is no
   longer asked of the checker, since types only add uses, so reads of its name cost no checker lookup. `explain-usage`
   shows `read` as `false` in the typed evidence of such a member; the verdict is unchanged.
@@ -214,9 +242,53 @@ All notable changes to this project are documented here. The format follows
   `PendingTypes::finish` returns the facts `analyze` gives for the judged files it is handed. `TypeTimings` gains
   `waited` and `early`.
 
+- **Config evaluation**: a JavaScript or TypeScript config with a test on the environment the evaluator cannot decide
+  (`process.env.CI ? a : b`) is evaluated three times, as found, with the test true and with it false; the three now
+  share what the analysis of the modules the config imports found, which does not depend on the environment, instead
+  of each loading and analysing them again. In a project whose configs import its own packages (a Babel config
+  importing `@babel/core` of the workspace), that analysis was most of the time spent reading plugin configs. The
+  values found do not change ([#233](https://github.com/Goldziher/skif/issues/233)).
+
 ### Fixed
 
-- `unused-optional-peer-dependencies` ([ADR NNNN](adrs/NNNN-redundant-dev-entries-and-installed-optional-peers.md),
+- `unused-exports`, `unused-namespace-exports`: the default import of a `CommonJS` module without a `default` export
+  (`import lib from "./lib.js"` of a file with `module.exports = { a, b }` or `exports.a = …`) binds its
+  `module.exports` object, as `esModuleInterop` and bundlers do. The properties read through it
+  (`const { a } = lib`, `lib.a`) and, when the binding is used as a whole, all of its values are credited, as for a
+  `require()` binding or a namespace import; the properties it does not read stay reported. Before, the import credited
+  only a `default` export the module does not have, so every property was reported. `skif explain-usage` lists such an
+  import as a user of the properties it reads.
+- `unused-dependencies`: a module declaration file that exports nothing and loads a module for its effect
+  (`import "sst"`, `/// <reference path="…" />`, as SST's generated `sst-env.d.ts`) is an entry again, so the package it
+  loads is no longer reported as unused. A declaration file with an export stays a module
+  ([ADR 0055](adrs/0055-exportless-declaration-files-that-load-a-module.md)).
+- `unused-files`: a `require()`, `import()` or `require.resolve()` of a `const` that holds a path built from the file's
+  directory (`const entry = require("node:path").resolve(__dirname, "cli/entry.js")`, then `require(entry)`, also in a
+  nested function) loads the file the path names, so it and what it imports are no longer reported. The read is
+  resolved through the file's scopes: a parameter or local of the same name is not followed
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- Recursive runs: a `package.json` below another one that holds only `type`, `sideEffects` or `imports` (a
+  `{"type": "commonjs"}` in `scripts/`) is no root of its own, as it makes no project in a single-root run. Before, its
+  directory was linted a second time as a root, and the files the package above runs or imports there were reported
+  unused. `skif-workspace` gains `MARKER_FIELDS` and `is_marker_manifest`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-files`: a worker thread started from a path built from the file's directory
+  (`new Worker(path.join(__dirname, "../workers/slots.worker.js"))`, also `path.resolve`) loads that file as a program
+  of its own, so it and what it imports are no longer reported
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-files`: `new URL("check.mjs", import.meta.url)` with a bare file name and a code extension names the file
+  beside the importer, as URL resolution reads it, so a script another one runs that way is no longer reported
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-files`: the Docusaurus plugin reads the `sidebarPath` of each docs instance, in the classic preset's `docs`
+  and in each `@docusaurus/plugin-content-docs`, so a sidebars file only the site build loads is no longer reported
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-files`: a computed relative `require()`, `import()` or resolve call whose last segment has no extension
+  reaches the modules Node and bundlers resolve it to: the `index` of a directory (`` require(`./commands/${name}`) ``
+  loads `commands/trust/index.js`) and a file with a code extension after a fixed name
+  (`` require(`./locales/${lang}/messages`) `` loads `locales/en/messages.js`). Before, only files directly matching
+  the glob counted, and directory commands were reported with what they import
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-optional-peer-dependencies` ([ADR 0057](adrs/0057-redundant-dev-entries-and-installed-optional-peers.md),
   [#98](https://github.com/Goldziher/skif/issues/98)):
   - An optional peer that the root or a containing package lists in `dependencies`, `devDependencies` or
     `optionalDependencies` is installed for the member too, as for any other use outside `isolate-workspaces`, and is
@@ -232,6 +304,13 @@ All notable changes to this project are documented here. The format follows
   instead of making the whole command unknown (`` `bun e2e/utils/serve.ts --port ${port}` `` runs
   `e2e/utils/serve.ts`). `skif-js-syntax` gains `extract_property_commands`
   ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unused-types` and `unused-exports` no longer report an export that a used export's inferred signature takes from a
+  top-level declaration of its file: in `export const useEntity = () => useContext(EntityContext)` the type
+  `EntityContext` was created with, a type predicate passed to a call (`items.filter(isItem)`), the parameters of a
+  called local function without a return type and the return type of one with it, and the result of a method called
+  on a local object literal, followed transitively. An argument passed inside a function body and anything below an
+  explicit return type do not count, as they are not part of the signature
+  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md), [#165](https://github.com/Goldziher/skif/issues/165)).
 - Files reached only through framework and build entry points are no longer `unused-files`, so the class members
   only they read are no longer `unused-class-members`
   ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md), [#240](https://github.com/Goldziher/skif/issues/240)):
@@ -318,6 +397,13 @@ All notable changes to this project are documented here. The format follows
   longer `unlisted-dependencies`, and the `@types` package is used. An unlisted type-only import or re-export advises
   adding the package or its types package (`@types/json-schema`), not only the package, which may ship no types.
   `UnlistedImport` gains `type_only` ([#96](https://github.com/Goldziher/skif/issues/96)).
+- A recursive run no longer makes a root of a directory whose `package.json` makes no package and that lies below
+  another `package.json` of the run: one holding only `type`, `sideEffects` or `imports` (`{"type": "commonjs"}` in a
+  `scripts` folder), or only `main`, `module`, `types`, `typings` or `browser` in a subpath directory the package
+  above publishes. The root above already lints those files, so each was reported twice, once per root.
+  `claim_roots` of `skif-workspace` leaves such a directory out, and `skif-workspace` exports `is_package_manifest`
+  and `subpath_entries`, the test the JavaScript analysis applies to such manifests
+  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md)).
 
 ## [0.5.0] - 2026-11-14
 

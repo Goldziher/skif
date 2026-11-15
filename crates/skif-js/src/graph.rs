@@ -16,12 +16,12 @@ use skif_js_syntax::{
     ImportKind, ModuleInfo, ParseOptions, RegisteredComponent, SyntaxError, is_source_query, is_stylesheet,
     parse_cached, registered_components, registered_name,
 };
-use skif_workspace::{PackageId, map_ordered};
+use skif_workspace::{PackageId, is_package_manifest, map_ordered};
 
 use crate::compilers::{self, Compiler, reader_path};
 use crate::components::{self, Registered};
-use crate::discover::{Candidate, is_package_manifest, relative};
-use crate::resolve::{EXTENSION_ALIASES, ModuleResolver, Resolved};
+use crate::discover::{Candidate, relative};
+use crate::resolve::{CODE_EXTENSIONS, EXTENSION_ALIASES, ModuleResolver, Resolved};
 use crate::setup::Setup;
 use crate::shared_modules::{ModuleParser, Served};
 use crate::source_scan::add_textual_imports;
@@ -275,7 +275,8 @@ fn normalize(path: &str) -> String {
 
 /// Files matched by an `import.meta.glob` pattern written in `importer`, or by the glob a computed `import()` stands
 /// for. A pattern ending in an output extension also matches the sources it is compiled from, as a specifier does
-/// (`./reporters/*.js` matches `reporters/a.ts`).
+/// (`./reporters/*.js` matches `reporters/a.ts`), and one whose last segment is a plain name without an extension
+/// matches that name with each code extension (`./locales/*/messages` matches `locales/en/messages.js`).
 fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathBuf> {
     if pattern.starts_with('!') {
         return Vec::new();
@@ -293,8 +294,11 @@ fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathB
         .iter()
         .filter_map(|(from, to)| Some((joined.strip_suffix(from)?, *to)))
         .flat_map(|(stem, to)| to.iter().map(move |alias| format!("{stem}{alias}")));
+    let last_segment = joined.rsplit('/').next().unwrap_or_default();
+    let extensionless = (!last_segment.is_empty() && !last_segment.contains(['.', '*', '?', '[', '{']))
+        .then(|| format!("{joined}.{{{}}}", CODE_EXTENSIONS.join(",")));
     let mut set = GlobSetBuilder::new();
-    for pattern in std::iter::once(joined.clone()).chain(aliases) {
+    for pattern in std::iter::once(joined.clone()).chain(aliases).chain(extensionless) {
         let Ok(glob) = GlobBuilder::new(&pattern).literal_separator(true).build() else {
             return Vec::new();
         };
@@ -886,10 +890,30 @@ impl<'a> Builder<'a> {
 /// Builds the graph by following imports from `entries` and `build_sources` in rounds. Each round parses and resolves
 /// its files in parallel and merges the results in order, so ids and edges do not depend on scheduling. Entries are
 /// interned first, so a build source that is also an entry stays an entry, whose exports are public.
-pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[PathBuf]) -> ModuleGraph {
+///
+/// `declarations` are declaration files that are entries only when they apply without being imported
+/// ([`ModuleInfo::declares_without_import`]), or when they cannot be read or parsed. They are parsed first; one that
+/// is no entry joins the graph only when a module imports it, as any module does, and its parse is used then.
+pub(crate) fn build(
+    inputs: &Inputs<'_>,
+    entries: &[PathBuf],
+    build_sources: &[PathBuf],
+    declarations: &[PathBuf],
+) -> ModuleGraph {
     let mut builder = Builder::new(inputs);
+    let mut ahead = parse_ahead(inputs, declarations);
+    let mut seeds: Vec<&PathBuf> = entries
+        .iter()
+        .chain(
+            declarations
+                .iter()
+                .filter(|path| ahead.get(path.as_path()).is_some_and(is_declaration_entry)),
+        )
+        .collect();
+    seeds.sort();
+    seeds.dedup();
     let mut frontier = Vec::new();
-    for entry in entries {
+    for entry in seeds {
         let (id, fresh) = builder.intern(entry);
         builder.modules[id.index()].is_entry = true;
         if fresh {
@@ -912,9 +936,31 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[P
                 (module.abs.as_path(), builder.keeps_text(module))
             })
             .collect();
-        let parsed: Vec<Parsed> = map_ordered(&files, inputs.sequential, |&(path, keep_text)| {
+        let known: Vec<Option<Parsed>> = files
+            .iter()
+            .map(|&(path, keep_text)| {
+                ahead.remove(path).map(|mut parsed| {
+                    if !keep_text {
+                        parsed.text = None;
+                    }
+                    parsed
+                })
+            })
+            .collect();
+        let unknown: Vec<(&Path, bool)> = files
+            .iter()
+            .zip(&known)
+            .filter(|(_, known)| known.is_none())
+            .map(|(file, _)| *file)
+            .collect();
+        let mut fresh = map_ordered(&unknown, inputs.sequential, |&(path, keep_text)| {
             process(path, keep_text, inputs)
-        });
+        })
+        .into_iter();
+        let parsed: Vec<Parsed> = known
+            .into_iter()
+            .map(|known| known.unwrap_or_else(|| fresh.next().unwrap_or_default()))
+            .collect();
         let mut next = Vec::new();
         for (id, mut parsed) in frontier.iter().zip(parsed) {
             if !parsed.components.is_empty() && builder.links_by_tag(*id) {
@@ -959,6 +1005,18 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[P
         index: builder.index,
         texts,
     }
+}
+
+/// What the graph learns about each of `declarations`, by path, with its text.
+fn parse_ahead(inputs: &Inputs<'_>, declarations: &[PathBuf]) -> HashMap<PathBuf, Parsed> {
+    let parsed = map_ordered(declarations, inputs.sequential, |path| process(path, true, inputs));
+    declarations.iter().cloned().zip(parsed).collect()
+}
+
+/// Whether a declaration file parsed ahead is an entry: it applies without being imported, or what it holds is not
+/// known because it could not be read or parsed.
+fn is_declaration_entry(parsed: &Parsed) -> bool {
+    parsed.error.is_some() || parsed.info.declares_without_import()
 }
 
 /// The modules that import each module, sorted and without duplicates, by position. The modules are visited in id

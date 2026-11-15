@@ -145,6 +145,9 @@ pub struct TypeTimings {
     pub programs: Duration,
     /// Walking the files and asking the checker, summed over the programs as [`TypeTimings::programs`] is.
     pub queries: Duration,
+    /// Waiting for cores before building, summed over the programs as [`TypeTimings::programs`] is: on a
+    /// [`TypeBudget`](crate::TypeBudget) the analyses of a run share, the time a program waited for other analyses'.
+    pub cores_waited: Duration,
     /// The wall time from the start of the first program to the end of the last.
     pub wall: Duration,
     /// The wall time from the query being handed over to the facts: what the analysis adds to the host's own work

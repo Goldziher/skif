@@ -37,8 +37,9 @@ pub enum ImportKind {
     /// `vi.mock("x")`, `jest.mock("x")` and the other test-runner calls that name a module: the test loads or
     /// replaces the module, which keeps a local file reachable but is not an import of a dependency.
     Mock,
-    /// `new URL("./x", import.meta.url)`, which the parser does not report: the file is loaded as a program of its own
-    /// (a worker, an asset), so every export of it counts as used, as for an entry. Also a stylesheet `url()` outside
+    /// `new URL("./x", import.meta.url)` and `new Worker(path.join(__dirname, "x.js"))`, which the parser does not
+    /// report: the file is loaded as a program of its own (a worker, an asset), so every export of it counts as used,
+    /// as for an entry. Also a stylesheet `url()` outside
     /// an import that names a file of a package (`url("@scope/pkg/a.woff2")`, `url(~pkg/a.svg)`).
     Url,
 }
@@ -565,6 +566,7 @@ pub struct ParseIssue {
 /// Everything skif needs to know about one source file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[allow(clippy::struct_excessive_bools, reason = "independent facts about one file")]
 pub struct ModuleInfo {
     /// Module references, in source order.
     pub imports: Vec<Import>,
@@ -595,6 +597,13 @@ pub struct ModuleInfo {
     /// exist already and declares nothing on its own.
     #[serde(default)]
     pub augmented_modules: Vec<String>,
+    /// The file is a module by TypeScript's test: a top-level `import`, `export` or `import x = require(…)`. Without
+    /// one it is a script, whose declarations are global.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub module_file: bool,
+    /// A module file that adds to the global scope: a top-level `declare global { … }` or `export as namespace X`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub global_augmentation: bool,
     /// The command lines the file runs through `node:child_process` (`execSync('tsc -b')`, `spawn('eslint', ['.'])`),
     /// in source order without duplicates; only literal commands. They are parsed like the scripts of `package.json`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -643,6 +652,20 @@ impl ModuleInfo {
     /// Removal edits of every export that has one, in source order.
     pub fn removal_ranges(&self) -> impl Iterator<Item = &Removal> {
         self.exports.iter().filter_map(|e| e.removal.as_ref())
+    }
+
+    /// Whether the file declares something for every file of a program without being imported: a script (no
+    /// [`ModuleInfo::module_file`]), a module file that augments the global scope
+    /// ([`ModuleInfo::global_augmentation`]) or another module ([`ModuleInfo::augmented_modules`]), or a module file
+    /// that exports nothing and loads a module for its effect (`import 'x'`, `/// <reference path="…" />`), which no
+    /// import can use by name. TypeScript applies such a declaration file wherever it compiles it; the exports of any
+    /// other module are used only through imports.
+    #[must_use]
+    pub fn declares_without_import(&self) -> bool {
+        !self.module_file
+            || self.global_augmentation
+            || !self.augmented_modules.is_empty()
+            || (self.exports.is_empty() && self.imports.iter().any(|import| import.kind == ImportKind::SideEffect))
     }
 
     /// The file starts with the `"use client"` directive: a React Server Components client boundary whose exports
@@ -749,6 +772,8 @@ impl ModuleInfo {
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
         self.ambient_modules.extend(other.ambient_modules);
         self.augmented_modules.extend(other.augmented_modules);
+        self.module_file |= other.module_file;
+        self.global_augmentation |= other.global_augmentation;
         self.parse_diagnostics.extend(other.parse_diagnostics);
         self.fatal |= other.fatal;
     }
