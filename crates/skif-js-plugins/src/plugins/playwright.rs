@@ -1,6 +1,6 @@
 //! Playwright: test files, global setup, reporters and the web server command named in the config.
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, extract_property_commands};
 
 use crate::plugin::{
     ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
@@ -61,13 +61,7 @@ impl Plugin for Playwright {
         if computes_reporters(config.value) {
             out.push(PluginInput::EntriesIncomplete);
         }
-        if let Some(servers) = config.value.get("webServer") {
-            for server in objects(servers) {
-                if let Some(command) = server.get("command").and_then(ConfigValue::as_str) {
-                    out.push(PluginInput::Script(command.to_string()));
-                }
-            }
-        }
+        out.extend(web_server_commands(config).into_iter().map(PluginInput::Script));
         out
     }
 
@@ -89,6 +83,35 @@ impl Plugin for Playwright {
 /// config, which leaves the entries incomplete already.
 fn computes_reporters(config: &ConfigValue) -> bool {
     reporters_unknown(config, "reporter", Spreads::Own)
+}
+
+/// The commands of the `webServer` entries. When the config computes one (a condition it cannot decide, a template
+/// literal with a port from the environment), every `command` property of the file is read as a command line instead:
+/// each branch of a condition counts, and a substitution whose value is not known reads as a shell variable
+/// ([`extract_property_commands`]), so the binaries and files the rest of the line names are still known.
+fn web_server_commands(config: &ConfigAst<'_>) -> Vec<String> {
+    let Some(servers) = config.value.get("webServer") else {
+        return Vec::new();
+    };
+    let listed = objects(servers);
+    let computed = servers.is_unknown()
+        || matches!(servers, ConfigValue::Array(items) if items.iter().any(ConfigValue::is_unknown))
+        || listed
+            .iter()
+            .any(|server| server.get("command").is_some_and(|command| command.as_str().is_none()));
+    if !computed {
+        return listed
+            .iter()
+            .filter_map(|server| server.get("command").and_then(ConfigValue::as_str))
+            .map(str::to_owned)
+            .collect();
+    }
+    extract_property_commands(config.source, config.path, "command")
+        .iter()
+        .flat_map(ConfigValue::alternatives)
+        .filter_map(ConfigValue::as_str)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Test globs of one project: `testMatch` under its `testDir`, or every test file under a custom `testDir`.

@@ -110,7 +110,7 @@ Directly:
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
 cargo run --release -p skif-bench -- run [--skif PATH] [--skif-source DIR] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus | --only NAME,...] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--install]
-cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
+cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--no-untyped-pass] [--type-aware-baseline FILE] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode] [--force]
 ```
@@ -163,6 +163,19 @@ both report. The keys are approximations (a duplicate export is keyed by its nam
 name), so the numbers measure drift and where the tools model things differently, not correctness. The full report
 with a few sample keys per side is `target/bench-results/parity.json` and `parity.md`; samples name files of the
 corpus repositories and are never committed.
+
+**Types.** skif runs twice per repository: with types, its default, and again with `--no-type-aware`. The typed run is
+the one compared with knip ([ADR 0050](../../adrs/0050-knip-comparison-against-the-typed-run.md)). A one-sided finding
+that no other known deviation explains is the `type-resolved` known deviation when skif reports it only with types, or
+when knip reports it and only the untyped run does too: types settle which declaration a read reaches, while knip
+credits by name ([ADR 0046](../../adrs/0046-typed-member-semantics.md)). `parity.md` adds a "Typed versus untyped"
+table with, per repository and skif rule (every rule, not only the compared ones), the findings of each run and those
+only one run reports; `parity.json` holds them with sample keys under each repository's `type_aware`, with the untyped
+run's time (`untyped_ms`). A finding is keyed `<file>:<line>|<message>` there. When the untyped run fails or times out,
+the repository is still compared, without `type-resolved`, and its typed-versus-untyped entry is skipped with the
+reason. `--no-untyped-pass` leaves the second run out, for a shorter run: `type-resolved` findings then count as
+one-sided, so `--check` may report drift in them, the type-aware baseline is not checked, and no baseline can be
+recorded.
 
 **Dependencies.** knip resolves imports and detects used binaries through `node_modules`, and without them reports
 nearly every import as unresolved or unlisted. `--install` installs each repository first with its package manager and
@@ -311,14 +324,16 @@ manifest, not by listing findings:
   run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or
   `project.json` names), which knip does not read there. A binary on a `package.json` that knip reports anything on
   stays compared. So is an export, type or duplicate only skif reports in a file of knip's workspaces that a file below
-  such a project imports (the import scan of `imported-by-knip-unused-file`): skif's analysis of the workspace does not
-  read the importer, and knip does.
+  such a project imports (the import scan of `imported-by-knip-unused-file`), and an enum or namespace member only skif
+  reports there that such a file reads (`Phase.Start`, `api.Phase.Start`, through the re-exports in between) or whose
+  enum or namespace it uses as a whole: skif's analysis of the workspace does not read the importer, and knip does.
 - `skipped-directory`: a finding only knip reports in a file below a directory skif's file discovery skips by name
   (`node_modules`, `dist`, `.next`, `.vercel` and the other build output names, `out`, `target` and `coverage`
   directly in a package directory, and hidden directories other than tool ones such as `.github`), unless the
   directory is a workspace member. On skif's side, an export, type or duplicate only skif reports in a file of knip's
-  workspaces that a file below such a directory imports (`.devcontainer/*.test.mjs`) is `skipped-directory` too; the
-  harness scans the hidden directories for such importers, none of the build output ones.
+  workspaces that a file below such a directory imports (`.devcontainer/*.test.mjs`), and an enum or namespace member
+  such a file uses as `non-member-project` describes, is `skipped-directory` too; the harness scans the hidden
+  directories for such importers, none of the build output ones.
 - `published-source`: an unused TypeScript file only knip reports whose path its package publishes with a built
   extension (`main`, `module`, `types`, `bin`, an `exports` leaf with `*` patterns, as `.js`, `.mjs`, `.cjs`, `.jsx` or
   a `.d.ts` variant) or without one (`./out/main`). A published path below a build directory (`dist`, `lib`, `out`,
@@ -461,10 +476,14 @@ one-sided is unexplained. See [ADR 0021](../../adrs/0021-knip-and-syncpack-compa
 
 `baselines/parity.json` and `baselines/syncpack.json` hold the counts of a run (skif only, tool only, both, per issue
 type or status code and repository, plus the case summary of the fixtures) and the tool version they were recorded
-with. They contain no file, package or symbol names. `baselines/parity.json` also records the set of compared
-categories and known deviations (`category_set`) and, per repository, whether its checkout was installed, whether
-skif ran recursively and the skif source commit (`skif_rev`, informative only). After a deliberate change, or a bump
-of a pin in `corpus.toml`, refresh them:
+with. They contain no file, package or symbol names. `baselines/parity.json` also records the mode skif ran in
+(`mode`, `type-aware`), the set of compared categories and known deviations (`category_set`) and, per repository,
+whether its checkout was installed, whether skif ran recursively and the skif source commit (`skif_rev`, informative
+only). `baselines/type-aware.json` holds the typed-versus-untyped counts of the same run in the same form, per
+repository and skif rule, with `skif --no-type-aware` as its tool: `skif_only` counts the findings only the typed run
+reports, `tool_only` those only the untyped run reports, `both` those of both. `parity --write-baseline` records both
+files and `parity --check` checks both (`--type-aware-baseline` names another file). After a deliberate change, or a
+bump of a pin in `corpus.toml`, refresh them:
 
 ```sh
 mise run parity -- --install --write-baseline
@@ -474,8 +493,9 @@ mise run diff:syncpack -- --write-baseline
 `--check` compares a run with the baseline and exits non-zero when a count moves by more than
 `--tolerance-percent` (default 10) of its baseline value or `--tolerance-abs` (default 5), whichever is larger, when a
 repository changes between compared and skipped, or when a fixture that agreed before now differs. It refuses, with
-one message instead of a list of drifts, a baseline recorded with another tool version or another category set (an
-older harness, or one that sets apart other findings), and it refuses a repository whose checkout is installed
+one message instead of a list of drifts, a baseline recorded with another tool version, another skif mode or another
+category set (an older harness, or one that sets apart other findings); a baseline without a `mode` predates the field
+and is checked. It refuses a repository whose checkout is installed
 differently, or whose skif ran with another `--recursive` mode, from when it was recorded. A run narrowed with
 `--only` is checked against those entries alone, and `--write-baseline --only` updates only them, so the baseline can
 be refreshed one repository at a time (install, run, then delete the checkout's `node_modules`) where the disk does

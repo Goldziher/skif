@@ -10,6 +10,7 @@ mod provenance;
 mod run;
 mod sources;
 mod syncpack;
+mod type_aware;
 
 use std::fs;
 use std::path::PathBuf;
@@ -24,6 +25,7 @@ use skif_bench::generate::{self, Options, PackageManager};
 
 const DEFAULT_CORPUS_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml");
 const DEFAULT_PARITY_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/parity.json");
+const DEFAULT_TYPE_AWARE_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/type-aware.json");
 const DEFAULT_SYNCPACK_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/syncpack.json");
 const DEFAULT_POLICY_FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/policy");
 
@@ -205,6 +207,14 @@ struct ParityArgs {
     /// Seconds each skif run and knip run may take, and each install unless the corpus manifest sets its own.
     #[arg(long, default_value_t = 1800)]
     timeout_secs: u64,
+    /// Skip the second skif run with `--no-type-aware`. The run is shorter, but the findings only one mode reports
+    /// are not set apart as `type-resolved` and the type-aware baseline is not checked; a baseline cannot be
+    /// recorded this way.
+    #[arg(long)]
+    no_untyped_pass: bool,
+    /// Baseline file of the typed and untyped counts per rule (counts only).
+    #[arg(long, default_value = DEFAULT_TYPE_AWARE_BASELINE)]
+    type_aware_baseline: PathBuf,
     #[command(flatten)]
     gate: GateArgs,
 }
@@ -357,6 +367,8 @@ fn main() -> Result<()> {
             include_test_files: args.include_test_files,
             timeout: Duration::from_secs(args.timeout_secs),
             gate: args.gate.gate(args.baseline),
+            untyped_pass: !args.no_untyped_pass,
+            type_aware_baseline: args.type_aware_baseline,
         }),
         Command::SyncpackDiff(args) => syncpack::run(&syncpack::Options {
             skif: args.skif,
@@ -432,5 +444,22 @@ mod tests {
         assert_eq!(args.only, ["babel", "vue-core"]);
         assert_eq!(args.skif_source, Some(PathBuf::from("../skif")));
         assert!(Cli::try_parse_from(["skif-bench", "run", "--only", "babel", "--no-corpus"]).is_err());
+    }
+
+    #[test]
+    fn parity_runs_the_untyped_pass_unless_told_not_to() {
+        let parity = |args: &[&str]| {
+            let cli = Cli::try_parse_from(["skif-bench", "parity"].iter().chain(args)).unwrap();
+            let Command::Parity(args) = cli.command else {
+                panic!("not the parity command");
+            };
+            args
+        };
+        let default = parity(&[]);
+        assert!(!default.no_untyped_pass);
+        assert_eq!(default.type_aware_baseline, PathBuf::from(DEFAULT_TYPE_AWARE_BASELINE));
+        let skipped = parity(&["--no-untyped-pass", "--type-aware-baseline", "/tmp/t.json"]);
+        assert!(skipped.no_untyped_pass);
+        assert_eq!(skipped.type_aware_baseline, PathBuf::from("/tmp/t.json"));
     }
 }

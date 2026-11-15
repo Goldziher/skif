@@ -94,7 +94,7 @@ blake3 = "1d7ecd992e4c8c5df165d995cce7354a46a15a6fa22d6e72257254ec7c6184c9"
 [adrs."adrs/0019-dependency-unlisted-and-unresolved-findings.md"]
 number = 19
 status = "accepted"
-blake3 = "e53d14239c17eca0d70d2e58871ee1b6ba8c02f9ae5c861d8b56ddf8dfef899e"
+blake3 = "27f4ae69e38829a2b1e871cad760a6542128b052dbe7b0d579a214f651da4fce"
 
 [adrs."adrs/0020-templates-components-and-custom-elements.md"]
 number = 20
@@ -199,7 +199,7 @@ blake3 = "6c98d0fac3b67429cb40c3497a8eff19eef371fb88b2bc6ad83e4f2ae2ea19e2"
 [adrs."adrs/0040-more-known-deviations-of-the-knip-comparison.md"]
 number = 40
 status = "accepted"
-blake3 = "85357c1bd4590a03d7b6372ce6c3672d242fbfd57e47eaf110279bf1a4b73d5f"
+blake3 = "1f44ef6e9e65728d5f75a0cd68fbc417c4c0e3e3ebd92f1c737772449dcbee20"
 
 [adrs."adrs/0041-benchmarks-on-large-repositories.md"]
 number = 41
@@ -229,7 +229,7 @@ blake3 = "cce6fd17e21aff4589c7ed61e6515ba76fc315567844af7b086f9c19d32b315c"
 [adrs."adrs/0046-typed-member-semantics.md"]
 number = 46
 status = "accepted"
-blake3 = "5cb381d071e6816e71cfec5ad14c23782b358ad2585d8e3e70fd5800d79a2105"
+blake3 = "3103a945f0b2839d15a1c698999272ac830a1758ec8c67d9f212b2f196785359"
 
 [adrs."adrs/0047-performance-budget-with-types.md"]
 number = 47
@@ -245,3 +245,18 @@ blake3 = "11792b700e076da5815fbd214cc380a3d16e1aba1f08711244ac60dc5c524876"
 number = 49
 status = "accepted"
 blake3 = "bab8a22b8a99ba0f855702165734cf1171700fd963481341688c1a3e6791c324"
+
+[adrs."adrs/0050-knip-comparison-against-the-typed-run.md"]
+number = 50
+status = "accepted"
+blake3 = "45030c10d77574638c5a99fd0e275d5d71d6f8cbd2aef6934c5a9c6234eca3eb"
+
+[adrs."adrs/0051-members-whose-users-skif-does-not-read.md"]
+number = 51
+status = "accepted"
+blake3 = "1cc9e12305acb98982729d1be477021dae971a0a7fc1041c4038126af2e18186"
+
+[adrs."adrs/0052-generated-paths-alias-replacements-and-installed-compiler-options.md"]
+number = 52
+status = "accepted"
+blake3 = "757b422b76058424cbec926b5c1bcc0703c48f5986d6ddce728e75d6eda01c62"

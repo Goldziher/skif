@@ -1120,6 +1120,35 @@ fn playwright() {
     assert!(out.referenced_binaries.contains(&"vite".to_string()));
 }
 
+/// A `webServer` command the config computes is still read: both branches of a condition count, and a substitution
+/// whose value is not known (a port from the environment) leaves the rest of the command line, so the file it runs is
+/// an entry and the binary it runs is referenced. The same `webServer` in a condition the config cannot decide counts.
+#[test]
+fn playwright_reads_a_computed_web_server_command() {
+    let results = resolve(
+        &[(
+            "playwright.config.ts",
+            r#"const port = Number(process.env.PLAYWRIGHT_PORT ?? 3000);
+            const built = !!process.env.CI;
+            const command = built
+              ? `node e2e/utils/serve.mjs --host 127.0.0.1 --port ${port}`
+              : `vite --port ${port} --strictPort`;
+            export default defineConfig({
+              testDir: "./e2e",
+              webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : { command, url: `http://127.0.0.1:${port}` },
+            });"#,
+        )],
+        &["@playwright/test"],
+    );
+    let out = output(&results, "playwright");
+    assert_entries(&out.entries, &["e2e/utils/serve.mjs"]);
+    assert!(
+        out.referenced_binaries.contains(&"vite".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
 #[test]
 fn tailwind() {
     let results = resolve(

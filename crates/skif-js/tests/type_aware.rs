@@ -107,6 +107,37 @@ fn typed_reads_leave_a_same_named_member_of_another_class_unused() {
     );
 }
 
+#[test]
+fn a_read_through_an_interface_keeps_the_member_an_implementing_class_inherits_used() {
+    let files = [
+        PACKAGE,
+        TSCONFIG,
+        (
+            "src/cell.ts",
+            "export interface ICell {\n  getRange(): number;\n}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n\n  \
+             getSize(): number {\n    return 2;\n  }\n}\n\n\
+             export class CodeCell extends BaseCell implements ICell {}\n",
+        ),
+        (
+            "src/index.ts",
+            "import type { ICell } from './cell';\nimport { BaseCell, CodeCell } from './cell';\n\n\
+             export function f(c: ICell): number {\n  return c.getRange();\n}\n\n\
+             export const make = (): BaseCell => new CodeCell();\n",
+        ),
+    ];
+    assert_eq!(
+        class_findings(&files, ""),
+        ["src/cell.ts: BaseCell.getSize"],
+        "`c.getRange()` reaches `BaseCell.getRange` through `CodeCell`, and nothing reads `getSize`"
+    );
+    assert_eq!(
+        class_findings(&files, TYPES_OFF),
+        ["src/cell.ts: BaseCell.getSize"],
+        "by name, `getRange` is read and `getSize` is not"
+    );
+}
+
 /// The forms of a default-exported class in `src/lib.ts` with members `render` and `paint`, by the name a finding
 /// gives the class.
 const DEFAULT_CLASSES: [(&str, &str); 6] = [
@@ -442,4 +473,41 @@ fn explain_usage_explains_an_enum_member_with_types() {
     let json = serde_json::to_value(&report).unwrap();
     assert_eq!(json["class-member"]["of"], "enum");
     assert_eq!(json["class-member"]["typed"]["declaration"], "src/colors.ts#Color");
+}
+
+#[test]
+fn an_enum_member_used_without_types_is_not_asked_of_the_checker() {
+    let files = [
+        PACKAGE,
+        TSCONFIG,
+        ("src/colors.ts", "export enum Color {\n  Red,\n  Green,\n}\n"),
+        (
+            "src/index.ts",
+            "import { Color } from './colors';\n\nexport const red = Color.Red;\n",
+        ),
+    ];
+    let red = serde_json::to_value(explain(&files, "src/colors.ts", "Color.Red")).unwrap();
+    assert_eq!(red["class-member"]["used-without-types"], true);
+    assert_eq!(red["class-member"]["typed"]["declaration"], "src/colors.ts#Color");
+    assert_eq!(
+        red["class-member"]["typed"]["read"], false,
+        "the read of `Red`, used without types, is not asked of the checker"
+    );
+    assert_eq!(red["class-member"]["verdict"], "used");
+    let green = serde_json::to_value(explain(&files, "src/colors.ts", "Color.Green")).unwrap();
+    assert_eq!(
+        green["class-member"].get("used-without-types"),
+        None,
+        "false is left out"
+    );
+    assert_eq!(green["class-member"]["verdict"], "unused");
+    let rules = ["unused-enum-members"];
+    assert_eq!(
+        found_by(&lint(&files, "").diagnostics, &rules),
+        ["src/colors.ts: Color.Green"]
+    );
+    assert_eq!(
+        found_by(&lint(&files, TYPES_OFF).diagnostics, &rules),
+        ["src/colors.ts: Color.Green"]
+    );
 }

@@ -27,6 +27,7 @@ use crate::diff::{
 use crate::proc::{Captured, capture, find_on_path};
 use crate::provenance;
 use crate::run::table_cell;
+use crate::type_aware;
 
 /// skif rule to knip issue type.
 const RULE_CATEGORIES: [(&str, &str); 14] = [
@@ -105,6 +106,7 @@ pub const PATHS_BEFORE_PACKAGES: &str = "paths-before-packages";
 pub const WHOLE_ENUM_USE: &str = "whole-enum-use";
 pub const PUBLISHED_FILE: &str = "published-file";
 pub const UNINSTALLED_PROJECT: &str = "uninstalled-project";
+pub const TYPE_RESOLVED: &str = "type-resolved";
 
 /// The file that makes a checkout a Rush repository (`RUSH_JSON` in `crates/skif-js/src/deps.rs`).
 const RUSH_JSON: &str = "rush.json";
@@ -181,6 +183,9 @@ const ROOT_COMPARED_CATEGORIES: [&str; 7] = [
 /// import of the file uses.
 const IMPORTED_EXPORT_CATEGORIES: [&str; 5] = ["exports", "types", "nsExports", "nsTypes", "duplicates"];
 
+/// The categories whose findings name a member of an enum or namespace export, `<file>|<member>`.
+const MEMBER_CATEGORIES: [&str; 2] = ["enumMembers", "namespaceMembers"];
+
 /// The name that stands for every export of a file among the exports an import uses ([`unused_file_credits`]): a
 /// namespace used as a whole, `import()` or `require` of the module, or a star re-export of it.
 const WHOLE_MODULE: &str = "*";
@@ -223,7 +228,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 33] = [
+pub const KNIP_DEVIATIONS: [Deviation; 34] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -262,11 +267,11 @@ pub const KNIP_DEVIATIONS: [Deviation; 33] = [
     },
     Deviation {
         id: NON_MEMBER_PROJECT,
-        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0006), where its exports, types, members and duplicates stay compared, but for the exports and types of the project's default entry files (`index`, `cli` or `main` at the top or in `src`) and those such a file re-exports through `export … from` and `export *` (followed through the files in between), which are public in skif's run of the project and which knip reads without the project's entries. On skif's side, an unused file, unlisted dependency or unlisted binary only skif reports below such a project is set apart too: a recursive run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or `project.json` names), which knip does not read there; a binary on a `package.json` that knip reports anything on stays compared; so is an export, type or duplicate only skif reports in a file of knip's workspaces that a file below such a project imports (the import scan of `imported-by-knip-unused-file`): skif's analysis of the workspace does not read that importer, and knip does. The harness checks the manifests, not why skif has no finding for each one",
+        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0006), where its exports, types, members and duplicates stay compared, but for the exports and types of the project's default entry files (`index`, `cli` or `main` at the top or in `src`) and those such a file re-exports through `export … from` and `export *` (followed through the files in between), which are public in skif's run of the project and which knip reads without the project's entries. On skif's side, an unused file, unlisted dependency or unlisted binary only skif reports below such a project is set apart too: a recursive run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or `project.json` names), which knip does not read there; a binary on a `package.json` that knip reports anything on stays compared; so is an export, type or duplicate only skif reports in a file of knip's workspaces that a file below such a project imports (the import scan of `imported-by-knip-unused-file`), and an enum or namespace member only skif reports whose enum or namespace such a file reads the member of or uses as a whole: skif's analysis of the workspace does not read that importer, and knip does. The harness checks the manifests, not why skif has no finding for each one",
     },
     Deviation {
         id: SKIPPED_DIRECTORY,
-        reason: "knip reports these findings in files below a directory that skif's file discovery skips by name, unless the file lies in a workspace member at or below that directory: `node_modules`, `.git`, `dist`, `.next`, `.turbo`, `.svelte-kit`, `storybook-static`, `.yarn`, `.vercel` and `.nuxt`; `out`, `target` and `coverage` directly in the root or a package directory; and every hidden directory but `.github`, `.storybook`, `.rnstorybook`, `.config`, `.vitepress`, `.vuepress`, `.husky` and `.changeset`. skif reads no file there. On skif's side, an export, type or duplicate only skif reports in a file of knip's workspaces that a file below such a directory imports is set apart too (the import scan of `imported-by-knip-unused-file` over the hidden directories, the harness reading none of the build output ones): skif does not read the importer, and knip does",
+        reason: "knip reports these findings in files below a directory that skif's file discovery skips by name, unless the file lies in a workspace member at or below that directory: `node_modules`, `.git`, `dist`, `.next`, `.turbo`, `.svelte-kit`, `storybook-static`, `.yarn`, `.vercel` and `.nuxt`; `out`, `target` and `coverage` directly in the root or a package directory; and every hidden directory but `.github`, `.storybook`, `.rnstorybook`, `.config`, `.vitepress`, `.vuepress`, `.husky` and `.changeset`. skif reads no file there. On skif's side, an export, type or duplicate only skif reports in a file of knip's workspaces that a file below such a directory imports, and an enum or namespace member only skif reports whose enum or namespace such a file reads the member of or uses as a whole, is set apart too (the import scan of `imported-by-knip-unused-file` over the hidden directories, the harness reading none of the build output ones): skif does not read the importer, and knip does",
     },
     Deviation {
         id: PUBLISHED_SOURCE,
@@ -353,6 +358,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 33] = [
         reason: "one tool reports these dependencies, binaries, unlisted dependencies and unresolved imports in a project that has no installed packages at or above it (no `node_modules` directory or `.pnp.cjs`) in a checkout the harness installed, such as a repository root the corpus install leaves out: without the packages neither tool sees their manifests and binaries, and each resolves the imports in its own way",
     },
     Deviation {
+        id: TYPE_RESOLVED,
+        reason: "skif with types (its default, the run compared here) and skif with `--no-type-aware` disagree on these findings: skif reports them only with types, or knip reports them and only skif without types does too. Types settle which declaration a read reaches, so a typed read credits only the members TypeScript treats as the same (ADR 0046), while knip credits by name. Counted only where no other deviation explains the finding and only with the untyped pass (`--no-untyped-pass` turns it off); the per-rule counts of both modes are in `type-aware.json`",
+    },
+    Deviation {
         id: REPLACED_KNIP_CONFIG,
         reason: "knip reports the repository's own knip configuration (`knip.ts`, `knip.config.js`, ... at the root of a workspace) as an unused file; the harness replaces it with an empty configuration through `--config`, so knip does not load it, while skif's knip plugin makes it an entry",
     },
@@ -393,6 +402,11 @@ pub struct Options {
     pub include_test_files: bool,
     pub timeout: Duration,
     pub gate: Gate,
+    /// Run skif a second time with `--no-type-aware` on each repository, for the `type-resolved` deviation and the
+    /// type-aware baseline.
+    pub untyped_pass: bool,
+    /// The baseline of the typed and untyped counts per rule; recorded and checked with [`Options::gate`]'s flags.
+    pub type_aware_baseline: PathBuf,
 }
 
 /// Makes a path relative to the checkout with `/` separators.
@@ -1497,19 +1511,30 @@ fn imported_exports(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) ->
 /// Where the export `name` (or, for [`WHOLE_MODULE`], every export) of the parsed file `path` comes from when the file
 /// re-exports it, as `(file, export)`: the source of `export { name } from` (and of `import { x } from`; `export { x }`)
 /// under the name taken from it, and the source of an `export * from` for a name the file does not export itself; the
-/// source is the file `resolver` resolves the specifier to.
+/// source is the file `resolver` resolves the specifier to. A member of an export (`E.A`, [`member_uses`]) follows its
+/// export and keeps its member part.
 fn reexported(path: &str, module: &ModuleInfo, name: &str, resolver: &Resolver<'_>) -> Vec<(String, String)> {
     let declares = |wanted: &str| module.exports.iter().any(|export| export.name == wanted);
+    let (head, member) = name
+        .split_once('.')
+        .map_or((name, String::new()), |(head, member)| (head, format!(".{member}")));
     module
         .exports
         .iter()
         .filter_map(|export| {
             let specifier = export.from.as_deref()?;
             let followed = if export.kind == ExportKind::StarReExport && export.name == WHOLE_MODULE {
-                (name == WHOLE_MODULE || !declares(name)).then(|| name.to_owned())
+                (name == WHOLE_MODULE || !declares(head)).then(|| name.to_owned())
+            } else if name == WHOLE_MODULE {
+                Some(export.imported_name.clone().unwrap_or_else(|| export.name.clone()))
             } else {
-                (name == WHOLE_MODULE || export.name == name)
-                    .then(|| export.imported_name.clone().unwrap_or_else(|| export.name.clone()))
+                (export.name == head).then(|| {
+                    let imported = export.imported_name.as_deref().unwrap_or(&export.name);
+                    match member.strip_prefix('.') {
+                        Some(rest) if imported == WHOLE_MODULE => rest.to_owned(),
+                        _ => format!("{imported}{member}"),
+                    }
+                })
             };
             followed.and_then(|followed| resolver.resolve(path, specifier).map(|target| (target, followed)))
         })
@@ -1656,17 +1681,26 @@ fn outside_credits(
     resolver: &Resolver<'_>,
     read: &SourceReader<'_>,
 ) -> (BTreeSet<String>, BTreeSet<String>) {
+    let (non_member, skipped) = outside_importers(files, layout);
+    (
+        import_credits(non_member, resolver, read),
+        import_credits(skipped, resolver, read),
+    )
+}
+
+/// The files of `files` where skif's analysis of a workspace reads no file: `(non_member, skipped)`, those below a
+/// project that is not one of knip's workspaces (and in no skipped directory), and those below a directory skif's file
+/// discovery skips.
+fn outside_importers<'f>(files: &'f [String], layout: &Layout<'_>) -> (Vec<&'f str>, Vec<&'f str>) {
     let (skipped, rest): (Vec<&str>, Vec<&str>) = files
         .iter()
         .map(String::as_str)
         .partition(|file| layout.in_skipped_directory(file));
     let non_member = rest
         .into_iter()
-        .filter(|file| layout.non_member_project(file).is_some());
-    (
-        import_credits(non_member, resolver, read),
-        import_credits(skipped, resolver, read),
-    )
+        .filter(|file| layout.non_member_project(file).is_some())
+        .collect();
+    (non_member, skipped)
 }
 
 /// The categories of a finding that depend on the packages installed for its project: its dependencies and binaries,
@@ -2226,6 +2260,11 @@ struct Classifier<'a> {
     non_member_credits: &'a BTreeSet<String>,
     /// The same for the files below a directory skif's file discovery skips.
     skipped_credits: &'a BTreeSet<String>,
+    /// The enum and namespace member keys only skif reports that the files below a project that is not a knip
+    /// workspace use (`outside_members`).
+    non_member_members: &'a BTreeSet<String>,
+    /// The same for the files below a directory skif's file discovery skips.
+    skipped_members: &'a BTreeSet<String>,
     /// The projects without installed packages that own a one-sided finding (`uninstalled_projects`).
     uninstalled_projects: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
@@ -2374,22 +2413,32 @@ impl Classifier<'_> {
         (category == "files" || EXPORT_LABELS.contains(&category)) && self.layout.publishes_file(path)
     }
 
-    /// The deviation an export, type or duplicate only skif reports is when its only users lie where skif reads no
-    /// file of the enclosing workspace: `non-member-project` for an import by a file below a project that is not one
-    /// of knip's workspaces, `skipped-directory` for one by a file below a directory skif's discovery skips. A finding
-    /// that lies in such a place itself stays compared.
+    /// The deviation an export, type, duplicate or enum or namespace member only skif reports is when its only users
+    /// lie where skif reads no file of the enclosing workspace: `non-member-project` for an import by a file below a
+    /// project that is not one of knip's workspaces, `skipped-directory` for one by a file below a directory skif's
+    /// discovery skips. A finding that lies in such a place itself stays compared.
     fn outside_use(&self, category: &str, key: &str) -> Option<&'static str> {
-        if !IMPORTED_EXPORT_CATEGORIES.contains(&category) {
+        let (non_member, skipped) = if IMPORTED_EXPORT_CATEGORIES.contains(&category) {
+            (
+                credited(self.non_member_credits, key),
+                credited(self.skipped_credits, key),
+            )
+        } else if MEMBER_CATEGORIES.contains(&category) {
+            (
+                self.non_member_members.contains(key),
+                self.skipped_members.contains(key),
+            )
+        } else {
             return None;
-        }
+        };
         let path = key_path(key);
         if self.layout.non_member_project(path).is_some() || self.layout.in_skipped_directory(path) {
             return None;
         }
-        if credited(self.non_member_credits, key) {
+        if non_member {
             return Some(NON_MEMBER_PROJECT);
         }
-        credited(self.skipped_credits, key).then_some(SKIPPED_DIRECTORY)
+        skipped.then_some(SKIPPED_DIRECTORY)
     }
 
     /// Whether a finding in [`INSTALLED_CATEGORIES`] lies in a project without installed packages
@@ -2811,6 +2860,110 @@ fn whole_uses(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) -> Vec<(
         }
     }
     found
+}
+
+/// The `(file, use)` pairs of the members of other files' exports that the parsed file `path` uses through the imports
+/// `resolver` resolves: the whole uses of [`whole_uses`], and as `<export>.<member>` a member read through a named or
+/// default import that does not escape (`E.A`) or through a member of a namespace import (`ns.E.A`).
+fn member_uses(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) -> Vec<(String, String)> {
+    let mut found = whole_uses(path, module, resolver);
+    for (import, target) in module_targets(path, module, resolver) {
+        if matches!(import.kind, ImportKind::ExportFrom) {
+            continue;
+        }
+        for name in import.names.iter().filter(|name| name.local.is_some() && !name.escapes) {
+            let reads: Vec<(&str, &String)> = match &name.kind {
+                ImportedKind::Named(export) => name
+                    .accessed_members
+                    .iter()
+                    .map(|member| (export.as_str(), member))
+                    .collect(),
+                ImportedKind::Default => name.accessed_members.iter().map(|member| ("default", member)).collect(),
+                ImportedKind::Namespace => name
+                    .nested_members
+                    .iter()
+                    .flat_map(|(export, members)| members.iter().map(move |member| (export.as_str(), member)))
+                    .collect(),
+            };
+            found.extend(
+                reads
+                    .into_iter()
+                    .map(|(export, member)| (target.clone(), format!("{export}.{member}"))),
+            );
+        }
+    }
+    found
+}
+
+/// The keys of `members` (`<file>|<member>`, enum and namespace members only skif reports) that `credits` (from
+/// [`member_uses`], followed through re-exports) uses: the file as a whole, or an enum or namespace export of the file
+/// that has the member, used as a whole or through that member. `read` gives a file's source; a file it cannot read or
+/// parse has no member.
+fn credited_members(
+    members: &BTreeSet<String>,
+    credits: &BTreeSet<String>,
+    read: &SourceReader<'_>,
+) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    let mut modules: BTreeMap<&str, Option<ModuleInfo>> = BTreeMap::new();
+    let mut found = BTreeSet::new();
+    for key in members {
+        let Some((path, member)) = key.split_once('|') else {
+            continue;
+        };
+        let module = modules
+            .entry(path)
+            .or_insert_with(|| read(path).and_then(|source| parse_module(Path::new(path), &source, &options).ok()));
+        let used = credits.contains(&format!("{path}|{WHOLE_MODULE}"))
+            || module.as_ref().is_some_and(|module| {
+                module.exports.iter().any(|export| {
+                    export
+                        .enum_members
+                        .iter()
+                        .chain(&export.namespace_members)
+                        .any(|known| known.name == member)
+                        && (credits.contains(&format!("{path}|{}", export.name))
+                            || credits.contains(&format!("{path}|{}.{member}", export.name)))
+                })
+            });
+        if used {
+            found.insert(key.clone());
+        }
+    }
+    found
+}
+
+/// The keys of `members` (enum and namespace members only skif reports) whose members the files of `files` use
+/// ([`member_uses`], followed through re-exports) from where skif's analysis of a workspace reads no file:
+/// `(non_member, skipped)` as in [`outside_credits`]. A file `read` cannot read or parse uses nothing.
+fn outside_members(
+    members: &BTreeSet<String>,
+    files: &[String],
+    layout: &Layout<'_>,
+    resolver: &Resolver<'_>,
+    read: &SourceReader<'_>,
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let credits = |importers: Vec<&str>| {
+        let seeds = importers
+            .into_iter()
+            .filter_map(|file| {
+                read(file)
+                    .and_then(|source| parse_module(Path::new(file), &source, &options).ok())
+                    .map(|module| member_uses(file, &module, resolver))
+            })
+            .flatten()
+            .collect();
+        credited_members(members, &follow_reexports(seeds, resolver, read), read)
+    };
+    let (non_member, skipped) = outside_importers(files, layout);
+    (credits(non_member), credits(skipped))
 }
 
 /// The enum exports of a file: the name, the member names, and whether the file uses the enum as a whole itself
@@ -3508,13 +3661,16 @@ fn installed_summary(entries: &BTreeMap<String, Entry>) -> String {
 struct Outcome {
     entry: Entry,
     detail: Value,
+    /// The typed-versus-untyped entry, when the untyped pass ran.
+    type_aware: Option<Entry>,
 }
 
-fn skipped(reason: impl Into<String>) -> Outcome {
+fn skipped(reason: impl Into<String>, type_aware: Option<Entry>) -> Outcome {
     let reason = reason.into();
     Outcome {
         detail: json!({ "status": diff::SKIPPED, "reason": reason }),
         entry: Entry::skipped(reason),
+        type_aware,
     }
 }
 
@@ -3574,37 +3730,65 @@ fn install_and_run_skif(
     if let Some(reason) = &install_failure {
         eprintln!("parity: {} is compared without a complete install: {reason}", repo.name);
     }
+    let (doc, run) = match run_skif(options, skif, repo, (root, scratch), true)? {
+        Ok(report) => report,
+        Err(reason) => return Ok(Err(reason)),
+    };
+    Ok(Ok(SkifRun {
+        doc,
+        run,
+        recursive: skif_recursive(options, repo),
+        install_failure,
+    }))
+}
+
+/// Whether skif runs with `--recursive` on the repository.
+const fn skif_recursive(options: &Options, repo: &Repo) -> bool {
+    options.recursive || repo.recursive
+}
+
+/// Runs skif on a checkout (`root`, with its `scratch` directory), with types or with `--no-type-aware`, and reads its
+/// JSON report; `Ok(Err(reason))` when it produced none.
+fn run_skif(
+    options: &Options,
+    skif: &Path,
+    repo: &Repo,
+    (root, scratch): (&Path, &Path),
+    typed: bool,
+) -> Result<Result<(Value, Captured), String>> {
     let mut command = Command::new(skif);
     command
         .args([".", "--format", "json", "--no-install"])
         .current_dir(root);
-    let recursive = options.recursive || repo.recursive;
-    if recursive {
+    if skif_recursive(options, repo) {
         command.arg("--recursive");
+    }
+    if !typed {
+        command.arg(type_aware::NO_TYPE_AWARE_FLAG);
     }
     if let Some(config) = write_skif_entry_config(&repo.entry, scratch)? {
         command.arg("--config").arg(config);
     }
-    let run = capture(&mut command, scratch, "skif-parity", options.timeout)?;
+    let (name, label) = if typed {
+        ("skif", "skif-parity")
+    } else {
+        (type_aware::TOOL, "skif-parity-untyped")
+    };
+    let run = capture(&mut command, scratch, label, options.timeout)?;
     if run.timed_out {
-        return Ok(Err("skif timed out".to_owned()));
+        return Ok(Err(format!("{name} timed out")));
     }
     let doc: Value = match serde_json::from_slice(&run.stdout) {
         Ok(doc) => doc,
-        Err(error) => return Ok(Err(format!("skif output is not JSON: {error}"))),
+        Err(error) => return Ok(Err(format!("{name} output is not JSON: {error}"))),
     };
     if doc.get("diagnostics").is_none() {
         let message = doc["error"]["message"]
             .as_str()
             .unwrap_or("no diagnostics in the output");
-        return Ok(Err(format!("skif failed: {message}")));
+        return Ok(Err(format!("{name} failed: {message}")));
     }
-    Ok(Ok(SkifRun {
-        doc,
-        run,
-        recursive,
-        install_failure,
-    }))
+    Ok(Ok((doc, run)))
 }
 
 /// knip's report on a checkout, with knip's workspaces as they were while it ran.
@@ -3688,6 +3872,8 @@ struct Facts {
     bazel_sources: BTreeSet<String>,
     non_member_credits: BTreeSet<String>,
     skipped_credits: BTreeSet<String>,
+    non_member_members: BTreeSet<String>,
+    skipped_members: BTreeSet<String>,
     uninstalled_projects: BTreeSet<String>,
 }
 
@@ -3724,6 +3910,15 @@ impl Facts {
             outside_credits(&files, layout, &resolver, &read_source)
         } else {
             (BTreeSet::new(), BTreeSet::new())
+        };
+        let skif_members: BTreeSet<String> = MEMBER_CATEGORIES
+            .iter()
+            .flat_map(|category| one_sided(skif, knip, category))
+            .collect();
+        let (non_member_members, skipped_members) = if skif_members.is_empty() {
+            (BTreeSet::new(), BTreeSet::new())
+        } else {
+            outside_members(&skif_members, &files, layout, &resolver, &read_source)
         };
         let has_packages =
             |dir: &str| root.join(dir).join("node_modules").is_dir() || root.join(dir).join(".pnp.cjs").is_file();
@@ -3762,6 +3957,8 @@ impl Facts {
             root_entry_reexports: entry_reexports(defaults, &resolver, &read_source),
             non_member_credits,
             skipped_credits,
+            non_member_members,
+            skipped_members,
             uninstalled_projects: if installed {
                 uninstalled_projects((skif, knip), &is_project, &has_packages)
             } else {
@@ -3806,6 +4003,8 @@ impl Facts {
             bazel_sources: &self.bazel_sources,
             non_member_credits: &self.non_member_credits,
             skipped_credits: &self.skipped_credits,
+            non_member_members: &self.non_member_members,
+            skipped_members: &self.skipped_members,
             uninstalled_projects: &self.uninstalled_projects,
             rush_root,
             replaced_knip_config: !options.repo_knip_config,
@@ -3837,22 +4036,38 @@ fn parity_repo(
     let scratch = options.out.join("scratch").join(&repo.name);
     let skif_run = match install_and_run_skif(options, skif, repo, &root, &scratch)? {
         Ok(run) => run,
-        Err(reason) => return Ok(skipped(reason)),
+        Err(reason) => {
+            let type_aware = options.untyped_pass.then(|| Entry::skipped(reason.clone()));
+            return Ok(skipped(reason, type_aware));
+        }
+    };
+    let installed = is_installed(repo, &root);
+    let pass = if options.untyped_pass {
+        Some(untyped_pass(
+            options,
+            skif,
+            repo,
+            (&root, &scratch),
+            &skif_run,
+            (installed, skif_rev),
+        )?)
+    } else {
+        None
     };
     let knip_run = match run_knip(options, tools, repo, &root, &scratch)? {
         Ok(run) => run,
-        Err(reason) => return Ok(skipped(reason)),
+        Err(reason) => return Ok(skipped(reason, pass.map(|pass| pass.entry))),
     };
-    let mut skif_found = skif_keys(&skif_run.doc, &root);
     let knip_found = knip_keys(&knip_run.doc, &root);
-    align_export_labels(&mut skif_found, &knip_found);
-    align_unlisted_unresolved(&mut skif_found, &knip_found);
-    align_stale_mocks(&mut skif_found, &knip_found, &stale_mock_keys(&skif_run.doc, &root));
+    let skif_found = compared_skif_keys(&skif_run.doc, &root, &knip_found);
+    let untyped_found = pass
+        .as_ref()
+        .and_then(|pass| pass.doc.as_ref())
+        .map(|doc| compared_skif_keys(doc, &root, &knip_found));
     let manifest = manifest_reader(&root);
     let is_file = |file: &str| root.join(file).is_file();
     let build_dirs = build_dir_reader(&root);
     let layout = Layout::new(knip_run.members, &manifest, &is_file).with_build_dirs(&build_dirs);
-    let installed = is_installed(repo, &root);
     let facts = Facts::read(
         (&skif_run.doc, &knip_run.run.stderr),
         (&skif_found, &knip_found),
@@ -3862,7 +4077,11 @@ fn parity_repo(
     );
     let classifier = facts.classifier(repo, options, (&skif_found, &knip_found), knip_run.rush_root, &layout);
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
-        classifier.classify(side, category, key)
+        with_type_resolved(
+            classifier.classify(side, category, key),
+            (side, category, key),
+            untyped_found.as_ref(),
+        )
     });
     let (counts, samples) = diff::compare(&split.skif, &split.tool);
     let detail = json!({
@@ -3884,6 +4103,7 @@ fn parity_repo(
         "skif_total": total(&skif_found),
         "knip_total": total(&knip_found),
         "categories": category_detail(&counts, &samples),
+        "type_aware": pass.as_ref().map(|pass| &pass.detail),
     });
     Ok(Outcome {
         entry: Entry::compared(counts)
@@ -3893,6 +4113,77 @@ fn parity_repo(
             .with_installed(installed)
             .with_run(skif_run.recursive, skif_rev),
         detail,
+        type_aware: pass.map(|pass| pass.entry),
+    })
+}
+
+/// The deviation of a one-sided finding (`side`, `category`, `key`): the one the classifier names (`known`), else
+/// `type-resolved` where the untyped run's findings (`untyped`, by knip category) settle it the other way.
+fn with_type_resolved(
+    known: Option<&'static str>,
+    (side, category, key): (Side, &str, &str),
+    untyped: Option<&Keys>,
+) -> Option<&'static str> {
+    known.or_else(|| {
+        untyped
+            .is_some_and(|untyped| type_aware::type_resolved(side, category, key, untyped))
+            .then_some(TYPE_RESOLVED)
+    })
+}
+
+/// skif's findings in the knip comparison, aligned with knip's (`knip`) where the two name one finding apart.
+fn compared_skif_keys(doc: &Value, root: &Path, knip: &Keys) -> Keys {
+    let mut keys = skif_keys(doc, root);
+    align_export_labels(&mut keys, knip);
+    align_unlisted_unresolved(&mut keys, knip);
+    align_stale_mocks(&mut keys, knip, &stale_mock_keys(doc, root));
+    keys
+}
+
+/// The untyped pass of one repository: its entry of the type-aware baseline, its detail in the full report and the
+/// untyped report, when skif produced one.
+struct UntypedPass {
+    entry: Entry,
+    detail: Value,
+    doc: Option<Value>,
+}
+
+/// Runs skif with `--no-type-aware` on a checkout (`root`, with its `scratch` directory) and compares its findings
+/// per rule with those of the typed run.
+fn untyped_pass(
+    options: &Options,
+    skif: &Path,
+    repo: &Repo,
+    dirs: (&Path, &Path),
+    typed: &SkifRun,
+    (installed, skif_rev): (bool, &str),
+) -> Result<UntypedPass> {
+    let (doc, run) = match run_skif(options, skif, repo, dirs, false)? {
+        Ok(report) => report,
+        Err(reason) => {
+            eprintln!("parity: {} has no untyped pass: {reason}", repo.name);
+            return Ok(UntypedPass {
+                detail: json!({ "status": diff::SKIPPED, "reason": reason }),
+                entry: Entry::skipped(reason),
+                doc: None,
+            });
+        }
+    };
+    let (root, _) = dirs;
+    let (counts, samples) = diff::compare(
+        &type_aware::rule_keys(&typed.doc, root),
+        &type_aware::rule_keys(&doc, root),
+    );
+    Ok(UntypedPass {
+        detail: json!({
+            "status": COMPARED,
+            "untyped_ms": run.elapsed.as_millis(),
+            "rules": type_aware::rule_detail(&counts, &samples),
+        }),
+        entry: Entry::compared(counts)
+            .with_installed(installed)
+            .with_run(typed.recursive, skif_rev),
+        doc: Some(doc),
     })
 }
 
@@ -4126,15 +4417,21 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
     out + &diff::known_section(tool, &KNIP_DEVIATIONS, entries)
 }
 
-/// Runs the comparison on the parity suite and applies the baseline gate.
+/// Runs the comparison on the parity suite and applies the baseline gate to the knip comparison and, with the untyped
+/// pass, to the typed and untyped counts.
 ///
 /// # Errors
 /// Fails when npx or skif is missing, the corpus cannot be fetched, a command cannot start, the report cannot be
-/// written, or the gate finds drift.
+/// written, or a gate finds drift.
 pub fn run(options: &Options) -> Result<()> {
     if (options.repo_knip_config || options.include_test_files) && (options.gate.write || options.gate.check) {
         bail!(
             "--repo-knip-config and --include-test-files change what is compared: the baselines are recorded without them"
+        );
+    }
+    if !options.untyped_pass && options.gate.write {
+        bail!(
+            "--no-untyped-pass leaves the type-resolved findings in the compared counts: the baselines are recorded with the untyped pass"
         );
     }
     if find_on_path("npx").is_none() {
@@ -4151,6 +4448,7 @@ pub fn run(options: &Options) -> Result<()> {
     let tool = format!("knip@{}", tools.knip);
     let skif_rev = provenance::source_rev();
     let mut entries = BTreeMap::new();
+    let mut type_entries = BTreeMap::new();
     let mut details = serde_json::Map::new();
     for (repo, dir) in &suite.repos {
         eprintln!("parity: {}", repo.name);
@@ -4160,14 +4458,19 @@ pub fn run(options: &Options) -> Result<()> {
         }
         details.insert(repo.name.clone(), outcome.detail);
         entries.insert(repo.name.clone(), outcome.entry);
+        if let Some(entry) = outcome.type_aware {
+            type_entries.insert(repo.name.clone(), entry);
+        }
     }
-    let table = markdown(&tool, &entries);
+    let table = markdown(&tool, &entries) + &type_aware::markdown(&type_entries);
     fs::create_dir_all(&options.out).with_context(|| format!("creating {}", options.out.display()))?;
     let full = json!({
         "tool": tool,
         "installed": installed_summary(&entries),
         "install_requested": options.install,
         "skif_rev": skif_rev,
+        "mode": diff::TYPE_AWARE,
+        "untyped_pass": options.untyped_pass,
         "recursive": options.recursive,
         "repo_knip_config": options.repo_knip_config,
         "include_test_files": options.include_test_files,
@@ -4182,11 +4485,27 @@ pub fn run(options: &Options) -> Result<()> {
     let current = Baseline {
         schema: BASELINE_SCHEMA,
         tool,
+        mode: Some(diff::TYPE_AWARE.to_owned()),
         installed: entries.values().all(|entry| entry.installed != Some(false)),
         category_set: Some(category_set()),
         entries,
     };
-    diff::conclude(&options.gate, &current)
+    let compared = diff::conclude(&options.gate, &current);
+    if !options.untyped_pass {
+        if options.gate.check {
+            eprintln!(
+                "baseline: no untyped pass, so {} is not checked and type-resolved findings count as one-sided",
+                options.type_aware_baseline.display()
+            );
+        }
+        return compared;
+    }
+    let type_gate = Gate {
+        baseline: options.type_aware_baseline.clone(),
+        ..options.gate.clone()
+    };
+    let typed = diff::conclude(&type_gate, &type_aware::baseline(type_entries));
+    compared.and(typed)
 }
 
 fn is_json_file(name: &str) -> bool {
@@ -5049,10 +5368,58 @@ mod tests {
             SIGNATURE_TYPE,
             KNIP_CONFIG_ERROR,
             NOT_JUDGED,
+            TYPE_RESOLVED,
         ] {
             assert!(set.known_deviations.iter().any(|known| known == id), "{id}");
         }
         assert_eq!(set.known_deviations.len(), KNIP_DEVIATIONS.len());
+    }
+
+    #[test]
+    fn type_resolved_takes_the_one_sided_findings_only_one_mode_has_after_the_other_deviations() {
+        let keys = |items: &[(&str, &[&str])]| -> Keys {
+            items
+                .iter()
+                .map(|(category, names)| ((*category).to_owned(), names.iter().map(|n| (*n).to_owned()).collect()))
+                .collect()
+        };
+        let typed = keys(&[(
+            "enumMembers",
+            &["a.ts|E.both", "a.ts|E.typed", "test/t.ts|E.typed", "a.ts|E.always"],
+        )]);
+        let untyped = keys(&[("enumMembers", &["a.ts|E.both", "a.ts|E.untyped", "a.ts|E.always"])]);
+        let knip = keys(&[("enumMembers", &["a.ts|E.both", "a.ts|E.untyped", "a.ts|E.knip"])]);
+        let classify = |side, category: &str, key: &str| {
+            let known = key.starts_with("test/").then_some(TEST_FILE);
+            with_type_resolved(known, (side, category, key), Some(&untyped))
+        };
+        let split = diff::split_known(&typed, &knip, &classify);
+        assert_eq!(
+            split.known[TYPE_RESOLVED],
+            diff::KnownCounts {
+                skif_only: 1,
+                tool_only: 1
+            }
+        );
+        assert_eq!(
+            split.samples[TYPE_RESOLVED],
+            ["enumMembers|a.ts|E.typed", "enumMembers|a.ts|E.untyped"]
+        );
+        assert_eq!(
+            split.known[TEST_FILE],
+            diff::KnownCounts {
+                skif_only: 1,
+                tool_only: 0
+            },
+            "another deviation explains a finding first"
+        );
+        assert_eq!(split.skif, keys(&[("enumMembers", &["a.ts|E.always", "a.ts|E.both"])]));
+        assert_eq!(split.tool, keys(&[("enumMembers", &["a.ts|E.both", "a.ts|E.knip"])]));
+
+        let without_pass = diff::split_known(&typed, &knip, &|side, category, key| {
+            with_type_resolved(None, (side, category, key), None)
+        });
+        assert!(without_pass.known.is_empty(), "{:?}", without_pass.known);
     }
 
     #[test]
@@ -5176,6 +5543,8 @@ mod tests {
             bazel_sources: &NO_KEYS,
             non_member_credits: &NO_KEYS,
             skipped_credits: &NO_KEYS,
+            non_member_members: &NO_KEYS,
+            skipped_members: &NO_KEYS,
             uninstalled_projects: &NO_KEYS,
             rush_root: false,
             replaced_knip_config: false,
@@ -7183,6 +7552,119 @@ vi.mock("mocked-package");
             (Side::Skif, "exports", ".github/scripts/own.mjs|inner", None),
             (Side::Skif, "enumMembers", "scripts/ssh.mjs|alias", None),
             (Side::Tool, "exports", "scripts/ssh.mjs|alias", None),
+        ] {
+            assert_eq!(
+                classifier.classify(side, category, key),
+                expected,
+                "{side:?} {category} {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn members_only_skif_reports_whose_users_skif_does_not_read_split_off_on_skif_side() {
+        let manifest = manifests_of(&[
+            ("", json!({ "name": "root" })),
+            (".github/scripts", json!({ "name": "scripts", "private": true })),
+        ]);
+        let sources = BTreeMap::from([
+            (
+                "src/phases.ts",
+                "export enum Phase { Start = 'start', Stop = 'stop', Idle = 'idle' }\nexport enum Kept { Only = 1 }\n",
+            ),
+            ("src/mode.ts", "export enum Mode { On, Off }\n"),
+            (
+                "src/tools.ts",
+                "export namespace Tools {\nexport const run = 1;\nexport const idle = 2;\nexport const spare = 3;\n}\n",
+            ),
+            (
+                "src/index.ts",
+                "export * from './phases';\nexport { Tools as T } from './tools';\n",
+            ),
+            (
+                ".github/scripts/preview.ts",
+                "import { Phase } from '../../src/phases';\nconsole.log(Phase.Start);\n",
+            ),
+            (
+                ".github/scripts/all.ts",
+                "import * as api from '../../src/index';\nconsole.log(api.Phase.Stop);\n",
+            ),
+            (
+                ".github/scripts/values.ts",
+                "import { Mode } from '../../src/mode';\nconsole.log(Object.values(Mode));\n",
+            ),
+            (
+                ".devcontainer/check.ts",
+                "import { Tools } from '../src/tools';\nconsole.log(Tools.run);\n",
+            ),
+            (
+                ".devcontainer/alias.ts",
+                "import { T } from '../src/index';\nconsole.log(T.idle);\n",
+            ),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let layout = Layout::new(BTreeSet::new(), &manifest, &is_file);
+        let resolver = Resolver::new(&layout, &read);
+        let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let members = strings(&[
+            "src/phases.ts|Start",
+            "src/phases.ts|Stop",
+            "src/phases.ts|Idle",
+            "src/phases.ts|Only",
+            "src/mode.ts|On",
+            "src/mode.ts|Off",
+            "src/tools.ts|run",
+            "src/tools.ts|idle",
+            "src/tools.ts|spare",
+        ]);
+        let (non_member, skipped) = outside_members(&members, &files, &layout, &resolver, &read);
+        assert_eq!(
+            non_member,
+            strings(&[
+                "src/mode.ts|Off",
+                "src/mode.ts|On",
+                "src/phases.ts|Start",
+                "src/phases.ts|Stop",
+            ])
+        );
+        assert_eq!(skipped, strings(&["src/tools.ts|idle", "src/tools.ts|run"]));
+        let classifier = Classifier {
+            non_member_members: &non_member,
+            skipped_members: &skipped,
+            ..bare(&layout)
+        };
+        for (side, category, key, expected) in [
+            (
+                Side::Skif,
+                "enumMembers",
+                "src/phases.ts|Start",
+                Some(NON_MEMBER_PROJECT),
+            ),
+            (
+                Side::Skif,
+                "enumMembers",
+                "src/phases.ts|Stop",
+                Some(NON_MEMBER_PROJECT),
+            ),
+            (Side::Skif, "enumMembers", "src/mode.ts|On", Some(NON_MEMBER_PROJECT)),
+            (Side::Skif, "enumMembers", "src/phases.ts|Idle", None),
+            (Side::Skif, "enumMembers", "src/phases.ts|Only", None),
+            (
+                Side::Skif,
+                "namespaceMembers",
+                "src/tools.ts|run",
+                Some(SKIPPED_DIRECTORY),
+            ),
+            (
+                Side::Skif,
+                "namespaceMembers",
+                "src/tools.ts|idle",
+                Some(SKIPPED_DIRECTORY),
+            ),
+            (Side::Skif, "namespaceMembers", "src/tools.ts|spare", None),
+            (Side::Skif, "exports", "src/tools.ts|run", None),
+            (Side::Tool, "enumMembers", "src/phases.ts|Start", None),
         ] {
             assert_eq!(
                 classifier.classify(side, category, key),

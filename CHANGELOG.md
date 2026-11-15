@@ -149,11 +149,21 @@ All notable changes to this project are documented here. The format follows
 
 - **Comparison harness**: `published-source` covers the sources a published `node` `bin` stub loads and the files a
   published source re-exports; `non-member-project` covers a nested root's default-entry re-exports and, with
-  `skipped-directory`, exports only skif reports whose importers lie in a project or directory skif does not read;
+  `skipped-directory`, exports, types, duplicates and enum and namespace members only skif reports whose importers lie
+  in a project or directory skif does not read;
   `bazel-build-file` covers the files `rules_js` rules name in `srcs`, `data` and `entry_point` and what they reach;
   `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
   only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
   needs re-recording for the new categories.
+
+- **Comparison harness with types**: `skif-bench parity` runs skif twice per repository, with types (the run compared
+  with knip) and with `--no-type-aware`. A one-sided finding no other deviation explains is the new `type-resolved`
+  known deviation when skif reports it only with types, or when knip reports it and only the untyped run does too.
+  `parity.md` and `parity.json` give each rule's typed and untyped findings and those only one run has, the baseline
+  header records the mode (`mode`), and `tools/bench/baselines/type-aware.json` holds the typed-versus-untyped counts,
+  recorded with `--write-baseline` and checked with `--check`. `--no-untyped-pass` skips the second run; no baseline
+  is recorded that way. Both baselines need recording
+  ([ADR 0046](adrs/0046-typed-member-semantics.md), [ADR 0050](adrs/0050-knip-comparison-against-the-typed-run.md)).
 
 - **Performance** ([#233](https://github.com/Goldziher/skif/issues/233)): the `execa`, `zx` and `nano-spawn` plugins
   read the commands of the source files the module graph reaches, as knip does, from the texts the graph already
@@ -181,8 +191,31 @@ All notable changes to this project are documented here. The format follows
   fall back to the untyped analysis. A panic that ends a run still exits 2, prints its message to stderr and, with
   `--format json`, writes one `internal` error document ([ADR 0045](adrs/0045-tsrs-dependency-policy.md)).
 
+### Performance
+
+- **Type-aware analysis**: the TypeScript programs start building while the module graph is built, from the
+  configs of the discovered files of the packages that want types; their queries still wait for the graph, and a
+  program no judged file needs is freed unwalked. The files placed while planning the early programs are not
+  searched again once the judged files are known. Findings do not depend on which programs started early. A
+  sequential run keeps building them after the graph. `SKIF_TIMINGS` names the time the analysis waited once the
+  graph was done and how many programs started before it ([ADR 0047](adrs/0047-performance-budget-with-types.md)).
+
+- **`unused-enum-members`, `unused-namespace-members`** with types: a member already used without types is no
+  longer asked of the checker, since types only add uses, so reads of its name cost no checker lookup. `explain-usage`
+  shows `read` as `false` in the typed evidence of such a member; the verdict is unchanged.
+
+- **`skif-js-types`**: `start` with a `TypeBuild` builds the programs before the query is known, and
+  `PendingTypes::finish` returns the facts `analyze` gives for the judged files it is handed. `TypeTimings` gains
+  `waited` and `early`.
+
 ### Fixed
 
+- `unused-files`: a Playwright `webServer.command` that the config computes is read, so the file it runs is no longer
+  reported and the binaries it runs are judged. Each branch of a condition the config cannot decide counts, and in a
+  template literal a substitution whose value is not known (a port from the environment) reads as a shell variable
+  instead of making the whole command unknown (`` `bun e2e/utils/serve.ts --port ${port}` `` runs
+  `e2e/utils/serve.ts`). `skif-js-syntax` gains `extract_property_commands`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - `unused-types` and `unused-exports` no longer report an export that a used export's inferred signature takes from a
   top-level declaration of its file: in `export const useEntity = () => useContext(EntityContext)` the type
   `EntityContext` was created with, a type predicate passed to a call (`items.filter(isItem)`), the parameters of a
@@ -240,6 +273,11 @@ All notable changes to this project are documented here. The format follows
   `export default C`, or `export { C, C as default }`) is reported once instead of once per export, and is public API
   when an entry file exposes either name, also through `export default C` of an imported `C`.
   `skif explain-usage FILE#Foo.member` finds the member of `export default class Foo` by the name the finding gives.
+- `unused-class-members`: with types, a read through an interface (`c.getRange()` with `c: ICell`) credits the member
+  each implementing class has under that name, its own or one it inherits from a base class anywhere up its chain,
+  also when the interface inherits the member from another interface. `BaseCell.getRange` of
+  `class CodeCell extends BaseCell implements ICell {}` is no longer reported; base members the interface does not
+  declare still are ([ADR 0046](adrs/0046-typed-member-semantics.md)).
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 - A `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs the command after
@@ -255,6 +293,22 @@ All notable changes to this project are documented here. The format follows
   names from config values. A config with such a test is evaluated three times
   ([ADR 0036](adrs/0036-packages-named-on-an-environment-gated-branch.md),
   [#229](https://github.com/Goldziher/skif/issues/229)).
+- A compiler option of a `tsconfig` that a package extends through its own `node_modules`
+  (`"extends": "./node_modules/<rig>/profiles/app/tsconfig-base.json"`, and what that profile extends in turn) applies
+  to the package, as TypeScript merges the chain: the `tslib` that its `importHelpers` needs, and the packages its
+  `types`, `jsxImportSource` and `plugins` name, are uses of the extending package's manifest, so a listed `tslib` is no
+  longer `unused-dependencies`. The installed config itself is still not judged
+  ([#99](https://github.com/Goldziher/skif/issues/99)).
+- A bundler alias `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }`) that a
+  shared config factory of another workspace package builds is judged against the package whose Vite, Vitest, webpack
+  or Next.js config calls the factory, as the bundler resolves it from that package's files: listed there, it is used
+  and no longer `unlisted-dependencies` at the factory's module. `skif-js-plugins` gains
+  `PluginInput::ImporterDependency` for such a package ([#96](https://github.com/Goldziher/skif/issues/96)).
+- A type-only re-export (`export type { JSONSchema7 } from 'json-schema'`, `export type * from 'pkg'`) is satisfied by
+  the listed `@types` package, as a type-only import is, since TypeScript resolves its types from either: it is no
+  longer `unlisted-dependencies`, and the `@types` package is used. An unlisted type-only import or re-export advises
+  adding the package or its types package (`@types/json-schema`), not only the package, which may ship no types.
+  `UnlistedImport` gains `type_only` ([#96](https://github.com/Goldziher/skif/issues/96)).
 
 ## [0.5.0] - 2026-11-14
 

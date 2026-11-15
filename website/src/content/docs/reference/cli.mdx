@@ -161,7 +161,8 @@ library base, implementing an interface, public API), and the verdict of `unused
 `unused-namespace-members`. In JSON these are the `class-member` member: `class`, `member`, `of` (`enum` or
 `namespace`; omitted for a class), `verdict`, `exemption`, `readers`, `used-without-types`, `typed` (`declaration`
 as `file#Name`, `read`, `whole`, `unresolved-readers`) and `untyped-because` (`disabled`, `not-built`,
-`tsconfig-error`, `checker-failed`, `cancelled`, `file-untyped` or `not-asked`). An export of a file that may be an unknown entry of its package (a package whose
+`tsconfig-error`, `checker-failed`, `cancelled`, `file-untyped` or `not-asked`). Types only add uses, so an enum or
+namespace member used without types is not asked of the checker, and its `typed` `read` is `false`. An export of a file that may be an unknown entry of its package (a package whose
 entry files are not fully known, or a file in the narrowed scope of such a package) is `not-judged` instead of
 `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
 as the JavaScript part of a lint run.
