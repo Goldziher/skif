@@ -21,7 +21,7 @@ use skif_workspace::{PackageId, is_package_manifest, map_ordered};
 use crate::compilers::{self, Compiler, reader_path};
 use crate::components::{self, Registered};
 use crate::discover::{Candidate, relative};
-use crate::resolve::{EXTENSION_ALIASES, ModuleResolver, Resolved};
+use crate::resolve::{CODE_EXTENSIONS, EXTENSION_ALIASES, ModuleResolver, Resolved};
 use crate::setup::Setup;
 use crate::shared_modules::{ModuleParser, Served};
 use crate::source_scan::add_textual_imports;
@@ -275,7 +275,8 @@ fn normalize(path: &str) -> String {
 
 /// Files matched by an `import.meta.glob` pattern written in `importer`, or by the glob a computed `import()` stands
 /// for. A pattern ending in an output extension also matches the sources it is compiled from, as a specifier does
-/// (`./reporters/*.js` matches `reporters/a.ts`).
+/// (`./reporters/*.js` matches `reporters/a.ts`), and one whose last segment is a plain name without an extension
+/// matches that name with each code extension (`./locales/*/messages` matches `locales/en/messages.js`).
 fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathBuf> {
     if pattern.starts_with('!') {
         return Vec::new();
@@ -293,8 +294,11 @@ fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathB
         .iter()
         .filter_map(|(from, to)| Some((joined.strip_suffix(from)?, *to)))
         .flat_map(|(stem, to)| to.iter().map(move |alias| format!("{stem}{alias}")));
+    let last_segment = joined.rsplit('/').next().unwrap_or_default();
+    let extensionless = (!last_segment.is_empty() && !last_segment.contains(['.', '*', '?', '[', '{']))
+        .then(|| format!("{joined}.{{{}}}", CODE_EXTENSIONS.join(",")));
     let mut set = GlobSetBuilder::new();
-    for pattern in std::iter::once(joined.clone()).chain(aliases) {
+    for pattern in std::iter::once(joined.clone()).chain(aliases).chain(extensionless) {
         let Ok(glob) = GlobBuilder::new(&pattern).literal_separator(true).build() else {
             return Vec::new();
         };
