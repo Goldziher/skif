@@ -300,10 +300,12 @@ keeps the file it names in use, and a relative or aliased mock of a file that do
 `stale-mocks`, an error that knip has no counterpart for (`skif migrate --profile exact` turns it off). Such a mock
 is not an `unresolved-imports` finding, so unresolved imports compare with knip's `unresolved`.
 
-`require.resolve("./x")` and `import.meta.resolve("./x")` return the path of a module and load nothing. In skif the
-call keeps the file it names in use and a package it names is a used dependency, but it uses no export, so
-`unused-exports` reports the value exports of that file that nothing else imports, as `unused-types` reports its
-types. knip reports none of them.
+`require.resolve("./x")` and `import.meta.resolve("./x")` return the path of a module, which code hands to what loads
+the module by it: a worker pool (`new Worker(require.resolve("./worker"))`), a bundler loader, a plugin host. In skif
+the call keeps the file it names in use, a package it names is a used dependency, and the value exports of the module
+are used, as for a `require()` that binds nothing; `unused-types` reports its types that nothing else imports
+([ADR NNNN](https://github.com/Goldziher/skif/blob/main/adrs/NNNN-resolve-calls-use-the-values-of-the-module.md)).
+knip makes such a file an entry, so it reports neither.
 
 skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file; knip reports one that nothing
 imports. A declaration file that applies without an import is an entry: a script (no top-level `import` or `export`),

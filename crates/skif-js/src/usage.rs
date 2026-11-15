@@ -433,19 +433,16 @@ impl ExportUsage {
 }
 
 /// Whether an import of `kind` uses no export of the module it names by itself: an `export … from` forwards names
-/// that are credited only when its own importers use them, and a side-effect import, a test-runner mock and a resolve
-/// call (`require.resolve`, which takes the path of the module and loads none of it) read none.
+/// that are credited only when its own importers use them, and a side-effect import and a test-runner mock read none.
 pub(crate) const fn credits_no_export(kind: ImportKind) -> bool {
-    matches!(
-        kind,
-        ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock | ImportKind::Resolve
-    )
+    matches!(kind, ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock)
 }
 
 /// Whether an import of `kind` without names loads the module object itself (`import("x")`, `require("x")`), which
-/// holds the values of the module and none of its types.
+/// holds the values of the module and none of its types. A resolve call (`require.resolve("x")`) hands the path to
+/// what loads the module by it (a worker pool, a loader, a plugin host), which reads its values the same way.
 pub(crate) const fn loads_module_value(kind: ImportKind) -> bool {
-    matches!(kind, ImportKind::Dynamic | ImportKind::Require)
+    matches!(kind, ImportKind::Dynamic | ImportKind::Require | ImportKind::Resolve)
 }
 
 /// Whether a default import of the module `info` binds its `module.exports` object, as `esModuleInterop` and bundlers

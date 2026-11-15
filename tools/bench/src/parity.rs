@@ -1599,13 +1599,13 @@ impl<'a> Resolver<'a> {
 
 /// The exports of other files that the parsed file `path` imports by a specifier `resolver` resolves, as `(file,
 /// export)`: a named import or re-export by its name, a default import as `default`, a namespace by the members read
-/// through it, and a namespace used as a whole, `export * from`, `import()` and `require` of the module as
-/// [`WHOLE_MODULE`]. A side-effect import and a resolve call (`require.resolve`, `import.meta.resolve`) use no export.
+/// through it, and a namespace used as a whole, `export * from`, `import()`, `require` and a resolve call
+/// (`require.resolve`, `import.meta.resolve`) of the module as [`WHOLE_MODULE`]. A side-effect import uses no export.
 fn imported_exports(path: &str, module: &ModuleInfo, resolver: &Resolver<'_>) -> Vec<(String, String)> {
     let mut found = Vec::new();
     for (import, target) in module_targets(path, module, resolver) {
         if import.names.is_empty() {
-            if matches!(import.kind, ImportKind::Dynamic | ImportKind::Require) {
+            if matches!(import.kind, ImportKind::Dynamic | ImportKind::Require | ImportKind::Resolve) {
                 found.push((target, WHOLE_MODULE.to_owned()));
             }
             continue;
