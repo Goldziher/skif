@@ -317,9 +317,14 @@ manifest, not by listing findings:
   and dependencies; skif's analysis of the enclosing workspace skips the directory. When a recursive skif run lints
   the project as a package of one of its roots (the `packages` of the JSON `roots`), its exports, types, members and
   duplicates stay compared, since skif judges them there, except the exports and types of the project's default entry
-  files (`index`, `cli` or `main` at the top or in `src`): they are public in skif's run of the project, and knip
-  reads them without the project's entries; the same holds for the exports those default entries re-export through
-  `export … from` and `export *`, followed through the files in between. On skif's side, an unused file, an unlisted
+  files (`index`, `cli` or `main` at the top or in `src`) and of the entry files of skif's plugins there: they are
+  public in skif's run of the project, and knip reads them without the project's entries; the same holds for the
+  exports those entries re-export through `export … from` and `export *`, followed through the files in between.
+  knip runs no plugin in a project that is not one of its workspaces, so the harness runs skif's plugin resolver
+  (`skif_js_plugins::resolve_plugins`) on the project's manifest and files and takes the entry globs and code
+  configuration files of the plugins it enables: the GraphQL Code Generator outputs a `codegen.ts` names (next.js
+  `examples/with-typescript-graphql/lib/gql/graphql.ts`), or Mastra's `src/mastra/tools` and `src/mastra/workflows`
+  in a template. On skif's side, an unused file, an unlisted
   dependency or an unlisted binary only skif reports below such a project is `non-member-project` too: the recursive
   run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or
   `project.json` names), which knip does not read there. A binary on a `package.json` that knip reports anything on
@@ -353,6 +358,11 @@ manifest, not by listing findings:
   read the n8n fields. A published `bin` stub without a code extension whose first line is a `#!` line naming `node`
   loads build output through its relative `require`s and imports (`require('../lib-commonjs/start.js')`), which maps
   to source the same way, as skif reads such a stub: that source and the files it reaches are `published-source` too.
+  So are the sources a JavaScript or declaration file the manifest publishes as it is (`published-file`, named without
+  `*`) loads by a relative specifier into build output, and what they reach: next.js publishes `client.js`
+  (`module.exports = require('./dist/client/index')`) and `client.d.ts` (`export * from './dist/client/index'`),
+  which name `src/client/index.tsx`. skif makes the published file an entry and resolves a specifier into output that
+  was never built to its source; a file inside build output maps nothing.
   An export or type (also as a namespace export or type) only knip reports in a published source, or in a file whose
   exports a published source re-exports through `export … from` and `export *` (followed through the files in
   between), is `published-source` as well: an entry's exports are public in skif. Enum and namespace members of these
@@ -368,11 +378,25 @@ manifest, not by listing findings:
   skif's `duplicate-exports` skips entry modules, whose names are all public API. Duplicates in entries that only
   skif's plugins or the configuration make stay compared.
 
+Two known deviations on skif's side follow from how knip reads a file:
+
+- `knip-dot-ignore`: a finding only skif reports (anything but a manifest finding) in a file that a `./` pattern of a
+  `.gitignore` below the checkout root hides from knip. git matches no path with `./storage/`, since no path has a `.`
+  segment; knip joins every pattern of a nested `.gitignore` to its directory, which drops the `./`, and ignores every
+  file and directory named `storage` at any depth below it (mastra's `packages/core/.gitignore` hides
+  `src/storage/**`). knip neither reports such a file unused nor analyses its exports. The harness reads the
+  `.gitignore` files its file scan reaches and takes only patterns without wildcards.
+- `re-export-alias`: a duplicate export only skif reports whose aliases (`export const b = a`) each name an export of
+  the group initialised with an imported binding (`export const a = importedA`), no name being `default`. knip takes
+  `export const a = importedA` for a re-export of the import and records no alias of a re-export, so it sees no
+  duplicate; skif counts every name that holds the one value. The harness reads the aliases with skif's parser.
+
 `non-member-project`, `published-source`, `published-file` and `entry-module-duplicate` check where a finding is, not
 why skif has no finding there. npm's `lib/commands` files that skif reaches through a computed `require` in
 `lib/npm.js` stay compared: the harness cannot check them from its data. See
-[ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness.md) and
-[ADR 0040](../../adrs/0040-more-known-deviations-of-the-knip-comparison.md).
+[ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness.md),
+[ADR 0040](../../adrs/0040-more-known-deviations-of-the-knip-comparison.md) and
+[ADR 0053](../../adrs/0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md).
 
 **Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
 has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no
