@@ -89,6 +89,7 @@ fn locate<'a>(targets: &'a [Target], file: &'a TargetFile) -> Option<(&'a Target
 fn overrides(args: &ExplainUsageArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_production(args.production.then_some(true))
+        .with_type_aware(args.type_aware)
         .with_no_type_aware(args.no_type_aware)
         .with_config_file(args.config.as_ref().map(|file| crate::lint::absolute_file(file)))
         .with_no_config(args.no_config)

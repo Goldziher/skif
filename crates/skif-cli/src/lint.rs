@@ -165,6 +165,7 @@ pub fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_fail_on_warnings(args.fail_on_warnings.then_some(true))
         .with_production((args.production || args.strict).then_some(true))
         .with_no_js(args.no_js)
+        .with_type_aware(args.type_aware)
         .with_no_type_aware(args.no_type_aware || args.watch)
         .with_config_file(args.config.as_ref().map(|file| absolute_file(file)))
         .with_no_config(args.no_config)
@@ -1185,9 +1186,20 @@ mod tests {
     };
 
     #[test]
-    fn no_type_aware_reaches_the_config_overrides() {
-        assert!(!overrides(&lint_args(&[])).no_type_aware, "types are on by default");
-        assert!(overrides(&lint_args(&["--no-type-aware"])).no_type_aware);
+    fn a_bare_run_overrides_neither_way_so_the_off_default_holds() {
+        let bare = overrides(&lint_args(&[]));
+        assert!(!bare.type_aware && !bare.no_type_aware);
+        let mut config = Config::default();
+        config.apply(&bare).unwrap();
+        assert!(!config.js.type_aware, "types are off by default");
+    }
+
+    #[test]
+    fn type_aware_flags_reach_the_config_overrides() {
+        let on = overrides(&lint_args(&["--type-aware"]));
+        assert!(on.type_aware && !on.no_type_aware);
+        let off = overrides(&lint_args(&["--no-type-aware"]));
+        assert!(off.no_type_aware && !off.type_aware);
     }
 
     #[test]
