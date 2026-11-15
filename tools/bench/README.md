@@ -420,7 +420,7 @@ why skif has no finding there. npm's `lib/commands` files that skif reaches thro
 [ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness.md),
 [ADR 0040](../../adrs/0040-more-known-deviations-of-the-knip-comparison.md),
 [ADR 0053](../../adrs/0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md) and
-[ADR NNNN](../../adrs/NNNN-knip-tsconfig-declaration-entries-and-module-object-types.md).
+[ADR 0056](../../adrs/0056-knip-tsconfig-declaration-entries-and-module-object-types.md).
 
 **Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
 has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no

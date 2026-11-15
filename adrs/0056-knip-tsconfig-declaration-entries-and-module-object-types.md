@@ -59,7 +59,7 @@ that the harness can test.
 * `module-object-types`: a type only skif reports (`types`, `nsTypes`) in a file that an import in a code file of the
   checkout uses as a whole module object, as skif's parser records it (`import()`, `require`, a namespace used as a
   whole), directly or through the `export … from` and `export *` re-exports of the files in between. Only the files
-  that hold `import(`, `require(` or `* as ` are parsed.
+  that hold `import(`, `require(` or `* as` (a namespace import) are parsed.
 
 ### Consequences
 

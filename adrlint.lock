@@ -270,3 +270,13 @@ blake3 = "4ea3b5076f171ca865d5d30f882736a7b7effe081e6b0a7c730d9458045b036d"
 number = 54
 status = "accepted"
 blake3 = "a60a26b8ef9974883e8fd94c10f5f156c8463427a3ef1405ea6e49c26b37ab4c"
+
+[adrs."adrs/0055-exportless-declaration-files-that-load-a-module.md"]
+number = 55
+status = "accepted"
+blake3 = "855962f65067538c41f2464a9696600559f7bc7b50545bc8da9d0dd5e26eab91"
+
+[adrs."adrs/0056-knip-tsconfig-declaration-entries-and-module-object-types.md"]
+number = 56
+status = "accepted"
+blake3 = "5e888d9ba6e617e6426e867e10f85d18ce2ca3386f75439a87a74b6a1a14d237"
