@@ -1,5 +1,6 @@
 ---
 status: accepted
+superseded-in-part-by: "0050"
 date: 2026-11-14
 decision-makers: ["Na'aman Hirschfeld"]
 ---

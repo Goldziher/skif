@@ -47,13 +47,13 @@ old one.
 | 0037 | [Heft and Rig Packages: Profiles as Configs of the Rig and of the Projects That Name It](0037-heft-and-rig-packages.md) | accepted |
 | 0038 | [`paths` Before Packages: TypeScript's Order for Mappings Named Like a Dependency](0038-paths-before-packages.md) | accepted |
 | 0039 | [Source Command Scans Read the Files the Module Graph Reaches](0039-source-command-scans-read-reached-files.md) | accepted |
-| 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted |
+| 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted, superseded in part by [0051](0051-members-whose-users-skif-does-not-read.md) |
 | 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
 | 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |
 | 0043 | [Type-Only Class Fields and Constant Element Keys](0043-type-only-class-fields-and-constant-element-keys.md) | accepted |
 | 0044 | [Type-Aware Analysis on tsrs: On by Default, Switchable, Untyped Where a Project Has No Types](0044-type-aware-analysis-on-tsrs.md) | accepted |
 | 0045 | [tsrs Dependency Policy: One Crate, Exact Pins, and the Process-Level Constraints of the Checker](0045-tsrs-dependency-policy.md) | accepted |
-| 0046 | [Typed Member Semantics: What a Typed Read Credits, and the `type-resolved` Deviation](0046-typed-member-semantics.md) | accepted |
+| 0046 | [Typed Member Semantics: What a Typed Read Credits, and the `type-resolved` Deviation](0046-typed-member-semantics.md) | accepted, superseded in part by [0050](0050-knip-comparison-against-the-typed-run.md) |
 | 0047 | [Performance Budget and Benchmarks With Types](0047-performance-budget-with-types.md) | accepted |
 | 0048 | [Dynamic Imports Returned to a Call: Lazy-Component Loaders Read `default`, Other Calls the Whole Module](0048-dynamic-imports-returned-to-a-call.md) | accepted |
 | 0049 | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](0049-bazel-test-globs-and-angular-packages.md) | accepted |
