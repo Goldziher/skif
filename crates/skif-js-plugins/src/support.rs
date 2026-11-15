@@ -657,11 +657,14 @@ pub(crate) fn served_html_entries(
     html_script_sources(&html)
         .into_iter()
         .flat_map(|src| {
-            let public = public_dir
+            let path = local_script_path(&src, base, html_dir);
+            let public = path
+                .as_ref()
+                .and(public_dir)
                 .zip(root_relative(&src))
                 .map(|(dir, rooted)| join_rel(dir, rooted))
                 .filter(|public| cx.fs.is_file(&cx.dir.join(public)));
-            local_script_path(&src, base, html_dir).into_iter().chain(public)
+            path.into_iter().chain(public)
         })
         .map(PluginInput::ProductionEntry)
         .collect()
