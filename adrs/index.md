@@ -58,3 +58,4 @@ old one.
 | 0048 | [Dynamic Imports Returned to a Call: Lazy-Component Loaders Read `default`, Other Calls the Whole Module](0048-dynamic-imports-returned-to-a-call.md) | accepted |
 | 0049 | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](0049-bazel-test-globs-and-angular-packages.md) | accepted |
 | 0050 | [Knip Comparison Against the Typed Run](0050-knip-comparison-against-the-typed-run.md) | accepted |
+| 0051 | [Enum and Namespace Members Whose Users skif Does Not Read](0051-members-whose-users-skif-does-not-read.md) | accepted |

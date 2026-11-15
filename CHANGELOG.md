@@ -149,7 +149,8 @@ All notable changes to this project are documented here. The format follows
 
 - **Comparison harness**: `published-source` covers the sources a published `node` `bin` stub loads and the files a
   published source re-exports; `non-member-project` covers a nested root's default-entry re-exports and, with
-  `skipped-directory`, exports only skif reports whose importers lie in a project or directory skif does not read;
+  `skipped-directory`, exports, types, duplicates and enum and namespace members only skif reports whose importers lie
+  in a project or directory skif does not read;
   `bazel-build-file` covers the files `rules_js` rules name in `srcs`, `data` and `entry_point` and what they reach;
   `imported-by-knip-unused-file` follows the importer's `paths` and workspace package names. An `unresolved` import
   only knip reports on the file and specifier of a skif `stale-mocks` finding counts as shared. The parity baseline
