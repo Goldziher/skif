@@ -238,10 +238,29 @@ fn computed_relative_specifiers_are_globs() {
         got,
         [
             ("./commands/*", ImportKind::ImportMetaGlob),
+            ("./commands/*/index", ImportKind::ImportMetaGlob),
             ("../pages/*/*.js", ImportKind::ImportMetaGlob),
         ]
     );
     assert_eq!(info.unresolved_dynamic.len(), 1);
+}
+
+#[test]
+fn a_computed_specifier_without_an_extension_also_names_a_directory_index() {
+    let info = parse(
+        "a.js",
+        "require(`./locales/${lang}/messages`); require(`./pages/${name}.js`); import(`./views/${a}.${b}`);",
+    );
+    let got: Vec<_> = info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect();
+    assert_eq!(
+        got,
+        [
+            ("./locales/*/messages", ImportKind::ImportMetaGlob),
+            ("./locales/*/messages/index", ImportKind::ImportMetaGlob),
+            ("./pages/*.js", ImportKind::ImportMetaGlob),
+            ("./views/*.*", ImportKind::ImportMetaGlob),
+        ]
+    );
 }
 
 #[test]
@@ -256,6 +275,7 @@ fn computed_relative_resolve_specifiers_are_globs() {
         [
             ("./tpl/*.hbs", ImportKind::ImportMetaGlob),
             ("../assets/*", ImportKind::ImportMetaGlob),
+            ("../assets/*/index", ImportKind::ImportMetaGlob),
         ]
     );
     assert_eq!(info.unresolved_dynamic.len(), 1);
