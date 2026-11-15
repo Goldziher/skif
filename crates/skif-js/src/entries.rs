@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use skif_core::{FileSystem, IncompleteCause, IncompleteEntries};
-use skif_workspace::{Package, PackageId, Workspace, map_ordered};
+use skif_workspace::{Package, PackageId, Workspace, map_ordered, subpath_entries};
 
 use crate::analysis::on_disk;
 use crate::ancestors::external_manifests;
-use crate::discover::{Candidate, is_ignored_in_repository, relative, subpath_entries};
+use crate::discover::{Candidate, is_ignored_in_repository, relative};
 use crate::explain::EntryReason;
 use crate::globs::Globs;
 use crate::manifest_paths::{

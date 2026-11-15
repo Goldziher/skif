@@ -16,11 +16,11 @@ use skif_js_syntax::{
     ImportKind, ModuleInfo, ParseOptions, RegisteredComponent, SyntaxError, is_source_query, is_stylesheet,
     parse_cached, registered_components, registered_name,
 };
-use skif_workspace::{PackageId, map_ordered};
+use skif_workspace::{PackageId, is_package_manifest, map_ordered};
 
 use crate::compilers::{self, Compiler, reader_path};
 use crate::components::{self, Registered};
-use crate::discover::{Candidate, is_package_manifest, relative};
+use crate::discover::{Candidate, relative};
 use crate::resolve::{EXTENSION_ALIASES, ModuleResolver, Resolved};
 use crate::setup::Setup;
 use crate::shared_modules::{ModuleParser, Served};

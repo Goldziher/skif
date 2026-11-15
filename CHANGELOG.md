@@ -309,6 +309,13 @@ All notable changes to this project are documented here. The format follows
   longer `unlisted-dependencies`, and the `@types` package is used. An unlisted type-only import or re-export advises
   adding the package or its types package (`@types/json-schema`), not only the package, which may ship no types.
   `UnlistedImport` gains `type_only` ([#96](https://github.com/Goldziher/skif/issues/96)).
+- A recursive run no longer makes a root of a directory whose `package.json` makes no package and that lies below
+  another `package.json` of the run: one holding only `type`, `sideEffects` or `imports` (`{"type": "commonjs"}` in a
+  `scripts` folder), or only `main`, `module`, `types`, `typings` or `browser` in a subpath directory the package
+  above publishes. The root above already lints those files, so each was reported twice, once per root.
+  `claim_roots` of `skif-workspace` leaves such a directory out, and `skif-workspace` exports `is_package_manifest`
+  and `subpath_entries`, the test the JavaScript analysis applies to such manifests
+  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md)).
 
 ## [0.5.0] - 2026-11-14
 
