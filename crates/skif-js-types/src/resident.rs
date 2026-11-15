@@ -6,6 +6,10 @@
 //! analysis that built it, while a root of the run that has not finished holds a file the config includes, and every
 //! analysis that plans files into it walks them on that build. An analysis that needs a program another one is
 //! building waits for that build instead of starting its own.
+//!
+//! The analyses also share the lib and `node_modules` declaration files of their programs ([`SharedFiles`]): each is
+//! parsed and bound once for the run, whichever program reads it first, and stays until the run's last program and
+//! the run's [`TypePrograms`] are gone.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -15,7 +19,9 @@ use std::time::Duration;
 use tsrs_compiler::{Program, ProgramRegions};
 use tsrs_core::arena::{Region, RegionScope};
 
+use crate::SharedFileCounts;
 use crate::owner::ProgramOwner;
+use crate::shared_files::SharedFiles;
 use crate::vfs::{BomFiles, tsrs_path};
 
 /// The programs the analyses of one run share, so that a program the judged files of several roots go to is built
@@ -28,10 +34,13 @@ use crate::vfs::{BomFiles, tsrs_path};
 /// analysis walks a shared program as the analysis that built it read it. A built program stays while a root of the
 /// run that has not finished holds a file its config includes, and is freed once none does; an analysis marks its
 /// root finished when its facts are returned or it is given up, and a host marks a root it analyses without types
-/// with [`TypePrograms::done`]. The facts do not depend on it.
+/// with [`TypePrograms::done`]. The programs of the run also share the bundled lib files and the declaration files
+/// below `node_modules` they read: each is parsed and bound once for the run and kept until these programs (every
+/// clone) and the last program that read it are dropped. The facts do not depend on it.
 #[derive(Clone)]
 pub struct TypePrograms {
     registry: Arc<Registry>,
+    files: Arc<SharedFiles>,
 }
 
 impl TypePrograms {
@@ -44,7 +53,20 @@ impl TypePrograms {
                 state: Mutex::default(),
                 published: Condvar::new(),
             }),
+            files: Arc::default(),
         }
+    }
+
+    /// How the programs of the run got the lib and `node_modules` declaration files they read, so far: the files
+    /// parsed for the run, those taken parsed from it, and those parsed for one program alone.
+    #[must_use]
+    pub fn shared_files(&self) -> SharedFileCounts {
+        self.files.counts()
+    }
+
+    /// The declaration files the programs of the run share.
+    pub(crate) fn files(&self) -> Arc<SharedFiles> {
+        Arc::clone(&self.files)
     }
 
     /// Marks the analysis of `root` finished: a program kept only for it is freed.
@@ -287,7 +309,8 @@ impl Drop for Ticket<'_> {
 
 /// A built and bound program with what its walks need, freed when the last analysis walking it lets it go. Its fields
 /// drop in order: the program, then the loader regions and the scratch region its config and host were allocated in,
-/// which the program points into.
+/// which the program points into, and last the shared declaration files the program read, which everything before
+/// points into.
 pub(crate) struct Resident {
     owner: ProgramOwner,
     _loader_regions: Arc<ProgramRegions>,
@@ -296,14 +319,15 @@ pub(crate) struct Resident {
     key: ProgramKey,
     checkers: usize,
     build: Duration,
+    _files: Arc<SharedFiles>,
 }
 
 impl Resident {
     /// The program of `owner`, built in `region` with `loader_regions` on `checkers` checkers in `build`, reading
-    /// through the file system that recorded `boms`.
+    /// through the file system that recorded `boms` and the shared declaration files of `files`.
     pub(crate) fn new(
         (owner, loader_regions, region): (ProgramOwner, Arc<ProgramRegions>, Region),
-        boms: Arc<BomFiles>,
+        (boms, files): (Arc<BomFiles>, Arc<SharedFiles>),
         key: ProgramKey,
         checkers: usize,
         build: Duration,
@@ -316,6 +340,7 @@ impl Resident {
             key,
             checkers,
             build,
+            _files: files,
         }
     }
 

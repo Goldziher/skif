@@ -59,7 +59,10 @@ impl Drop for ProgramOwner {
         // SAFETY: `new_program` made the program, which never went through `update_program`, so no other program
         // shares its processed files or mapper. Every checker handle was released when `for_each_checker_group`
         // returned, the analyses that share the program hold it through one `Arc` and drop it after their walks,
-        // and each copies its facts into owned data before then.
+        // and each copies its facts into owned data before then. Freeing drops the program, its processed files and
+        // its mapper, none of which owns a source file: the lib and `node_modules` declaration files it shares with
+        // other programs live in regions of the run's shared files (`shared_files`), which the program's resident
+        // keeps alive past this call, and its other files live in its loader regions, dropped after it.
         let free = move || unsafe { tsrs_compiler::free_unshared_program(program) };
         match &self.pool {
             Some(pool) => pool.install(free),

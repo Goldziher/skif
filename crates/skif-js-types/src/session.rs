@@ -10,7 +10,9 @@
 //!
 //! The analyses of a run over many roots can share their cores ([`TypeBudget`]), so that their programs together hold
 //! no more cores than there are, and their programs ([`TypePrograms`](crate::TypePrograms)), so that a program the
-//! judged files of several roots go to is built once for the run.
+//! judged files of several roots go to is built once for the run. Every program reads the bundled lib files and the
+//! declaration files below `node_modules` from the files the run shares (`shared_files`), the run's or, without shared
+//! programs, the analysis's: each is parsed and bound once instead of once per program.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
@@ -32,6 +34,7 @@ use crate::owner::ProgramOwner;
 use crate::programs::{self, ConfigHost, Lookups, Placement, PlannedProgram, ProgramPlan};
 use crate::query::{self, FileFacts, QueryContext};
 use crate::resident::{Claim, ProgramKey, Resident, Ticket};
+use crate::shared_files::{self, SharedFiles, SharingHost};
 use crate::vfs::{self, BomFiles};
 use crate::{ENGINE, ProgramTiming, TypeBuild, TypeError, TypeFacts, TypeInput, TypePackage, TypeQuery, TypeTimings};
 
@@ -76,10 +79,16 @@ pub(crate) fn start<'scope, 'env>(
         || Arc::new(Cores::new(cores_of(build.threads))),
         |budget| Arc::clone(&budget.cores),
     );
+    let files = build
+        .programs
+        .as_ref()
+        .map_or_else(Arc::default, crate::TypePrograms::files);
     let shared = Arc::new(Shared {
         cwd: vfs::tsrs_path(&build.root),
         fs,
         boms,
+        files,
+        file_counts: Arc::default(),
         pool: types_pool(build.threads),
         cores,
         build,
@@ -171,6 +180,7 @@ impl PendingTypes<'_> {
         facts.timings.wall = wall;
         facts.timings.threads = judged.threads;
         facts.timings.waited = asked.elapsed();
+        facts.timings.shared_files = shared.file_counts.snapshot();
         drop(region);
         Ok(facts)
     }
@@ -236,6 +246,11 @@ struct Shared {
     build: TypeBuild,
     fs: Arc<dyn FS>,
     boms: Arc<BomFiles>,
+    /// The lib and `node_modules` declaration files the programs read: the run's, with shared programs, else the
+    /// analysis's own.
+    files: Arc<SharedFiles>,
+    /// How the programs this analysis builds got those files.
+    file_counts: Arc<shared_files::Counts>,
     /// The workspace root as tsrs names files, the current directory configs are parsed in.
     cwd: String,
     /// The early plan, put by the planning thread.
@@ -1093,7 +1108,7 @@ impl Session<'_> {
         };
         let resident = Arc::new(Resident::new(
             (owner, loader_regions, region),
-            Arc::clone(&self.shared.boms),
+            (Arc::clone(&self.shared.boms), Arc::clone(&self.shared.files)),
             ProgramKey::new(path, self.single_threaded),
             checkers,
             start.elapsed(),
@@ -1156,6 +1171,14 @@ impl Session<'_> {
             None,
             None,
         );
+        // The lib and `node_modules` declaration files come parsed and bound from the files the run shares, which the
+        // program's resident keeps until after the program is freed.
+        let compiler_host: Arc<dyn tsrs_compiler::CompilerHost> = Arc::new(SharingHost::new(
+            compiler_host,
+            Arc::clone(&self.shared.files),
+            Arc::clone(&self.shared.boms),
+            Arc::clone(&self.shared.file_counts),
+        ));
         let mut options = ProgramOptions::new(P::new(config), compiler_host);
         // Referenced projects contribute their sources, as editors and tsrs-lint read them.
         options.use_source_of_project_reference = true;
