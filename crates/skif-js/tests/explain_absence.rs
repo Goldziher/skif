@@ -779,14 +779,16 @@ fn a_default_import_of_a_commonjs_module_is_listed_for_the_properties_it_reads()
             "index.ts",
             "import lib from './lib.js';\nconst { used } = lib;\nexport const run = used;\n",
         ),
-        ("lib.js", "function used() {}\nfunction unused() {}\nmodule.exports = { used, unused };\n"),
+        (
+            "lib.js",
+            "function used() {}\nfunction unused() {}\nmodule.exports = { used, unused };\n",
+        ),
     ];
     let used = export_report(&files, "", "lib.js", "used");
     assert_eq!(used["verdict"], "used", "{used}");
     assert_eq!(used["users"][0]["file"], "index.ts", "{used}");
     assert_eq!(
-        used["users"][0]["how"],
-        "the default import of module.exports, members used",
+        used["users"][0]["how"], "the default import of module.exports, members used",
         "{used}"
     );
     let unused = export_report(&files, "", "lib.js", "unused");

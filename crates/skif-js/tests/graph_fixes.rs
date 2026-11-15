@@ -1266,5 +1266,9 @@ fn default_imports_of_commonjs_modules_read_the_module_exports_properties() {
         ["src/equals.js: h", "src/member.js: d", "src/parallel.ts: other"],
         "{diagnostics:#?}"
     );
-    assert_eq!(found(&diagnostics, "unused-exports"), ["src/esm.js: i"], "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["src/esm.js: i"],
+        "{diagnostics:#?}"
+    );
 }
