@@ -680,7 +680,8 @@ fn declare_module_in_a_module_file_is_an_augmentation() {
 }
 
 /// A script declares globals for every file of the program, as does a module file that augments the global scope or
-/// another module; the exports of any other module file are used only through imports.
+/// another module, or that exports nothing and loads a module for its effect; the exports of any other module file are
+/// used only through imports.
 #[test]
 fn a_declaration_file_declares_without_an_import_unless_it_is_a_plain_module() {
     let cases: &[(&str, &str, bool, bool)] = &[
@@ -710,6 +711,24 @@ fn a_declaration_file_declares_without_an_import_unless_it_is_a_plain_module() {
             false,
         ),
         ("an empty export clause", "export {};\n", true, false),
+        (
+            "a side-effect import without exports",
+            "import 'sst';\nexport {};\n",
+            true,
+            true,
+        ),
+        (
+            "a path reference without exports",
+            "/// <reference path=\"./env.d.ts\" />\nexport {};\n",
+            true,
+            true,
+        ),
+        (
+            "a side-effect import beside an export",
+            "import 'sst';\nexport type A = string;\n",
+            true,
+            false,
+        ),
         (
             "a global augmentation",
             "export {};\ndeclare global {\n  interface Window { a: number }\n}\n",

@@ -245,6 +245,33 @@ fn only_declaration_files_that_apply_without_an_import_are_entries() {
     }
 }
 
+/// A module declaration file that exports nothing and loads a module for its effect (`import 'sst'`, a
+/// `/// <reference path>`) is an entry, so what it loads is used; one that also exports something is a module that
+/// nothing imports.
+#[test]
+fn an_exportless_declaration_file_that_loads_a_module_is_an_entry() {
+    let cases: &[(&str, &[&str])] = &[
+        ("import 'sst';\nexport {};\n", &[]),
+        ("/// <reference path=\"./types/env.d.ts\" />\nexport {};\n", &[]),
+        ("import 'sst';\nexport type Env = string;\n", &["package.json: sst"]),
+    ];
+    for &(source, unused) in cases {
+        let diagnostics = lint_files(
+            &[
+                (
+                    "package.json",
+                    r#"{"name":"app","private":true,"dependencies":{"sst":"1"}}"#,
+                ),
+                ("src/index.ts", "export {};\n"),
+                ("sst-env.d.ts", source),
+                ("types/env.d.ts", "import 'sst';\nexport type Extra = string;\n"),
+            ],
+            "",
+        );
+        assert_eq!(found(&diagnostics, "unused-dependencies"), unused, "{source}");
+    }
+}
+
 /// The exported types of a module declaration file that a module imports are judged like those of any module.
 #[test]
 fn unused_types_of_an_imported_module_declaration_file_are_reported() {
