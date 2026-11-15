@@ -1258,3 +1258,44 @@ fn commonjs_named_exports_that_nothing_requires_are_unused_exports() {
     );
     assert_eq!(found(&diagnostics, "unused-exports"), ["src/cjs.js: cjsB"]);
 }
+
+/// A default import of a `CommonJS` module binds its `module.exports` object, so the properties read through it are
+/// used like the members of a namespace import; the default import of an ES module still reads only `default`.
+#[test]
+fn default_imports_of_commonjs_modules_read_the_module_exports_properties() {
+    let diagnostics = lint_files(
+        &[
+            PACKAGE,
+            (
+                "src/main.ts",
+                "import parallel from './parallel.ts';\n\
+                 import member from './member.js';\n\
+                 import whole from './whole.js';\n\
+                 import equals = require('./equals.js');\n\
+                 import esm from './esm.js';\n\
+                 const { distributeTestFiles } = parallel;\n\
+                 distributeTestFiles();\n\
+                 console.log(member.c, whole, equals.g, esm.i);\n",
+            ),
+            (
+                "src/parallel.ts",
+                "function distributeTestFiles() {}\nfunction other() {}\nmodule.exports = { distributeTestFiles, other };\n",
+            ),
+            ("src/member.js", "exports.c = 1;\nexports.d = 2;\n"),
+            ("src/whole.js", "exports.e = 1;\nexports.f = 2;\n"),
+            ("src/equals.js", "exports.g = 1;\nexports.h = 2;\n"),
+            ("src/esm.js", "export default {};\nexport const i = 1;\n"),
+        ],
+        "[js]\nentry = [\"src/main.ts\"]\n",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["src/equals.js: h", "src/member.js: d", "src/parallel.ts: other"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["src/esm.js: i"],
+        "{diagnostics:#?}"
+    );
+}

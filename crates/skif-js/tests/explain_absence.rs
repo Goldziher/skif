@@ -768,3 +768,30 @@ fn a_built_script_source_and_a_file_a_bin_stub_loads_name_their_entry_rule() {
         );
     }
 }
+
+/// The default import of a `CommonJS` module is listed as a user of the `module.exports` properties it reads, and not
+/// of the others.
+#[test]
+fn a_default_import_of_a_commonjs_module_is_listed_for_the_properties_it_reads() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import lib from './lib.js';\nconst { used } = lib;\nexport const run = used;\n",
+        ),
+        (
+            "lib.js",
+            "function used() {}\nfunction unused() {}\nmodule.exports = { used, unused };\n",
+        ),
+    ];
+    let used = export_report(&files, "", "lib.js", "used");
+    assert_eq!(used["verdict"], "used", "{used}");
+    assert_eq!(used["users"][0]["file"], "index.ts", "{used}");
+    assert_eq!(
+        used["users"][0]["how"], "the default import of module.exports, members used",
+        "{used}"
+    );
+    let unused = export_report(&files, "", "lib.js", "unused");
+    assert_eq!(unused["verdict"], "unused", "{unused}");
+    assert_eq!(unused["users"], json!([]), "{unused}");
+}
