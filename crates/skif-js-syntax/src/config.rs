@@ -1839,7 +1839,16 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
 /// binding it shadows. Methods are left out. Returns nothing when the file does not parse.
 #[must_use]
 pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<ConfigValue> {
-    find_properties(source, path, key, None)
+    find_properties(source, path, key, None, false)
+}
+
+/// The values of the properties named `key` in `source`, as [`extract_property_values`] finds and evaluates them, read
+/// as command lines: in a template literal, a substitution whose value is not known reads as [`TEMPLATE_SUBSTITUTION`]
+/// (`` `vite --port ${port}` `` is `vite --port $__skif__`), which a shell reads as a variable, instead of making the
+/// whole value unknown. Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_property_commands(source: &str, path: &Path, key: &str) -> Vec<ConfigValue> {
+    find_properties(source, path, key, None, true)
 }
 
 /// Statically calls every function that is the property `key` of an object literal in `source`, a method
@@ -1850,11 +1859,18 @@ pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<Conf
 /// Returns nothing when the file does not parse.
 #[must_use]
 pub fn extract_property_calls(source: &str, path: &Path, key: &str, argument: &ConfigValue) -> Vec<ConfigValue> {
-    find_properties(source, path, key, Some(argument))
+    find_properties(source, path, key, Some(argument), false)
 }
 
-/// The values of the properties `key` in `source`, or the results of calling them with `call_with`.
-fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&ConfigValue>) -> Vec<ConfigValue> {
+/// The values of the properties `key` in `source`, or the results of calling them with `call_with`; `command_text`
+/// reads template literals as command lines ([`extract_property_commands`]).
+fn find_properties(
+    source: &str,
+    path: &Path,
+    key: &str,
+    call_with: Option<&ConfigValue>,
+    command_text: bool,
+) -> Vec<ConfigValue> {
     crate::with_arena(|allocator| {
         let Some(program) = parse_program(allocator, source, path) else {
             return Vec::new();
@@ -1867,6 +1883,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
             file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
             key,
             call_with,
+            command_text,
             evaluated: HashMap::default(),
             shadowed: Vec::new(),
             found: Vec::new(),
@@ -2510,6 +2527,8 @@ struct PropertyFinder<'t, 'p, 'a> {
     /// When set, the property is a function called with this argument (see [`extract_property_calls`]) rather than a
     /// value.
     call_with: Option<&'t ConfigValue>,
+    /// Whether template literals are read as command lines ([`extract_property_commands`]).
+    command_text: bool,
     /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
     evaluated: HashMap<String, Value>,
     /// The names the scopes around the current node declare, innermost last: they shadow top-level bindings.
@@ -2632,7 +2651,10 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
                 .static_name()
                 .is_some_and(|name| crate::js_string(name.as_js_str()) == self.key)
         {
-            let eval = Evaluator::in_file(self.top, self.bindings, self.file, std::mem::take(&mut self.evaluated));
+            let eval = Evaluator {
+                command_text: self.command_text,
+                ..Evaluator::in_file(self.top, self.bindings, self.file, std::mem::take(&mut self.evaluated))
+            };
             let shadowed: Frame<'_, '_> = self
                 .shadowed
                 .iter()
@@ -2760,6 +2782,9 @@ struct Evaluator<'c, 'p, 'a> {
     arguments_of: RefCell<HashMap<Span, Vec<Value>>>,
     /// How a test on the environment whose value is not known is taken; `None` leaves it undecided.
     environment: Option<&'c Environment>,
+    /// Whether template literals are read as command lines: a substitution whose value is not known reads as
+    /// [`TEMPLATE_SUBSTITUTION`], a variable to a shell, instead of making the whole template unknown.
+    command_text: bool,
 }
 
 /// The imports of an evaluator that follows none.
@@ -2796,6 +2821,7 @@ impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
             captured: RefCell::new(None),
             arguments_of: RefCell::new(HashMap::default()),
             environment: modules.map(|modules| &modules.environment),
+            command_text: false,
         }
     }
 
@@ -3160,15 +3186,19 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// A template literal whose substitutions are known strings, numbers or booleans ([`primitive_text`]), or one of
-    /// several of them ([`each_combination`]).
+    /// several of them ([`each_combination`]). When reading command lines ([`Self::command_text`]), any other
+    /// substitution reads as [`TEMPLATE_SUBSTITUTION`].
     fn template(&self, template: &'p TemplateLiteral<'a>, depth: u32) -> Value {
         let mut substitutions = Vec::with_capacity(template.expressions.len());
         for expression in &template.expressions {
             let value = self.expr(expression, depth);
-            if !matches!(value, Value::OneOf(_)) && primitive_text(&value).is_none() {
+            if matches!(value, Value::OneOf(_)) || primitive_text(&value).is_some() {
+                substitutions.push(value);
+            } else if self.command_text {
+                substitutions.push(Value::String(TEMPLATE_SUBSTITUTION.to_owned()));
+            } else {
                 return Value::Unknown;
             }
-            substitutions.push(value);
         }
         each_combination(&substitutions, |texts| {
             let mut out = String::new();

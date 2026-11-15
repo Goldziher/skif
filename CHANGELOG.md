@@ -200,6 +200,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: a Playwright `webServer.command` that the config computes is read, so the file it runs is no longer
+  reported and the binaries it runs are judged. Each branch of a condition the config cannot decide counts, and in a
+  template literal a substitution whose value is not known (a port from the environment) reads as a shell variable
+  instead of making the whole command unknown (`` `bun e2e/utils/serve.ts --port ${port}` `` runs
+  `e2e/utils/serve.ts`). `skif-js-syntax` gains `extract_property_commands`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - Files reached only through framework and build entry points are no longer `unused-files`, so the class members
   only they read are no longer `unused-class-members`
   ([ADR 0049](adrs/0049-bazel-test-globs-and-angular-packages.md), [#240](https://github.com/Goldziher/skif/issues/240)):
