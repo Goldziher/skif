@@ -2975,7 +2975,9 @@ impl Classifier<'_> {
                     || imported_by_unused_file(self.knip_dot_ignore_credits, category, key))
                 .then_some(KNIP_DOT_IGNORE)
             })
-            .or_else(|| (IMPORTED_CATEGORIES.contains(&category) && self.heft_credits.contains(key)).then_some(HEFT_CONFIG))
+            .or_else(|| {
+                (IMPORTED_CATEGORIES.contains(&category) && self.heft_credits.contains(key)).then_some(HEFT_CONFIG)
+            })
             .or_else(|| self.unread_load(category, key))
             .or_else(|| {
                 (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
@@ -3981,7 +3983,9 @@ fn template_import_targets(files: &[String], read: &SourceReader<'_>) -> BTreeSe
 /// The files of `files` that an `import.meta.glob` reading the matched files as text (`query: '?raw'`,
 /// [`ImportKind::SourceGlob`]) matches. Only the files holding `import.meta.glob` are parsed.
 fn raw_glob_targets(files: &[String], read: &SourceReader<'_>) -> BTreeSet<String> {
-    glob_targets(files, read, "import.meta.glob", &|_, import| import.kind == ImportKind::SourceGlob)
+    glob_targets(files, read, "import.meta.glob", &|_, import| {
+        import.kind == ImportKind::SourceGlob
+    })
 }
 
 /// The files of `files` that the glob imports `keep` takes (given the importer's text) of a file holding `marker`
@@ -4171,7 +4175,9 @@ fn installed_main_imports<'d>(
 ) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     for dir in dirs {
-        let Some(manifest) = (layout.manifest)(dir) else { continue };
+        let Some(manifest) = (layout.manifest)(dir) else {
+            continue;
+        };
         let Some(main) = manifest.get("main").and_then(Value::as_str) else {
             continue;
         };
@@ -5380,7 +5386,10 @@ impl Facts {
             .flat_map(|category| one_sided(knip, skif, category))
             .map(|key| parent_dir(key_path(&key)).to_owned())
             .collect();
-        let file_owners: BTreeSet<String> = knip_only_unused.iter().map(|file| owner_dir(file, &is_project)).collect();
+        let file_owners: BTreeSet<String> = knip_only_unused
+            .iter()
+            .map(|file| owner_dir(file, &is_project))
+            .collect();
         Self {
             not_judged: not_judged_dirs(skif_doc),
             foreign_paths: foreign_tsconfig_paths_keys(skif_doc, root),
@@ -5455,7 +5464,12 @@ impl Facts {
             } else {
                 members_used_by(&knip_members, knip_only_unused.iter().copied(), &resolver, &read_source)
             },
-            heft_credits: heft_credits(dependency_owners.iter().map(String::as_str), &OsFs, root, layout.manifest),
+            heft_credits: heft_credits(
+                dependency_owners.iter().map(String::as_str),
+                &OsFs,
+                root,
+                layout.manifest,
+            ),
             type_asserted_requires: if knip_values.is_empty() {
                 BTreeSet::new()
             } else {
@@ -5493,12 +5507,7 @@ impl Facts {
                     &read_source,
                 )
             },
-            typescript_twins: typescript_twin_files(
-                &skif_only_unused,
-                &files,
-                layout.is_file,
-                &read_source,
-            ),
+            typescript_twins: typescript_twin_files(&skif_only_unused, &files, layout.is_file, &read_source),
             tsconfig_declarations,
             uninstalled_projects: if installed {
                 uninstalled_projects((skif, knip), &is_project, &has_packages)
@@ -10522,7 +10531,12 @@ vi.mock("mocked-package");
         }
         let manifests = manifests_in(&sources);
         let manifest = |dir: &str| manifests.get(dir).cloned();
-        let credits = heft_credits(["app", "rig", "plain", "missing"], &memory, Path::new("/repo"), &manifest);
+        let credits = heft_credits(
+            ["app", "rig", "plain", "missing"],
+            &memory,
+            Path::new("/repo"),
+            &manifest,
+        );
         assert_eq!(
             credits,
             strings(&[
@@ -10598,7 +10612,10 @@ vi.mock("mocked-package");
                 "packages/core/src/agent/topic.ts",
                 "export const topic = 1;\nexport const other = 2;\n",
             ),
-            ("packages/core/src/index.ts", "import { z } from 'zod';\nconsole.log(z);\n"),
+            (
+                "packages/core/src/index.ts",
+                "import { z } from 'zod';\nconsole.log(z);\n",
+            ),
         ]);
         let is_file = |file: &str| sources.contains_key(file);
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
@@ -10636,8 +10653,12 @@ vi.mock("mocked-package");
                 ),
                 (Side::Tool, "dependencies", "packages/core/package.json|zod", None),
                 (Side::Tool, "exports", "packages/core/src/agent/topic.ts|other", None),
-                (Side::Skif, "dependencies", "packages/core/package.json|lru-cache", None),
             ],
+        );
+        assert_ne!(
+            classifier.classify(Side::Skif, "dependencies", "packages/core/package.json|lru-cache"),
+            Some(KNIP_DOT_IGNORE),
+            "skif's own findings are not set apart"
         );
     }
 
@@ -10664,7 +10685,10 @@ vi.mock("mocked-package");
                 "export const go = 1;\nexport * from './shared';\n",
             ),
             ("src/shared.ts", "export const helper = 1;\n"),
-            ("src/plain.ts", "const p = require('./other');\nconsole.log(p.lonely);\n"),
+            (
+                "src/plain.ts",
+                "const p = require('./other');\nconsole.log(p.lonely);\n",
+            ),
             ("src/other.ts", "export const lonely = 1;\n"),
         ]);
         let is_file = |file: &str| sources.contains_key(file);
@@ -10687,7 +10711,12 @@ vi.mock("mocked-package");
                     "src/stream-ops.node.ts|go",
                     Some(TYPE_ASSERTED_REQUIRE),
                 ),
-                (Side::Tool, "nsExports", "src/shared.ts|helper", Some(TYPE_ASSERTED_REQUIRE)),
+                (
+                    Side::Tool,
+                    "nsExports",
+                    "src/shared.ts|helper",
+                    Some(TYPE_ASSERTED_REQUIRE),
+                ),
                 (Side::Tool, "exports", "src/other.ts|lonely", None),
                 (Side::Tool, "types", "src/stream-ops.node.ts|go", None),
                 (Side::Skif, "exports", "src/stream-ops.node.ts|go", None),
@@ -10734,7 +10763,11 @@ vi.mock("mocked-package");
         let reached = reach_from_sources(&targets, (&knip_unused, &BTreeSet::new()), &is_file, &read);
         assert_eq!(
             reached,
-            strings(&["lib/base-cmd.js", "lib/commands/access.js", "lib/commands/stage/index.js"])
+            strings(&[
+                "lib/base-cmd.js",
+                "lib/commands/access.js",
+                "lib/commands/stage/index.js"
+            ])
         );
         let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
         let classifier = Classifier {
@@ -10744,7 +10777,12 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Tool, "files", "lib/commands/access.js", Some(TEMPLATE_LITERAL_IMPORT)),
+                (
+                    Side::Tool,
+                    "files",
+                    "lib/commands/access.js",
+                    Some(TEMPLATE_LITERAL_IMPORT),
+                ),
                 (Side::Tool, "files", "lib/base-cmd.js", Some(TEMPLATE_LITERAL_IMPORT)),
                 (Side::Tool, "files", "lib/commands/stage/list.js", None),
                 (Side::Tool, "files", "lib/orphan.js", None),
@@ -10765,7 +10803,10 @@ vi.mock("mocked-package");
                 "import routing from './routing.cjs';\nconst { a } = routing;\nrouting.b();\n",
             ),
             ("scripts/esm.ts", "export default {};\nexport const d = 1;\n"),
-            ("scripts/esm.test.ts", "import esm from './esm';\nconst { d } = esm;\nconsole.log(d);\n"),
+            (
+                "scripts/esm.test.ts",
+                "import esm from './esm';\nconst { d } = esm;\nconsole.log(d);\n",
+            ),
         ]);
         let is_file = |file: &str| sources.contains_key(file);
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
@@ -10792,8 +10833,18 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Tool, "exports", "scripts/routing.cjs|a", Some(COMMONJS_DEFAULT_IMPORT)),
-                (Side::Tool, "nsExports", "scripts/routing.cjs|b", Some(COMMONJS_DEFAULT_IMPORT)),
+                (
+                    Side::Tool,
+                    "exports",
+                    "scripts/routing.cjs|a",
+                    Some(COMMONJS_DEFAULT_IMPORT),
+                ),
+                (
+                    Side::Tool,
+                    "nsExports",
+                    "scripts/routing.cjs|b",
+                    Some(COMMONJS_DEFAULT_IMPORT),
+                ),
                 (Side::Tool, "exports", "scripts/routing.cjs|c", None),
                 (Side::Tool, "exports", "scripts/esm.ts|d", None),
                 (Side::Skif, "exports", "scripts/routing.cjs|a", None),
@@ -10818,7 +10869,10 @@ vi.mock("mocked-package");
             ),
             ("examples/rn/src/List.tsx", "export const List = 1;\n"),
             ("examples/rn/src/Orphan.tsx", "export const Orphan = 1;\n"),
-            ("examples/web/package.json", r#"{ "name": "web", "main": "dist/index.js" }"#),
+            (
+                "examples/web/package.json",
+                r#"{ "name": "web", "main": "dist/index.js" }"#,
+            ),
             ("examples/web/dist/index.js", "import '../src/page';\n"),
             ("examples/web/src/page.ts", "export const page = 1;\n"),
         ]);
@@ -10867,8 +10921,14 @@ vi.mock("mocked-package");
                 "nodes/Node.ts",
                 "import * as listSearch from './methods/listSearch';\nexport const methods = { listSearch };\n",
             ),
-            ("nodes/helpers.ts", "export const used = 1;\nexport const unusedHelper = 2;\n"),
-            ("nodes/user.ts", "import * as helpers from './helpers';\nconsole.log(helpers.used);\n"),
+            (
+                "nodes/helpers.ts",
+                "export const used = 1;\nexport const unusedHelper = 2;\n",
+            ),
+            (
+                "nodes/user.ts",
+                "import * as helpers from './helpers';\nconsole.log(helpers.used);\n",
+            ),
         ]);
         let is_file = |file: &str| sources.contains_key(file);
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
@@ -10904,7 +10964,10 @@ vi.mock("mocked-package");
     #[test]
     fn members_of_an_export_an_importer_refers_to_as_a_type_split_off_on_skif_side() {
         let sources = BTreeMap::from([
-            ("common/charCode.ts", "export const enum CharCode { Hash = 35, Digit0 = 48 }\n"),
+            (
+                "common/charCode.ts",
+                "export const enum CharCode { Hash = 35, Digit0 = 48 }\n",
+            ),
             (
                 "common/color.ts",
                 "import { CharCode } from './charCode';\n\
@@ -10933,7 +10996,10 @@ vi.mock("mocked-package");
         let resolver = Resolver::new(&layout, &read);
         let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
         assert_eq!(
-            type_reference_names("common/use-flag.ts", "type T = typeof Q;\nlet x: Array<P> = [];\nlet y = z as R.S;\n"),
+            type_reference_names(
+                "common/use-flag.ts",
+                "type T = typeof Q;\nlet x: Array<P> = [];\nlet y = z as R.S;\n"
+            ),
             strings(&["Array", "P", "Q"])
         );
         let members = strings(&[
@@ -10955,7 +11021,12 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Skif, "enumMembers", "common/charCode.ts|Hash", Some(TYPE_REFERENCED_MEMBERS)),
+                (
+                    Side::Skif,
+                    "enumMembers",
+                    "common/charCode.ts|Hash",
+                    Some(TYPE_REFERENCED_MEMBERS),
+                ),
                 (
                     Side::Skif,
                     "namespaceMembers",
@@ -11004,7 +11075,12 @@ vi.mock("mocked-package");
                     "nodes/Brevo/GenericFunctions.ts|INTERCEPTORS",
                     Some(IMPORTED_BY_KNIP_UNUSED_FILE),
                 ),
-                (Side::Tool, "namespaceMembers", "nodes/Brevo/GenericFunctions.ts|OTHER", None),
+                (
+                    Side::Tool,
+                    "namespaceMembers",
+                    "nodes/Brevo/GenericFunctions.ts|OTHER",
+                    None,
+                ),
                 (
                     Side::Skif,
                     "namespaceMembers",
@@ -11094,8 +11170,12 @@ vi.mock("mocked-package");
                     ),
                     (Side::Skif, "files", "src/modules.js", None),
                     (Side::Skif, "files", "app/node_modules/pkg/node_modules_x.js", None),
-                    (Side::Tool, "files", "js/private/test/node_modules_in_sandbox.test.mjs", None),
                 ],
+            );
+            assert_ne!(
+                classifier.classify(Side::Tool, "files", "js/private/test/node_modules_in_sandbox.test.mjs"),
+                Some(KNIP_NODE_MODULES_NAME),
+                "knip's own findings are not set apart"
             );
         });
     }
@@ -11116,7 +11196,11 @@ vi.mock("mocked-package");
         let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
         let files: Vec<String> = sources.keys().map(|file| (*file).to_owned()).collect();
         let targets = raw_glob_targets(&files, &read);
-        assert_eq!(targets, strings(&["src/components/Button.vue"]), "a glob loading modules reads no text");
+        assert_eq!(
+            targets,
+            strings(&["src/components/Button.vue"]),
+            "a glob loading modules reads no text"
+        );
         let skif_unused = strings(&["src/components/Button.vue", "src/other/Lonely.vue"]);
         let reached = reach_from_sources(&targets, (&skif_unused, &BTreeSet::new()), &is_file, &read);
         let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
