@@ -135,6 +135,11 @@ pub enum PluginInput {
     Dependency(String),
     /// A package the config references that may legitimately be absent.
     OptionalDependency(String),
+    /// A package the tool resolves from the files of the package reading the config, such as a bundler alias
+    /// `replacement` (`{ find: 'stream', replacement: 'stream-browserify' }`): judged like a
+    /// [`PluginInput::Dependency`] against the config being read, also when a module of another package that the
+    /// config imports values from (a shared config factory) names it.
+    ImporterDependency(String),
     /// A package the config names as a dependency of the package the plugin runs for, whichever package owns the
     /// config file: that package must list it, and a nested package whose file names it does not use its own listing
     /// (a Bazel label of the package's `node_modules` in a nested package's `BUILD` file;
