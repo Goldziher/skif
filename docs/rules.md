@@ -189,7 +189,7 @@ A package in `dependencies` is never imported, required or run by a script; `opt
 
 ## unused-dev-dependencies
 
-A package in `devDependencies` is never imported, required or run by a script.
+A package in `devDependencies` is never imported, required or run by a script, or is also in `dependencies`.
 
 - Category: js
 - Default severity: warning

@@ -156,12 +156,7 @@ fn holds_types(cx: &PluginContext<'_>, root: &str, name: &str) -> bool {
 /// `typeRoots` that holds the types `name` loads is one of its own install rather than one of the project reading
 /// it (`${configDir}`, taken as the package directory): TypeScript loads them from there, so they come with the
 /// config's package and need no listing of the project.
-fn installed_with_config(
-    options: &ConfigValue,
-    config: &ConfigAst<'_>,
-    cx: &PluginContext<'_>,
-    name: &str,
-) -> bool {
+fn installed_with_config(options: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>, name: &str) -> bool {
     if !config.base.split('/').any(|part| part == "node_modules") {
         return false;
     }

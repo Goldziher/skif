@@ -495,8 +495,14 @@ fn typescript_types_an_installed_config_finds_in_its_own_type_roots_name_no_pack
                 "node_modules/rig/profiles/default/tsconfig-base.json",
                 r#"{"compilerOptions":{"typeRoots":["${configDir}/node_modules/@types","../../node_modules/@types"],"types":["jest","node","mocha"]}}"#,
             ),
-            ("node_modules/rig/node_modules/@types/node/package.json", r#"{"name":"@types/node"}"#),
-            ("node_modules/rig/node_modules/@types/jest/package.json", r#"{"name":"@types/jest"}"#),
+            (
+                "node_modules/rig/node_modules/@types/node/package.json",
+                r#"{"name":"@types/node"}"#,
+            ),
+            (
+                "node_modules/rig/node_modules/@types/jest/package.json",
+                r#"{"name":"@types/jest"}"#,
+            ),
             ("node_modules/@types/jest/package.json", r#"{"name":"@types/jest"}"#),
         ],
         &["typescript"],

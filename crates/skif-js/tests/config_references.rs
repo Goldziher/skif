@@ -385,8 +385,10 @@ fn types_an_installed_config_finds_in_its_own_type_roots_come_with_its_package()
             r#"{{"name":"@acme/{name}","version":"1.0.0","main":"src/index.ts","devDependencies":{{"@acme/{rig}":"1.0.0"}},"peerDependencies":{{"@types/node":"*"}},"peerDependenciesMeta":{{"@types/node":{{"optional":true}}}}}}"#
         )
     };
-    let rig = |rig: &str| format!(r#"{{"name":"@acme/{rig}","version":"1.0.0","dependencies":{{"@types/node":"20.0.0"}}}}"#);
-    let extends = |rig: &str| format!(r#"{{"extends":"./node_modules/@acme/{rig}/profiles/default/tsconfig-base.json"}}"#);
+    let rig =
+        |rig: &str| format!(r#"{{"name":"@acme/{rig}","version":"1.0.0","dependencies":{{"@types/node":"20.0.0"}}}}"#);
+    let extends =
+        |rig: &str| format!(r#"{{"extends":"./node_modules/@acme/{rig}/profiles/default/tsconfig-base.json"}}"#);
     let types_node = r#"{"name":"@types/node","version":"20.0.0"}"#;
     let files: Vec<(String, String)> = vec![
         (
@@ -434,7 +436,10 @@ fn types_an_installed_config_finds_in_its_own_type_roots_come_with_its_package()
 #[test]
 fn an_optional_peer_a_bundler_keeps_external_is_reported_unless_the_configuration_ignores_it() {
     let files = [
-        ("package.json", r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#),
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+        ),
         (
             "packages/blob/package.json",
             r#"{"name":"@acme/blob","version":"1.0.0","type":"module","main":"src/index.ts","scripts":{"build":"tsdown"},"devDependencies":{"tsdown":"0.23.1"},"peerDependencies":{"@acme/identity":"^4.0.0"},"peerDependenciesMeta":{"@acme/identity":{"optional":true}}}"#,
