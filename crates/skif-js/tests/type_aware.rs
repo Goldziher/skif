@@ -495,7 +495,11 @@ fn an_enum_member_used_without_types_is_not_asked_of_the_checker() {
     );
     assert_eq!(red["class-member"]["verdict"], "used");
     let green = serde_json::to_value(explain(&files, "src/colors.ts", "Color.Green")).unwrap();
-    assert_eq!(green["class-member"]["used-without-types"], false);
+    assert_eq!(
+        green["class-member"].get("used-without-types"),
+        None,
+        "false is left out"
+    );
     assert_eq!(green["class-member"]["verdict"], "unused");
     let rules = ["unused-enum-members"];
     assert_eq!(

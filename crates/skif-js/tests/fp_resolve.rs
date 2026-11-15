@@ -883,8 +883,16 @@ fn specifiers_into_missing_gitignored_paths_are_generated_files() {
     let mut ignored = files.to_vec();
     ignored.push((".gitignore", ".build/\ngenerated/\nsrc/consts/\n"));
     let diagnostics = lint(&ignored);
-    assert_eq!(names(&diagnostics, "unlisted-dependencies"), strings(&[]), "{diagnostics:#?}");
-    assert_eq!(names(&diagnostics, "unresolved-imports"), strings(&[]), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
+        strings(&[]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        strings(&[]),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
