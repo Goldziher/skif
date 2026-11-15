@@ -127,7 +127,10 @@ const DOCS_PLUGIN: &str = "@docusaurus/plugin-content-docs";
 /// options of each docs plugin. Docusaurus loads it relative to the site directory; `false` turns the sidebar off.
 fn sidebar_paths(config: &ConfigValue) -> Vec<&str> {
     let mut paths = Vec::new();
-    for (key, kind, module) in [("presets", "preset", CLASSIC_PRESET), ("plugins", "plugin", DOCS_PLUGIN)] {
+    for (key, kind, module) in [
+        ("presets", "preset", CLASSIC_PRESET),
+        ("plugins", "plugin", DOCS_PLUGIN),
+    ] {
         let Some(ConfigValue::Array(items)) = config.get(key) else {
             continue;
         };
@@ -141,7 +144,11 @@ fn sidebar_paths(config: &ConfigValue) -> Vec<&str> {
             if name != module && module_name(name, kind) != module {
                 continue;
             }
-            let docs = if kind == "preset" { options.get("docs") } else { Some(options) };
+            let docs = if kind == "preset" {
+                options.get("docs")
+            } else {
+                Some(options)
+            };
             paths.extend(
                 docs.and_then(|docs| docs.get("sidebarPath"))
                     .and_then(ConfigValue::as_str),

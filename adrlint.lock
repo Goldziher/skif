@@ -199,7 +199,7 @@ blake3 = "6c98d0fac3b67429cb40c3497a8eff19eef371fb88b2bc6ad83e4f2ae2ea19e2"
 [adrs."adrs/0040-more-known-deviations-of-the-knip-comparison.md"]
 number = 40
 status = "accepted"
-blake3 = "1f44ef6e9e65728d5f75a0cd68fbc417c4c0e3e3ebd92f1c737772449dcbee20"
+blake3 = "4cef61ff5a80b6d24eaa52f597abf62d687ccc31b60508dd7b34ea1fd119d951"
 
 [adrs."adrs/0041-benchmarks-on-large-repositories.md"]
 number = 41
@@ -260,3 +260,8 @@ blake3 = "1cc9e12305acb98982729d1be477021dae971a0a7fc1041c4038126af2e18186"
 number = 52
 status = "accepted"
 blake3 = "757b422b76058424cbec926b5c1bcc0703c48f5986d6ddce728e75d6eda01c62"
+
+[adrs."adrs/0053-plugin-entries-of-nested-roots-and-what-knip-does-not-read.md"]
+number = 53
+status = "accepted"
+blake3 = "4ea3b5076f171ca865d5d30f882736a7b7effe081e6b0a7c730d9458045b036d"
