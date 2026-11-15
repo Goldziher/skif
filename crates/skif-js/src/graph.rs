@@ -890,10 +890,30 @@ impl<'a> Builder<'a> {
 /// Builds the graph by following imports from `entries` and `build_sources` in rounds. Each round parses and resolves
 /// its files in parallel and merges the results in order, so ids and edges do not depend on scheduling. Entries are
 /// interned first, so a build source that is also an entry stays an entry, whose exports are public.
-pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[PathBuf]) -> ModuleGraph {
+///
+/// `declarations` are declaration files that are entries only when they apply without being imported
+/// ([`ModuleInfo::declares_without_import`]), or when they cannot be read or parsed. They are parsed first; one that
+/// is no entry joins the graph only when a module imports it, as any module does, and its parse is used then.
+pub(crate) fn build(
+    inputs: &Inputs<'_>,
+    entries: &[PathBuf],
+    build_sources: &[PathBuf],
+    declarations: &[PathBuf],
+) -> ModuleGraph {
     let mut builder = Builder::new(inputs);
+    let mut ahead = parse_ahead(inputs, declarations);
+    let mut seeds: Vec<&PathBuf> = entries
+        .iter()
+        .chain(
+            declarations
+                .iter()
+                .filter(|path| ahead.get(path.as_path()).is_some_and(is_declaration_entry)),
+        )
+        .collect();
+    seeds.sort();
+    seeds.dedup();
     let mut frontier = Vec::new();
-    for entry in entries {
+    for entry in seeds {
         let (id, fresh) = builder.intern(entry);
         builder.modules[id.index()].is_entry = true;
         if fresh {
@@ -916,9 +936,31 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[P
                 (module.abs.as_path(), builder.keeps_text(module))
             })
             .collect();
-        let parsed: Vec<Parsed> = map_ordered(&files, inputs.sequential, |&(path, keep_text)| {
+        let known: Vec<Option<Parsed>> = files
+            .iter()
+            .map(|&(path, keep_text)| {
+                ahead.remove(path).map(|mut parsed| {
+                    if !keep_text {
+                        parsed.text = None;
+                    }
+                    parsed
+                })
+            })
+            .collect();
+        let unknown: Vec<(&Path, bool)> = files
+            .iter()
+            .zip(&known)
+            .filter(|(_, known)| known.is_none())
+            .map(|(file, _)| *file)
+            .collect();
+        let mut fresh = map_ordered(&unknown, inputs.sequential, |&(path, keep_text)| {
             process(path, keep_text, inputs)
-        });
+        })
+        .into_iter();
+        let parsed: Vec<Parsed> = known
+            .into_iter()
+            .map(|known| known.unwrap_or_else(|| fresh.next().unwrap_or_default()))
+            .collect();
         let mut next = Vec::new();
         for (id, mut parsed) in frontier.iter().zip(parsed) {
             if !parsed.components.is_empty() && builder.links_by_tag(*id) {
@@ -963,6 +1005,18 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[P
         index: builder.index,
         texts,
     }
+}
+
+/// What the graph learns about each of `declarations`, by path, with its text.
+fn parse_ahead(inputs: &Inputs<'_>, declarations: &[PathBuf]) -> HashMap<PathBuf, Parsed> {
+    let parsed = map_ordered(declarations, inputs.sequential, |path| process(path, true, inputs));
+    declarations.iter().cloned().zip(parsed).collect()
+}
+
+/// Whether a declaration file parsed ahead is an entry: it applies without being imported, or what it holds is not
+/// known because it could not be read or parsed.
+fn is_declaration_entry(parsed: &Parsed) -> bool {
+    parsed.error.is_some() || parsed.info.declares_without_import()
 }
 
 /// The modules that import each module, sorted and without duplicates, by position. The modules are visited in id
