@@ -83,6 +83,12 @@ All notable changes to this project are documented here. The format follows
   `replaced-knip-config`, `whole-enum-use` (ADR 0018 stands: a whole use credits every member, and enum-member recall
   is read with these set apart), `published-file`, `paths-before-packages` and `uninstalled-project` (the
   turborepo-examples root the corpus install leaves out).
+- **Comparison harness**: more known deviations of the knip comparison, for uses knip does not read
+  ([ADR NNNN](adrs/NNNN-uses-knip-does-not-read.md)): `heft-config` (from skif's plugin resolver),
+  `type-asserted-require`, `module-object-values`, `commonjs-default-import`, `template-literal-import`,
+  `installed-main`, `type-referenced-members`, `knip-node-modules-name`, `raw-glob-read` and `typescript-twin`;
+  `knip-dot-ignore` also sets apart what only a hidden file uses, `used-in-knip-unused-file` the peers of a package such
+  a file imports, and `imported-by-knip-unused-file` the members such a file reads.
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
   `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
   `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it,
