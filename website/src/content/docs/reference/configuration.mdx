@@ -559,9 +559,13 @@ reaches every file matching the prefix, `*` for each substitution, and the suffi
 exports count as used; an output extension also matches the sources it is built from (`.js` matches `.ts` and `.tsx`).
 A last segment without an extension names a module as a specifier does: a file with any code extension, or the
 `index` of a directory (`` require(`./commands/${name}`) `` reaches `commands/login.js` and `commands/trust/index.js`,
-and `` require(`./locales/${lang}/messages`) `` reaches `locales/en/messages.js`). Paths built at runtime in other ways are not followed: a specifier held in a variable, a `fast-glob` or `glob` call
-listing files relative to `__dirname`, or a registry that loads `${name}/${name}.module.js` from a directory it computes.
-Add such files to `entry`.
+and `` require(`./locales/${lang}/messages`) `` reaches `locales/en/messages.js`). A `const` that holds a path built
+from the file's directory (`const entry = path.resolve(__dirname, "cli/entry.js")`, also `path.join`,
+`require("node:path").resolve` and string literals after `__dirname`) names its module where a `require()`,
+`import()` or `require.resolve()` of the same file reads it by name, also inside a nested function; a parameter or
+local of the same name, a `let` and a computed segment are not followed. Paths built at runtime in other ways are not
+followed: another specifier held in a variable, a `fast-glob` or `glob` call listing files relative to `__dirname`, or
+a registry that loads `${name}/${name}.module.js` from a directory it computes. Add such files to `entry`.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
