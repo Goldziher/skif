@@ -26,7 +26,7 @@ old one.
 | 0016 | [Config Evaluation and Incomplete Entries: A Sound Static Evaluator and Narrowed Unjudged Scopes](0016-config-evaluation-and-incomplete-entries.md) | accepted |
 | 0017 | [Scripts, Binaries and Working Directories](0017-scripts-binaries-and-working-directories.md) | accepted |
 | 0018 | [Export, Namespace and Member Rules](0018-export-namespace-and-member-rules.md) | accepted |
-| 0019 | [Dependency, Unlisted and Unresolved Findings](0019-dependency-unlisted-and-unresolved-findings.md) | accepted, superseded in part by [0036](0036-packages-named-on-an-environment-gated-branch.md) and [NNNN](NNNN-generated-paths-alias-replacements-and-installed-compiler-options.md) |
+| 0019 | [Dependency, Unlisted and Unresolved Findings](0019-dependency-unlisted-and-unresolved-findings.md) | accepted, superseded in part by [0036](0036-packages-named-on-an-environment-gated-branch.md) and [0052](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) |
 | 0020 | [Templates, Components and Custom Elements](0020-templates-components-and-custom-elements.md) | accepted |
 | 0021 | [knip and syncpack Comparison Harness](0021-knip-and-syncpack-comparison-harness.md) | accepted, amended by [0040](0040-more-known-deviations-of-the-knip-comparison.md) |
 | 0022 | [Reporting and Output Formats](0022-reporting-and-output-formats.md) | accepted |
@@ -57,4 +57,4 @@ old one.
 | 0047 | [Performance Budget and Benchmarks With Types](0047-performance-budget-with-types.md) | accepted |
 | 0048 | [Dynamic Imports Returned to a Call: Lazy-Component Loaders Read `default`, Other Calls the Whole Module](0048-dynamic-imports-returned-to-a-call.md) | accepted |
 | 0049 | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](0049-bazel-test-globs-and-angular-packages.md) | accepted |
-| NNNN | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](NNNN-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted |
+| 0052 | [Generated Paths, Alias Replacements, Type-Only Re-Exports and Compiler Options of Installed Configs](0052-generated-paths-alias-replacements-and-installed-compiler-options.md) | accepted |
