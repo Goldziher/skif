@@ -81,6 +81,9 @@ auditable file that every release ships.
   ships them ([ADR 0027](0027-distribution-and-release.md)).
 * A dependency whose licence is not on the `deny.toml` allow-list is avoided rather than excepted, as `notify` is for
   watch mode ([ADR 0028](0028-editors-agents-and-git-hooks.md)).
+* The allow-list holds permissive licences only. A licence is added for a dependency the analysis cannot do without,
+  with a comment naming that dependency: `BSL-1.0` for `xxhash-rust` and `Unicode-DFS-2016` for `unicode-id-start`,
+  both required by tsrs ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)).
 
 ### Consequences
 

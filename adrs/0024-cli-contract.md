@@ -105,8 +105,8 @@ path and makes the CI guard mean what it says. The exit codes and JSON mode are 
   package manager's install after a fix, and `git show` for `skif baseline check --base`
   ([ADR 0023](0023-baselines.md)). `skif update` is the one command that contacts the registry
   ([ADR 0026](0026-skif-update.md)). The library starts nothing.
-* The CLI returns its exit code from `main`; nothing below it calls `std::process::exit`. The binary's panic hook is
-  the one exception: it reports the panic (as an `internal` error document in JSON mode) and exits `2`.
+* The CLI returns its exit code from `main`; nothing below it calls `std::process::exit`. A panic is caught where the
+  CLI is entered, not by a panic hook: it is reported (as an `internal` error document in JSON mode) and exits `2`.
 
 ### Stability
 

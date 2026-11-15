@@ -9,7 +9,7 @@ allow = [
   "BSL-1.0",
   "ISC",
   "Unicode-3.0",
-  # unicode-id-start 1.1.2, the exact version tsrs pins for the whole workspace, oxc included (ADR 0034).
+  # unicode-id-start 1.1.2, the exact version tsrs pins for the whole workspace, oxc included (ADR 0033, ADR 0034).
   "Unicode-DFS-2016",
   "Unlicense",
   "Zlib",
