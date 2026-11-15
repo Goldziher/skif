@@ -257,6 +257,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-dependencies`, `unused-dev-dependencies`: the `next` plugin names `react` and `react-dom` for a package
+  without a `next.config` only when the package depends on `next` itself. A package that inherits the plugin from the
+  root's `next` (a test fixture package of the workspace) is judged by its own uses of React. Before, its `react` was
+  counted as used.
 - `unused-dependencies`, `unused-dev-dependencies`: `declare module 'pkg' { … }` in a script (a declaration file
   without top-level `import` or `export`) no longer uses a listed `pkg`. The block declares the module in place of the
   package, which then need not be installed, as knip has it; the same block in a module file augments the package and
