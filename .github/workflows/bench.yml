@@ -175,7 +175,6 @@ jobs:
             --warmup "$WARMUP"
             --install
             --no-enforce
-            --check-budget
           )
           if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
           target/release/skif-bench "${args[@]}"

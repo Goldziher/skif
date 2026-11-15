@@ -58,8 +58,9 @@ tree, and parsing and building the module graph of 10,000 files in under 2 s. Th
 run, which also runs every JS rule, so it is an upper bound. The same tables check the type-aware budget of
 [ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md):
 `--type-aware` at most 3x the default run on the largest repository and 2x in the median, at most 4 GiB of peak memory with types
-on every target, at most 5 s with types on the 10,000-file graph, and at least 5x faster than knip with types. A run
-that breaks the budget fails the workflow, so it cannot be imported.
+on every target, at most 5 s with types on the 10,000-file graph, and at least 5x faster than knip with types. It is
+the bar types must meet to become the default again; until then a broken budget shows in the tables without failing
+the run.
 
 {/* bench:numbers:start */}
 **generated: 50 packages (pnpm)**
