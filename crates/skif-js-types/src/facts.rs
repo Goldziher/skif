@@ -147,6 +147,11 @@ pub struct TypeTimings {
     pub queries: Duration,
     /// The wall time from the start of the first program to the end of the last.
     pub wall: Duration,
+    /// The wall time from the query being handed over to the facts: what the analysis adds to the host's own work
+    /// when the programs start before the query is known ([`crate::start`]).
+    pub waited: Duration,
+    /// The programs that started building before the query was handed over and were then walked.
+    pub early: usize,
     /// The threads the programs shared.
     pub threads: usize,
     /// Every built program, in the order of their configs.
