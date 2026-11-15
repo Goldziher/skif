@@ -53,7 +53,7 @@ only_through() {
   done
 }
 
-only_through "skif-js-syntax skif-js-plugins skif-js" "skif-js-syntax, skif-js-plugins and skif-js" \
+only_through "skif-js-syntax skif-js-plugins skif-js skif-bench" "skif-js-syntax, skif-js-plugins, skif-js and the unpublished skif-bench" \
   oxc_allocator oxc_ast oxc_ast_visit oxc_parser oxc_semantic oxc_span oxc_str oxc_resolver
 only_through "skif-js-types" "skif-js-types" \
   tsrs_ast tsrs_checker tsrs_compiler tsrs_core tsrs_scanner tsrs_tsoptions tsrs_vfs

@@ -49,6 +49,10 @@ Does the harness set these apart, and how does it decide each one from data it r
 Chosen option: "Add the deviations below, each tested on the checkout with skif's parser, plugin resolver or oxc",
 because each follows from a rule of knip's or skif's that the harness can test.
 
+The harness reads type references and module-object uses with oxc directly, so `skif-bench`, which is never published,
+joins the JS crates on the oxc allowlist of `scripts/check-dependency-tree.sh`. An oxc upgrade then touches the bench
+too; the published crates stay as ADR 0013 confines them.
+
 On knip's side:
 
 * `heft-config`: a dependency only knip reports unused that, in a project where skif's `heft` plugin is enabled, the
