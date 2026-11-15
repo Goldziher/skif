@@ -519,7 +519,10 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         if undecided {
             config.environment_variants = [true, false]
                 .into_iter()
-                .map(|truthy| file.evaluate(Environment::assuming(truthy)).map(|(variant, _)| variant.value))
+                .map(|truthy| {
+                    file.evaluate(Environment::assuming(truthy))
+                        .map(|(variant, _)| variant.value)
+                })
                 .collect::<Option<Vec<_>>>()
                 .unwrap_or_default();
         }
