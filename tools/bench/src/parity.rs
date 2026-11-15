@@ -4182,6 +4182,7 @@ pub fn run(options: &Options) -> Result<()> {
     let current = Baseline {
         schema: BASELINE_SCHEMA,
         tool,
+        mode: Some(diff::TYPE_AWARE.to_owned()),
         installed: entries.values().all(|entry| entry.installed != Some(false)),
         category_set: Some(category_set()),
         entries,
