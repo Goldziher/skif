@@ -655,12 +655,17 @@ impl ModuleInfo {
     }
 
     /// Whether the file declares something for every file of a program without being imported: a script (no
-    /// [`ModuleInfo::module_file`]), or a module file that augments the global scope
-    /// ([`ModuleInfo::global_augmentation`]) or another module ([`ModuleInfo::augmented_modules`]). TypeScript applies
-    /// such a declaration file wherever it compiles it; the exports of any other module are used only through imports.
+    /// [`ModuleInfo::module_file`]), a module file that augments the global scope
+    /// ([`ModuleInfo::global_augmentation`]) or another module ([`ModuleInfo::augmented_modules`]), or a module file
+    /// that exports nothing and loads a module for its effect (`import 'x'`, `/// <reference path="…" />`), which no
+    /// import can use by name. TypeScript applies such a declaration file wherever it compiles it; the exports of any
+    /// other module are used only through imports.
     #[must_use]
     pub fn declares_without_import(&self) -> bool {
-        !self.module_file || self.global_augmentation || !self.augmented_modules.is_empty()
+        !self.module_file
+            || self.global_augmentation
+            || !self.augmented_modules.is_empty()
+            || (self.exports.is_empty() && self.imports.iter().any(|import| import.kind == ImportKind::SideEffect))
     }
 
     /// The file starts with the `"use client"` directive: a React Server Components client boundary whose exports
