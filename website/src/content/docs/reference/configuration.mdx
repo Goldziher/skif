@@ -914,7 +914,8 @@ and a root dependency only members use is unused. A private package's import of 
 is reported too, and `use-public-hoisting` is ignored. Manifests above the analysed root still count. Isolation is
 independent of `production`: in the default mode tests, test setup, scripts and tool configs are checked against their
 own package's manifest, development dependencies included, so one run checks every package against its own manifest.
-What counts as listed is unchanged: a type-only import still needs a listing (a listed `@types` package stands in),
+What counts as listed is unchanged: a type-only import or re-export (`export type { T } from 'pkg'`) still needs a
+listing (a listed `@types` package stands in, and the finding names it as a fix besides the package),
 and a package's own `devDependencies` satisfy any of its files. `skif --isolate-workspaces` sets it.
 
 **`strict`** (default `false`, top level only) is knip's strict mode, the configuration counterpart of `skif --strict`:
