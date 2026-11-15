@@ -314,6 +314,9 @@ fn parse_component(
     for part in parts {
         info.merge(part);
     }
+    if extension == "astro" {
+        type_component_props(&mut info);
+    }
     add_style_and_source_imports(&mut info, &blocks, source, lines);
     if options.member_accesses {
         let flavor = match extension {
@@ -334,6 +337,23 @@ fn parse_component(
         }
     }
     Ok(info)
+}
+
+/// The name of the export of an Astro component whose type the Astro compiler gives the component's props.
+const ASTRO_PROPS: &str = "Props";
+
+/// The Astro compiler types the props of a component, its default export, with the `Props` interface or type alias
+/// of its frontmatter, so an exported `Props` is in the signature of that export and used whenever the component is.
+fn type_component_props(info: &mut ModuleInfo) {
+    let props = info
+        .exports
+        .iter_mut()
+        .filter(|export| export.is_type && export.name == ASTRO_PROPS);
+    for export in props {
+        if !export.referenced_in.iter().any(|name| name == "default") {
+            export.referenced_in.push("default".to_owned());
+        }
+    }
 }
 
 /// Parses a `.mdx` file: its top-level ESM as JavaScript with JSX, and the identifiers its markup uses.

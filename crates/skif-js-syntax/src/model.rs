@@ -491,7 +491,8 @@ pub struct Export {
     pub removal: Option<Removal>,
     /// The local binding is referenced elsewhere in this file (excluding export clauses).
     pub referenced_in_file: bool,
-    /// Names of the other value exports of this file whose signature mentions this export's local binding.
+    /// Names of the other value exports of this file whose signature mentions this export's local binding. The
+    /// `Props` type of an Astro component lists `default`, the component the compiler types its props with.
     #[serde(default)]
     pub referenced_in: Vec<String>,
     /// Members of an enum or namespace export read in this file by name (`E.A`, `E['A']`, `const { A } = E`, or a
