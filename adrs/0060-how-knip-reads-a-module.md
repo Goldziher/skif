@@ -50,7 +50,7 @@ Chosen option: "Add the deviations below, each tested on the checkout with skif'
 follows from a rule of knip's or skif's that the harness can test. The harness reads the shapes knip's visitors match
 with oxc, as knip reads its own oxc tree (parentheses kept), and the imports with skif's parser. Every credit is
 followed through the `export … from` and `export *` re-exports of the files in between. Only the files holding
-`import(`, `requireActual` or `* as ` are parsed for the reads.
+`import(`, `requireActual` or `* as` (a namespace import) are parsed for the reads.
 
 On skif's side:
 

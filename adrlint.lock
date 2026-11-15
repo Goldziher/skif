@@ -295,3 +295,8 @@ blake3 = "f04b7dde6f98bd1b6f55bdbaafa14bb20abd267e7af54af78d6d68ae592ffe7a"
 number = 59
 status = "accepted"
 blake3 = "ca900f3fb7e9977c3de4dc32b56f314e7951cc0cc2c6826f35b36680ad5c3f7a"
+
+[adrs."adrs/0060-how-knip-reads-a-module.md"]
+number = 60
+status = "accepted"
+blake3 = "633e61ef8bff84509cf3c48433582b2f7b908bd65789d7a5a03bd708b17bb920"

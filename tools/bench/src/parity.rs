@@ -2017,10 +2017,7 @@ fn published_file_reexports(
     resolver: &Resolver<'_>,
     read: &SourceReader<'_>,
 ) -> BTreeSet<String> {
-    let own: Vec<String> = published
-        .iter()
-        .map(|file| format!("{file}|{WHOLE_MODULE}"))
-        .collect();
+    let own: Vec<String> = published.iter().map(|file| format!("{file}|{WHOLE_MODULE}")).collect();
     let mut credits = entry_reexports(published, resolver, read);
     for key in &own {
         credits.remove(key);
@@ -4524,7 +4521,7 @@ fn type_referenced_members(
 }
 
 /// The facts of the known deviations that follow from how knip reads a module where skif reads it otherwise
-/// (ADR NNNN). Each credit is `<file>|<export>` (`<file>|*` for every export of the file), followed through the
+/// (ADR 0060). Each credit is `<file>|<export>` (`<file>|*` for every export of the file), followed through the
 /// `export … from` and `export *` re-exports of the files in between ([`follow_reexports`]).
 #[derive(Default)]
 struct KnipReadSets {
@@ -4636,7 +4633,10 @@ impl KnipReads {
                 let Some((start, specifier)) = element.as_expression().and_then(literal_import) else {
                     continue;
                 };
-                let one_name = matches!(pattern.elements.get(at), Some(Some(BindingPattern::BindingIdentifier(_))));
+                let one_name = matches!(
+                    pattern.elements.get(at),
+                    Some(Some(BindingPattern::BindingIdentifier(_)))
+                );
                 self.bind(start, specifier, one_name);
             }
         }
@@ -4783,10 +4783,9 @@ fn identifier_name<'e>(expr: &'e Expression<'_>) -> Option<&'e str> {
 fn literal_text(expr: &Expression<'_>) -> Option<String> {
     match expr {
         Expression::StringLiteral(literal) => literal.value.as_str().map(str::to_owned),
-        Expression::TemplateLiteral(template) if template.expressions.is_empty() => template
-            .quasis
-            .first()
-            .map(|quasi| quasi.value.raw.as_str().to_owned()),
+        Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
+            template.quasis.first().map(|quasi| quasi.value.raw.as_str().to_owned())
+        }
         _ => None,
     }
 }
@@ -4988,11 +4987,12 @@ fn knip_read_credits(files: &[String], resolver: &Resolver<'_>, read: &SourceRea
         opaque.extend(resolved(&reads.opaque[..], WHOLE_MODULE));
         defaults.extend(resolved(&reads.defaults[..], "default"));
         actuals.extend(resolved(&reads.required_actuals[..], WHOLE_MODULE));
-        import_types.extend(reads.import_types.iter().filter_map(|(specifier, name)| {
-            resolver
-                .resolve(file, specifier)
-                .map(|target| (target, name.clone()))
-        }));
+        import_types.extend(
+            reads
+                .import_types
+                .iter()
+                .filter_map(|(specifier, name)| resolver.resolve(file, specifier).map(|target| (target, name.clone()))),
+        );
         let Some(module) = module else { continue };
         for (import, target) in module_targets(file, &module, resolver) {
             if !matches!(import.kind, ImportKind::Static | ImportKind::Dynamic) {
@@ -5137,9 +5137,8 @@ fn runs_node_test(manifest: &Value) -> bool {
 
 /// Whether `word` is an environment assignment that leads a shell command (`NODE_ENV=test`).
 fn is_env_assignment(word: &str) -> bool {
-    word.split_once('=').is_some_and(|(name, _)| {
-        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-    })
+    word.split_once('=')
+        .is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
 }
 
 /// The files of `keys` (`<file>|<export>`) that knip's `node` plugin makes entries of their workspace: the plugin is
@@ -12295,17 +12294,20 @@ vi.mock("mocked-package");
     #[test]
     fn exports_of_a_module_an_opaque_or_bound_import_expression_loads_split_off_on_skif_side() {
         let sources = BTreeMap::from([
-            ("src/load.ts", "import('./opaque');\nconst one = await import('./one');\n"),
-            ("src/opaque.ts", "export const a = 1;\nexport type T = 1;\nexport * from './deep';\n"),
+            (
+                "src/load.ts",
+                "import('./opaque');\nconst one = await import('./one');\n",
+            ),
+            (
+                "src/opaque.ts",
+                "export const a = 1;\nexport type T = 1;\nexport * from './deep';\n",
+            ),
             ("src/deep.ts", "export const deep = 1;\n"),
             ("src/one.ts", "export default 1;\nexport const other = 2;\n"),
             ("src/lonely.ts", "export const lonely = 1;\n"),
         ]);
         let reads = knip_read_sets(&sources);
-        assert_eq!(
-            reads.opaque_imports,
-            strings(&["src/deep.ts|*", "src/opaque.ts|*"])
-        );
+        assert_eq!(reads.opaque_imports, strings(&["src/deep.ts|*", "src/opaque.ts|*"]));
         assert_eq!(reads.import_defaults, strings(&["src/one.ts|default"]));
         let is_file = |file: &str| sources.contains_key(file);
         let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
@@ -12319,7 +12321,12 @@ vi.mock("mocked-package");
                 (Side::Skif, "exports", "src/opaque.ts|a", Some(OPAQUE_DYNAMIC_IMPORT)),
                 (Side::Skif, "types", "src/opaque.ts|T", Some(OPAQUE_DYNAMIC_IMPORT)),
                 (Side::Skif, "exports", "src/deep.ts|deep", Some(OPAQUE_DYNAMIC_IMPORT)),
-                (Side::Skif, "exports", "src/one.ts|default", Some(DYNAMIC_IMPORT_DEFAULT)),
+                (
+                    Side::Skif,
+                    "exports",
+                    "src/one.ts|default",
+                    Some(DYNAMIC_IMPORT_DEFAULT),
+                ),
                 (Side::Skif, "exports", "src/one.ts|other", None),
                 (Side::Skif, "exports", "src/lonely.ts|lonely", None),
                 (Side::Skif, "files", "src/opaque.ts", None),
@@ -12345,10 +12352,7 @@ vi.mock("mocked-package");
             ("src/not-jest.ts", "export const notJest = 1;\n"),
         ]);
         let reads = knip_read_sets(&sources);
-        assert_eq!(
-            reads.required_actuals,
-            strings(&["src/aliased.ts|*", "src/utils.ts|*"])
-        );
+        assert_eq!(reads.required_actuals, strings(&["src/aliased.ts|*", "src/utils.ts|*"]));
         let is_file = |file: &str| sources.contains_key(file);
         let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
         let classifier = Classifier {
@@ -12359,7 +12363,12 @@ vi.mock("mocked-package");
             &classifier,
             &[
                 (Side::Skif, "types", "src/utils.ts|Options", Some(JEST_REQUIRE_ACTUAL)),
-                (Side::Skif, "exports", "src/aliased.ts|aliased", Some(JEST_REQUIRE_ACTUAL)),
+                (
+                    Side::Skif,
+                    "exports",
+                    "src/aliased.ts|aliased",
+                    Some(JEST_REQUIRE_ACTUAL),
+                ),
                 (Side::Skif, "exports", "src/not-jest.ts|notJest", None),
                 (Side::Tool, "types", "src/utils.ts|Options", None),
             ],
@@ -12412,7 +12421,10 @@ vi.mock("mocked-package");
                  export function lsTree(path: string) { return ['ls-tree', path]; }\n\
                  export const names = Object.keys(keys);\nexport const a = plain.a;\n",
             ),
-            ("src/path.ts", "export function format() {}\nexport function toNamespacedPath() {}\n"),
+            (
+                "src/path.ts",
+                "export function format() {}\nexport function toNamespacedPath() {}\n",
+            ),
             ("src/keys.ts", "export const k = 1;\n"),
             ("src/plain.ts", "export const a = 1;\nexport const b = 2;\n"),
         ]);
@@ -12447,13 +12459,19 @@ vi.mock("mocked-package");
                 "type W = import('./window').Window;\ntype N = import('./ns').A.B;\n\
                  type Q = typeof import('./whole');\n",
             ),
-            ("src/window.ts", "export interface Window {}\nexport interface Other {}\n"),
+            (
+                "src/window.ts",
+                "export interface Window {}\nexport interface Other {}\n",
+            ),
             ("src/ns.ts", "export namespace A { export type B = 1; }\n"),
             ("src/whole.ts", "export const whole = 1;\n"),
         ]);
         let reads = knip_read_sets(&sources);
         assert_eq!(reads.import_types, strings(&["src/ns.ts|A", "src/window.ts|Window"]));
-        assert!(reads.opaque_imports.is_empty(), "an import type is no import expression");
+        assert!(
+            reads.opaque_imports.is_empty(),
+            "an import type is no import expression"
+        );
         let is_file = |file: &str| sources.contains_key(file);
         let layout = Layout::new(BTreeSet::new(), &no_manifest, &is_file);
         let classifier = Classifier {
@@ -12501,7 +12519,10 @@ vi.mock("mocked-package");
             typescript_commonjs: typescript_commonjs_keys(&keys, &read),
             ..KnipReadSets::default()
         };
-        assert_eq!(reads.namespace_reexports, strings(&["src/index.ts|Config", "src/index.ts|self"]));
+        assert_eq!(
+            reads.namespace_reexports,
+            strings(&["src/index.ts|Config", "src/index.ts|self"])
+        );
         assert_eq!(
             reads.typescript_commonjs,
             strings(&["src/join.ts|joinPath", "src/join.ts|other", "src/obj.ts|a"]),
@@ -12521,7 +12542,12 @@ vi.mock("mocked-package");
                 (Side::Skif, "exports", "src/index.ts|self", Some(NAMESPACE_REEXPORT)),
                 (Side::Skif, "types", "src/index.ts|Config", None),
                 (Side::Skif, "exports", "src/index.ts|plain", None),
-                (Side::Skif, "exports", "src/join.ts|joinPath", Some(TYPESCRIPT_COMMONJS_EXPORT)),
+                (
+                    Side::Skif,
+                    "exports",
+                    "src/join.ts|joinPath",
+                    Some(TYPESCRIPT_COMMONJS_EXPORT),
+                ),
                 (Side::Skif, "exports", "src/mixed.ts|a", None),
                 (Side::Tool, "exports", "src/index.ts|Config", None),
             ],
@@ -12556,7 +12582,11 @@ vi.mock("mocked-package");
             ("vitest --test", false),
             ("echo node --test", false),
         ] {
-            assert_eq!(runs_node_test(&json!({ "scripts": { "test": script } })), expected, "{script}");
+            assert_eq!(
+                runs_node_test(&json!({ "scripts": { "test": script } })),
+                expected,
+                "{script}"
+            );
         }
         assert!(!runs_node_test(&json!({ "name": "no-scripts" })));
     }
@@ -12571,7 +12601,10 @@ vi.mock("mocked-package");
         let is_file = |_: &str| false;
         let own = manifests_of(&[
             ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
-            ("packages/a", json!({ "name": "a", "scripts": { "test": "node --test" } })),
+            (
+                "packages/a",
+                json!({ "name": "a", "scripts": { "test": "node --test" } }),
+            ),
             ("packages/b", json!({ "name": "b" })),
         ]);
         let layout = Layout::new(strings(&["packages/a", "packages/b"]), &own, &is_file);
@@ -12599,8 +12632,18 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Skif, "exports", "packages/a/test/helpers.ts|help", Some(NODE_TEST_ENTRY)),
-                (Side::Skif, "types", "packages/a/test/helpers.ts|Help", Some(NODE_TEST_ENTRY)),
+                (
+                    Side::Skif,
+                    "exports",
+                    "packages/a/test/helpers.ts|help",
+                    Some(NODE_TEST_ENTRY),
+                ),
+                (
+                    Side::Skif,
+                    "types",
+                    "packages/a/test/helpers.ts|Help",
+                    Some(NODE_TEST_ENTRY),
+                ),
                 (Side::Skif, "exports", "packages/a/src/x.ts|x", None),
                 (Side::Skif, "exports", "packages/b/test/helpers.ts|help", None),
                 (Side::Tool, "exports", "packages/a/test/helpers.ts|help", None),
@@ -12632,7 +12675,12 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Skif, "types", "src/module.ts|RouteModule", Some(TSCONFIG_DECLARATION_FILE)),
+                (
+                    Side::Skif,
+                    "types",
+                    "src/module.ts|RouteModule",
+                    Some(TSCONFIG_DECLARATION_FILE),
+                ),
                 (Side::Skif, "types", "src/other.ts|Other", None),
                 (Side::Skif, "files", "src/module.ts", None),
                 (Side::Tool, "types", "src/module.ts|RouteModule", None),
@@ -12662,11 +12710,17 @@ vi.mock("mocked-package");
     #[test]
     fn exports_an_ng_package_entry_point_re_exports_split_off_on_knip_side() {
         let sources = BTreeMap::from([
-            ("MODULE.bazel", "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n"),
+            (
+                "MODULE.bazel",
+                "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+            ),
             ("packages/core/package.json", r#"{ "name": "@angular/core" }"#),
             ("packages/core/index.ts", "export * from './src/api';\n"),
             ("packages/core/src/api.ts", "export const api = 1;\n"),
-            ("packages/core/primitives/signals/index.ts", "export const signal = 1;\n"),
+            (
+                "packages/core/primitives/signals/index.ts",
+                "export const signal = 1;\n",
+            ),
             ("packages/core/src/lonely.ts", "export const lonely = 1;\n"),
             ("packages/other/index.ts", "export const other = 1;\n"),
         ]);
@@ -12700,8 +12754,18 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Tool, "exports", "packages/core/index.ts|api", Some(NG_PACKAGE_ENTRY)),
-                (Side::Tool, "exports", "packages/core/src/api.ts|api", Some(NG_PACKAGE_ENTRY)),
+                (
+                    Side::Tool,
+                    "exports",
+                    "packages/core/index.ts|api",
+                    Some(NG_PACKAGE_ENTRY),
+                ),
+                (
+                    Side::Tool,
+                    "exports",
+                    "packages/core/src/api.ts|api",
+                    Some(NG_PACKAGE_ENTRY),
+                ),
                 (
                     Side::Tool,
                     "nsExports",
@@ -12731,7 +12795,10 @@ vi.mock("mocked-package");
         let layout = Layout::new(strings(&["packages/next"]), &manifest, &is_file);
         let resolver = Resolver::new(&layout, &read);
         for (specifier, expected) in [
-            ("next/dist/server/web/types", Some("packages/next/src/server/web/types.ts")),
+            (
+                "next/dist/server/web/types",
+                Some("packages/next/src/server/web/types.ts"),
+            ),
             ("next", Some("packages/next/src/index.ts")),
             ("next/dist/server/missing", None),
             ("other/dist/server/web/types", None),
@@ -12774,7 +12841,10 @@ vi.mock("mocked-package");
         let credits = published_file_reexports(published, &resolver, &read);
         assert_eq!(
             credits,
-            strings(&["packages/next/src/local.ts|local", "packages/next/src/server/web/types.ts|*"]),
+            strings(&[
+                "packages/next/src/local.ts|local",
+                "packages/next/src/server/web/types.ts|*"
+            ]),
             "the published file's own findings are `published-file`"
         );
         let classifier = Classifier {
@@ -12784,8 +12854,18 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Tool, "types", "packages/next/src/server/web/types.ts|Req", Some(PUBLISHED_SOURCE)),
-                (Side::Tool, "exports", "packages/next/src/local.ts|local", Some(PUBLISHED_SOURCE)),
+                (
+                    Side::Tool,
+                    "types",
+                    "packages/next/src/server/web/types.ts|Req",
+                    Some(PUBLISHED_SOURCE),
+                ),
+                (
+                    Side::Tool,
+                    "exports",
+                    "packages/next/src/local.ts|local",
+                    Some(PUBLISHED_SOURCE),
+                ),
                 (Side::Tool, "exports", "packages/next/src/local.ts|unshared", None),
                 (Side::Tool, "exports", "packages/next/src/lonely.ts|lonely", None),
                 (Side::Skif, "exports", "packages/next/src/local.ts|local", None),
@@ -12820,7 +12900,10 @@ vi.mock("mocked-package");
             "a namespace re-export read through a member is no use as a whole"
         );
         let values = module_objects(
-            &strings(&["nodes/methods/listSearch.ts|searchA", "nodes/methods/loadOptions.ts|loadA"]),
+            &strings(&[
+                "nodes/methods/listSearch.ts|searchA",
+                "nodes/methods/loadOptions.ts|loadA",
+            ]),
             &credits,
         );
         let classifier = Classifier {
@@ -12830,7 +12913,12 @@ vi.mock("mocked-package");
         assert_classified(
             &classifier,
             &[
-                (Side::Tool, "exports", "nodes/methods/listSearch.ts|searchA", Some(MODULE_OBJECT_VALUES)),
+                (
+                    Side::Tool,
+                    "exports",
+                    "nodes/methods/listSearch.ts|searchA",
+                    Some(MODULE_OBJECT_VALUES),
+                ),
                 (Side::Tool, "exports", "nodes/methods/loadOptions.ts|loadA", None),
             ],
         );
