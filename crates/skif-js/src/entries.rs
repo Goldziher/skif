@@ -18,7 +18,7 @@ use crate::manifest_paths::{
     bin_stub_sources, bin_targets, crossing_stars, is_out_dir, manifest_targets, map_to_source, should_have_source,
     source_patterns,
 };
-use crate::resolve::{is_code_file, join_normalized};
+use crate::resolve::{is_code_file, is_read_file, join_normalized};
 use crate::scripts;
 use crate::setup::{PackageSetup, Setup};
 
@@ -517,7 +517,7 @@ fn is_empty_object(value: &serde_json::Value) -> bool {
     value.as_object().is_some_and(serde_json::Map::is_empty)
 }
 
-/// The entries for `files`, paths the package's scripts run. A path inside a build output directory (`outDir` of a
+/// The entries for `files`, paths the package's scripts run or compile. A path inside a build output directory (`outDir` of a
 /// `tsconfig`) stands for its source below the matching `rootDir`, even when the build output is on disk, and a
 /// directory a test runner reads (`mocha build/compiled/test`) for the code files the runner reads in it.
 fn script_files(
@@ -540,7 +540,8 @@ fn script_files(
             found.push(source);
             continue;
         }
-        if is_code_file(&path) && fs.is_file(&path) {
+        // A stylesheet is a file a script compiles (`tailwindcss --input src/app.css`), whose `@import`s are read.
+        if is_read_file(&path) && fs.is_file(&path) {
             found.push(path);
             continue;
         }

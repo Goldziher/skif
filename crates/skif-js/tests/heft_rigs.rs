@@ -236,3 +236,48 @@ fn heft_tasks_credit_their_tests_and_option_packages() {
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), Vec::<String>::new());
     assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new());
 }
+
+/// The Storybook plugin resolves its storykit from the project and the CLI package from the storykit: a project that
+/// does not list its storykit lacks it, while the CLI package is the storykit's dependency, not the project's.
+#[test]
+fn the_storybook_cli_package_is_a_dependency_of_the_storykit() {
+    let diagnostics = lint(&[
+        (
+            "rush.json",
+            r#"{"rushVersion":"5.150.0","pnpmVersion":"9.0.0","projects":[
+              {"packageName":"app","projectFolder":"app"},{"packageName":"app-storykit","projectFolder":"storykit"}]}"#,
+        ),
+        (
+            "app/package.json",
+            r#"{"name":"app","version":"1.0.0","main":"./src/index.ts","scripts":{"build":"heft build --storybook"},
+              "devDependencies":{"@rushstack/heft":"1.3.4","@rushstack/heft-storybook-plugin":"1.0.0"}}"#,
+        ),
+        (
+            "app/config/heft.json",
+            r#"{
+  "phasesByName": {
+    "build": {
+      "tasksByName": {
+        "storybook": {
+          "taskPlugin": {
+            "pluginPackage": "@rushstack/heft-storybook-plugin",
+            "options": { "storykitPackageName": "app-storykit", "cliPackageName": "@storybook/react" }
+          }
+        }
+      }
+    }
+  }
+}"#,
+        ),
+        ("app/src/index.ts", "export const a = 1;\n"),
+        (
+            "storykit/package.json",
+            r#"{"name":"app-storykit","version":"1.0.0","main":"index.js","dependencies":{"@storybook/react":"6.4.22"}}"#,
+        ),
+        ("storykit/index.js", "module.exports = {};\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["app/config/heft.json: app-storykit"]
+    );
+}

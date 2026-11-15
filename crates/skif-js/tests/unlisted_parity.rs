@@ -1,8 +1,9 @@
 //! Unlisted dependencies and binaries where the corpus runs showed skif and knip disagreeing and skif was wrong:
 //! test environment pragmas, `node_modules/.bin` paths, bare imports in plain stylesheets, runtime modules that an
 //! enclosing package's `engines` provides, dependencies whose installed manifest has no such binary, a declared
-//! subpath that silenced the whole package, a declared module of a package an alias leads into and a workspace package
-//! reached through an alias into generated code.
+//! subpath that silenced the whole package, a declared module of a package an alias leads into, a workspace package
+//! reached through an alias into generated code, a `createRequire` of another package's location and the stylesheet a
+//! Tailwind script compiles.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -514,4 +515,61 @@ fn a_workspace_package_through_an_alias_into_generated_code_is_that_package() {
             "packages/atoms/src/enums.ts: @acme/db",
         ]
     );
+}
+
+/// A `createRequire` given another package's manifest resolves from that package, so what its `resolve` names is that
+/// package's dependency; one given this file (`import.meta.url`) resolves from here, so its package must be listed.
+#[test]
+fn a_create_require_of_another_package_resolves_that_packages_dependencies() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (
+            "packages/ui/package.json",
+            r#"{"name":"@acme/ui","version":"1.0.0","main":"index.js","dependencies":{"icon-set":"1.0.0"}}"#,
+        ),
+        ("packages/ui/index.js", "export const ui = 1;\n"),
+        (
+            "packages/server/package.json",
+            r#"{"name":"@acme/server","version":"1.0.0","type":"module","main":"src/icons.js"}"#,
+        ),
+        (
+            "packages/server/src/icons.js",
+            "import { createRequire } from 'node:module';\n\
+             import { join } from 'node:path';\n\
+             const ui = join(import.meta.dirname, '../../ui');\n\
+             export const editorSet = createRequire(join(ui, 'package.json')).resolve('icon-set/json/lucide.json');\n\
+             export const ownSet = createRequire(import.meta.url).resolve('own-icons/json/lucide.json');\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["packages/server/src/icons.js: own-icons"]
+    );
+}
+
+/// The Tailwind CLI compiles the stylesheet its `--input` names, so a package that stylesheet `@import`s and the
+/// manifest does not list is unlisted; one the manifest lists is used.
+#[test]
+fn the_stylesheet_a_tailwind_script_compiles_imports_its_packages() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"embed","version":"1.0.0","main":"src/index.js",
+                "scripts":{"tailwind":"tailwindcss --input ./src/styles.css --output ./src/generated.css"},
+                "devDependencies":{"tailwindcss":"4.0.0","theme-base":"1.0.0"}}"#,
+        ),
+        ("src/index.js", "export const embed = 1;\n"),
+        (
+            "src/styles.css",
+            "@import 'theme-base/base.css';\n@import 'theme-kit/styles.css';\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["src/styles.css: theme-kit"]
+    );
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
 }
