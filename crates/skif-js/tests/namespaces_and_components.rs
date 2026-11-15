@@ -603,3 +603,36 @@ fn a_namespace_member_read_by_its_bare_name_inside_the_namespace_is_used() {
         "{diagnostics:#?}"
     );
 }
+
+/// An interface merged with a namespace and named only as a type by an importer (`value: Coverage`) reads no member of
+/// the namespace, as an enum named so reads none: the members the importer does not read are reported. knip skips the
+/// members of such an export when any importer names it in a type, unless `nsTypes` is on.
+#[test]
+fn a_type_annotation_naming_a_merged_namespace_reads_no_member() {
+    let diagnostics = lint_files(
+        &[
+            PACKAGE,
+            (
+                "index.ts",
+                "import { Coverage } from './ns';\n\
+                 export function total(value: Coverage, other: Coverage | null): number {\n\
+                   return Coverage.sum(value, other ?? value);\n\
+                 }\n",
+            ),
+            (
+                "ns.ts",
+                "export interface Coverage { covered: number }\n\
+                 export namespace Coverage {\n\
+                   export function sum(a: Coverage, b: Coverage): number { return a.covered + b.covered; }\n\
+                   export const empty = (): Coverage => ({ covered: 0 });\n\
+                 }\n",
+            ),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-members"),
+        ["ns.ts: Coverage.empty"],
+        "{diagnostics:#?}"
+    );
+}
