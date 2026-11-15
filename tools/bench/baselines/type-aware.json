@@ -100,7 +100,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "babel": {
       "status": "compared",
@@ -203,7 +203,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "cal-com": {
       "status": "compared",
@@ -251,7 +251,7 @@
         "unlisted-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 633
+          "both": 634
         },
         "unresolved-imports": {
           "skif_only": 0,
@@ -311,7 +311,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "create-t3-turbo": {
       "status": "compared",
@@ -339,7 +339,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "jest": {
       "status": "compared",
@@ -427,7 +427,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "mastra": {
       "status": "compared",
@@ -580,7 +580,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "n8n": {
       "status": "compared",
@@ -618,12 +618,12 @@
         "unlisted-binaries": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 14
+          "both": 13
         },
         "unlisted-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 28
+          "both": 27
         },
         "unmatched-workspace-patterns": {
           "skif_only": 0,
@@ -653,7 +653,7 @@
         "unused-dev-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 6
+          "both": 7
         },
         "unused-enum-members": {
           "skif_only": 0,
@@ -693,7 +693,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "next-js": {
       "status": "compared",
@@ -866,7 +866,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "npm-cli": {
       "status": "compared",
@@ -934,7 +934,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "nx-examples-integrated": {
       "status": "compared",
@@ -957,7 +957,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "opencode": {
       "status": "compared",
@@ -1055,7 +1055,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "rules-js": {
       "status": "compared",
@@ -1138,7 +1138,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "rushstack": {
       "status": "compared",
@@ -1171,7 +1171,7 @@
         "unlisted-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 10
+          "both": 8
         },
         "unsorted-dependencies": {
           "skif_only": 0,
@@ -1191,7 +1191,7 @@
         "unused-dev-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 231
+          "both": 232
         },
         "unused-exports": {
           "skif_only": 0,
@@ -1216,7 +1216,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "tanstack-query": {
       "status": "compared",
@@ -1279,7 +1279,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "turborepo-examples": {
       "status": "compared",
@@ -1327,7 +1327,7 @@
       },
       "installed": false,
       "recursive": true,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "vercel-examples": {
       "status": "compared",
@@ -1445,7 +1445,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     },
     "vscode": {
       "status": "compared",
@@ -1583,7 +1583,7 @@
       },
       "installed": true,
       "recursive": true,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "2de72aeb327a-dirty"
     },
     "vue-core": {
       "status": "compared",
@@ -1651,7 +1651,7 @@
       },
       "installed": true,
       "recursive": false,
-      "skif_rev": "fd077afde26d"
+      "skif_rev": "344c8d7f196a"
     }
   }
 }
