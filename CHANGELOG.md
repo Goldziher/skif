@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-15
+
 skif 0.6.0 adds type-aware analysis. Where a package has a `tsconfig.json` or `jsconfig.json`, the TypeScript checker
 of tsrs resolves each member read to the declaration it reaches, so `unused-class-members`, `unused-enum-members` and
 `unused-namespace-members` judge a read by what it reaches instead of by its name. It is on by default in the CLI and
