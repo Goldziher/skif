@@ -375,6 +375,59 @@ fn compiler_options_of_an_installed_base_config_are_used_by_the_extending_packag
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
 }
 
+/// The `types` of an installed base config (a rig profile) that the first of its own `typeRoots` holding them finds
+/// in the rig's install come with the rig: the package extending it does not use its optional peer `@types/node`
+/// for them. A profile without such `typeRoots` loads them from the package, which then needs them installed.
+#[test]
+fn types_an_installed_config_finds_in_its_own_type_roots_come_with_its_package() {
+    let package = |name: &str, rig: &str| {
+        format!(
+            r#"{{"name":"@acme/{name}","version":"1.0.0","main":"src/index.ts","devDependencies":{{"@acme/{rig}":"1.0.0"}},"peerDependencies":{{"@types/node":"*"}},"peerDependenciesMeta":{{"@types/node":{{"optional":true}}}}}}"#
+        )
+    };
+    let rig = |rig: &str| format!(r#"{{"name":"@acme/{rig}","version":"1.0.0","dependencies":{{"@types/node":"20.0.0"}}}}"#);
+    let extends = |rig: &str| format!(r#"{{"extends":"./node_modules/@acme/{rig}/profiles/default/tsconfig-base.json"}}"#);
+    let types_node = r#"{"name":"@types/node","version":"20.0.0"}"#;
+    let files: Vec<(String, String)> = vec![
+        (
+            "package.json".to_owned(),
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.8.2"}}"#
+                .to_owned(),
+        ),
+        ("packages/lib/package.json".to_owned(), package("lib", "node-rig")),
+        ("packages/lib/tsconfig.json".to_owned(), extends("node-rig")),
+        ("packages/lib/node_modules/@acme/node-rig/package.json".to_owned(), rig("node-rig")),
+        (
+            "packages/lib/node_modules/@acme/node-rig/profiles/default/tsconfig-base.json".to_owned(),
+            r#"{"compilerOptions":{"types":["node"],"typeRoots":["${configDir}/node_modules/@types","../../node_modules/@types"]}}"#
+                .to_owned(),
+        ),
+        (
+            "packages/lib/node_modules/@acme/node-rig/node_modules/@types/node/package.json".to_owned(),
+            types_node.to_owned(),
+        ),
+        ("packages/lib/src/index.ts".to_owned(), "export const a = 1;\n".to_owned()),
+        ("packages/app/package.json".to_owned(), package("app", "plain-rig")),
+        ("packages/app/tsconfig.json".to_owned(), extends("plain-rig")),
+        ("packages/app/node_modules/@acme/plain-rig/package.json".to_owned(), rig("plain-rig")),
+        (
+            "packages/app/node_modules/@acme/plain-rig/profiles/default/tsconfig-base.json".to_owned(),
+            r#"{"compilerOptions":{"types":["node"]}}"#.to_owned(),
+        ),
+        (
+            "packages/app/node_modules/@acme/plain-rig/node_modules/@types/node/package.json".to_owned(),
+            types_node.to_owned(),
+        ),
+        ("packages/app/src/index.ts".to_owned(), "export const b = 1;\n".to_owned()),
+    ];
+    let diagnostics = lint_owned(&files);
+    assert_eq!(
+        found(&diagnostics, "unused-optional-peer-dependencies"),
+        ["packages/app/package.json: @types/node"],
+        "{diagnostics:#?}"
+    );
+}
+
 /// A package a bundler keeps external (tsdown `deps.neverBundle`) is a reference that may be absent, which installs
 /// nothing: an optional peer the code imports and no manifest installs is still reported, unless an
 /// `ignore-dependencies` entry of the configuration names it.
