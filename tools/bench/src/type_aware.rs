@@ -1,5 +1,5 @@
-//! The untyped pass of the parity harness: skif's findings with types (its default, the run compared with knip)
-//! against the same run with `--no-type-aware`, per rule (ADR 0021).
+//! The untyped pass of the parity harness: skif's findings with `--type-aware` (the run compared with knip) against
+//! the same run with `--no-type-aware`, per rule (ADR 0021).
 //!
 //! A finding only one mode reports is set apart from the knip comparison as the `type-resolved` deviation
 //! ([`type_resolved`]). The counts per rule are checked against their own baseline, whose comparison tool is skif
@@ -16,6 +16,10 @@ use crate::diff::{BASELINE_SCHEMA, Baseline, COMPARED, Counts, Entry, Keys, Samp
 use crate::parity::normalize;
 use crate::run::table_cell;
 
+/// The skif flag of the typed run.
+pub const TYPE_AWARE_FLAG: &str = "--type-aware";
+/// The typed run, as the bench rows name it.
+pub const TYPED_TOOL: &str = "skif --type-aware";
 /// The skif flag of the untyped run.
 pub const NO_TYPE_AWARE_FLAG: &str = "--no-type-aware";
 /// The comparison tool of the type-aware baseline.
@@ -92,7 +96,7 @@ pub fn markdown(entries: &BTreeMap<String, Entry>) -> String {
         return String::new();
     }
     let mut out = format!(
-        "\n## Typed versus untyped\n\nskif with types (its default, the run compared above) and with `{NO_TYPE_AWARE_FLAG}`, per rule. Findings only one mode reports that knip does not share are counted under `type-resolved` above; `--check` checks these counts against `type-aware.json`.\n\n| Repository | Rule | Typed | Untyped | Typed only | Untyped only |\n| --- | --- | ---: | ---: | ---: | ---: |\n"
+        "\n## Typed versus untyped\n\nskif with `{TYPE_AWARE_FLAG}` (the run compared above) and with `{NO_TYPE_AWARE_FLAG}`, per rule. Findings only one mode reports that knip does not share are counted under `type-resolved` above; `--check` checks these counts against `type-aware.json`.\n\n| Repository | Rule | Typed | Untyped | Typed only | Untyped only |\n| --- | --- | ---: | ---: | ---: | ---: |\n"
     );
     for (name, entry) in entries {
         if entry.status != COMPARED {

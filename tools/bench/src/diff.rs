@@ -158,7 +158,7 @@ impl Entry {
     }
 }
 
-/// The [`Baseline::mode`] of a skif run with types, its default.
+/// The [`Baseline::mode`] of a skif run with `--type-aware`, the mode the knip comparison runs in.
 pub const TYPE_AWARE: &str = "type-aware";
 
 pub const COMPARED: &str = "compared";
@@ -170,7 +170,7 @@ pub struct Baseline {
     pub schema: u32,
     /// The comparison tool and its pinned version, e.g. `knip@6.44.1`.
     pub tool: String,
-    /// The analysis mode skif ran in for the recorded counts, `type-aware` (its default) or `no-type-aware`; `None`
+    /// The analysis mode skif ran in for the recorded counts, `type-aware` (`--type-aware`) or `no-type-aware`; `None`
     /// where the mode does not change what skif reports. Counts of another mode are not comparable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
