@@ -193,16 +193,16 @@ outside the workspace.
 
 `skif explain-usage --dependency <NAME> [PATH]` answers why `unused-dependencies` (or `unused-dev-dependencies`)
 reports a dependency or not. For every package that lists it or that something credits it to (with `--package`, that
-package alone) it prints the manifest entry, the verdict and the uses that credit the package's manifest: an
-`import` (also a re-export, a `declare module` or an import of the package an `@types` package types), a `mock`, a
-`compiler` of the file's type, the `jsx-runtime` of a file with JSX, a `command` a `node:child_process` call runs, a
-`binary` a script, command or plugin runs, a `script-or-plugin` of the package, a tool `config` that names it, and
-`ambient-types` for a globals-only `@types` package a `tsconfig.json` includes. The uses of a package's manifest can
-come from the files of packages inside it, such as the root's. Imports of it by files of the package that credit no
-manifest (a type-only import in strict mode) are listed as not counted. For a package that does not list it, the tool
-config files that name it are listed with the line of the reference when the config gives one (a Bazel `BUILD`
-label), as `unlisted-dependencies` reports them. The verdict and the uses come from the same record of uses the rule
-judges. The command exits `0` whatever the verdict.
+package alone) it prints the manifest entry, the verdict and the uses that credit the package's manifest: an `import`
+(also a re-export, a `declare module` augmentation in a module file or an import of the package an `@types` package
+types), a `mock`, a `compiler` of the file's type, the `jsx-runtime` of a file with JSX, a `command` a
+`node:child_process` call runs, a `binary` a script, command or plugin runs, a `script-or-plugin` of the package, a
+tool `config` that names it, and `ambient-types` for a globals-only `@types` package a `tsconfig.json` includes. The
+uses of a package's manifest can come from the files of packages inside it, such as the root's. Imports of it by files
+of the package that credit no manifest (a type-only import in strict mode) are listed as not counted. For a package
+that does not list it, the tool config files that name it are listed with the line of the reference when the config
+gives one (a Bazel `BUILD` label), as `unlisted-dependencies` reports them. The verdict and the uses come from the
+same record of uses the rule judges. The command exits `0` whatever the verdict.
 
 | `--format json` member | Meaning |
 | --- | --- |
