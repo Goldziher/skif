@@ -344,12 +344,13 @@ pub fn is_ignored_binary(name: &str) -> bool {
     is_shell_builtin(name) || IGNORED_BINARIES.contains(&name)
 }
 
-/// Build tools that are usually installed on the machine, as `docker` and `make` are, although npm packages provide
-/// them too: `bazel` and `bazelisk` from `@bazel/bazelisk`, `ibazel` from `@bazel/ibazel`.
+/// Tools that are usually installed on the machine, as `docker` and `make` are, although npm packages provide them
+/// too: `bazel` and `bazelisk` from `@bazel/bazelisk`, `ibazel` from `@bazel/ibazel`, and the `claude` CLI from
+/// `@anthropic-ai/claude-code`.
 ///
 /// They are not [`IGNORED_BINARIES`]: a script that runs one still credits the listed package that provides it. With
 /// `ignore-global-binaries` on, none of them is reported as an unlisted binary when no package does.
-pub const MACHINE_BINARIES: &[&str] = &["bazel", "bazelisk", "ibazel"];
+pub const MACHINE_BINARIES: &[&str] = &["bazel", "bazelisk", "claude", "ibazel"];
 
 /// Whether `name` is one of the [`MACHINE_BINARIES`].
 #[must_use]

@@ -89,6 +89,13 @@ All notable changes to this project are documented here. The format follows
   `installed-main`, `type-referenced-members`, `knip-node-modules-name`, `raw-glob-read` and `typescript-twin`;
   `knip-dot-ignore` also sets apart what only a hidden file uses, `used-in-knip-unused-file` the peers of a package such
   a file imports, and `imported-by-knip-unused-file` the members such a file reads.
+- **Comparison harness**: more known deviations of the knip comparison, for how knip reads a module
+  ([ADR 0060](adrs/0060-how-knip-reads-a-module.md)): `opaque-dynamic-import`, `dynamic-import-default`,
+  `jest-require-actual`, `spied-namespace`, `enumerated-namespace`, `namespace-re-export`,
+  `typescript-commonjs-export`, `node-test-entry`, `ng-package-entry` and `import-type-qualifier`;
+  `tsconfig-declaration-file` also sets apart what a declaration entry re-exports, `published-source` what a file
+  published as it is re-exports, `type-asserted-require` takes a template literal and `module-object-values` a
+  namespace re-export used as a whole, and the harness resolves a workspace subpath into unbuilt output to its source.
 - **`heft` plugin**: enabled by `@rushstack/heft` or a `config/rig.json`. The `extends` of `config/heft.json`,
   `config/typescript.json` and `config/jest.config.json` and the `pluginPackage` of every task and lifecycle plugin of a
   `heft.json` are packages the config needs; `@rushstack/heft-sass-plugin` also credits `sass`, without requiring it,
@@ -266,16 +273,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unlisted-binaries`: the `claude` CLI is a machine binary, as the Bazel launchers are, and as knip's global
+  binaries have it: a script or a source file that runs it no longer reports it while `ignore-global-binaries` is on.
+  A listed `@anthropic-ai/claude-code` still provides it ([#243](https://github.com/Goldziher/skif/issues/243)).
 - `unlisted-dependencies`: the `resolve` of a `createRequire` given another location than the file itself
   (`createRequire(join(otherPackage, 'package.json')).resolve('pkg/data.json')`) names no import: Node.js resolves the
   specifier from that location, so the package is the dependency of the package there. Only `import.meta.url`,
   `import.meta.filename` and `__filename` make the call resolve from the file. Before, the package was reported as an
   unlisted dependency of the file's package. The parse cache schema is raised
-  ([ADR NNNN](adrs/NNNN-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+  ([ADR 0061](adrs/0061-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
 - `unlisted-dependencies`: the `cliPackageName` of a `@rushstack/heft-storybook-plugin` task no longer has to be listed
   by the project: the plugin resolves it from the storykit package, whose dependency it is. A listing in the project
   is still used; the `storykitPackageName` is still required
-  ([ADR NNNN](adrs/NNNN-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
+  ([ADR 0061](adrs/0061-packages-another-package-resolves.md), [#242](https://github.com/Goldziher/skif/issues/242)).
 - `unlisted-dependencies`, `unused-dependencies`: the stylesheet a `tailwindcss --input` (`-i`) script compiles is an
   entry, so the packages its `@import`s name are used, and reported when no manifest lists them, as knip has it.
   Before, such a stylesheet was not read unless a module imported it

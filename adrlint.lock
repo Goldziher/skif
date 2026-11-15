@@ -294,4 +294,14 @@ blake3 = "f04b7dde6f98bd1b6f55bdbaafa14bb20abd267e7af54af78d6d68ae592ffe7a"
 [adrs."adrs/0059-resolve-calls-use-the-values-of-the-module.md"]
 number = 59
 status = "accepted"
-blake3 = "ca900f3fb7e9977c3de4dc32b56f314e7951cc0cc2c6826f35b36680ad5c3f7a"
+blake3 = "5113f35fd3d1d21ed02afbb45c4ad9e524cd889724b3b159d629e2a7d832d7a5"
+
+[adrs."adrs/0060-how-knip-reads-a-module.md"]
+number = 60
+status = "accepted"
+blake3 = "633e61ef8bff84509cf3c48433582b2f7b908bd65789d7a5a03bd708b17bb920"
+
+[adrs."adrs/0061-packages-another-package-resolves.md"]
+number = 61
+status = "accepted"
+blake3 = "3b65f4880953add3be08050c89840da5110cd53ccb70a89a737cd56e79218bcd"

@@ -1103,6 +1103,33 @@ fn bazel_launchers_are_machine_binaries() {
     );
 }
 
+/// The `claude` CLI is installed on the developer's machine, as the Bazel launchers are: neither a script nor a source
+/// file that runs it reports it, unless `ignore-global-binaries` is off.
+#[test]
+fn the_claude_cli_is_a_machine_binary() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","main":"index.ts","scripts":{"review":"claude -p review"}}"#,
+        ),
+        (
+            "index.ts",
+            "import { spawn } from 'node:child_process';\nspawn('claude', ['-p', 'build']);\nexport {};\n",
+        ),
+    ];
+    assert_eq!(found(&lint(&files, ""), "unlisted-binaries"), none());
+    assert_eq!(
+        found(
+            &lint(&files, "[js]\nignore-global-binaries = false\n"),
+            "unlisted-binaries"
+        ),
+        [
+            "index.ts: `index.ts` runs `claude`, which no dependency provides",
+            "package.json: script `review` runs `claude`, which no dependency provides",
+        ]
+    );
+}
+
 /// A listed `@bazel/bazelisk` or `@bazel/ibazel` still provides the launcher a script runs, so it is used.
 #[test]
 fn listed_bazel_launchers_are_used_by_the_scripts_that_run_them() {
