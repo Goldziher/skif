@@ -1,6 +1,7 @@
 //! Uses of listed dependencies that only a reference outside an ordinary import makes: a re-export inside a
 //! `declare module` block, a package file a stylesheet `url()` names and a file of a subpath directory with a
-//! `package.json` of its own, and the `@types` package that a package shipping its own types does not use.
+//! `package.json` of its own, the `@types` package that a package shipping its own types does not use, and the
+//! `devDependencies` entry that a `dependencies` entry of the same package makes redundant.
 //!
 //! Every case is a minimal synthetic workspace.
 
@@ -296,5 +297,44 @@ fn a_type_only_reexport_is_satisfied_by_the_types_package() {
             ),
         ],
         "{unlisted:#?}"
+    );
+}
+
+/// A `devDependencies` entry of a package the same manifest lists in `dependencies` is reported, used or not: the
+/// production entry installs the package for development as well, so the development entry has no effect. One
+/// nothing uses is reported as unused in both sections, once in each.
+#[test]
+fn a_dev_dependency_the_manifest_also_lists_in_dependencies_is_reported() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"left-pad":"1.3.0","unused-a":"1.0.0"},"devDependencies":{"left-pad":"1.3.0","right-pad":"1.0.0","unused-a":"1.0.0"}}"#,
+        ),
+        (
+            "src/index.ts",
+            "import leftPad from 'left-pad';\nimport rightPad from 'right-pad';\nexport const pad = [leftPad, rightPad];\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: unused-a"]);
+    let dev: Vec<(String, String, Option<String>)> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "unused-dev-dependencies")
+        .map(|d| (d.dependency.clone().unwrap_or_default(), d.message.clone(), d.help.clone()))
+        .collect();
+    assert_eq!(
+        dev,
+        [
+            (
+                "left-pad".to_owned(),
+                "`left-pad` is listed in `devDependencies` and in `dependencies`".to_owned(),
+                Some("remove it from `devDependencies`: `dependencies` installs it for development as well".to_owned())
+            ),
+            (
+                "unused-a".to_owned(),
+                "`unused-a` is listed in `devDependencies` but never used".to_owned(),
+                Some("remove it, or add it to `ignore-dependencies` when a tool uses it without importing it".to_owned())
+            ),
+        ],
+        "{diagnostics:#?}"
     );
 }
