@@ -14,11 +14,11 @@ cost far less. Long-lived hosts (watch mode, the language server, the MCP server
 every run, and a multi-root run parses code its roots share once per root. Speed claims also need numbers someone
 else can repeat: a figure measured on an unrecorded machine says nothing.
 
-Type-aware analysis ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)) is on by default and adds the type checker's
-programs to a run. Its cost is in time and in memory: type-checking a program needs memory in proportion to the
-program, and the largest program of the corpus holds most of a typed run's peak, which is still well below what
+Type-aware analysis ([ADR 0034](0034-type-aware-analysis-on-tsrs.md)) is opt-in (`--type-aware`) and adds the type
+checker's programs to a run. Its cost is in time and in memory: type-checking a program needs memory in proportion to
+the program, and the largest program of the corpus holds most of a typed run's peak, which is still well below what
 `tsc --noEmit` needs for the same program. Users choose the mode from published numbers, and without a budget the
-default drifts slower. The largest repositories of the corpus also need more time, disk and care than a fixed run
+typed mode drifts slower. The largest repositories of the corpus also need more time, disk and care than a fixed run
 count gives them.
 
 What does skif cache, how do the roots of one run share parse results, where are published speed numbers measured,
@@ -154,12 +154,12 @@ through the coalescer, which is what makes it deadlock-free.
 
 ### Both modes and peak memory
 
-* Each corpus and module graph target is timed with types (the default) and with `--no-type-aware` in the same
+* Each corpus and module graph target is timed without types (the default) and with `--type-aware` in the same
   hyperfine run. Each mode then runs once more under `/usr/bin/time` (GNU time's `-v` on Linux, `-l` on macOS) for its
   peak RSS; where neither is available the RSS is not recorded and its check is not measured.
 * `summary.json` records the peak RSS on the rows of both modes and the budget checks, each `pass`, `fail`, `invalid`
-  or `not-measured`. `summary.md` and the published tables show both modes, labelled "types on (default)" and "types
-  off", with their peak RSS, and `refresh-numbers.mjs` refuses a summary that lacks a mode or the peak RSS of one.
+  or `not-measured`. `summary.md` and the published tables show both modes, labelled "types on" and "types off
+  (default)", with their peak RSS, and `refresh-numbers.mjs` refuses a summary that lacks a mode or the peak RSS of one.
 
 ### The type-aware budget
 
