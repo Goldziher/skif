@@ -8,7 +8,7 @@ use tsrs_checker::{Checker, ObjectFlags, Type, TypeFlags};
 use tsrs_compiler::Program;
 use tsrs_core::{P, tspath};
 
-use crate::members::{Candidates, DeclKey, MemberRead};
+use crate::members::{Candidates, DeclKey, Implementation, MemberRead};
 use crate::vfs::BomFiles;
 
 /// What the walks share.
@@ -24,8 +24,9 @@ pub(crate) struct FileFacts {
     pub(crate) whole: Vec<DeclKey>,
     /// The names of reads the checker could not settle.
     pub(crate) unresolved: BTreeSet<String>,
-    /// Per asked class declared in the file, its base classes and interfaces.
-    pub(crate) ancestry: Vec<(DeclKey, BTreeSet<DeclKey>)>,
+    /// The members of base classes and interfaces that the classes declared in the file have as members of asked
+    /// declarations.
+    pub(crate) implementations: BTreeSet<Implementation>,
 }
 
 /// Walks `file` with `checker`.
@@ -284,18 +285,34 @@ impl Walker<'_, '_> {
             if write_only && !root.flags().intersects(SymbolFlags::SetAccessor) {
                 continue;
             }
-            let Some(parent) = root.parent() else {
-                continue;
-            };
-            for &declaration in parent.declarations() {
-                if let Some(owner) = self.key_of(declaration) {
-                    self.facts.reads.push(MemberRead {
-                        owner,
-                        name: name.to_owned(),
-                    });
-                }
+            for owner in self.parent_keys(root) {
+                self.facts.reads.push(MemberRead {
+                    owner,
+                    name: name.to_owned(),
+                });
             }
         }
+    }
+
+    /// The declarations that own the member `symbol` lands on, through its root symbols.
+    fn owners(&mut self, symbol: P<Symbol>) -> Vec<DeclKey> {
+        let mut owners = Vec::new();
+        for root in self.checker.get_root_symbols(symbol) {
+            let root = self.resolve_alias(root);
+            owners.extend(self.parent_keys(root));
+        }
+        owners
+    }
+
+    /// The keys of the declarations of the symbol that declares the member `member`.
+    fn parent_keys(&self, member: P<Symbol>) -> Vec<DeclKey> {
+        member.parent().map_or_else(Vec::new, |parent| {
+            parent
+                .declarations()
+                .iter()
+                .filter_map(|&declaration| self.key_of(declaration))
+                .collect()
+        })
     }
 
     // Whole uses.
@@ -359,38 +376,70 @@ impl Walker<'_, '_> {
 
     // Base classes and interfaces.
 
+    /// For every member of a base class or an interface of the class `node` with a name some asked declaration has,
+    /// the asked declaration whose member the class has under that name: its own, an override, or one it inherits
+    /// from a base class further up. Every class counts, asked or not: one that declares no judged member still
+    /// hands a read through its interface to the member it inherits. Instance members pair with the instance side of
+    /// the class, static members of a base class with its static side.
     fn class(&mut self, node: P<Node>) {
-        let Some(key) = self.key_of(node) else {
+        let Some(class) = self.checker.get_symbol_of_declaration_exported(node) else {
             return;
         };
-        if !self.context.candidates.is_class(&key) {
+        let ancestors = self.ancestors(class);
+        if ancestors.is_empty() {
             return;
         }
-        let Some(symbol) = self.checker.get_symbol_of_declaration_exported(node) else {
-            return;
-        };
-        let ancestors = self.ancestors(symbol);
-        self.facts.ancestry.push((key, ancestors));
+        let instance = self.checker.get_declared_type_of_symbol_exported(class);
+        let statics = self.checker.get_type_of_symbol_exported(class);
+        for ancestor in ancestors {
+            let declared = self.checker.get_declared_type_of_symbol_exported(ancestor);
+            self.implement(declared, instance);
+            if ancestor.flags().intersects(SymbolFlags::Class) {
+                let constructor = self.checker.get_type_of_symbol_exported(ancestor);
+                self.implement(constructor, statics);
+            }
+        }
     }
 
-    /// The declarations of the classes and interfaces `class` extends or implements, transitively.
-    fn ancestors(&mut self, class: P<Symbol>) -> BTreeSet<DeclKey> {
+    /// Records, for each member of `ancestor` with an asked name, the asked declarations that own the member of the
+    /// same name on `class` when they are not the member's own.
+    fn implement(&mut self, ancestor: P<Type>, class: P<Type>) {
+        for &member in self.checker.get_properties_of_type_exported(ancestor) {
+            let name = member.name();
+            if !self.context.candidates.is_member_name(name) {
+                continue;
+            }
+            let Some(provided) = self.checker.get_property_of_type_exported(class, name) else {
+                continue;
+            };
+            let mut providers = self.owners(provided);
+            providers.retain(|provider| self.context.candidates.is_asked(provider));
+            if providers.is_empty() {
+                continue;
+            }
+            for owner in self.owners(member) {
+                for provider in providers.iter().filter(|&provider| *provider != owner) {
+                    self.facts.implementations.insert(Implementation {
+                        member: MemberRead {
+                            owner: owner.clone(),
+                            name: name.to_owned(),
+                        },
+                        provider: provider.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// The classes and interfaces `class` extends or implements, transitively.
+    fn ancestors(&mut self, class: P<Symbol>) -> Vec<P<Symbol>> {
         let mut seen = Vec::new();
         let mut queue = vec![class];
-        let mut ancestors = BTreeSet::new();
         while let Some(symbol) = queue.pop() {
             if seen.contains(&symbol) {
                 continue;
             }
             seen.push(symbol);
-            if symbol != class {
-                ancestors.extend(
-                    symbol
-                        .declarations()
-                        .iter()
-                        .filter_map(|&declaration| self.key_of(declaration)),
-                );
-            }
             if symbol.flags().intersects(SymbolFlags::Class | SymbolFlags::Interface) {
                 let declared = self.checker.get_declared_type_of_symbol_exported(symbol);
                 for &base in self.checker.get_base_types_exported(declared) {
@@ -401,7 +450,8 @@ impl Walker<'_, '_> {
                 queue.extend(self.implemented(declaration));
             }
         }
-        ancestors
+        seen.retain(|&symbol| symbol != class);
+        seen
     }
 
     /// The interfaces (or classes) in the `implements` clause of `declaration`.
