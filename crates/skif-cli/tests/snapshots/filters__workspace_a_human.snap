@@ -20,5 +20,4 @@ packages/a/package.json
     = help: remove it, or add it to `ignore-dependencies` when a tool uses it without importing it
     = fix (unsafe): Remove `is-number` from `dependencies`
 
-types: 2 of 2 packages untyped (no-tsconfig 2); run with --no-type-aware to skip types
 Found 1 error, 1 warning in 1 package (2 fixable)

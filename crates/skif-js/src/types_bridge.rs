@@ -27,7 +27,7 @@ use crate::setup::Setup;
 pub(crate) enum OffReason {
     /// No rule of the run reads typed facts, so the checker was not asked and the report says nothing about types.
     Unneeded,
-    /// The configuration turned type awareness off for every package (`[js] type-aware = false`, `--no-type-aware`).
+    /// The configuration left type awareness off for every package (the default, `--no-type-aware`).
     Disabled,
     /// skif was built without the `type-aware` feature.
     #[cfg_attr(

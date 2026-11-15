@@ -371,7 +371,7 @@ fn defaults_are_sensible() {
     assert_eq!(Config::from_toml_str("").unwrap(), config);
     assert!(config.js.enabled && !config.js.production && !config.js.include_fixtures);
     assert!(!config.js.use_public_hoisting);
-    assert!(config.js.type_aware, "type-aware analysis is on by default");
+    assert!(!config.js.type_aware, "type-aware analysis is off by default");
     assert!(!config.js.isolate_workspaces && !config.js.strict);
     assert_eq!(config.catalog.mode, CatalogMode::Off);
     assert_eq!(config.catalog.min_packages, 2);
@@ -541,6 +541,45 @@ fn no_type_aware_wins_over_the_file_and_every_workspace() {
         config.js.workspaces["b"].type_aware, None,
         "an unset workspace inherits the top level"
     );
+}
+
+#[test]
+fn type_aware_wins_over_the_file_and_every_workspace() {
+    let mut config = Config::from_toml_str(
+        "[js]\ntype-aware = false\n[js.workspaces.\"a\"]\ntype-aware = false\n[js.workspaces.\"b\"]\nentry = [\"x.ts\"]\n",
+    )
+    .unwrap();
+    config.apply(&ConfigOverrides::default().with_type_aware(true)).unwrap();
+    assert!(config.js.type_aware);
+    assert_eq!(config.js.workspaces["a"].type_aware, Some(true));
+    assert_eq!(
+        config.js.workspaces["b"].type_aware, None,
+        "an unset workspace inherits the top level"
+    );
+}
+
+#[test]
+fn no_type_aware_wins_over_type_aware() {
+    let mut config =
+        Config::from_toml_str("[js]\ntype-aware = true\n\n[js.workspaces.\"a\"]\ntype-aware = true\n").unwrap();
+    config
+        .apply(
+            &ConfigOverrides::default()
+                .with_type_aware(true)
+                .with_no_type_aware(true),
+        )
+        .unwrap();
+    assert!(!config.js.type_aware);
+    assert_eq!(config.js.workspaces["a"].type_aware, Some(false));
+}
+
+#[test]
+fn the_file_turns_types_on_over_the_off_default() {
+    let mut config =
+        Config::from_toml_str("[js]\ntype-aware = true\n\n[js.workspaces.\"a\"]\ntype-aware = false\n").unwrap();
+    config.apply(&ConfigOverrides::default()).unwrap();
+    assert!(config.js.type_aware);
+    assert_eq!(config.js.workspaces["a"].type_aware, Some(false));
 }
 
 #[test]

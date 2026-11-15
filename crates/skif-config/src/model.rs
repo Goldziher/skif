@@ -600,11 +600,12 @@ impl Config {
         if overrides.no_js {
             self.js.enabled = false;
         }
-        if overrides.no_type_aware {
-            self.js.type_aware = false;
+        if overrides.no_type_aware || overrides.type_aware {
+            let enabled = !overrides.no_type_aware;
+            self.js.type_aware = enabled;
             for workspace in self.js.workspaces.values_mut() {
                 if workspace.type_aware.is_some() {
-                    workspace.type_aware = Some(false);
+                    workspace.type_aware = Some(enabled);
                 }
             }
         }
@@ -2106,9 +2107,9 @@ pub struct Js {
     pub use_public_hoisting: bool,
     /// Resolve member reads with the TypeScript type checker, so a read through a typed receiver (`this.x`, a
     /// parameter, a variable of a class type) credits the member it reaches rather than every member of that name.
-    /// Slower, more accurate member findings; on by default. A package without usable types (no `tsconfig.json`,
-    /// plain JavaScript, uninstalled dependencies) keeps the name-based analysis, and the report says which. Off
-    /// (`type-aware = false`, `skif --no-type-aware`) runs no type checker at all.
+    /// Slower, more accurate member findings; off by default (`type-aware = true`, `skif --type-aware` turn it on).
+    /// A package without usable types (no `tsconfig.json`, plain JavaScript, uninstalled dependencies) keeps the
+    /// name-based analysis, and the report says which. Off runs no type checker at all.
     pub type_aware: bool,
     /// How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the
     /// git index and re-lists from disk every directory modified since the index was written (faster, blind to an
@@ -2292,7 +2293,7 @@ impl Default for Js {
             use_tsconfig_files: false,
             include_fixtures: false,
             use_public_hoisting: false,
-            type_aware: true,
+            type_aware: false,
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),
             workspaces: IndexMap::new(),

@@ -30,5 +30,4 @@ packages/b/y.ts
     = help: remove it, or tag it `@public` when it is part of a public API
     = fix (unsafe): Remove the unused export `z`
 
-types: 2 of 2 packages untyped (no-tsconfig 2); run with --no-type-aware to skip types
 Found 2 errors, 2 warnings in 3 packages (4 fixable)

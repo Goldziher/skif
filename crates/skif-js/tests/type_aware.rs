@@ -16,6 +16,8 @@ use skif_workspace::Workspace;
 
 const ROOT: &str = "/ws";
 
+const TYPES_ON: &str = "[js]\ntype-aware = true\n";
+
 const TYPES_OFF: &str = "[js]\ntype-aware = false\n";
 
 const PACKAGE: (&str, &str) = ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#);
@@ -85,7 +87,7 @@ fn class_findings(files: &[(&str, &str)], toml: &str) -> Vec<String> {
 
 fn explain(files: &[(&str, &str)], file: &str, export: &str) -> skif_js::UsageReport {
     let memory = memory(files);
-    let config = Config::from_toml_str("").unwrap();
+    let config = Config::from_toml_str(TYPES_ON).unwrap();
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let sources: Vec<Arc<dyn InputSource>> = Vec::new();
@@ -96,7 +98,7 @@ fn explain(files: &[(&str, &str)], file: &str, export: &str) -> skif_js::UsageRe
 fn typed_reads_leave_a_same_named_member_of_another_class_unused() {
     let files = [PACKAGE, TSCONFIG, WIDGETS, DRAW];
     assert_eq!(
-        class_findings(&files, ""),
+        class_findings(&files, TYPES_ON),
         ["src/widgets.ts: Gadget.render", "src/widgets.ts: Widget.paint"],
         "the typed read `widget.render()` reaches `Widget.render` only"
     );
@@ -127,7 +129,7 @@ fn a_read_through_an_interface_keeps_the_member_an_implementing_class_inherits_u
         ),
     ];
     assert_eq!(
-        class_findings(&files, ""),
+        class_findings(&files, TYPES_ON),
         ["src/cell.ts: BaseCell.getSize"],
         "`c.getRange()` reaches `BaseCell.getRange` through `CodeCell`, and nothing reads `getSize`"
     );
@@ -213,7 +215,7 @@ fn a_default_exported_class_is_judged_with_types_like_a_named_one() {
             ];
             files.extend(barrel);
             assert_eq!(
-                class_findings(&files, ""),
+                class_findings(&files, TYPES_ON),
                 [format!("src/lib.ts: {label}.paint")],
                 "with types, `paint` is read on `Other` only: {reader} of {class:?}"
             );
@@ -232,7 +234,7 @@ fn a_class_exported_under_two_names_is_reported_once_with_types() {
         "import Lib, { Lib as Named } from './lib';\n\nnew Lib().render();\nexport const named = new Named();\n";
     for &(_, class) in &DEFAULT_CLASSES[4..] {
         let files = [PACKAGE, TSCONFIG, ("src/index.ts", index), ("src/lib.ts", class)];
-        assert_eq!(class_findings(&files, ""), ["src/lib.ts: Lib.paint"], "{class:?}");
+        assert_eq!(class_findings(&files, TYPES_ON), ["src/lib.ts: Lib.paint"], "{class:?}");
     }
 }
 
@@ -274,7 +276,7 @@ fn typed_mode_only_removes_enum_and_namespace_findings() {
         ),
     ];
     let rules = ["unused-enum-members", "unused-namespace-members"];
-    let typed = found_by(&lint(&files, "").diagnostics, &rules);
+    let typed = found_by(&lint(&files, TYPES_ON).diagnostics, &rules);
     let untyped = found_by(&lint(&files, TYPES_OFF).diagnostics, &rules);
     assert!(
         typed.iter().all(|finding| untyped.contains(finding)),
@@ -289,7 +291,7 @@ fn typed_mode_only_removes_enum_and_namespace_findings() {
 #[test]
 fn a_package_without_tsconfig_keeps_name_based_class_member_findings() {
     let files = [PACKAGE, WIDGETS, DRAW];
-    let report = lint(&files, "");
+    let report = lint(&files, TYPES_ON);
     assert_eq!(
         found_by(&report.diagnostics, &["unused-class-members"]),
         class_findings(&files, TYPES_OFF)
@@ -322,7 +324,7 @@ fn uninstalled_dependencies_credit_reads_by_name() {
              export const widget = new Widget();\nexport const gadget = new Gadget();\nmount().render();\n",
         ),
     ];
-    let report = lint(&files, "");
+    let report = lint(&files, TYPES_ON);
     assert_eq!(
         found_by(&report.diagnostics, &["unused-class-members"]),
         ["src/widgets.ts: Widget.paint"],
@@ -356,7 +358,7 @@ fn a_vue_template_reading_a_class_member_by_name_keeps_it_used() {
              <template><p>{{ service.shown }}</p></template>\n",
         ),
     ];
-    assert_eq!(class_findings(&files, ""), ["src/service.ts: Service.unread"]);
+    assert_eq!(class_findings(&files, TYPES_ON), ["src/service.ts: Service.unread"]);
 }
 
 #[test]
@@ -378,7 +380,7 @@ fn the_report_summarizes_a_mixed_workspace() {
         ),
         ("packages/plain/src/index.ts", "export const plain = 1;\n"),
     ];
-    let summary = lint(&files, "").type_aware.expect("the JS analysis ran");
+    let summary = lint(&files, TYPES_ON).type_aware.expect("the JS analysis ran");
     assert_eq!(
         summary,
         TypeAwareSummary::new(
@@ -397,11 +399,45 @@ fn the_report_summarizes_a_mixed_workspace() {
 #[test]
 fn a_workspace_that_turns_types_off_is_reported_disabled() {
     let files = [PACKAGE, TSCONFIG, WIDGETS, DRAW];
-    let summary = lint(&files, "[js.workspaces.\".\"]\ntype-aware = false\n")
-        .type_aware
-        .expect("the JS analysis ran");
+    let summary = lint(
+        &files,
+        "[js]\ntype-aware = true\n[js.workspaces.\".\"]\ntype-aware = false\n",
+    )
+    .type_aware
+    .expect("the JS analysis ran");
     assert!(!summary.enabled);
     assert_eq!(summary.packages[0].reason.as_deref(), Some("disabled"));
+}
+
+#[test]
+fn types_are_off_by_default() {
+    let files = [PACKAGE, TSCONFIG, WIDGETS, DRAW];
+    let report = lint(&files, "");
+    assert_eq!(
+        found_by(&report.diagnostics, &["unused-class-members"]),
+        ["src/widgets.ts: Widget.paint"],
+        "by name, `render` is read on every class"
+    );
+    let summary = report.type_aware.expect("the JS analysis ran");
+    assert!(!summary.enabled);
+    assert_eq!(summary.packages[0].reason.as_deref(), Some("disabled"));
+}
+
+#[test]
+fn a_workspace_that_turns_types_on_is_typed_under_the_off_default() {
+    let files = [PACKAGE, TSCONFIG, WIDGETS, DRAW];
+    let report = lint(&files, "[js.workspaces.\".\"]\ntype-aware = true\n");
+    assert_eq!(
+        found_by(&report.diagnostics, &["unused-class-members"]),
+        ["src/widgets.ts: Gadget.render", "src/widgets.ts: Widget.paint"],
+        "the typed read `widget.render()` reaches `Widget.render` only"
+    );
+    let summary = report.type_aware.expect("the JS analysis ran");
+    assert!(summary.enabled);
+    assert_eq!(
+        summary.packages,
+        [TypeAwarePackage::new("", "app", TypeAwareState::Typed)]
+    );
 }
 
 #[test]
@@ -503,7 +539,7 @@ fn an_enum_member_used_without_types_is_not_asked_of_the_checker() {
     assert_eq!(green["class-member"]["verdict"], "unused");
     let rules = ["unused-enum-members"];
     assert_eq!(
-        found_by(&lint(&files, "").diagnostics, &rules),
+        found_by(&lint(&files, TYPES_ON).diagnostics, &rules),
         ["src/colors.ts: Color.Green"]
     );
     assert_eq!(
