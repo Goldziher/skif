@@ -259,6 +259,10 @@ pub struct InitArgs {
 }
 
 #[derive(Debug, clap::Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent command-line switch"
+)]
 pub struct ExplainUsageArgs {
     /// A file, or `FILE#EXPORT` for one of its exports, relative to the current directory (or absolute). With
     /// --dependency there is no file, and a single path is PATH.

@@ -76,6 +76,10 @@ some repositories. Types are to become the default again once programs share tho
 - **Library users of `skif-report`**: `type-aware` is a reserved top-level key of the JSON document, so
   `render_json_with` rejects an extra member of that name.
 
+- **Library users of `skif-config`**: `ConfigOverrides::no_type_aware` is replaced by `type_aware: Option<bool>`
+  (`Some(false)` for `--no-type-aware`, `Some(true)` for `--type-aware`); `with_no_type_aware` and the new
+  `with_type_aware` set it, and turning types off wins over turning them on.
+
 ### Added
 
 - **Type-aware analysis**, `[js] type-aware` (default `false`, also per workspace in `[js.workspaces."<dir>"]`), the

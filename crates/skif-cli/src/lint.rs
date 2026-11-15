@@ -1188,7 +1188,7 @@ mod tests {
     #[test]
     fn a_bare_run_overrides_neither_way_so_the_off_default_holds() {
         let bare = overrides(&lint_args(&[]));
-        assert!(!bare.type_aware && !bare.no_type_aware);
+        assert_eq!(bare.type_aware, None);
         let mut config = Config::default();
         config.apply(&bare).unwrap();
         assert!(!config.js.type_aware, "types are off by default");
@@ -1197,15 +1197,15 @@ mod tests {
     #[test]
     fn type_aware_flags_reach_the_config_overrides() {
         let on = overrides(&lint_args(&["--type-aware"]));
-        assert!(on.type_aware && !on.no_type_aware);
+        assert_eq!(on.type_aware, Some(true));
         let off = overrides(&lint_args(&["--no-type-aware"]));
-        assert!(off.no_type_aware && !off.type_aware);
+        assert_eq!(off.type_aware, Some(false));
     }
 
     #[test]
     fn watch_and_servers_analyse_without_types() {
-        assert!(overrides(&lint_args(&["--watch"])).no_type_aware);
-        assert!(server_overrides().no_type_aware);
+        assert_eq!(overrides(&lint_args(&["--watch"])).type_aware, Some(false));
+        assert_eq!(server_overrides().type_aware, Some(false));
     }
 
     #[test]
