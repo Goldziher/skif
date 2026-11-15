@@ -9,7 +9,8 @@
 //! checkers the early plan gives it whether it starts early or not, and the walks read the judged files alone.
 //!
 //! The analyses of a run over many roots can share their cores ([`TypeBudget`]), so that their programs together hold
-//! no more cores than there are.
+//! no more cores than there are, and their programs ([`TypePrograms`](crate::TypePrograms)), so that a program the
+//! judged files of several roots go to is built once for the run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
@@ -30,6 +31,7 @@ use crate::members::{self, Candidates, Found};
 use crate::owner::ProgramOwner;
 use crate::programs::{self, ConfigHost, Lookups, Placement, PlannedProgram, ProgramPlan};
 use crate::query::{self, FileFacts, QueryContext};
+use crate::resident::{Claim, ProgramKey, Resident, Ticket};
 use crate::vfs::{self, BomFiles};
 use crate::{ENGINE, ProgramTiming, TypeBuild, TypeError, TypeFacts, TypeInput, TypePackage, TypeQuery, TypeTimings};
 
@@ -58,6 +60,7 @@ pub(crate) fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
         tsconfig_override: input.tsconfig_override.map(std::path::Path::to_path_buf),
         threads: input.threads,
         budget: input.budget.cloned(),
+        programs: input.programs.cloned(),
     };
     std::thread::scope(|scope| start(scope, build, input.cancel).finish(input.packages, input.query))
 }
@@ -148,6 +151,7 @@ impl PendingTypes<'_> {
             query,
             threads: build.threads,
             budget: build.budget.as_ref(),
+            programs: build.programs.as_ref(),
             cancel: self.cancel,
         };
         let handed = self.hand_over(&input);
@@ -220,6 +224,10 @@ impl PendingTypes<'_> {
 impl Drop for PendingTypes<'_> {
     fn drop(&mut self) {
         self.shared.judged.put(None);
+        // The analysis asks no more: a program kept only for its root goes.
+        if let Some(programs) = &self.shared.build.programs {
+            programs.done(&self.shared.build.root);
+        }
     }
 }
 
@@ -238,8 +246,8 @@ struct Shared {
     /// global pool, a host that runs many analyses at once on that pool's threads (one per root) blocks them all
     /// waiting for plans whose parallel work then finds no thread, and a waiting tsrs call there takes other jobs of
     /// the host that block. `None` when the pool cannot be started: tsrs then
-    /// uses the global pool.
-    pool: Option<rayon::ThreadPool>,
+    /// uses the global pool. Shared with the programs built on it, which are freed on it ([`ProgramOwner`]).
+    pool: Option<Arc<rayon::ThreadPool>>,
     /// The cores the programs check on: the analysis's own, or those of the run's [`TypeBudget`].
     cores: Arc<Cores>,
 }
@@ -256,12 +264,13 @@ impl Shared {
 
 /// The rayon pool of one analysis, a thread per core. Only tsrs's own work runs on it, never a wait for a plan or for
 /// cores: a pool thread that waits inside tsrs takes other queued jobs, so a job that blocks would block it too.
-fn types_pool(threads: Option<NonZeroUsize>) -> Option<rayon::ThreadPool> {
+fn types_pool(threads: Option<NonZeroUsize>) -> Option<Arc<rayon::ThreadPool>> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(cores_of(threads))
         .thread_name(|index| format!("skif-types-{index}"))
         .build()
         .ok()
+        .map(Arc::new)
 }
 
 /// `threads`, or every core of the machine.
@@ -584,14 +593,19 @@ struct Schedule {
 }
 
 impl Schedule {
-    /// The schedule of programs that hold `sizes` judged files each.
+    /// The schedule of programs that hold `sizes` judged files each. A program gets no more checkers than it has
+    /// files to walk: tsrs creates every checker of a program before the walk, each with the program's global types,
+    /// and one that owns no walked file only holds memory.
     fn new(parallelism: &Parallelism, sizes: &[usize]) -> Self {
         let total = sizes.iter().sum();
         let mut order: Vec<usize> = (0..sizes.len()).collect();
         order.sort_by_key(|&index| std::cmp::Reverse(sizes[index]));
         Self {
             order,
-            checkers: sizes.iter().map(|&files| parallelism.checkers(files, total)).collect(),
+            checkers: sizes
+                .iter()
+                .map(|&files| parallelism.checkers(files, total).min(files.max(1)))
+                .collect(),
         }
     }
 }
@@ -820,6 +834,8 @@ struct BuiltProgram {
     cores_waited: Duration,
     /// Whether the program started from the early plan.
     early: bool,
+    /// Whether another analysis of the run built the program ([`TypePrograms`](crate::TypePrograms)).
+    shared: bool,
 }
 
 struct WalkedFile {
@@ -1013,11 +1029,19 @@ impl Session<'_> {
             return Some(Outcome::Cancelled);
         }
         let waiting = Instant::now();
+        // Before taking cores: a build of the program by another analysis of the run holds its cores already and
+        // waits for no host, so waiting for it waits for nothing this analysis holds.
+        let programs = self.shared.build.programs.as_ref();
+        let claim = programs.map(|programs| programs.claim(&ProgramKey::new(config, self.single_threaded)));
+        let built_checkers = match &claim {
+            Some(Claim::Ready(resident)) => resident.checkers(),
+            _ => checkers,
+        };
         // Without cores held, the program is of the judged files' plan, or an early one of an analysis's own cores
         // ([`Cores::admit_early`]): waiting for them cannot wait for a host.
         let _taken = held.unwrap_or_else(|| {
-            let count = target.as_ref().map_or(checkers, |(judged, index)| {
-                charge(checkers, judged.plan.programs[*index].files.len())
+            let count = target.as_ref().map_or(built_checkers, |(judged, index)| {
+                charge(built_checkers, judged.plan.programs[*index].files.len())
             });
             self.shared.cores.take(count)
         });
@@ -1025,8 +1049,12 @@ impl Session<'_> {
         if self.cancelled() {
             return Some(Outcome::Cancelled);
         }
-        let mut outcome = panic::catch_unwind(AssertUnwindSafe(|| self.run_program(config, checkers, target, early)))
-            .unwrap_or(Some(Outcome::Failed));
+        let mut outcome = panic::catch_unwind(AssertUnwindSafe(|| match claim {
+            Some(Claim::Ready(resident)) => self.walk_shared(&resident, config, target, (early, false)),
+            Some(Claim::Build(ticket)) => self.run_program(config, checkers, target, early, Some(ticket)),
+            None => self.run_program(config, checkers, target, early, None),
+        }))
+        .unwrap_or(Some(Outcome::Failed));
         if let Some(Outcome::Built(built)) = &mut outcome {
             built.cores_waited = cores_waited;
         }
@@ -1041,14 +1069,71 @@ impl Session<'_> {
         Some((judged, index))
     }
 
-    /// Builds the program of `path`, walks its judged files and frees it; `None` when no judged file needs it.
-    fn run_program(&self, path: &str, checkers: usize, target: Option<Target>, early: bool) -> Option<Outcome> {
+    /// Builds the program of `path` (in a run that shares its programs, under `ticket`, the claim to build it for the
+    /// run), walks its judged files and frees it unless another root of the run may still need it; `None` when no
+    /// judged file needs it.
+    fn run_program(
+        &self,
+        path: &str,
+        checkers: usize,
+        target: Option<Target>,
+        early: bool,
+        ticket: Option<Ticket<'_>>,
+    ) -> Option<Outcome> {
         let start = Instant::now();
-        let Some(mut config) = programs::parse_config(path, self.host) else {
+        // What the config and the host allocate lives as long as the program, which points into it.
+        let region = Region::new_scratch(SCRATCH_CHUNK);
+        let built = {
+            let _scope = region.enter();
+            self.build(path, checkers, ticket.is_some())
+        };
+        let Some((owner, loader_regions, files)) = built else {
             return Some(Outcome::ConfigError);
         };
-        let Some(base) = config.compiler_options() else {
-            return Some(Outcome::ConfigError);
+        let resident = Arc::new(Resident::new(
+            (owner, loader_regions, region),
+            Arc::clone(&self.shared.boms),
+            ProgramKey::new(path, self.single_threaded),
+            checkers,
+            start.elapsed(),
+        ));
+        if let Some(ticket) = ticket {
+            ticket.publish(&resident, &files, &self.shared.cwd);
+        }
+        drop(files);
+        self.walk_shared(&resident, path, target, (early, true))
+    }
+
+    /// Walks `resident`, the program of `path`, as [`Session::walk`] does, and lets it go: it is freed once no other
+    /// root of the run may need it.
+    fn walk_shared(
+        &self,
+        resident: &Arc<Resident>,
+        path: &str,
+        target: Option<Target>,
+        started: (bool, bool),
+    ) -> Option<Outcome> {
+        let outcome = self.walk(resident, path, target, started);
+        if let Some(programs) = &self.shared.build.programs {
+            programs.walked(resident, &self.shared.cwd);
+        }
+        outcome
+    }
+
+    /// Reads the config at `path` and builds and binds its program on `checkers` checkers, with the program's loader
+    /// regions and, when `listed`, the files the config includes; `None` when the config cannot be read.
+    fn build(
+        &self,
+        path: &str,
+        checkers: usize,
+        listed: bool,
+    ) -> Option<(ProgramOwner, Arc<ProgramRegions>, Vec<String>)> {
+        let mut config = programs::parse_config(path, self.host)?;
+        let base = config.compiler_options()?;
+        let files = if listed {
+            config.file_names().to_vec()
+        } else {
+            Vec::new()
         };
         let single_threaded = self.single_threaded;
         config.parsed_config.compiler_options = Some(P::new(CompilerOptions {
@@ -1074,31 +1159,26 @@ impl Session<'_> {
         // Referenced projects contribute their sources, as editors and tsrs-lint read them.
         options.use_source_of_project_reference = true;
         options.regions = Some(Arc::clone(&loader_regions));
-        // The checkers' memory goes back with the program.
+        // The checkers' memory goes back with the program, the diagnostics they make while answering included:
+        // without a region of their own those go to the arena of the thread that made them, which is never freed,
+        // so every program of a run would add its diagnostics. No diagnostic is read.
         options.checker_regions = true;
+        options.checker_diagnostic_regions = true;
         if single_threaded {
             options.single_threaded = Tristate::True;
         }
-        let owner = self.shared.on_pool(|| ProgramOwner::new(options));
-        let built = self.walk(owner.program(), path, target, start, checkers, early);
-        self.shared.on_pool(move || drop(owner));
-        drop(loader_regions);
-        built
+        let pool = self.shared.pool.clone();
+        let owner = self.shared.on_pool(|| ProgramOwner::new(options, pool));
+        self.shared.on_pool(|| owner.program().bind_source_files());
+        Some((owner, loader_regions, files))
     }
 
-    /// Walks the judged files of the program of `path` once it is built, copying out what the walks find. An early
-    /// program waits here, built, for the judged files' plan.
-    fn walk(
-        &self,
-        tsrs: &tsrs_compiler::Program,
-        path: &str,
-        target: Option<Target>,
-        start: Instant,
-        checkers: usize,
-        early: bool,
-    ) -> Option<Outcome> {
-        self.shared.on_pool(|| tsrs.bind_source_files());
-        let build = start.elapsed();
+    /// Walks the judged files of `resident`, the program of `path`, copying out what the walks find; `started` says
+    /// whether the program started from the early plan and whether this analysis built it. An early program waits
+    /// here, built, for the judged files' plan, before it enters the program: another analysis of the run may walk it
+    /// meanwhile.
+    fn walk(&self, resident: &Resident, path: &str, target: Option<Target>, started: (bool, bool)) -> Option<Outcome> {
+        let (early, built_here) = started;
         let (judged, index) = match target {
             Some(target) => target,
             None => self.target(path)?,
@@ -1106,6 +1186,8 @@ impl Session<'_> {
         if self.cancelled() {
             return Some(Outcome::Cancelled);
         }
+        let _walking = resident.walking();
+        let tsrs = resident.program();
         let program = &judged.plan.programs[index];
         let mut sources = Vec::new();
         let mut indices = Vec::new();
@@ -1119,9 +1201,10 @@ impl Session<'_> {
                 None => missing.push(file),
             }
         }
+        // The program's own record: it read the files through the file system of the analysis that built it.
         let context = QueryContext {
             candidates: &judged.candidates,
-            boms: &self.shared.boms,
+            boms: resident.boms(),
         };
         let slots: Vec<Mutex<Option<(FileFacts, u32)>>> = sources.iter().map(|_| Mutex::new(None)).collect();
         let query_start = Instant::now();
@@ -1162,11 +1245,12 @@ impl Session<'_> {
             walked,
             missing,
             files: tsrs.get_source_files().len(),
-            checkers,
-            build,
+            checkers: resident.checkers(),
+            build: if built_here { resident.build() } else { Duration::ZERO },
             query,
             cores_waited: Duration::ZERO,
             early,
+            shared: !built_here,
         }))
     }
 }
@@ -1205,6 +1289,7 @@ fn assemble(
                     checkers: built.checkers,
                     build: built.build,
                     query: built.query,
+                    shared: built.shared,
                 });
                 for index in built.missing {
                     states[index] = FileState::Outside;
@@ -1386,6 +1471,21 @@ mod tests {
             "a program beside others gets at most MOST_SHARED_CHECKERS"
         );
         assert!(wide.checkers[1..].iter().all(|&checkers| checkers == 4));
+    }
+
+    #[test]
+    fn a_program_gets_no_more_checkers_than_judged_files() {
+        assert_eq!(schedule(16, &[1, 2, 3, 400]).checkers, [1, 2, 3, 8]);
+        assert_eq!(
+            schedule(16, &[0]).checkers,
+            [1],
+            "a program without judged files still has a checker"
+        );
+        assert_eq!(
+            schedule(16, &[3]).checkers,
+            [3],
+            "a lone program's even share is capped too"
+        );
     }
 
     #[test]

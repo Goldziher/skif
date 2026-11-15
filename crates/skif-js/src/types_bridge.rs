@@ -118,20 +118,44 @@ impl TypeState {
 }
 
 /// The cores the type-aware analyses of a run over several roots share, so that their programs together hold no
-/// more cores than the machine has; empty in a build without the checker. Cloning it shares the same cores.
+/// more cores than the machine has, and the programs they share, so that a program the judged files of several roots
+/// go to is built once for the run; empty in a build without the checker. Cloning it shares the same cores and
+/// programs.
 #[derive(Clone)]
 pub(crate) struct SharedBudget {
     #[cfg(feature = "type-aware")]
     budget: skif_js_types::TypeBudget,
+    #[cfg(feature = "type-aware")]
+    programs: skif_js_types::TypePrograms,
 }
 
-/// A budget of every core of the machine.
-impl Default for SharedBudget {
-    fn default() -> Self {
+impl SharedBudget {
+    /// A budget of every core of the machine for the analyses of `roots`, the workspace roots of the run.
+    #[cfg_attr(
+        not(feature = "type-aware"),
+        allow(unused_variables, reason = "only a build with the checker shares programs")
+    )]
+    pub(crate) fn for_roots(roots: &[std::path::PathBuf]) -> Self {
         Self {
             #[cfg(feature = "type-aware")]
             budget: skif_js_types::TypeBudget::new(None),
+            #[cfg(feature = "type-aware")]
+            programs: skif_js_types::TypePrograms::new(roots.iter().cloned()),
         }
+    }
+
+    /// Marks the analysis of `root` done without asking the checker, so that no program is kept for it.
+    #[cfg_attr(
+        not(feature = "type-aware"),
+        allow(
+            unused_variables,
+            clippy::unused_self,
+            reason = "only a build with the checker shares programs"
+        )
+    )]
+    fn done(&self, root: &std::path::Path) {
+        #[cfg(feature = "type-aware")]
+        self.programs.done(root);
     }
 }
 
@@ -235,7 +259,9 @@ fn started<'scope, 'env>(
         build = build.with_tsconfig_override(tsconfig.clone());
     }
     if let Some(shared) = inputs.budget {
-        build = build.with_budget(shared.budget.clone());
+        build = build
+            .with_budget(shared.budget.clone())
+            .with_programs(shared.programs.clone());
     }
     EarlyTypes {
         pending: Some(skif_js_types::start(scope, build, inputs.cancel)),
@@ -308,11 +334,18 @@ pub(crate) fn run(
     inputs: &TypeRun<'_>,
     early: EarlyTypes<'_>,
 ) -> (TypeState, Option<TypeAwareSummary>) {
+    let root = &analysis.workspace.root;
     if !inputs.wanted {
+        if let Some(shared) = inputs.budget {
+            shared.done(root);
+        }
         return (TypeState::Off(OffReason::Unneeded), None);
     }
     let packages = analysed(analysis);
     if !packages.iter().any(|analysed| analysed.type_aware) {
+        if let Some(shared) = inputs.budget {
+            shared.done(root);
+        }
         return (
             TypeState::Off(OffReason::Disabled),
             Some(summary_without_types(&packages, OffReason::Disabled)),
@@ -364,7 +397,7 @@ fn checked(
         input = input.with_threads(NonZeroUsize::MIN);
     }
     if let Some(shared) = inputs.budget {
-        input = input.with_budget(&shared.budget);
+        input = input.with_budget(&shared.budget).with_programs(&shared.programs);
     }
     if let Some(cancel) = inputs.cancel {
         input = input.with_cancel(cancel);
@@ -416,15 +449,27 @@ fn note_timings(root: &std::path::Path, timings: &skif_js_types::TypeTimings) {
         timings.early,
         timings.threads
     ));
+    if let Some(peak) = skif_js_types::arena_peak_bytes() {
+        skif_core::timing::note(format_args!(
+            "js types {}: checker arenas {} MiB in use, {} MiB at most so far (process-wide)",
+            root.display(),
+            skif_js_types::arena_bytes_in_use() >> 20,
+            peak >> 20
+        ));
+    }
     for program in timings.slowest(SLOWEST_PROGRAMS) {
         skif_core::timing::note(format_args!(
-            "js types {}: program {}: {} judged of {} files, {} checkers, build {} ms, queries {} ms",
+            "js types {}: program {}: {} judged of {} files, {} checkers, {}, queries {} ms",
             root.display(),
             program.config.display(),
             program.judged_files,
             program.files,
             program.checkers,
-            program.build.as_millis(),
+            if program.shared {
+                "built by another root".to_owned()
+            } else {
+                format!("build {} ms", program.build.as_millis())
+            },
             program.query.as_millis()
         ));
     }
