@@ -90,6 +90,23 @@ fn record_panics() {
     });
 }
 
+/// The stack of each worker of rayon's global pool. A worker that waits for a parallel job takes other queued jobs
+/// on its own stack, so the analyses of the roots of a recursive run nest on one worker, and with few cores that
+/// outgrew the 2 MiB default. Only the pages a thread touches are committed.
+const WORKER_STACK_SIZE: usize = 64 << 20;
+
+/// Builds rayon's global pool, once per process, with [`WORKER_STACK_SIZE`] stacks. The thread count still follows
+/// `RAYON_NUM_THREADS`. A host that built the global pool first keeps its own.
+pub fn configure_global_pool() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rayon::ThreadPoolBuilder::new()
+            .stack_size(WORKER_STACK_SIZE)
+            .thread_name(|index| format!("skif-worker-{index}"))
+            .build_global();
+    });
+}
+
 /// `body`'s exit code, or 2 when it panics, after the `internal` error document on `stdout` when `raw` asks for JSON.
 /// The panic hook has already printed the message and location to stderr. The document names the location the hook
 /// recorded on this thread, or only the payload when the hook did not run for this panic: a host replaced it, or the
@@ -143,6 +160,7 @@ pub fn run_to_exit(args: impl IntoIterator<Item = OsString>) -> u8 {
 
 fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
+    configure_global_pool();
     env::enable_timings();
     let cli = match Cli::try_parse_from(&raw) {
         Ok(cli) => cli,

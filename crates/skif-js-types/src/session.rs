@@ -35,8 +35,8 @@ use crate::resident::{Claim, ProgramKey, Resident, Ticket};
 use crate::vfs::{self, BomFiles};
 use crate::{ENGINE, ProgramTiming, TypeBuild, TypeError, TypeFacts, TypeInput, TypePackage, TypeQuery, TypeTimings};
 
-/// The stack of the threads that build and check programs: checking recurses deeply, and tsrs-lint gives its program
-/// threads the same.
+/// The stack of the threads that build and check programs and of the types pool: checking recurses deeply, and
+/// tsrs-lint gives its program threads the same.
 const PROGRAM_STACK_SIZE: usize = 512 << 20;
 /// The first chunk of the scratch region configs and program bookkeeping are allocated in.
 const SCRATCH_CHUNK: usize = 1 << 20;
@@ -267,6 +267,7 @@ impl Shared {
 fn types_pool(threads: Option<NonZeroUsize>) -> Option<Arc<rayon::ThreadPool>> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(cores_of(threads))
+        .stack_size(PROGRAM_STACK_SIZE)
         .thread_name(|index| format!("skif-types-{index}"))
         .build()
         .ok()
