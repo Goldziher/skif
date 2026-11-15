@@ -57,3 +57,4 @@ old one.
 | 0047 | [Performance Budget and Benchmarks With Types](0047-performance-budget-with-types.md) | accepted |
 | 0048 | [Dynamic Imports Returned to a Call: Lazy-Component Loaders Read `default`, Other Calls the Whole Module](0048-dynamic-imports-returned-to-a-call.md) | accepted |
 | 0049 | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](0049-bazel-test-globs-and-angular-packages.md) | accepted |
+| NNNN | [Knip Comparison Against the Typed Run](NNNN-knip-comparison-against-the-typed-run.md) | accepted |
