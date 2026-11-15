@@ -80,7 +80,9 @@ pub(crate) fn start<'scope, 'env>(
             .spawn_scoped(scope, move || {
                 panic::catch_unwind(AssertUnwindSafe(|| coordinate(&shared, cancel))).unwrap_or_else(|payload| {
                     // The host waits for the early plan; a panic before it was put must not leave it waiting.
-                    shared.planned.put(Err(internal("planning the programs", payload.as_ref())));
+                    shared
+                        .planned
+                        .put(Err(internal("planning the programs", payload.as_ref())));
                     Err(internal("building the programs", payload.as_ref()))
                 })
             })
@@ -175,8 +177,10 @@ impl PendingTypes<'_> {
         let start = Instant::now();
         let (plan, _) = {
             let _scope = region.enter();
-            panic::catch_unwind(AssertUnwindSafe(|| programs::plan_programs(input, &host, &planned.lookups)))
-                .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))?
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                programs::plan_programs(input, &host, &planned.lookups)
+            }))
+            .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))?
         };
         let judged = Arc::new(Judged::new(
             self.shared.build.threads,
@@ -373,12 +377,7 @@ fn judged_schedule(parallelism: &Parallelism, early: &Early, programs: &[Planned
     let checkers = programs
         .iter()
         .zip(own.checkers)
-        .map(|(program, checkers)| {
-            early_checkers
-                .get(program.config.as_str())
-                .copied()
-                .unwrap_or(checkers)
-        })
+        .map(|(program, checkers)| early_checkers.get(program.config.as_str()).copied().unwrap_or(checkers))
         .collect();
     Schedule { order, checkers }
 }
@@ -411,8 +410,10 @@ fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Result<Coordinate
     let input = shared.build.input(&query);
     let planned = {
         let _scope = region.enter();
-        panic::catch_unwind(AssertUnwindSafe(|| programs::plan_programs(&input, &host, &Lookups::new())))
-            .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))
+        panic::catch_unwind(AssertUnwindSafe(|| {
+            programs::plan_programs(&input, &host, &Lookups::new())
+        }))
+        .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))
     };
     let (plan, lookups) = match planned {
         Ok(planned) => planned,
@@ -1207,10 +1208,22 @@ mod tests {
         let mut queue = Queue::default();
         assert_eq!(queue.next(&early, Gate::Closed), Next::Early(0));
         assert_eq!(queue.next(&early, Gate::Closed), Next::Early(1));
-        assert_eq!(queue.next(&early, Gate::Closed), Next::Wait, "every early program has started");
+        assert_eq!(
+            queue.next(&early, Gate::Closed),
+            Next::Wait,
+            "every early program has started"
+        );
         let judged = configs(&["b", "c", "a", "d"]);
-        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Judged(1), "`b` started early");
-        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Judged(3), "`a` started early");
+        assert_eq!(
+            queue.next(&early, Gate::Open(&judged)),
+            Next::Judged(1),
+            "`b` started early"
+        );
+        assert_eq!(
+            queue.next(&early, Gate::Open(&judged)),
+            Next::Judged(3),
+            "`a` started early"
+        );
         assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Done);
     }
 
@@ -1229,7 +1242,11 @@ mod tests {
         let early = configs(&["a"]);
         let mut queue = Queue::default();
         assert_eq!(queue.next(&early, Gate::Abandoned), Next::Done);
-        assert_eq!(queue.next(&early, Gate::Closed), Next::Early(0), "the early program had not started");
+        assert_eq!(
+            queue.next(&early, Gate::Closed),
+            Next::Early(0),
+            "the early program had not started"
+        );
     }
 
     #[test]

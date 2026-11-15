@@ -498,6 +498,12 @@ fn an_enum_member_used_without_types_is_not_asked_of_the_checker() {
     assert_eq!(green["class-member"]["used-without-types"], false);
     assert_eq!(green["class-member"]["verdict"], "unused");
     let rules = ["unused-enum-members"];
-    assert_eq!(found_by(&lint(&files, "").diagnostics, &rules), ["src/colors.ts: Color.Green"]);
-    assert_eq!(found_by(&lint(&files, TYPES_OFF).diagnostics, &rules), ["src/colors.ts: Color.Green"]);
+    assert_eq!(
+        found_by(&lint(&files, "").diagnostics, &rules),
+        ["src/colors.ts: Color.Green"]
+    );
+    assert_eq!(
+        found_by(&lint(&files, TYPES_OFF).diagnostics, &rules),
+        ["src/colors.ts: Color.Green"]
+    );
 }

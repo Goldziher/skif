@@ -190,7 +190,10 @@ fn started<'scope, 'env>(
 
     let mut by_package: HashMap<PackageId, Vec<std::path::PathBuf>> = HashMap::default();
     for candidate in candidates {
-        by_package.entry(candidate.owner).or_default().push(candidate.abs.clone());
+        by_package
+            .entry(candidate.owner)
+            .or_default()
+            .push(candidate.abs.clone());
     }
     let root = &workspace.root;
     let packages: Vec<TypePackage> = workspace
