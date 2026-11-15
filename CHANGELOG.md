@@ -11,24 +11,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.6.0] - 2026-11-15
 
-skif 0.6.0 adds type-aware analysis. Where a package has a `tsconfig.json` or `jsconfig.json`, the TypeScript checker
-of tsrs resolves each member read to the declaration it reaches, so `unused-class-members`, `unused-enum-members` and
-`unused-namespace-members` judge a read by what it reaches instead of by its name. It is on by default in the CLI and
-the npm package, costs time and memory, and is turned off with `--no-type-aware` or `[js] type-aware = false`
+skif 0.6.0 adds opt-in type-aware analysis. With `--type-aware` or `[js] type-aware = true`, where a package has a
+`tsconfig.json` or `jsconfig.json`, the TypeScript checker of tsrs resolves each member read to the declaration it
+reaches, so `unused-class-members`, `unused-enum-members` and `unused-namespace-members` judge a read by what it
+reaches instead of by its name. It is off by default because every TypeScript program parses the lib and `@types`
+files again: on a 4-vCPU GitHub runner a typed run takes 3 to 25 times as long as an untyped one, longer than knip on
+some repositories. Types are to become the default again once programs share those files
 ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ### Breaking changes
 
-- **Type-aware analysis is on by default** in the CLI, the npm package and `skif baseline write` and `prune`: member
-  findings in typed files come from the TypeScript checker, so a read on an unrelated object (`a.dispose()`) no
-  longer keeps every member of that name in use. A run with types is slower and uses more memory; the `bench`
-  workflow fails a run in which types take more than 3x the untyped time on the largest repository or 2x in the
-  median, or more than 4 GiB of peak memory ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
-  `--no-type-aware`, `[js] type-aware = false` (also per workspace) or the npm option `noTypeAware` restores the
-  name-based analysis ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
+- **Type-aware analysis is opt-in**: `--type-aware` (the lint run, `skif baseline write` and `prune` and
+  `skif explain-usage`), `[js] type-aware = true` (also per workspace) or the npm option `typeAware` turns it on. With
+  it on, member findings in typed files come from the TypeScript checker, so a read on an unrelated object
+  (`a.dispose()`) no longer keeps every member of that name in use. A typed run is slower and uses more memory, since
+  every TypeScript program parses the lib and `@types` files again: on the 0.6.0 benchmark, on a 4-vCPU GitHub runner,
+  babel takes 18.2 s typed against 1.0 s untyped and 5.3 s for knip, tanstack-query 10.0 s against 0.41 s and 3.4 s,
+  n8n 32.2 s against 6.1 s, and vscode 14.7 s against 4.3 s and 14.2 s
+  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)). `--no-type-aware` and the npm option
+  `noTypeAware` keep types off over a configuration that turns them on
+  ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - **New findings**:
-  - `unused-class-members` (a warning) reports the unused methods, fields and accessors of used exported classes; see
-    Added.
+  - `unused-class-members` (a warning) reports the unused methods, fields and accessors of used exported classes, by
+    name by default; with types on, also a member whose name is read only on receivers of other classes. See Added.
   - `unused-dev-dependencies` reports a `devDependencies` entry that the same manifest also lists in `dependencies`,
     used or not ("is listed in `devDependencies` and in `dependencies`"), with an unsafe fix that removes it: the
     production entry installs the package for development as well. knip reports it too
@@ -73,9 +78,10 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
 
 ### Added
 
-- **Type-aware analysis**, `[js] type-aware` (default `true`, also per workspace in `[js.workspaces."<dir>"]`), the
-  flag `--no-type-aware` of the lint run, `skif baseline write` and `prune` and `skif explain-usage`, and the npm
-  option `noTypeAware`. The flag overrides every workspace table. Each judged file is checked with the program of
+- **Type-aware analysis**, `[js] type-aware` (default `false`, also per workspace in `[js.workspaces."<dir>"]`), the
+  flags `--type-aware` and `--no-type-aware` of the lint run, `skif baseline write` and `prune` and
+  `skif explain-usage`, and the npm options `typeAware` and `noTypeAware`. Each flag overrides every workspace table;
+  the two conflict, and `--type-aware` conflicts with `--watch`. Each judged file is checked with the program of
   its nearest `tsconfig.json` or `jsconfig.json`, found as TypeScript finds it (solution configs followed through
   their references, `[js] tsconfig` for the root package). The language server, `skif mcp` and `--watch` run
   without types ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
@@ -224,10 +230,10 @@ the npm package, costs time and memory, and is turned off with `--no-type-aware`
     capped run counts for those four, knip timed with the knip comparison's configuration where `corpus.toml` says
     `bench-knip-config = "parity"`, and a knip that exits with an error after its whole report timed and published
     with the reason.
-  - Every corpus repository and the module graph case are timed with types (the default) and with
-    `--no-type-aware`, each with its peak RSS; the published tables show both modes, and the workflow fails a run
+  - Every corpus repository and the module graph case are timed without types (the default) and with
+    `--type-aware`, each with its peak RSS; the published tables show both modes, and the workflow fails a run
     that breaks the type-aware budget.
-  - The knip comparison runs skif with types and again without, sets a one-sided finding only one mode has apart as
+  - The knip comparison runs skif with `--type-aware` and again with `--no-type-aware`, sets a one-sided finding only one mode has apart as
     `type-resolved`, and records the typed-versus-untyped counts in `tools/bench/baselines/type-aware.json`. It sets
     apart more known deviations, decided from the checkout's files, manifests, TypeScript configurations and skif's
     own parser, and `skif-bench parity --samples <N|all>` sets how many sample findings its report keeps.
