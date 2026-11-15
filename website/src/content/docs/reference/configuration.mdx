@@ -1216,7 +1216,9 @@ member ([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-
 A namespace used as a whole in its own file credits none of its members. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
 as used, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole, its types included: it runs as a
-program of its own, as an entry does. A module that a test mocks
+program of its own, as an entry does. A bare file name with a code extension (`new URL("worker.mjs", import.meta.url)`)
+names the file beside the importer, as URL resolution reads it; a bare path with a directory is left out, since bundlers
+may read it as a package. A module that a test mocks
 (`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from the syntax tree, so a call written
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. A relative or aliased mock

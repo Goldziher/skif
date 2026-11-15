@@ -210,6 +210,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files`: `new URL("check.mjs", import.meta.url)` with a bare file name and a code extension names the file
+  beside the importer, as URL resolution reads it, so a script another one runs that way is no longer reported
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - `unused-files`: the Docusaurus plugin reads the `sidebarPath` of each docs instance, in the classic preset's `docs`
   and in each `@docusaurus/plugin-content-docs`, so a sidebars file only the site build loads is no longer reported
   ([#100](https://github.com/Goldziher/skif/issues/100)).
