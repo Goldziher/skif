@@ -12,8 +12,8 @@ with `--warmup` and `--runs`) on two kinds of targets:
 | Target | Contents | Tools timed |
 | --- | --- | --- |
 | Generated workspaces | 50, 500 and 2000 packages (`--sizes`), pnpm layout, 5 % issue rate, seed 1 | `skif --no-js`, `sherif`, `syncpack lint` |
-| Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif`, `skif --no-type-aware` |
-| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-type-aware`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
+| Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif`, `skif --type-aware` |
+| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --type-aware`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
 `sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, where their versions are
 declared. `tools/package.json` and `tools/package-lock.json` repeat them and pin every package they depend on; the
@@ -75,12 +75,12 @@ the published tables name the run counts of a capped target, and an error count 
 `bench-knip-config`, `bench-max-runs` and `bench-max-warmup` are rejected outside the bench suite, and so is an unknown
 configuration or a cap of 0 runs. hyperfine 1.x and 2.x exports are both read.
 
-Each corpus and module graph target is timed in both modes of the whole run: `skif`, with types (the default), and
-`skif --no-type-aware`, in the same hyperfine run. Each mode then runs once more under `/usr/bin/time` (`-v`, GNU time,
+Each corpus and module graph target is timed in both modes of the whole run: `skif`, without types (the default), and
+`skif --type-aware`, in the same hyperfine run. Each mode then runs once more under `/usr/bin/time` (`-v`, GNU time,
 on Linux; `-l` on macOS) for its peak RSS; where neither is available the RSS is `null` and its check `not-measured`.
-`summary.md` and the published tables show both modes, labelled "types on (default)" and "types off", with their peak
-RSS. The type-aware budget of ADR 0029 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: types on at most
-3x types off on the largest corpus repository (the one whose untyped run takes longest), a median of at most 2x across
+`summary.md` and the published tables show both modes, labelled "types on" and "types off (default)", with their peak
+RSS. The type-aware budget of ADR 0029 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: `--type-aware` at
+most 3x the default run on the largest corpus repository (the one whose untyped run takes longest), a median of at most 2x across
 the corpus, at most 4 GiB peak RSS with types on every target, at most 5 s with types on the module graph case, and
 at least 5x faster than knip with types wherever knip completes. `--check-budget` makes `run` exit non-zero when one
 of them fails, after writing the summary; the `bench` workflow passes it.
@@ -176,8 +176,8 @@ with sample keys per side is `target/bench-results/parity.json` and `parity.md`:
 and side, or as many as `--samples <N>` asks for, and every one-sided finding with `--samples all`, which lists all the
 files only one tool reports in a repository. Samples name files of the corpus repositories and are never committed.
 
-**Types.** skif runs twice per repository: with types, its default, and again with `--no-type-aware`. The typed run is
-the one compared with knip ([ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). A one-sided finding
+**Types.** skif runs twice per repository: with `--type-aware`, and again with `--no-type-aware`. The typed run is
+the one compared with knip, whose counts `baselines/parity.json` holds ([ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). A one-sided finding
 that no other known deviation explains is the `type-resolved` known deviation when skif reports it only with types, or
 when knip reports it and only the untyped run does too: types settle which declaration a read reaches, while knip
 credits by name ([ADR 0034](../../adrs/0034-type-aware-analysis-on-tsrs.md)). `parity.md` adds a "Typed versus untyped"

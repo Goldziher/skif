@@ -430,7 +430,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 71] = [
     },
     Deviation {
         id: TYPE_RESOLVED,
-        reason: "skif with types (its default, the run compared here) and skif with `--no-type-aware` disagree on these findings: skif reports them only with types, or knip reports them and only skif without types does too. Types settle which declaration a read reaches, so a typed read credits only the members TypeScript treats as the same (ADR 0034), while knip credits by name. Counted only where no other deviation explains the finding and only with the untyped pass (`--no-untyped-pass` turns it off); the per-rule counts of both modes are in `type-aware.json`",
+        reason: "skif with `--type-aware` (the run compared here) and skif with `--no-type-aware` disagree on these findings: skif reports them only with types, or knip reports them and only skif without types does too. Types settle which declaration a read reaches, so a typed read credits only the members TypeScript treats as the same (ADR 0034), while knip credits by name. Counted only where no other deviation explains the finding and only with the untyped pass (`--no-untyped-pass` turns it off); the per-rule counts of both modes are in `type-aware.json`",
     },
     Deviation {
         id: KNIP_DOT_IGNORE,
@@ -6163,8 +6163,8 @@ const fn skif_recursive(options: &Options, repo: &Repo) -> bool {
     options.recursive || repo.recursive
 }
 
-/// Runs skif on a checkout (`root`, with its `scratch` directory), with types or with `--no-type-aware`, and reads its
-/// JSON report; `Ok(Err(reason))` when it produced none.
+/// Runs skif on a checkout (`root`, with its `scratch` directory), with `--type-aware` or with `--no-type-aware`, and
+/// reads its JSON report; `Ok(Err(reason))` when it produced none.
 fn run_skif(
     options: &Options,
     skif: &Path,
@@ -6179,9 +6179,11 @@ fn run_skif(
     if skif_recursive(options, repo) {
         command.arg("--recursive");
     }
-    if !typed {
-        command.arg(type_aware::NO_TYPE_AWARE_FLAG);
-    }
+    command.arg(if typed {
+        type_aware::TYPE_AWARE_FLAG
+    } else {
+        type_aware::NO_TYPE_AWARE_FLAG
+    });
     if let Some(config) = write_skif_entry_config(&repo.entry, scratch)? {
         command.arg("--config").arg(config);
     }

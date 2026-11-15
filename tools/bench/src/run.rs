@@ -26,8 +26,8 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 /// ADR 0001: parse and build the module graph of 10,000 files.
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
-/// The type-aware budget of ADR 0029, each limit on the run with types (the default) against the run of the same
-/// target with `--no-type-aware`.
+/// The type-aware budget of ADR 0029, each limit on the run with `--type-aware` against the default run of the same
+/// target, without types.
 struct TypeAwareBudget {
     /// Typed over untyped mean on the largest corpus repository, the one whose untyped run takes longest.
     largest_ratio: f64,
@@ -95,10 +95,10 @@ pub struct RunOptions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tool {
-    /// The whole run, with types (the default).
+    /// The whole run, without types (the default).
     Skif,
-    /// The whole run with `--no-type-aware`.
-    SkifUntyped,
+    /// The whole run with `--type-aware`.
+    SkifTyped,
     SkifManifest,
     Sherif,
     Syncpack,
@@ -109,7 +109,7 @@ impl Tool {
     const fn label(self) -> &'static str {
         match self {
             Self::Skif => "skif",
-            Self::SkifUntyped => type_aware::TOOL,
+            Self::SkifTyped => type_aware::TYPED_TOOL,
             Self::SkifManifest => "skif --no-js",
             Self::Sherif => "sherif",
             Self::Syncpack => "syncpack lint",
@@ -120,7 +120,7 @@ impl Tool {
     /// The npm package (and its executable) of a comparison tool, or `None` for skif (given by path).
     const fn package(self) -> Option<&'static str> {
         match self {
-            Self::Skif | Self::SkifUntyped | Self::SkifManifest => None,
+            Self::Skif | Self::SkifTyped | Self::SkifManifest => None,
             Self::Sherif => Some("sherif"),
             Self::Syncpack => Some("syncpack"),
             Self::Knip => Some("knip"),
@@ -129,7 +129,7 @@ impl Tool {
 }
 
 /// The two modes of the whole skif run, timed and measured on every corpus and graph target.
-const SKIF_MODES: [Tool; 2] = [Tool::Skif, Tool::SkifUntyped];
+const SKIF_MODES: [Tool; 2] = [Tool::Skif, Tool::SkifTyped];
 
 /// The comparison tools, each at the version `corpus.toml` pins.
 const COMPARISON_TOOLS: [Tool; 3] = [Tool::Sherif, Tool::Syncpack, Tool::Knip];
@@ -394,7 +394,7 @@ fn quote(argument: &str) -> String {
 fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> Vec<String> {
     let mut argv = vec![program.to_string_lossy().into_owned()];
     let fixed: &[&str] = match tool {
-        Tool::Skif | Tool::SkifUntyped | Tool::SkifManifest => &[".", "--format", "json", "--no-install"],
+        Tool::Skif | Tool::SkifTyped | Tool::SkifManifest => &[".", "--format", "json", "--no-install"],
         Tool::Sherif => &["."],
         Tool::Syncpack => &["lint"],
         Tool::Knip => &["--reporter", "json"],
@@ -402,8 +402,8 @@ fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String])
     argv.extend(fixed.iter().map(|arg| (*arg).to_owned()));
     match tool {
         Tool::Skif => argv.extend_from_slice(extra),
-        Tool::SkifUntyped => {
-            argv.push(type_aware::NO_TYPE_AWARE_FLAG.to_owned());
+        Tool::SkifTyped => {
+            argv.push(type_aware::TYPE_AWARE_FLAG.to_owned());
             argv.extend_from_slice(extra);
         }
         Tool::SkifManifest => {
@@ -643,7 +643,7 @@ fn knip_check(target: &TargetResult, skif: &ToolResult, knip: &ToolResult, speed
 /// The rows of both skif modes of a target, typed first, when it timed both.
 fn mode_rows(target: &TargetResult) -> Option<(&ToolResult, &ToolResult)> {
     let find = |tool: Tool| target.results.iter().find(|row| row.tool == tool.label());
-    Some((find(Tool::Skif)?, find(Tool::SkifUntyped)?))
+    Some((find(Tool::SkifTyped)?, find(Tool::Skif)?))
 }
 
 /// The median of `values`, `None` when there are none.
@@ -988,7 +988,7 @@ fn type_aware_markdown(summary: &Summary, out: &mut String) {
     out.push_str("## Type awareness (ADR 0029)\n\n");
     if !modes.is_empty() {
         out.push_str(
-            "| Target | types on (default), mean (ms) | types off, mean (ms) | on / off | types on (default), peak RSS (MiB) | types off, peak RSS (MiB) |\n",
+            "| Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |\n",
         );
         out.push_str("| --- | ---: | ---: | ---: | ---: | ---: |\n");
         let rss = |row: &ToolResult| {
@@ -2173,14 +2173,14 @@ mod tests {
                 ],
             ),
             (
-                Tool::SkifUntyped,
+                Tool::SkifTyped,
                 vec![
                     "/my tools/bin/x",
                     ".",
                     "--format",
                     "json",
                     "--no-install",
-                    "--no-type-aware",
+                    "--type-aware",
                     "--recursive",
                 ],
             ),
@@ -2523,8 +2523,9 @@ mod tests {
         }
     }
 
-    /// A target `name` of `kind` timing skif with types at `typed_ms` (peaking at `typed_mib` MiB, `None` when not
-    /// measured), skif without types at `untyped_ms` (peaking at 512 MiB) and, on a corpus target, knip at `knip_ms`.
+    /// A target `name` of `kind` timing skif with `--type-aware` at `typed_ms` (peaking at `typed_mib` MiB, `None` when
+    /// not measured), the default skif run without types at `untyped_ms` (peaking at 512 MiB) and, on a corpus target,
+    /// knip at `knip_ms`.
     fn budget_target(
         name: &str,
         kind: &'static str,
@@ -2535,11 +2536,11 @@ mod tests {
         let mut results = vec![
             ToolResult {
                 peak_rss_bytes: typed_mib.map(|megs| megs << 20),
-                ..tool_row("skif", typed_ms)
+                ..tool_row("skif --type-aware", typed_ms)
             },
             ToolResult {
                 peak_rss_bytes: Some(512 << 20),
-                ..tool_row("skif --no-type-aware", untyped_ms)
+                ..tool_row("skif", untyped_ms)
             },
         ];
         if kind == "corpus" {
@@ -2710,7 +2711,7 @@ mod tests {
 
     #[test]
     fn the_peak_rss_run_is_the_timed_command_under_time() {
-        let argv = tool_argv(Tool::SkifUntyped, Path::new("/s/skif"), &[], &[]);
+        let argv = tool_argv(Tool::SkifTyped, Path::new("/s/skif"), &[], &[]);
         assert_eq!(
             peak_rss_argv("-v", &argv),
             [
@@ -2721,7 +2722,7 @@ mod tests {
                 "--format",
                 "json",
                 "--no-install",
-                "--no-type-aware"
+                "--type-aware"
             ]
         );
         assert_eq!(mib(3_447_717_888), 3288);
@@ -2738,7 +2739,7 @@ mod tests {
         let text = markdown(&summary);
         assert!(
             text.contains(
-                "## Type awareness (ADR 0029)\n\n| Target | types on (default), mean (ms) | types off, mean (ms) | on / off | types on (default), peak RSS (MiB) | types off, peak RSS (MiB) |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| a | 300 | 200 | 1.5x | 1024 | 512 |\n"
+                "## Type awareness (ADR 0029)\n\n| Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| a | 300 | 200 | 1.5x | 1024 | 512 |\n"
             ),
             "{text}"
         );

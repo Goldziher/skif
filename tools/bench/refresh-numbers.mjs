@@ -22,7 +22,7 @@ const repo = join(here, "..", "..");
 
 export const SUMMARY_SCHEMA = 7;
 const SKIF = "skif";
-const SKIF_UNTYPED = "skif --no-type-aware";
+const SKIF_TYPED = "skif --type-aware";
 const SKIF_MANIFEST = "skif --no-js";
 const SHERIF = "sherif";
 const SYNCPACK = "syncpack lint";
@@ -118,13 +118,13 @@ const date = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 10);
 
 /** The rows of the tools a target must have for the published tables. */
 function requiredTools(target) {
-  if (target.kind === "corpus") return [SKIF, SKIF_UNTYPED, SKIF_MANIFEST, SHERIF, SYNCPACK, KNIP];
+  if (target.kind === "corpus") return [SKIF, SKIF_TYPED, SKIF_MANIFEST, SHERIF, SYNCPACK, KNIP];
   if (target.kind === "generated") return [SKIF_MANIFEST, SHERIF, SYNCPACK];
-  return [SKIF, SKIF_UNTYPED];
+  return [SKIF, SKIF_TYPED];
 }
 
-/** The skif modes, types on (the default) and types off, whose rows carry a peak RSS. */
-const SKIF_MODES = [SKIF, SKIF_UNTYPED];
+/** The skif modes, types on (`--type-aware`) and types off (the default), whose rows carry a peak RSS. */
+const SKIF_MODES = [SKIF_TYPED, SKIF];
 
 /** Why the summary was not measured by a run of the bench workflow on a GitHub-hosted runner from clean checkouts. */
 function provenanceProblems(summary) {
@@ -234,7 +234,7 @@ export function benchDetail(summary) {
         lines.push(`| ${row.tool} | ${fails(row)} | - | - |`);
         continue;
       }
-      const skifRow = row.tool === SKIF || row.tool === SKIF_UNTYPED || row.tool === SKIF_MANIFEST;
+      const skifRow = row.tool === SKIF || row.tool === SKIF_TYPED || row.tool === SKIF_MANIFEST;
       const relative = skifRow || row.relative_to_skif == null ? "-" : `${row.relative_to_skif.toFixed(1)}x`;
       lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);
     }
@@ -294,9 +294,9 @@ export function benchSummary(summary) {
         "entries of the configurations it could not load.",
     );
   }
-  lines.push("", "**Type awareness** (full skif run, types on by default and off with `--no-type-aware`)", "");
+  lines.push("", "**Type awareness** (full skif run, types off by default and on with `--type-aware`)", "");
   lines.push(
-    "| Target | types on (default) | types off | on / off | peak RSS, types on (default) | peak RSS, types off |",
+    "| Target | types on | types off (default) | on / off | peak RSS, types on | peak RSS, types off (default) |",
     "| --- | ---: | ---: | ---: | ---: | ---: |",
   );
   for (const target of summary.targets.filter((t) => SKIF_MODES.every((tool) => find(t, tool) != null))) {
