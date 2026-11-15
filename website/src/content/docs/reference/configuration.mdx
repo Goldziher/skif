@@ -978,9 +978,10 @@ faster and less accurate for member findings; `skif --no-type-aware` keeps types
 ([ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 Types cost time and memory: each TypeScript program reads and binds its files a second time, beside the module
-graph, and parses the TypeScript lib and `@types` files again, so on a 4-vCPU runner a typed run takes 3 to 25 times
-as long as the default one (babel 18.2 s against 1.0 s, tanstack-query 10.0 s against 0.41 s), longer than knip on
-some repositories. That is why types are off by default until programs share those files. The
+graph. The TypeScript lib files and the declaration files below `node_modules` (`@types` included) are parsed once
+per run and shared by its programs. Before programs shared them, a typed run on a 4-vCPU runner took 3 to 25 times as
+long as the default one (babel 18.2 s against 1.0 s, tanstack-query 10.0 s against 0.41 s), longer than knip on some
+repositories, which is why types are off by default until a typed run meets the budget below. The
 [benchmarks](../../guides/benchmarks/) time every repository with `--type-aware` and without types and publish the
 peak memory of both, and check the budget types must meet to become the default again: at most 3x the untyped
 time on the largest repository and 2x in the median, and at most 4 GiB of peak memory on any target

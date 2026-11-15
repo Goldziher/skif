@@ -112,9 +112,9 @@ git root, so one organisation file applies to every project below it. See the
   resolves each member read to the declaration it reaches, also through a base class or an implemented interface. A
   read `a.dispose()` then keeps only the `dispose` of `a`'s class out of `unused-class-members`, not every `dispose`
   of the project, and `unused-enum-members` and `unused-namespace-members` also count reads through an alias or
-  `this`. It is off by default in the CLI and the npm package, since it costs time and memory: every TypeScript
-  program parses the lib and `@types` files again, and on a 4-vCPU runner a typed run takes 3 to 25 times as long
-  as the default one. `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
+  `this`. It is off by default in the CLI and the npm package, since it costs time and memory: before TypeScript
+  programs shared their lib and `node_modules` declaration files, a typed run on a 4-vCPU runner took 3 to 25 times
+  as long as the default one. `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
   name-based analysis, and the report names it ([type-aware analysis](https://goldziher.github.io/skif/reference/configuration/#js)).
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
   roots, Rush, [Turborepo, Nx and Lerna](https://goldziher.github.io/skif/guides/turborepo-nx-lerna/), and
