@@ -322,6 +322,59 @@ fn compiler_options_of_a_shared_base_config_are_satisfied_by_the_extending_packa
     assert_eq!(found(&lint_with(&files, toml), "unlisted-dependencies"), none());
 }
 
+/// A compiler option of a config the package extends through its own `node_modules` (a rig profile,
+/// `./node_modules/@acme/web-rig/profiles/app/tsconfig-base.json`, itself extending another installed rig) applies to
+/// the package, as TypeScript merges the chain: the `tslib` that `importHelpers` needs is used by the extending
+/// package that lists it. The installed config is not judged, so a package that does not list it is not reported
+/// there.
+#[test]
+fn compiler_options_of_an_installed_base_config_are_used_by_the_extending_package() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.0.0"}}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@acme/app","version":"1.0.0","main":"src/index.ts","dependencies":{"tslib":"2.8.1"},"devDependencies":{"@acme/web-rig":"1.0.0"}}"#,
+        ),
+        (
+            "packages/app/tsconfig.json",
+            r#"{"extends":"./node_modules/@acme/web-rig/profiles/app/tsconfig-base.json"}"#,
+        ),
+        (
+            "packages/app/node_modules/@acme/web-rig/profiles/app/tsconfig-base.json",
+            r#"{"extends":"../../node_modules/@acme/heft-web-rig/profiles/app/tsconfig-base.json","compilerOptions":{"target":"es2017"}}"#,
+        ),
+        (
+            "packages/app/node_modules/@acme/web-rig/node_modules/@acme/heft-web-rig/profiles/app/tsconfig-base.json",
+            r#"{"compilerOptions":{"module":"esnext","target":"es5","importHelpers":true}}"#,
+        ),
+        ("packages/app/src/index.ts", "export const a = 1;\n"),
+        (
+            "packages/lib/package.json",
+            r#"{"name":"@acme/lib","version":"1.0.0","main":"src/index.ts","devDependencies":{"@acme/web-rig":"1.0.0"}}"#,
+        ),
+        (
+            "packages/lib/tsconfig.json",
+            r#"{"extends":"./node_modules/@acme/web-rig/profiles/app/tsconfig-base.json"}"#,
+        ),
+        (
+            "packages/lib/node_modules/@acme/web-rig/profiles/app/tsconfig-base.json",
+            r#"{"compilerOptions":{"importHelpers":true}}"#,
+        ),
+        ("packages/lib/src/index.ts", "export const b = 1;\n"),
+    ];
+    let diagnostics = lint(&files);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
+}
+
 /// A config that git ignores is generated (`.nuxt/tsconfig.json`) and not judged; `[js] include-fixtures` judges a
 /// config in a fixture directory like any other.
 #[test]
@@ -505,6 +558,50 @@ fn packages_an_imported_shared_config_names_are_charged_to_its_package() {
         ]
     );
     assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
+
+/// A bundler alias `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }`) is resolved
+/// from the files the package reading the config bundles, so it is judged against that package even when a shared
+/// config factory of another package builds the alias: listed by the reader, it is used there and unlisted nowhere;
+/// listed by no one, it is unlisted at the reading config.
+#[test]
+fn an_alias_replacement_from_a_shared_config_factory_is_judged_against_the_reader() {
+    let files = |app_dependencies: &str| {
+        vec![
+            (
+                "package.json".to_owned(),
+                r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#.to_owned(),
+            ),
+            (
+                "packages/app/package.json".to_owned(),
+                format!(
+                    r#"{{"name":"@x/app","private":true,"type":"module","main":"src/index.ts","dependencies":{{{app_dependencies}}},"devDependencies":{{"@x/vite-config":"workspace:*","vite":"6.0.0"}}}}"#
+                ),
+            ),
+            (
+                "packages/app/vite.config.ts".to_owned(),
+                "import { defineConfig } from 'vite';\nimport { vendorAliases } from '@x/vite-config';\nexport default defineConfig({ resolve: { alias: [...vendorAliases()] } });\n".to_owned(),
+            ),
+            ("packages/app/src/index.ts".to_owned(), "export const a = 1;\n".to_owned()),
+            (
+                "packages/vite-config/package.json".to_owned(),
+                r#"{"name":"@x/vite-config","private":true,"type":"module","main":"index.ts","devDependencies":{"vite":"6.0.0"}}"#.to_owned(),
+            ),
+            (
+                "packages/vite-config/index.ts".to_owned(),
+                "import type { Alias } from 'vite';\nexport const vendorAliases = (): Alias[] => [{ find: 'stream', replacement: 'stream-browserify' }];\n".to_owned(),
+            ),
+        ]
+    };
+    let listed = lint_owned(&files(r#""stream-browserify":"3.0.0""#));
+    assert_eq!(found(&listed, "unlisted-dependencies"), none(), "{listed:#?}");
+    assert_eq!(found(&listed, "unused-dependencies"), none(), "{listed:#?}");
+    let unlisted = lint_owned(&files(""));
+    assert_eq!(
+        found(&unlisted, "unlisted-dependencies"),
+        ["packages/app/vite.config.ts: stream-browserify"],
+        "{unlisted:#?}"
+    );
 }
 
 /// A shared config spread into a config whose key extends a member of it (`plugins: [...base.plugins, 'x']`): what the

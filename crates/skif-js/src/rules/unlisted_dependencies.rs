@@ -7,6 +7,7 @@ use skif_lint::Emitter;
 use super::JsRule;
 use super::support::{is_fixture, module_location};
 use crate::analysis::JsAnalysis;
+use crate::specifier::types_package;
 
 /// Metadata of `unlisted-dependencies`.
 pub static META: RuleMeta = RuleMeta::new(
@@ -108,11 +109,18 @@ impl JsRule for UnlistedDependencies {
                 ),
                 None => (
                     format!("`{}` is imported but not listed in `package.json`", unlisted.name),
-                    format!(
-                        "add `{}` to the dependencies of `{}`",
-                        unlisted.name,
-                        package.display_name()
-                    ),
+                    match types_package(&unlisted.name).filter(|_| unlisted.type_only) {
+                        Some(types) => format!(
+                            "add `{}` or its types package `{types}` to the dependencies of `{}`",
+                            unlisted.name,
+                            package.display_name()
+                        ),
+                        None => format!(
+                            "add `{}` to the dependencies of `{}`",
+                            unlisted.name,
+                            package.display_name()
+                        ),
+                    },
                 ),
             };
             out.emit(

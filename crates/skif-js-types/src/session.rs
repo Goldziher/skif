@@ -1,13 +1,20 @@
 //! One analysis: plan the programs, build a few at a time (the largest first, each with checkers in proportion to its
 //! share of the judged files), walk their judged files on their checkers, copy the facts out and free each program as
 //! soon as its walk ends (ADR 0044, ADR 0045).
+//!
+//! The programs can start before the host knows its query ([`start`]): they are planned from the files that may be
+//! judged, and the first ones build while the host works the query out. Each waits, built, until
+//! [`PendingTypes::finish`] plans the judged files, then walks them or, when no judged file needs it, is freed
+//! unwalked. Which programs start early depends on timing, so nothing that shapes a fact does: a program gets the
+//! checkers the early plan gives it whether it starts early or not, and the walks read the judged files alone.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::thread::{Scope, ScopedJoinHandle};
 use std::time::{Duration, Instant};
 
 use tsrs_compiler::{ProgramOptions, ProgramRegions};
@@ -18,10 +25,10 @@ use tsrs_vfs::FS;
 use crate::coverage::{self, FileState};
 use crate::members::{self, Candidates, Found};
 use crate::owner::ProgramOwner;
-use crate::programs::{self, ConfigHost, Placement, PlannedProgram, ProgramPlan};
+use crate::programs::{self, ConfigHost, Lookups, Placement, PlannedProgram, ProgramPlan};
 use crate::query::{self, FileFacts, QueryContext};
 use crate::vfs::{self, BomFiles};
-use crate::{ENGINE, ProgramTiming, TypeError, TypeFacts, TypeInput, TypeTimings};
+use crate::{ENGINE, ProgramTiming, TypeBuild, TypeError, TypeFacts, TypeInput, TypePackage, TypeQuery, TypeTimings};
 
 /// The stack of the threads that build and check programs: checking recurses deeply, and tsrs-lint gives its program
 /// threads the same.
@@ -38,51 +45,439 @@ const MOST_SHARED_CHECKERS: usize = 8;
 
 /// Runs the analysis of `input`.
 pub(crate) fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
-    let cancelled = || input.cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed));
-    if cancelled() {
+    if input.cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
         return Err(TypeError::Cancelled);
     }
-    let (fs, boms) = vfs::tsrs_fs(Arc::clone(&input.fs));
-    let host = ConfigHost::new(Arc::clone(&fs), vfs::tsrs_path(input.root));
-    // What planning allocates (the parsed configs) is freed when the analysis ends.
+    let build = TypeBuild {
+        fs: Arc::clone(&input.fs),
+        root: input.root.to_path_buf(),
+        packages: input.packages.to_vec(),
+        tsconfig_override: input.tsconfig_override.map(std::path::Path::to_path_buf),
+        threads: input.threads,
+    };
+    std::thread::scope(|scope| start(scope, build, input.cancel).finish(input.packages, input.query))
+}
+
+/// Starts building the programs of `build` on threads of `scope`.
+pub(crate) fn start<'scope, 'env>(
+    scope: &'scope Scope<'scope, 'env>,
+    build: TypeBuild,
+    cancel: Option<&'env AtomicBool>,
+) -> PendingTypes<'scope> {
+    let (fs, boms) = vfs::tsrs_fs(Arc::clone(&build.fs));
+    let shared = Arc::new(Shared {
+        cwd: vfs::tsrs_path(&build.root),
+        fs,
+        boms,
+        build,
+        planned: Slot::default(),
+        judged: Slot::default(),
+    });
+    let spawned = {
+        let shared = Arc::clone(&shared);
+        std::thread::Builder::new()
+            .name("skif-types-plan".to_owned())
+            .spawn_scoped(scope, move || {
+                panic::catch_unwind(AssertUnwindSafe(|| Ok(coordinate(&shared, cancel)))).unwrap_or_else(|payload| {
+                    // The host waits for the early plan; a panic before it was put must not leave it waiting.
+                    shared
+                        .planned
+                        .put(Err(internal("planning the programs", payload.as_ref())));
+                    Err(internal("building the programs", payload.as_ref()))
+                })
+            })
+    };
+    let (coordinator, spawn_error) = match spawned {
+        Ok(handle) => (Some(handle), None),
+        Err(error) => (None, Some(error.to_string())),
+    };
+    PendingTypes {
+        shared,
+        coordinator,
+        spawn_error,
+        cancel,
+    }
+}
+
+/// Programs that are being built before the query is known ([`crate::start`]). [`PendingTypes::finish`] hands the
+/// judged files and the query over and returns the facts; dropping it gives the analysis up and frees every program
+/// built so far.
+#[must_use = "dropping it gives the analysis up"]
+pub struct PendingTypes<'scope> {
+    shared: Arc<Shared>,
+    coordinator: Option<ScopedJoinHandle<'scope, Result<Coordinated, TypeError>>>,
+    spawn_error: Option<String>,
+    cancel: Option<&'scope AtomicBool>,
+}
+
+impl std::fmt::Debug for PendingTypes<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PendingTypes")
+            .field("root", &self.shared.build.root)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PendingTypes<'_> {
+    /// Plans the judged files of `packages`, walks them on the programs (those built already and the rest) for
+    /// `query`, frees every program and returns the facts with the coverage of every package. The file system, root,
+    /// `tsconfig` override and threads are the build's.
+    ///
+    /// # Errors
+    /// As [`crate::analyze`].
+    pub fn finish(mut self, packages: &[TypePackage], query: &TypeQuery) -> Result<TypeFacts, TypeError> {
+        let asked = Instant::now();
+        let shared = Arc::clone(&self.shared);
+        let build = &shared.build;
+        let input = TypeInput {
+            fs: Arc::clone(&build.fs),
+            root: &build.root,
+            packages,
+            tsconfig_override: build.tsconfig_override.as_deref(),
+            query,
+            threads: build.threads,
+            cancel: self.cancel,
+        };
+        let handed = self.hand_over(&input);
+        // Wakes the program threads when nothing was handed over, so that they free their programs and end.
+        self.shared.judged.put(None);
+        let coordinated = self.join();
+        let Handed {
+            judged,
+            planning,
+            region,
+        } = handed?;
+        let coordinated = coordinated?;
+        let wall = coordinated.wall;
+        let outcomes = into_outcomes(&judged, coordinated)?;
+        let mut facts = assemble(&input, &judged.plan, &judged.candidates, outcomes)?;
+        facts.timings.planning = planning;
+        facts.timings.wall = wall;
+        facts.timings.threads = judged.threads;
+        facts.timings.waited = asked.elapsed();
+        drop(region);
+        Ok(facts)
+    }
+
+    /// Plans the judged files of `input` and hands the plan to the program threads.
+    fn hand_over(&self, input: &TypeInput<'_>) -> Result<Handed, TypeError> {
+        if let Some(error) = &self.spawn_error {
+            return Err(TypeError::Internal {
+                message: format!("cannot start a type-checker thread: {error}"),
+            });
+        }
+        let planned = self.shared.planned.take()?;
+        if self.cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
+            return Err(TypeError::Cancelled);
+        }
+        let host = ConfigHost::new(Arc::clone(&self.shared.fs), self.shared.cwd.clone());
+        // What this planning allocates is freed when the analysis ends.
+        let region = Region::new_scratch(SCRATCH_CHUNK);
+        let start = Instant::now();
+        let (plan, _) = {
+            let _scope = region.enter();
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                programs::plan_programs(input, &host, &planned.lookups)
+            }))
+            .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))?
+        };
+        let judged = Arc::new(Judged::new(
+            self.shared.build.threads,
+            &planned.early,
+            plan,
+            Candidates::new(input.query),
+        ));
+        self.shared.judged.put(Some(Arc::clone(&judged)));
+        Ok(Handed {
+            judged,
+            planning: planned.planning.saturating_add(start.elapsed()),
+            region,
+        })
+    }
+
+    fn join(&mut self) -> Result<Coordinated, TypeError> {
+        let Some(handle) = self.coordinator.take() else {
+            return Ok(Coordinated::default());
+        };
+        handle
+            .join()
+            .unwrap_or_else(|payload| Err(internal("building the programs", payload.as_ref())))
+    }
+}
+
+impl Drop for PendingTypes<'_> {
+    fn drop(&mut self) {
+        self.shared.judged.put(None);
+    }
+}
+
+/// What the host, the planning thread and the program threads share.
+struct Shared {
+    build: TypeBuild,
+    fs: Arc<dyn FS>,
+    boms: Arc<BomFiles>,
+    /// The workspace root as tsrs names files, the current directory configs are parsed in.
+    cwd: String,
+    /// The early plan, put by the planning thread.
+    planned: Slot<Result<Planned, TypeError>>,
+    /// The plan of the judged files, put by the host; `None` once the host gave the analysis up.
+    judged: Slot<Option<Arc<Judged>>>,
+}
+
+/// A value one thread puts once and others wait for.
+struct Slot<T> {
+    value: Mutex<Option<T>>,
+    put: Condvar,
+}
+
+impl<T> Default for Slot<T> {
+    fn default() -> Self {
+        Self {
+            value: Mutex::new(None),
+            put: Condvar::new(),
+        }
+    }
+}
+
+impl<T> Slot<T> {
+    /// Puts `value` unless the slot holds one, and wakes the threads that wait for it.
+    fn put(&self, value: T) {
+        let mut slot = lock(&self.value);
+        if slot.is_none() {
+            *slot = Some(value);
+        }
+        drop(slot);
+        self.put.notify_all();
+    }
+
+    /// Waits for the value and takes it.
+    fn take(&self) -> T {
+        let mut slot = lock(&self.value);
+        loop {
+            if let Some(value) = slot.take() {
+                return value;
+            }
+            slot = self.put.wait(slot).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+impl<T: Clone> Slot<T> {
+    /// The value, if it was put.
+    fn get(&self) -> Option<T> {
+        lock(&self.value).clone()
+    }
+
+    /// Waits for the value.
+    fn wait(&self) -> T {
+        let mut slot = lock(&self.value);
+        loop {
+            if let Some(value) = &*slot {
+                return value.clone();
+            }
+            slot = self.put.wait(slot).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// What the early planning hands the host.
+struct Planned {
+    /// Where every early file went, so the planning of the judged files searches only the files it lacks.
+    lookups: Lookups,
+    early: Early,
+    planning: Duration,
+}
+
+/// The programs of the early plan in the order they start, with the checkers of each.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Early {
+    configs: Vec<String>,
+    checkers: Vec<usize>,
+}
+
+impl Early {
+    fn new(plan: &ProgramPlan, schedule: &Schedule) -> Self {
+        Self {
+            configs: schedule
+                .order
+                .iter()
+                .map(|&index| plan.programs[index].config.clone())
+                .collect(),
+            checkers: schedule.order.iter().map(|&index| schedule.checkers[index]).collect(),
+        }
+    }
+}
+
+/// The plan of the judged files with what its walks need.
+struct Judged {
+    plan: ProgramPlan,
+    candidates: Candidates,
+    schedule: Schedule,
+    /// The configs of the programs in [`Schedule::order`].
+    order: Vec<String>,
+    /// The index of each program in [`ProgramPlan::programs`], by config.
+    by_config: BTreeMap<String, usize>,
+    /// The programs built at once.
+    builders: usize,
+    /// The threads the programs share.
+    threads: usize,
+}
+
+impl Judged {
+    fn new(threads: Option<NonZeroUsize>, early: &Early, plan: ProgramPlan, candidates: Candidates) -> Self {
+        let parallelism = Parallelism::new(threads, plan.programs.len());
+        let schedule = judged_schedule(&parallelism, early, &plan.programs);
+        let order = schedule
+            .order
+            .iter()
+            .map(|&index| plan.programs[index].config.clone())
+            .collect();
+        let by_config = plan
+            .programs
+            .iter()
+            .enumerate()
+            .map(|(index, program)| (program.config.clone(), index))
+            .collect();
+        Self {
+            builders: parallelism.programs,
+            threads: parallelism.threads,
+            plan,
+            candidates,
+            schedule,
+            order,
+            by_config,
+        }
+    }
+}
+
+/// The schedule of the judged files' `programs`: those of the early plan first, in its order and with its checkers,
+/// since they may be built with them already; then the others, the largest first, with the checkers of `parallelism`.
+fn judged_schedule(parallelism: &Parallelism, early: &Early, programs: &[PlannedProgram]) -> Schedule {
+    let sizes: Vec<usize> = programs.iter().map(|program| program.files.len()).collect();
+    let own = Schedule::new(parallelism, &sizes);
+    let by_config: BTreeMap<&str, usize> = programs
+        .iter()
+        .enumerate()
+        .map(|(index, program)| (program.config.as_str(), index))
+        .collect();
+    let early_checkers: BTreeMap<&str, usize> = early
+        .configs
+        .iter()
+        .map(String::as_str)
+        .zip(early.checkers.iter().copied())
+        .collect();
+    let mut order: Vec<usize> = early
+        .configs
+        .iter()
+        .filter_map(|config| by_config.get(config.as_str()).copied())
+        .collect();
+    let first: BTreeSet<usize> = order.iter().copied().collect();
+    order.extend(own.order.iter().copied().filter(|index| !first.contains(index)));
+    let checkers = programs
+        .iter()
+        .zip(own.checkers)
+        .map(|(program, checkers)| early_checkers.get(program.config.as_str()).copied().unwrap_or(checkers))
+        .collect();
+    Schedule { order, checkers }
+}
+
+/// What the host takes from handing its plan over.
+struct Handed {
+    judged: Arc<Judged>,
+    planning: Duration,
+    /// The region of the judged files' planning, freed when the analysis ends.
+    region: Region,
+}
+
+/// What the planning thread returns once every program thread has ended.
+#[derive(Default)]
+struct Coordinated {
+    /// The outcome of each program of the judged files' plan, by its index there.
+    outcomes: BTreeMap<usize, Outcome>,
+    wall: Duration,
+    spawn_error: Option<String>,
+}
+
+/// Plans the early files of `shared`, puts the plan for the host and builds and walks the programs until the host's
+/// plan is done or given up.
+fn coordinate(shared: &Shared, cancel: Option<&AtomicBool>) -> Coordinated {
+    let host = ConfigHost::new(Arc::clone(&shared.fs), shared.cwd.clone());
+    // What planning allocates (the parsed configs) is freed when the programs are.
     let region = Region::new_scratch(SCRATCH_CHUNK);
     let start = Instant::now();
-    let plan = {
+    let query = TypeQuery::default();
+    let input = shared.build.input(&query);
+    let planned = {
         let _scope = region.enter();
-        panic::catch_unwind(AssertUnwindSafe(|| programs::plan_programs(input, &host)))
-            .map_err(|payload| internal("planning the programs", payload.as_ref()))??
+        panic::catch_unwind(AssertUnwindSafe(|| {
+            programs::plan_programs(&input, &host, &Lookups::new())
+        }))
+        .unwrap_or_else(|payload| Err(internal("planning the programs", payload.as_ref())))
     };
-    let planning = start.elapsed();
-    if cancelled() {
-        return Err(TypeError::Cancelled);
-    }
-    let candidates = Candidates::new(input.query);
-    let parallelism = Parallelism::new(input.threads, plan.programs.len());
+    let (plan, lookups) = match planned {
+        Ok(planned) => planned,
+        Err(error) => {
+            shared.planned.put(Err(error));
+            return Coordinated::default();
+        }
+    };
+    let parallelism = Parallelism::new(shared.build.threads, plan.programs.len());
     let sizes: Vec<usize> = plan.programs.iter().map(|program| program.files.len()).collect();
+    let early = Early::new(&plan, &Schedule::new(&parallelism, &sizes));
+    drop(plan);
+    shared.planned.put(Ok(Planned {
+        lookups,
+        early: early.clone(),
+        planning: start.elapsed(),
+    }));
     let session = Session {
-        plan: &plan,
-        fs: &fs,
+        shared,
         host: &host,
-        candidates: &candidates,
-        boms: &boms,
-        cancel: input.cancel,
+        early: &early,
+        cancel,
         single_threaded: parallelism.single_threaded,
-        schedule: Schedule::new(&parallelism, &sizes),
         cores: Cores::new(parallelism.threads),
-        next: AtomicUsize::new(0),
-        outcomes: plan.programs.iter().map(|_| Mutex::new(None)).collect(),
-        regions: Mutex::new(Vec::new()),
+        queue: Mutex::default(),
+        outcomes: Mutex::default(),
+        regions: Mutex::default(),
     };
     let run_start = Instant::now();
-    session.run(parallelism.programs)?;
+    let spawn_error = session.run(parallelism.programs);
     let wall = run_start.elapsed();
-    let outcomes = session.into_outcomes()?;
-    let mut facts = assemble(input, &plan, &candidates, outcomes)?;
-    facts.timings.planning = planning;
-    facts.timings.wall = wall;
-    facts.timings.threads = parallelism.threads;
+    let Session { outcomes, regions, .. } = session;
+    drop(regions);
     drop(region);
-    Ok(facts)
+    Coordinated {
+        outcomes: outcomes.into_inner().unwrap_or_else(PoisonError::into_inner),
+        wall,
+        spawn_error: spawn_error.map(|error| error.to_string()),
+    }
+}
+
+/// The outcome of every program of `judged`, once the threads are done.
+fn into_outcomes(judged: &Judged, coordinated: Coordinated) -> Result<Vec<Outcome>, TypeError> {
+    let Coordinated {
+        mut outcomes,
+        spawn_error,
+        ..
+    } = coordinated;
+    let programs = judged.plan.programs.len();
+    if let Some(error) = spawn_error
+        && (0..programs).any(|index| !outcomes.contains_key(&index))
+    {
+        return Err(TypeError::Internal {
+            message: format!("cannot start a type-checker thread: {error}"),
+        });
+    }
+    // A panic outside a program's work leaves its outcome out.
+    let outcomes: Vec<Outcome> = (0..programs)
+        .map(|index| outcomes.remove(&index).unwrap_or(Outcome::Failed))
+        .collect();
+    if outcomes.iter().any(|outcome| matches!(outcome, Outcome::Cancelled)) {
+        return Err(TypeError::Cancelled);
+    }
+    Ok(outcomes)
 }
 
 /// How many programs are built at once and how many checkers a program may get.
@@ -217,6 +612,8 @@ struct BuiltProgram {
     checkers: usize,
     build: Duration,
     query: Duration,
+    /// Whether the program started from the early plan.
+    early: bool,
 }
 
 struct WalkedFile {
@@ -226,19 +623,83 @@ struct WalkedFile {
     unresolved_modules: u32,
 }
 
+/// The programs not started yet: those of the early plan until the judged files are planned, then those of the
+/// judged files' plan that did not start early.
+#[derive(Debug, Default)]
+struct Queue {
+    /// The next position in [`Early::configs`].
+    early: usize,
+    /// The next position in [`Judged::order`].
+    judged: usize,
+    /// The configs of the programs started.
+    started: BTreeSet<String>,
+}
+
+/// Where the plan of the judged files stands, as [`Queue::next`] reads it.
+#[derive(Debug, Clone, Copy)]
+enum Gate<'a> {
+    /// Not handed over yet.
+    Closed,
+    /// Handed over: the configs of its programs in the order they start.
+    Open(&'a [String]),
+    /// The host gave the analysis up.
+    Abandoned,
+}
+
+/// What a program thread does next.
+#[derive(Debug, PartialEq, Eq)]
+enum Next {
+    /// Build the program at this position of [`Early::configs`].
+    Early(usize),
+    /// Build the program at this position of [`Judged::order`].
+    Judged(usize),
+    /// Wait for the judged files' plan: every early program has started.
+    Wait,
+    /// End: every program has started.
+    Done,
+}
+
+impl Queue {
+    /// The next program to start, of the `early` configs or, once the gate is open, of the judged files' plan.
+    fn next(&mut self, early: &[String], gate: Gate<'_>) -> Next {
+        match gate {
+            Gate::Abandoned => Next::Done,
+            Gate::Open(order) => {
+                while let Some(config) = order.get(self.judged) {
+                    let position = self.judged;
+                    self.judged += 1;
+                    if self.started.insert(config.clone()) {
+                        return Next::Judged(position);
+                    }
+                }
+                Next::Done
+            }
+            Gate::Closed => {
+                let Some(config) = early.get(self.early) else {
+                    return Next::Wait;
+                };
+                let position = self.early;
+                self.early += 1;
+                self.started.insert(config.clone());
+                Next::Early(position)
+            }
+        }
+    }
+}
+
+/// A program of the judged files' plan, by its index there.
+type Target = (Arc<Judged>, usize);
+
 struct Session<'a> {
-    plan: &'a ProgramPlan,
-    fs: &'a Arc<dyn FS>,
+    shared: &'a Shared,
     host: &'a ConfigHost,
-    candidates: &'a Candidates,
-    boms: &'a BomFiles,
+    early: &'a Early,
     cancel: Option<&'a AtomicBool>,
     single_threaded: bool,
-    schedule: Schedule,
     cores: Cores,
-    /// The next position in [`Schedule::order`].
-    next: AtomicUsize,
-    outcomes: Vec<Mutex<Option<Outcome>>>,
+    queue: Mutex<Queue>,
+    /// The outcome of each program of the judged files' plan, by its index there.
+    outcomes: Mutex<BTreeMap<usize, Outcome>>,
     /// The scratch regions of the program threads, freed when the analysis ends.
     regions: Mutex<Vec<Region>>,
 }
@@ -248,73 +709,107 @@ impl Session<'_> {
         self.cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed))
     }
 
-    /// Builds and walks every program on `program_threads` threads.
-    fn run(&self, program_threads: usize) -> Result<(), TypeError> {
-        if self.plan.programs.is_empty() {
-            return Ok(());
-        }
+    /// Builds and walks every program, `builders` at once until the judged files are planned and then as many as
+    /// their plan builds at once; returns why a thread could not start, if one could not.
+    fn run(&self, builders: usize) -> Option<std::io::Error> {
         let mut spawn_error = None;
         std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..program_threads)
-                .map(|index| {
-                    std::thread::Builder::new()
-                        .name(format!("skif-types-{index}"))
-                        .stack_size(PROGRAM_STACK_SIZE)
-                        .spawn_scoped(scope, || self.work())
-                })
-                .collect();
+            let spawn = |index: usize| {
+                std::thread::Builder::new()
+                    .name(format!("skif-types-{index}"))
+                    .stack_size(PROGRAM_STACK_SIZE)
+                    .spawn_scoped(scope, || self.work())
+            };
+            let mut handles: Vec<_> = (0..builders).map(&spawn).collect();
+            if let Some(judged) = self.shared.judged.wait() {
+                handles.extend((builders..judged.builders).map(&spawn));
+            }
             for handle in handles {
                 match handle {
-                    // A panic outside a program's work leaves its slot empty, which `into_outcomes` reports.
+                    // A panic outside a program's work leaves its outcome out, which `into_outcomes` reports.
                     Ok(handle) => drop(handle.join()),
                     Err(error) => spawn_error = Some(error),
                 }
             }
         });
-        match spawn_error {
-            Some(error) if self.outcomes.iter().any(|slot| lock(slot).is_none()) => Err(TypeError::Internal {
-                message: format!("cannot start a type-checker thread: {error}"),
-            }),
-            _ => Ok(()),
-        }
+        spawn_error
     }
 
     fn work(&self) {
         let region = Region::new_scratch(SCRATCH_CHUNK);
         let entered = region.enter();
         loop {
-            let position = self.next.fetch_add(1, Ordering::Relaxed);
-            let Some(&index) = self.schedule.order.get(position) else {
-                break;
+            let judged = self.shared.judged.get();
+            let gate = match &judged {
+                None => Gate::Closed,
+                Some(None) => Gate::Abandoned,
+                Some(Some(judged)) => Gate::Open(&judged.order),
             };
-            let program = &self.plan.programs[index];
-            let outcome = self.start(program, self.schedule.checkers[index]);
-            *lock(&self.outcomes[index]) = Some(outcome);
+            let next = lock(&self.queue).next(&self.early.configs, gate);
+            match next {
+                Next::Early(position) => {
+                    self.start(&self.early.configs[position], self.early.checkers[position], None);
+                }
+                Next::Judged(position) => {
+                    let Some(Some(judged)) = judged else {
+                        break;
+                    };
+                    let index = judged.schedule.order[position];
+                    let checkers = judged.schedule.checkers[index];
+                    let config = judged.plan.programs[index].config.clone();
+                    self.start(&config, checkers, Some((judged, index)));
+                }
+                Next::Wait => {
+                    self.shared.judged.wait();
+                }
+                Next::Done => break,
+            }
         }
         drop(entered);
-        self.regions.lock().unwrap_or_else(PoisonError::into_inner).push(region);
+        lock(&self.regions).push(region);
     }
 
-    /// Runs `program` on `checkers` checkers once that many threads are free.
-    fn start(&self, program: &PlannedProgram, checkers: usize) -> Outcome {
+    /// Runs the program of `config` on `checkers` checkers once that many threads are free, and keeps its outcome
+    /// for its program of the judged files' plan: `target`, or the one with its config once that plan is known.
+    fn start(&self, config: &str, checkers: usize, target: Option<Target>) {
+        let early = target.is_none();
+        let outcome = self.build_and_walk(config, checkers, target.clone(), early);
+        let Some(outcome) = outcome else {
+            return;
+        };
+        if let Some((_, index)) = target.or_else(|| self.target(config)) {
+            lock(&self.outcomes).insert(index, outcome);
+        }
+    }
+
+    fn build_and_walk(&self, config: &str, checkers: usize, target: Option<Target>, early: bool) -> Option<Outcome> {
         if self.cancelled() {
-            return Outcome::Cancelled;
+            return Some(Outcome::Cancelled);
         }
         let _taken = self.cores.take(checkers);
         if self.cancelled() {
-            return Outcome::Cancelled;
+            return Some(Outcome::Cancelled);
         }
-        panic::catch_unwind(AssertUnwindSafe(|| self.run_program(program, checkers))).unwrap_or(Outcome::Failed)
+        panic::catch_unwind(AssertUnwindSafe(|| self.run_program(config, checkers, target, early)))
+            .unwrap_or(Some(Outcome::Failed))
     }
 
-    /// Builds `program`, walks its judged files and frees it.
-    fn run_program(&self, program: &PlannedProgram, checkers: usize) -> Outcome {
+    /// The program of the judged files' plan with `config`, once the plan is known; `None` when no judged file needs
+    /// it or the host gave the analysis up.
+    fn target(&self, config: &str) -> Option<Target> {
+        let judged = self.shared.judged.wait()?;
+        let index = *judged.by_config.get(config)?;
+        Some((judged, index))
+    }
+
+    /// Builds the program of `path`, walks its judged files and frees it; `None` when no judged file needs it.
+    fn run_program(&self, path: &str, checkers: usize, target: Option<Target>, early: bool) -> Option<Outcome> {
         let start = Instant::now();
-        let Some(mut config) = programs::parse_config(&program.config, self.host) else {
-            return Outcome::ConfigError;
+        let Some(mut config) = programs::parse_config(path, self.host) else {
+            return Some(Outcome::ConfigError);
         };
         let Some(base) = config.compiler_options() else {
-            return Outcome::ConfigError;
+            return Some(Outcome::ConfigError);
         };
         let single_threaded = self.single_threaded;
         config.parsed_config.compiler_options = Some(P::new(CompilerOptions {
@@ -329,8 +824,8 @@ impl Session<'_> {
         // Dropped after the program: nothing that outlives the program points into its loader regions.
         let loader_regions: Arc<ProgramRegions> = Arc::default();
         let compiler_host = tsrs_compiler::new_compiler_host(
-            &tspath::get_directory_path(&program.config),
-            Arc::clone(self.fs),
+            &tspath::get_directory_path(path),
+            Arc::clone(&self.shared.fs),
             &vfs::lib_path(),
             None,
             None,
@@ -346,40 +841,48 @@ impl Session<'_> {
             options.single_threaded = Tristate::True;
         }
         let owner = ProgramOwner::new(options);
-        let built = self.walk(owner.program(), program, start, checkers);
+        let built = self.walk(owner.program(), path, target, start, checkers, early);
         drop(owner);
         drop(loader_regions);
         built
     }
 
-    /// Walks the judged files of `program` once it is built, copying out what the walks find.
+    /// Walks the judged files of the program of `path` once it is built, copying out what the walks find. An early
+    /// program waits here, built, for the judged files' plan.
     fn walk(
         &self,
         tsrs: &tsrs_compiler::Program,
-        program: &PlannedProgram,
+        path: &str,
+        target: Option<Target>,
         start: Instant,
         checkers: usize,
-    ) -> Outcome {
+        early: bool,
+    ) -> Option<Outcome> {
         tsrs.bind_source_files();
         let build = start.elapsed();
+        let (judged, index) = match target {
+            Some(target) => target,
+            None => self.target(path)?,
+        };
         if self.cancelled() {
-            return Outcome::Cancelled;
+            return Some(Outcome::Cancelled);
         }
+        let program = &judged.plan.programs[index];
         let mut sources = Vec::new();
         let mut indices = Vec::new();
         let mut missing = Vec::new();
-        for &index in &program.files {
-            match tsrs.get_source_file(&self.plan.files[index].name) {
+        for &file in &program.files {
+            match tsrs.get_source_file(&judged.plan.files[file].name) {
                 Some(source) => {
                     sources.push(source);
-                    indices.push(index);
+                    indices.push(file);
                 }
-                None => missing.push(index),
+                None => missing.push(file),
             }
         }
         let context = QueryContext {
-            candidates: self.candidates,
-            boms: self.boms,
+            candidates: &judged.candidates,
+            boms: &self.shared.boms,
         };
         let slots: Vec<Mutex<Option<(FileFacts, u32)>>> = sources.iter().map(|_| Mutex::new(None)).collect();
         let query_start = Instant::now();
@@ -397,49 +900,32 @@ impl Session<'_> {
             *lock(&slots[index]) = Some((facts, unresolved_modules));
         });
         if !pooled {
-            return Outcome::Failed;
+            return Some(Outcome::Failed);
         }
         let query = query_start.elapsed();
         if self.cancelled() {
-            return Outcome::Cancelled;
+            return Some(Outcome::Cancelled);
         }
         let mut walked = Vec::with_capacity(indices.len());
-        for (slot, index) in slots.into_iter().zip(indices) {
+        for (slot, file) in slots.into_iter().zip(indices) {
             let Some((facts, unresolved_modules)) = slot.into_inner().unwrap_or_else(PoisonError::into_inner) else {
-                return Outcome::Failed;
+                return Some(Outcome::Failed);
             };
             walked.push(WalkedFile {
-                file: index,
+                file,
                 facts,
                 unresolved_modules,
             });
         }
-        Outcome::Built(BuiltProgram {
+        Some(Outcome::Built(BuiltProgram {
             walked,
             missing,
             files: tsrs.get_source_files().len(),
             checkers,
             build,
             query,
-        })
-    }
-
-    /// The outcome of every program, once the threads are done.
-    fn into_outcomes(self) -> Result<Vec<Outcome>, TypeError> {
-        let outcomes: Vec<Outcome> = self
-            .outcomes
-            .into_iter()
-            .map(|slot| {
-                slot.into_inner()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .unwrap_or(Outcome::Failed)
-            })
-            .collect();
-        drop(self.regions);
-        if outcomes.iter().any(|outcome| matches!(outcome, Outcome::Cancelled)) {
-            return Err(TypeError::Cancelled);
-        }
-        Ok(outcomes)
+            early,
+        }))
     }
 }
 
@@ -468,6 +954,7 @@ fn assemble(
             Outcome::Built(built) => {
                 timings.programs += built.build;
                 timings.queries += built.query;
+                timings.early += usize::from(built.early);
                 timings.per_program.push(ProgramTiming {
                     config: PathBuf::from(&program.config),
                     judged_files: program.files.len(),
@@ -487,13 +974,11 @@ fn assemble(
                         reads,
                         whole,
                         unresolved,
-                        ancestry,
+                        implementations,
                     } = walked.facts;
                     found.reads.extend(reads);
                     found.whole.extend(whole);
-                    for (class, ancestors) in ancestry {
-                        found.ancestry.entry(class).or_default().extend(ancestors);
-                    }
+                    found.implementations.extend(implementations);
                     if !unresolved.is_empty() {
                         unresolved_names
                             .entry(plan.files[walked.file].path.clone())
@@ -696,6 +1181,119 @@ mod tests {
         assert_eq!(*lock(&cores.free), 0);
         drop(all);
         assert_eq!(*lock(&cores.free), 4);
+    }
+
+    fn configs(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    fn planned(configs_and_sizes: &[(&str, usize)]) -> Vec<PlannedProgram> {
+        let mut next = 0;
+        configs_and_sizes
+            .iter()
+            .map(|&(config, size)| {
+                let files = (next..next + size).collect();
+                next += size;
+                PlannedProgram {
+                    config: config.to_owned(),
+                    files,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn early_programs_start_until_the_judged_files_are_planned_then_the_rest_of_their_plan() {
+        let early = configs(&["a", "b"]);
+        let mut queue = Queue::default();
+        assert_eq!(queue.next(&early, Gate::Closed), Next::Early(0));
+        assert_eq!(queue.next(&early, Gate::Closed), Next::Early(1));
+        assert_eq!(
+            queue.next(&early, Gate::Closed),
+            Next::Wait,
+            "every early program has started"
+        );
+        let judged = configs(&["b", "c", "a", "d"]);
+        assert_eq!(
+            queue.next(&early, Gate::Open(&judged)),
+            Next::Judged(1),
+            "`b` started early"
+        );
+        assert_eq!(
+            queue.next(&early, Gate::Open(&judged)),
+            Next::Judged(3),
+            "`a` started early"
+        );
+        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Done);
+    }
+
+    #[test]
+    fn an_early_program_not_started_when_the_judged_files_are_planned_starts_from_their_plan() {
+        let early = configs(&["a", "b"]);
+        let mut queue = Queue::default();
+        assert_eq!(queue.next(&early, Gate::Closed), Next::Early(0));
+        let judged = configs(&["a", "b"]);
+        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Judged(1));
+        assert_eq!(queue.next(&early, Gate::Open(&judged)), Next::Done);
+    }
+
+    #[test]
+    fn nothing_starts_once_the_analysis_is_given_up() {
+        let early = configs(&["a"]);
+        let mut queue = Queue::default();
+        assert_eq!(queue.next(&early, Gate::Abandoned), Next::Done);
+        assert_eq!(
+            queue.next(&early, Gate::Closed),
+            Next::Early(0),
+            "the early program had not started"
+        );
+    }
+
+    #[test]
+    fn the_judged_files_keep_the_schedule_of_an_early_plan_of_the_same_programs() {
+        let programs = planned(&[("a", 100), ("b", 10_000), ("c", 100), ("d", 100), ("e", 100)]);
+        let sizes: Vec<usize> = programs.iter().map(|program| program.files.len()).collect();
+        let parallelism = parallelism(16, programs.len());
+        let own = Schedule::new(&parallelism, &sizes);
+        let plan = ProgramPlan {
+            programs,
+            files: Vec::new(),
+        };
+        let early = Early::new(&plan, &own);
+        assert_eq!(judged_schedule(&parallelism, &early, &plan.programs), own);
+    }
+
+    #[test]
+    fn a_judged_program_keeps_its_early_checkers_and_order_and_the_others_follow_by_size() {
+        let early = Early {
+            configs: configs(&["gone", "b", "a"]),
+            checkers: vec![8, 6, 5],
+        };
+        // Fewer judged files than early ones in `a` and `b`, which may already be built with their early checkers.
+        let programs = planned(&[("a", 1), ("b", 2), ("c", 30), ("d", 400)]);
+        let schedule = judged_schedule(&parallelism(16, programs.len()), &early, &programs);
+        assert_eq!(
+            schedule,
+            Schedule {
+                order: vec![1, 0, 3, 2],
+                checkers: vec![5, 6, 4, 8],
+            }
+        );
+    }
+
+    #[test]
+    fn a_slot_hands_its_first_value_to_every_waiting_thread() {
+        let slot: Slot<Option<u32>> = Slot::default();
+        assert_eq!(slot.get(), None);
+        std::thread::scope(|scope| {
+            let waiter = scope.spawn(|| slot.wait());
+            slot.put(Some(7));
+            slot.put(None);
+            assert_eq!(waiter.join().unwrap(), Some(7));
+        });
+        assert_eq!(slot.get(), Some(Some(7)), "a later value does not replace the first");
+        assert_eq!(slot.take(), Some(7));
+        assert_eq!(slot.get(), None);
     }
 
     #[test]

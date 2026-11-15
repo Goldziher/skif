@@ -18,6 +18,7 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::thread::Scope;
 
 use skif_core::FileSystem;
 
@@ -26,6 +27,7 @@ pub use facts::{
     CoverageReason, CoverageState, DeclId, DeclKind, DeclQuery, PackageCoverage, ProgramTiming, TypeFacts, TypeQuery,
     TypeTimings,
 };
+pub use session::PendingTypes;
 
 /// The engine and version recorded in [`TypeFacts::engine`].
 pub const ENGINE: &str = "tsrs 7.1.0-beta.tsrs1";
@@ -98,6 +100,79 @@ impl<'a> TypeInput<'a> {
     }
 }
 
+/// What building the programs needs before the query is known: a [`TypeInput`] without its query, owned, so the
+/// programs can build while the host still works out what to ask ([`start`]).
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct TypeBuild {
+    /// The file system every file and config is read through.
+    pub fs: Arc<dyn FileSystem>,
+    /// The workspace root, absolute.
+    pub root: PathBuf,
+    /// The packages with the files that may be judged: the programs of their configs start building. Only the
+    /// judged files handed to [`PendingTypes::finish`] are walked; a program none of them needs is freed unwalked,
+    /// and a program only they need is built then.
+    pub packages: Vec<TypePackage>,
+    /// A `tsconfig` that replaces discovery for the root package (`[js] tsconfig`).
+    pub tsconfig_override: Option<PathBuf>,
+    /// The threads the checker may use; `None` for all cores.
+    pub threads: Option<NonZeroUsize>,
+}
+
+impl TypeBuild {
+    /// A build of the programs of `packages`, with discovered `tsconfig` files and all cores.
+    #[must_use]
+    pub fn new(fs: Arc<dyn FileSystem>, root: PathBuf, packages: Vec<TypePackage>) -> Self {
+        Self {
+            fs,
+            root,
+            packages,
+            tsconfig_override: None,
+            threads: None,
+        }
+    }
+
+    /// Uses `tsconfig` for the root package instead of discovering one.
+    #[must_use]
+    pub fn with_tsconfig_override(mut self, tsconfig: PathBuf) -> Self {
+        self.tsconfig_override = Some(tsconfig);
+        self
+    }
+
+    /// Limits the checker to `threads` threads.
+    #[must_use]
+    pub fn with_threads(mut self, threads: NonZeroUsize) -> Self {
+        self.threads = Some(threads);
+        self
+    }
+
+    /// The input over the packages of the build for `query`, without cancellation.
+    fn input<'a>(&'a self, query: &'a TypeQuery) -> TypeInput<'a> {
+        TypeInput {
+            fs: Arc::clone(&self.fs),
+            root: &self.root,
+            packages: &self.packages,
+            tsconfig_override: self.tsconfig_override.as_deref(),
+            query,
+            threads: self.threads,
+            cancel: None,
+        }
+    }
+}
+
+/// Starts building the programs of `build` on threads of `scope`, so they build while the host works out its query;
+/// [`PendingTypes::finish`] then walks them. The facts are those [`analyze`] gives for the input `finish` describes,
+/// whichever programs were built before it.
+///
+/// `cancel` stops the analysis once set, as [`TypeInput::cancel`] does.
+pub fn start<'scope, 'env>(
+    scope: &'scope Scope<'scope, 'env>,
+    build: TypeBuild,
+    cancel: Option<&'env AtomicBool>,
+) -> PendingTypes<'scope> {
+    session::start(scope, build, cancel)
+}
+
 /// Builds the programs of the packages in `input`, asks the checker about the declarations of its query and returns
 /// the facts with the coverage of every package.
 ///
@@ -123,4 +198,5 @@ const _: () = {
     assert_send_sync::<TypeFacts>();
     assert_send_sync::<TypeQuery>();
     assert_send_sync::<TypeError>();
+    assert_send_sync::<TypeBuild>();
 };

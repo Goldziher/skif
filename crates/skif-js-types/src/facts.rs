@@ -49,7 +49,7 @@ pub struct TypeFacts {
     /// The engine that produced the facts, with its version (`tsrs 7.1.0-beta.tsrs1`).
     pub engine: &'static str,
     /// The members of each declaration that a typed read reaches, directly or through a base class or an interface
-    /// the declaration implements.
+    /// the declaration implements, or that a subclass inheriting the member implements.
     pub reads: BTreeMap<DeclId, BTreeSet<String>>,
     /// The declarations used as a whole (`keyof C`, `Object.values(E)`, an alias passed on), whose members all count
     /// as used.
@@ -147,6 +147,11 @@ pub struct TypeTimings {
     pub queries: Duration,
     /// The wall time from the start of the first program to the end of the last.
     pub wall: Duration,
+    /// The wall time from the query being handed over to the facts: what the analysis adds to the host's own work
+    /// when the programs start before the query is known ([`crate::start`]).
+    pub waited: Duration,
+    /// The programs that started building before the query was handed over and were then walked.
+    pub early: usize,
     /// The threads the programs shared.
     pub threads: usize,
     /// Every built program, in the order of their configs.

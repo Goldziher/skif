@@ -708,6 +708,7 @@ pub fn run(options: &Options) -> Result<()> {
     let current = Baseline {
         schema: BASELINE_SCHEMA,
         tool,
+        mode: None,
         installed: false,
         category_set: None,
         entries,
