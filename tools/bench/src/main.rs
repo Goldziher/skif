@@ -10,6 +10,7 @@ mod provenance;
 mod run;
 mod sources;
 mod syncpack;
+mod tools;
 mod type_aware;
 
 use std::fs;
@@ -44,6 +45,11 @@ enum Command {
     Corpus {
         #[command(subcommand)]
         action: CorpusAction,
+    },
+    /// Keep the pinned comparison tools at the latest npm releases.
+    Tools {
+        #[command(subcommand)]
+        action: ToolsAction,
     },
     /// Benchmark skif and the pinned comparison tools with hyperfine.
     Run(RunArgs),
@@ -118,6 +124,21 @@ struct GenerateArgs {
 enum CorpusAction {
     /// Fetch every repository of a suite at its pinned commit (idempotent).
     Fetch(CorpusArgs),
+}
+
+#[derive(Subcommand)]
+enum ToolsAction {
+    /// Move every `[tools]` pin behind its latest release to it, in corpus.toml, tools/package.json and the lock.
+    Update(ToolsArgs),
+    /// Fail when a `[tools]` pin is behind its latest release.
+    Check(ToolsArgs),
+}
+
+#[derive(Args)]
+struct ToolsArgs {
+    /// Corpus manifest.
+    #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
+    file: PathBuf,
 }
 
 #[derive(Args)]
@@ -365,6 +386,15 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Tools { action } => match action {
+            ToolsAction::Update(args) => tools::update(
+                &args.file,
+                &tools::npm_latest,
+                &tools::npm_relock,
+                &mut std::io::stdout(),
+            ),
+            ToolsAction::Check(args) => tools::check(&args.file, &tools::npm_latest, &mut std::io::stdout()),
+        },
         Command::Parity(args) => parity::run(&parity::Options {
             skif: args.skif,
             corpus_file: args.corpus_file,

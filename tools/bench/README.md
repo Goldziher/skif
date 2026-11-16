@@ -18,8 +18,11 @@ with `--warmup` and `--runs`) on two kinds of targets:
 `sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, where their versions are
 declared. `tools/package.json` and `tools/package-lock.json` repeat them and pin every package they depend on; the
 harness refuses to load `corpus.toml` when the lock's root dependencies or its installed `node_modules/<tool>` versions
-differ from `[tools]`. To bump a tool, change `[tools]` and `tools/package.json`, then run `npm install
---package-lock-only --ignore-scripts` in `tools/`. `run` copies the two files into `target/bench-generated/tools`,
+differ from `[tools]`. The pins stay exact, at the latest releases: `skif-bench tools update` looks each tool up on the
+npm registry (`npm view <tool> version`), rewrites `[tools]` and `tools/package.json` for every tool that is behind and
+runs `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` in `tools/`, printing `old -> new` per
+tool; `skif-bench tools check` exits non-zero and lists each tool that is `pinned X, latest Y` (a registry failure is an
+error, not a pass). `run` copies the two files into `target/bench-generated/tools`,
 installs them there once with `npm ci --ignore-scripts` and times the executables in its `node_modules/.bin` directly,
 so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be installed (no `npm`, a failed
 install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
@@ -679,7 +682,7 @@ only). `baselines/type-aware.json` holds the typed-versus-untyped counts of the 
 repository and skif rule, with `skif --no-type-aware` as its tool: `skif_only` counts the findings only the typed run
 reports, `tool_only` those only the untyped run reports, `both` those of both. `parity --write-baseline` records both
 files and `parity --check` checks both (`--type-aware-baseline` names another file). After a deliberate change, or a
-bump of a pin in `corpus.toml`, refresh them:
+bump of a pin in `corpus.toml` (`skif-bench tools update` changes the pins but re-records no baseline), refresh them:
 
 ```sh
 mise run parity -- --install --write-baseline
@@ -893,5 +896,6 @@ in-process part.
   mean over many `--runs`.
 - The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each
   repository). Repositories are fetched shallow with `git fetch --depth 1 origin <sha>` (plus a cone sparse checkout
-  where `sparse` is set), so `fetch` is idempotent and cheap to repeat. Bump a pin deliberately and refresh the
-  baselines in the same change.
+  where `sparse` is set), so `fetch` is idempotent and cheap to repeat. Bump a repository pin deliberately; tool pins
+  move with `skif-bench tools update` (check with `tools check`). Refresh the baselines (parity, syncpack,
+  type-aware) in the same change.
