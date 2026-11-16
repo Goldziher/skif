@@ -567,7 +567,7 @@ fn require_typed(run: Result<(Value, Option<i32>), String>, mode: Mode) -> Resul
 }
 
 /// The checkouts of `repos` whose dependencies are not installed.
-fn uninstalled<'a>(repos: &'a [(Repo, PathBuf)]) -> Vec<&'a str> {
+fn uninstalled(repos: &[(Repo, PathBuf)]) -> Vec<&str> {
     repos
         .iter()
         .filter(|(repo, root)| !is_installed(repo, root))
