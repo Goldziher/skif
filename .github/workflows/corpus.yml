@@ -10,6 +10,10 @@ on:
       only:
         description: "Comma-separated corpus repositories to check (default: all)"
         required: false
+      record:
+        description: "Re-record the baselines (--write-baseline) instead of checking them; uploads them as an artifact"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -61,10 +65,11 @@ jobs:
       - name: Parity with knip
         env:
           ONLY: ${{ inputs.only }}
+          MODE: ${{ inputs.record && '--write-baseline' || '--check' }}
         run: |
           set -euo pipefail
           mkdir -p target/bench-results
-          args=(--skif target/release/skif --install --check)
+          args=(--skif target/release/skif --install "$MODE")
           if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
           target/release/skif-bench parity "${args[@]}" 2>&1 | tee target/bench-results/parity.log
       # ~keep Runs after a parity drift too: the two checks are independent.
@@ -72,10 +77,11 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           ONLY: ${{ inputs.only }}
+          MODE: ${{ inputs.record && '--write-baseline' || '--check' }}
         run: |
           set -euo pipefail
           mkdir -p target/bench-results
-          args=(--skif target/release/skif --check)
+          args=(--skif target/release/skif "$MODE")
           if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
           target/release/skif-bench syncpack-diff "${args[@]}" 2>&1 | tee target/bench-results/syncpack.log
       - name: Write the tables and the drift to the job summary
@@ -109,3 +115,10 @@ jobs:
           path: |
             target/bench-results/parity.*
             target/bench-results/syncpack.*
+      # ~keep A recording run hands the rewritten baselines back to be reviewed and committed.
+      - name: Upload the recorded baselines
+        if: ${{ !cancelled() && inputs.record }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corpus-baselines
+          path: tools/bench/baselines/*.json
