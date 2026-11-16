@@ -1025,7 +1025,7 @@
         "unused-dev-dependencies": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 78
+          "both": 45
         },
         "unused-exports": {
           "skif_only": 0,
@@ -1053,9 +1053,9 @@
           "both": 4
         }
       },
-      "installed": false,
+      "installed": true,
       "recursive": false,
-      "skif_rev": "4b75e64ede5d"
+      "skif_rev": "633f7df720bf"
     },
     "rules-js": {
       "status": "compared",

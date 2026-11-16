@@ -1269,18 +1269,18 @@
       "categories": {
         "binaries": {
           "skif_only": 1,
-          "tool_only": 48,
+          "tool_only": 0,
           "both": 1
         },
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 8,
+          "tool_only": 1,
           "both": 22
         },
         "devDependencies": {
           "skif_only": 0,
-          "tool_only": 9,
-          "both": 78
+          "tool_only": 1,
+          "both": 45
         },
         "duplicates": {
           "skif_only": 0,
@@ -1289,18 +1289,18 @@
         },
         "exports": {
           "skif_only": 0,
-          "tool_only": 0,
-          "both": 313
+          "tool_only": 1,
+          "both": 365
         },
         "files": {
           "skif_only": 0,
-          "tool_only": 6,
+          "tool_only": 8,
           "both": 233
         },
         "types": {
           "skif_only": 0,
-          "tool_only": 0,
-          "both": 114
+          "tool_only": 1,
+          "both": 111
         },
         "unlisted": {
           "skif_only": 0,
@@ -1312,10 +1312,6 @@
         "bun-file-argument": {
           "skif_only": 0,
           "tool_only": 1
-        },
-        "declaration-file": {
-          "skif_only": 0,
-          "tool_only": 3
         },
         "entry-module-duplicate": {
           "skif_only": 0,
@@ -1331,15 +1327,15 @@
         },
         "imported-by-knip-unused-file": {
           "skif_only": 0,
-          "tool_only": 143
+          "tool_only": 44
         },
         "in-knip-unused-file": {
-          "skif_only": 69,
+          "skif_only": 14,
           "tool_only": 0
         },
         "knip-config-error": {
           "skif_only": 1,
-          "tool_only": 98
+          "tool_only": 27
         },
         "module-object-types": {
           "skif_only": 4,
@@ -1357,17 +1353,13 @@
           "skif_only": 0,
           "tool_only": 6
         },
-        "published-source": {
-          "skif_only": 0,
-          "tool_only": 51
-        },
         "shell-template-directory": {
           "skif_only": 0,
           "tool_only": 4
         },
         "signature-type": {
           "skif_only": 0,
-          "tool_only": 12
+          "tool_only": 10
         },
         "skipped-directory": {
           "skif_only": 0,
@@ -1375,17 +1367,21 @@
         },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 493
+          "tool_only": 351
+        },
+        "tsconfig-declaration-file": {
+          "skif_only": 6,
+          "tool_only": 0
         },
         "used-in-knip-unused-file": {
           "skif_only": 0,
-          "tool_only": 13
+          "tool_only": 7
         }
       },
-      "tool_errors": 16,
-      "installed": false,
+      "tool_errors": 3,
+      "installed": true,
       "recursive": false,
-      "skif_rev": "4b75e64ede5d"
+      "skif_rev": "633f7df720bf"
     },
     "rules-js": {
       "status": "compared",
