@@ -1,7 +1,8 @@
-//! The programs of a run share the bundled lib files and the declaration files below `node_modules` (ADR 0010): each
-//! is parsed and bound once for the run, whichever program reads it first, every later program reads that parse,
-//! also after the program that parsed it is freed, and the facts are those of programs that parse every file for
-//! themselves. A project's own files, declaration files included, are parsed by each program that reads them.
+//! The programs of a run share the files they read (ADR 0010): each is parsed and bound once for the run,
+//! whichever program reads it first, and the facts are those of programs that parse every file for themselves. The
+//! bundled lib files and the declaration files below `node_modules` stay for the run, so every later program reads
+//! that parse, also after the program that parsed it is freed. A project's own files, declaration files included,
+//! are shared by the programs that read them at once and freed with the last of them.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -264,7 +265,7 @@ fn options_that_change_only_how_project_files_parse_still_share_the_declaration_
 }
 
 #[test]
-fn a_projects_own_declaration_file_is_parsed_by_each_program_that_includes_it() {
+fn a_projects_own_declaration_file_is_not_kept_for_the_run() {
     let lone = Pkg {
         dir: "packages/lone",
         files: vec![("tsconfig.json", TSCONFIG.to_owned()), ("src/lone.ts", LONE.to_owned())],
@@ -297,9 +298,207 @@ fn a_projects_own_declaration_file_is_parsed_by_each_program_that_includes_it() 
     assert_eq!(
         counts(&facts),
         (libs + 1, libs + 1, 0),
-        "the lib files and the dependency's declaration file are shared, `shared/globals.d.ts` is not"
+        "the lib files and the dependency's declaration file are kept for the run, `shared/globals.d.ts` is not"
     );
     assert_eq!(facts.reads, widget_reads(2));
+}
+
+/// A library whose `Widget` the root's program reads as a source, through a project reference: the root package
+/// `app` at the workspace root, the library below it.
+fn referenced() -> [Pkg; 2] {
+    let app = Pkg {
+        dir: "",
+        files: vec![
+            (
+                "tsconfig.json",
+                TSCONFIG.replace(
+                    r#""include": ["src"]"#,
+                    r#""include": ["src"], "references": [{ "path": "packages/lib" }]"#,
+                ),
+            ),
+            (
+                "src/main.ts",
+                MAIN.replace("'./widget'", "'../packages/lib/src/widget'"),
+            ),
+        ],
+    };
+    let lib = Pkg {
+        dir: "packages/lib",
+        files: vec![
+            (
+                "tsconfig.json",
+                tsconfig(
+                    r#" "composite": true, "rootDir": "src", "outDir": "dist","#,
+                    r#"["src"]"#,
+                ),
+            ),
+            ("src/widget.ts", WIDGET.to_owned()),
+        ],
+    };
+    [app, lib]
+}
+
+/// The workspace of `pkgs` with the `shapes` dependency, with the files of the package at the workspace root.
+fn rooted_workspace(pkgs: &[Pkg]) -> Workspace {
+    let mut files = vec![
+        (
+            "node_modules/shapes/package.json".to_owned(),
+            SHAPES_MANIFEST.to_owned(),
+        ),
+        ("node_modules/shapes/index.d.ts".to_owned(), SHAPES.to_owned()),
+    ];
+    for pkg in pkgs {
+        files.extend(pkg.files.iter().map(|(rel, text)| {
+            let path = if pkg.dir.is_empty() {
+                (*rel).to_owned()
+            } else {
+                format!("{}/{rel}", pkg.dir)
+            };
+            (path, text.clone())
+        }));
+    }
+    Workspace::from_owned(files)
+}
+
+/// The package of `pkg`, judging its source files, named after its directory.
+fn rooted_package(pkg: &Pkg) -> TypePackage {
+    let files: Vec<String> = pkg
+        .files
+        .iter()
+        .filter(|(rel, _)| rel.starts_with("src/"))
+        .map(|(rel, _)| {
+            if pkg.dir.is_empty() {
+                (*rel).to_owned()
+            } else {
+                format!("{}/{rel}", pkg.dir)
+            }
+        })
+        .collect();
+    let files: Vec<&str> = files.iter().map(String::as_str).collect();
+    package(pkg.dir, if pkg.dir.is_empty() { "app" } else { pkg.dir }, &files)
+}
+
+fn lib_widget_query(workspace: &Workspace) -> TypeQuery {
+    query(vec![workspace.decl(
+        "packages/lib/src/widget.ts",
+        DeclKind::Class,
+        "Widget",
+        &["area", "paint", "erase"],
+    )])
+}
+
+/// The facts of the analysis of `pkg` in a run that shares `programs`.
+fn rooted(workspace: &Workspace, pkg: &Pkg, query: &TypeQuery, programs: &TypePrograms) -> TypeFacts {
+    let packages = vec![rooted_package(pkg)];
+    let build = TypeBuild::new(workspace.fs(), abs(pkg.dir), packages.clone())
+        .with_threads(threads(THREADS))
+        .with_programs(programs.clone());
+    std::thread::scope(|scope| start(scope, build, None).finish(&packages, query)).expect("the analysis fails")
+}
+
+#[test]
+fn a_source_a_kept_program_read_is_parsed_once_for_the_run_and_freed_with_the_last_program() {
+    let [app, lib] = referenced();
+    let workspace = rooted_workspace(&[app, lib]);
+    let [app, lib] = referenced();
+    let query = lib_widget_query(&workspace);
+    let roots = || [abs(app.dir), abs(lib.dir)];
+    let programs = TypePrograms::new(roots());
+    // The library's program is kept after its analysis: the root, which has not finished, holds the library's files.
+    let lib_facts = rooted(&workspace, &lib, &query, &programs);
+    assert_eq!(programs.kept(), 1, "the library's program waits for the root");
+    assert_eq!(
+        lib_facts.timings.project_files_parsed, 1,
+        "`packages/lib/src/widget.ts`"
+    );
+    assert_eq!(programs.project_files_held(), 1);
+    let app_facts = rooted(&workspace, &app, &query, &programs);
+    assert_eq!(
+        app_facts.timings.project_files_parsed, 1,
+        "`src/main.ts`; the library's source comes from the kept program's parse"
+    );
+    assert_eq!(programs.kept(), 0, "the root finished, so the library's program went");
+    assert_eq!(
+        programs.project_files_held(),
+        0,
+        "and every project file with the programs"
+    );
+    assert!(
+        programs.shared_files().parsed > 0,
+        "the declaration files stay for the run"
+    );
+    // The same analyses, each in a run of its own: the library's source is parsed for each program.
+    let alone: Vec<TypeFacts> = [&lib, &app]
+        .into_iter()
+        .map(|pkg| rooted(&workspace, pkg, &query, &TypePrograms::new(roots())))
+        .collect();
+    assert_eq!(alone[1].timings.project_files_parsed, 2);
+    for (shared, alone) in [&lib_facts, &app_facts].into_iter().zip(&alone) {
+        assert_eq!(
+            shared.reads, alone.reads,
+            "the reads of programs that parse every file for themselves"
+        );
+        assert_eq!(shared.covered, alone.covered);
+        assert_eq!(shared.whole, alone.whole);
+    }
+    assert_eq!(
+        app_facts.reads,
+        BTreeMap::from([(DeclId(0), BTreeSet::from(["paint".to_owned()]))])
+    );
+}
+
+/// The root package `app` at the workspace root, whose own config includes the library's source with `extra` compiler
+/// options, and the library below it.
+fn including(extra: &str) -> [Pkg; 2] {
+    let app = Pkg {
+        dir: "",
+        files: vec![
+            ("tsconfig.json", tsconfig(extra, r#"["src", "packages/lib/src"]"#)),
+            (
+                "src/main.ts",
+                MAIN.replace("'./widget'", "'../packages/lib/src/widget'"),
+            ),
+        ],
+    };
+    let lib = Pkg {
+        dir: "packages/lib",
+        files: vec![
+            ("tsconfig.json", TSCONFIG.to_owned()),
+            ("src/widget.ts", WIDGET.to_owned()),
+        ],
+    };
+    [app, lib]
+}
+
+#[test]
+fn a_project_file_two_programs_parse_with_different_options_is_parsed_for_each() {
+    // JSX and module detection decide the external-module indicator a source is parsed with.
+    for (extra, parsed) in [
+        ("", 1),
+        (r#" "jsx": "react-jsx","#, 2),
+        (r#" "moduleDetection": "force","#, 2),
+    ] {
+        let workspace = rooted_workspace(&including(extra));
+        let [app, lib] = including(extra);
+        let query = lib_widget_query(&workspace);
+        let programs = TypePrograms::new([abs(app.dir), abs(lib.dir)]);
+        rooted(&workspace, &lib, &query, &programs);
+        assert_eq!(
+            programs.kept(),
+            1,
+            "{extra}: the library's program, holding its source, waits for the root"
+        );
+        let app_facts = rooted(&workspace, &app, &query, &programs);
+        assert_eq!(
+            app_facts.timings.project_files_parsed, parsed,
+            "{extra}: `src/main.ts`, and the library's source unless the root's program parses it differently"
+        );
+        assert_eq!(
+            app_facts.reads,
+            BTreeMap::from([(DeclId(0), BTreeSet::from(["paint".to_owned()]))]),
+            "{extra}"
+        );
+    }
 }
 
 /// One analysis of a run over several roots: a root with its own package and config.
@@ -347,6 +546,11 @@ fn a_later_analysis_of_the_run_reads_the_files_an_ended_one_parsed() {
         "the second analysis reads every shared file from the run"
     );
     assert_eq!(split(programs.shared_files()), (files, files, 0), "the run's counts");
+    assert_eq!(
+        programs.project_files_held(),
+        0,
+        "the project files went with the programs, the declaration files stay"
+    );
     for facts in [&first, &second] {
         assert_eq!(facts.reads, widget_reads(1));
     }

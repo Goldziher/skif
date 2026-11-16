@@ -150,12 +150,14 @@ pub struct TypeTimings {
     pub program_creation: Duration,
     /// Binding the programs' source files, summed over the programs; a part of [`TypeTimings::programs`].
     pub bind: Duration,
-    /// The project files (not the lib or `node_modules` declaration files the run shares) the programs this analysis
-    /// built parsed, summed over the programs: a file in several programs counts once for each. Counted only with
-    /// timings on.
+    /// The project files (not the lib or `node_modules` declaration files the run keeps) the programs this analysis
+    /// built parsed: the programs of a run share a project file parsed with the same options, so a file in several
+    /// programs counts once for each set of parse options, and a file another analysis's program had parsed and still
+    /// holds counts nothing.
     pub project_files_parsed: usize,
-    /// The distinct files among those counted by [`TypeTimings::project_files_parsed`]; the gap to it is the parsing
-    /// repeated across programs.
+    /// The distinct project files of the programs this analysis built; a gap from
+    /// [`TypeTimings::project_files_parsed`] up to it is parsing repeated across programs. Counted only with timings
+    /// on.
     pub project_files_distinct: usize,
     /// Walking the files and asking the checker, summed over the programs as [`TypeTimings::programs`] is.
     pub queries: Duration,

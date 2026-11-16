@@ -10,11 +10,12 @@
 //!
 //! The analyses of a run over many roots can share their cores ([`TypeBudget`]), so that their programs together hold
 //! no more cores than there are, and their programs ([`TypePrograms`](crate::TypePrograms)), so that a program the
-//! judged files of several roots go to is built once for the run. Every program reads the bundled lib files and the
-//! declaration files below `node_modules` from the files the run shares (`shared_files`), the run's or, without shared
-//! programs, the analysis's: each is parsed and bound once instead of once per program. The plannings and the programs
-//! read their configs, those the project references of a program reach and those they extend, from the configs the
-//! run shares (`shared_configs`) in the same way: each is read and parsed once instead of once per planning and program.
+//! judged files of several roots go to is built once for the run. Every program reads its files from the files the run
+//! shares (`shared_files`), the run's or, without shared programs, the analysis's: each is parsed and bound once
+//! instead of once per program, and a project file is freed with the last program that read it. The plannings and the
+//! programs read their configs, those the project references of a program reach and those they extend, from the
+//! configs the run shares (`shared_configs`) in the same way: each is read and parsed once instead of once per
+//! planning and program.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
@@ -37,7 +38,7 @@ use crate::programs::{self, ConfigHost, Lookups, Placement, PlannedProgram, Prog
 use crate::query::{self, FileFacts, QueryContext};
 use crate::resident::{Claim, ProgramKey, Resident, Ticket};
 use crate::shared_configs::ConfigReader;
-use crate::shared_files::{self, SharedFiles, SharingHost};
+use crate::shared_files::{self, ProgramFiles, SharedFiles, SharingHost};
 use crate::vfs::{self, BomFiles};
 use crate::{ENGINE, ProgramTiming, TypeBuild, TypeError, TypeFacts, TypeInput, TypePackage, TypeQuery, TypeTimings};
 
@@ -194,6 +195,8 @@ impl PendingTypes<'_> {
         facts.timings.threads = judged.threads;
         facts.timings.waited = asked.elapsed();
         facts.timings.shared_files = shared.file_counts.snapshot();
+        let project = shared.file_counts.project_snapshot();
+        facts.timings.project_files_parsed = project.parsed + project.unshared;
         (facts.timings.shared_configs, facts.timings.shared_extended_configs) = shared.configs.counts();
         drop(region);
         Ok(facts)
@@ -251,6 +254,11 @@ impl Drop for PendingTypes<'_> {
         if let Some(programs) = &self.shared.build.programs {
             programs.done(&self.shared.build.root);
         }
+        // tsrs gives the pages of retired regions back in batches; the project files this analysis's programs freed
+        // would otherwise keep the last batch resident until another run retires more.
+        if shared_files::retiring() {
+            tsrs_core::arena::flush_retired();
+        }
     }
 }
 
@@ -259,8 +267,7 @@ struct Shared {
     build: TypeBuild,
     fs: Arc<dyn FS>,
     boms: Arc<BomFiles>,
-    /// The lib and `node_modules` declaration files the programs read: the run's, with shared programs, else the
-    /// analysis's own.
+    /// The files the programs read: the run's, with shared programs, else the analysis's own.
     files: Arc<SharedFiles>,
     /// How the programs this analysis builds got those files.
     file_counts: Arc<shared_files::Counts>,
@@ -894,7 +901,7 @@ fn project_files(owner: &ProgramOwner) -> Vec<String> {
         .get_source_files()
         .iter()
         .map(|file| file.file_name().to_owned())
-        .filter(|name| !shared_files::shareable(name))
+        .filter(|name| !shared_files::kept_for_run(name))
         .collect()
 }
 
@@ -1140,11 +1147,14 @@ impl Session<'_> {
         ticket: Option<Ticket<'_>>,
     ) -> Option<Outcome> {
         let start = Instant::now();
+        // The project files the program reads, which everything below points into: declared first, this hold drops
+        // last if a panic unwinds before the resident takes over its own.
+        let program_files = Arc::new(ProgramFiles::default());
         // What the config and the host allocate lives as long as the program, which points into it.
         let region = Region::new_scratch(SCRATCH_CHUNK);
         let built = {
             let _scope = region.enter();
-            self.build(path, checkers, ticket.is_some())
+            self.build(path, checkers, ticket.is_some(), Arc::clone(&program_files))
         };
         let Some((owner, loader_regions, files, split)) = built else {
             return Some(Outcome::ConfigError);
@@ -1184,13 +1194,15 @@ impl Session<'_> {
         outcome
     }
 
-    /// Reads the config at `path` and builds and binds its program on `checkers` checkers, with the program's loader
-    /// regions and, when `listed`, the files the config includes; `None` when the config cannot be read.
+    /// Reads the config at `path` and builds and binds its program on `checkers` checkers, holding the project files
+    /// it reads in `program_files`, with the program's loader regions and, when `listed`, the files the config
+    /// includes; `None` when the config cannot be read.
     fn build(
         &self,
         path: &str,
         checkers: usize,
         listed: bool,
+        program_files: Arc<ProgramFiles>,
     ) -> Option<(ProgramOwner, Arc<ProgramRegions>, Vec<String>, BuildSplit)> {
         let parse_start = Instant::now();
         let mut config = self.shared.configs.parse_own(path)?;
@@ -1221,14 +1233,15 @@ impl Session<'_> {
             None,
             None,
         );
-        // The lib and `node_modules` declaration files come parsed and bound from the files the run shares, which the
-        // program's resident keeps until after the program is freed.
+        // The files come parsed and bound from the files the run shares, which the run (the lib and `node_modules`
+        // declaration files) or the program's owner and resident (its project files) keep until after it is freed.
         let compiler_host: Arc<dyn tsrs_compiler::CompilerHost> = Arc::new(SharingHost::new(
             compiler_host,
             Arc::clone(&self.shared.files),
             Arc::clone(&self.shared.boms),
             Arc::clone(&self.shared.file_counts),
             Arc::clone(&self.shared.configs),
+            Arc::clone(&program_files),
         ));
         let mut options = ProgramOptions::new(P::new(config), compiler_host);
         // Referenced projects contribute their sources, as editors and tsrs-lint read them.
@@ -1244,7 +1257,7 @@ impl Session<'_> {
         }
         let pool = self.shared.pool.clone();
         let create_start = Instant::now();
-        let owner = self.shared.on_pool(|| ProgramOwner::new(options, pool));
+        let owner = self.shared.on_pool(|| ProgramOwner::new(options, program_files, pool));
         let program_creation = create_start.elapsed();
         let bind_start = Instant::now();
         self.shared.on_pool(|| owner.program().bind_source_files());
@@ -1373,7 +1386,6 @@ fn assemble(
                 timings.config_parse += built.split.config_parse;
                 timings.program_creation += built.split.program_creation;
                 timings.bind += built.split.bind;
-                timings.project_files_parsed += built.project_files.len();
                 distinct_project_files.extend(built.project_files);
                 timings.queries += built.query;
                 timings.cores_waited += built.cores_waited;

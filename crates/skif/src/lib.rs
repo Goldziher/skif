@@ -168,7 +168,7 @@ pub use skif_js::{
     Absence, CachedModule, DependencyCredit, DependencyExplanation, DependencyImport, DependencyListing,
     DependencyReference, DependencyTrace, DependencyUse, DependencyVerdict, EntryReason, ExportReport, ExportUser,
     Importer, MemoryModuleCache, ModuleCache, ModuleKey, PackageDependencyUsage, ReExport, SharedModules, UsageReport,
-    UseKind, Verdict, empty_tsconfig_projects, relative_tsconfig,
+    UseKind, Verdict, empty_tsconfig_projects, relative_tsconfig, retire_freed_sources,
 };
 /// The state of one dependency instance, from [`Linter::instances`].
 #[cfg(feature = "manifest")]

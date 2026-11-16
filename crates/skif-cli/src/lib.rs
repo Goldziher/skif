@@ -170,7 +170,13 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
     };
     match cli.command {
         None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
-        None => lint::run(&cli.lint, Env::detect(), teardown),
+        None => {
+            if teardown == Teardown::Leak {
+                // The process exits after this one run, so the address range retired regions give up costs nothing.
+                skif::retire_freed_sources();
+            }
+            lint::run(&cli.lint, Env::detect(), teardown)
+        }
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),
         Some(Command::Init(args)) => commands::init(&args),

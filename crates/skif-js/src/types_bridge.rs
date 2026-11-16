@@ -117,6 +117,14 @@ impl TypeState {
     }
 }
 
+/// Lets the type-aware analyses of this process retire the regions of the project files their programs free
+/// (`skif_js_types::retire_freed_sources`): only for a process that exits after one run, never for a host that keeps
+/// analysing. Does nothing in a build without the checker.
+pub fn retire_freed_sources() {
+    #[cfg(feature = "type-aware")]
+    skif_js_types::retire_freed_sources();
+}
+
 /// The cores the type-aware analyses of a run over several roots share, so that their programs together hold no
 /// more cores than the machine has, and the programs they share, so that a program the judged files of several roots
 /// go to is built once for the run; empty in a build without the checker. Cloning it shares the same cores and

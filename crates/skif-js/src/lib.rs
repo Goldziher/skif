@@ -93,6 +93,7 @@ pub use trace::{
     DependencyUse, DependencyVerdict, PackageDependencyUsage, UseKind,
 };
 pub use tsconfig_files::empty_tsconfig_projects;
+pub use types_bridge::retire_freed_sources;
 pub use usage::{ExportUsage, MemberUse};
 
 const _: () = {

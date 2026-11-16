@@ -7,10 +7,10 @@
 //! analysis that plans files into it walks them on that build. An analysis that needs a program another one is
 //! building waits for that build instead of starting its own.
 //!
-//! The analyses also share the lib and `node_modules` declaration files of their programs ([`SharedFiles`]): each is
-//! parsed and bound once for the run, whichever program reads it first, and stays until the run's last program and
-//! the run's [`TypePrograms`] are gone. They share the configs their plannings and programs read the same way
-//! (`shared_configs`).
+//! The analyses also share the files of their programs ([`SharedFiles`]): each is parsed and bound once for the run,
+//! whichever program reads it first. A lib or `node_modules` declaration file stays until the run's last program and
+//! the run's [`TypePrograms`] are gone; a project file stays while a program that read it lives, and is freed with the
+//! last one. They share the configs their plannings and programs read the same way (`shared_configs`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ use tsrs_core::arena::{Region, RegionScope};
 use crate::owner::ProgramOwner;
 use crate::session::BuildSplit;
 use crate::shared_configs::SharedConfigs;
-use crate::shared_files::SharedFiles;
+use crate::shared_files::{ProgramFiles, SharedFiles};
 use crate::vfs::{BomFiles, tsrs_path};
 use crate::{SharedConfigCounts, SharedFileCounts};
 
@@ -37,10 +37,10 @@ use crate::{SharedConfigCounts, SharedFileCounts};
 /// analysis walks a shared program as the analysis that built it read it. A built program stays while a root of the
 /// run that has not finished holds a file its config includes, and is freed once none does; an analysis marks its
 /// root finished when its facts are returned or it is given up, and a host marks a root it analyses without types
-/// with [`TypePrograms::done`]. The programs of the run also share the bundled lib files and the declaration files
-/// below `node_modules` they read, and the analyses the configs their plannings and programs read: each is parsed
-/// once for the run and kept until these programs (every clone) and the last program that read it are dropped. The
-/// facts do not depend on it.
+/// with [`TypePrograms::done`]. The programs of the run also share the files they read, and the analyses the configs
+/// their plannings and programs read: each is parsed once for the run. A bundled lib file, a declaration file below
+/// `node_modules` or a config is kept until these programs (every clone) and the last program that read it are
+/// dropped; a project file until the last program that read it is dropped. The facts do not depend on it.
 #[derive(Clone)]
 pub struct TypePrograms {
     registry: Arc<Registry>,
@@ -70,7 +70,15 @@ impl TypePrograms {
         self.files.counts()
     }
 
-    /// The declaration files the programs of the run share.
+    /// How many project files the run's programs hold now, for tests that check each is freed with the last program
+    /// that read it.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn project_files_held(&self) -> usize {
+        self.files.project_files_held()
+    }
+
+    /// The files the programs of the run share.
     pub(crate) fn files(&self) -> Arc<SharedFiles> {
         Arc::clone(&self.files)
     }
@@ -327,8 +335,8 @@ impl Drop for Ticket<'_> {
 
 /// A built and bound program with what its walks need, freed when the last analysis walking it lets it go. Its fields
 /// drop in order: the program, then the loader regions and the scratch region its config and host were allocated in,
-/// which the program points into, and last the shared declaration files and configs the program read, which
-/// everything before points into.
+/// which the program points into, and last the shared files and configs the program read, which everything before
+/// points into.
 pub(crate) struct Resident {
     owner: ProgramOwner,
     _loader_regions: Arc<ProgramRegions>,
@@ -339,14 +347,17 @@ pub(crate) struct Resident {
     build: Duration,
     split: BuildSplit,
     project_files: Vec<String>,
+    /// The project files the program read, also held by its owner: this hold lets them go after the loader regions
+    /// and the region of the program's config and host, and before the run's shared files.
+    _project_files: Arc<ProgramFiles>,
     _files: Arc<SharedFiles>,
     _configs: Arc<SharedConfigs>,
 }
 
 impl Resident {
     /// The program of `owner`, built in `region` with `loader_regions` on `checkers` checkers in `build`, reading
-    /// through the file system that recorded `boms`, the shared declaration files of `files` and the shared configs of
-    /// `configs`.
+    /// through the file system that recorded `boms`, the shared files of `files` (holding the project files it read
+    /// until the resident is dropped) and the shared configs of `configs`.
     pub(crate) fn new(
         (owner, loader_regions, region): (ProgramOwner, Arc<ProgramRegions>, Region),
         (boms, files, configs): (Arc<BomFiles>, Arc<SharedFiles>, Arc<SharedConfigs>),
@@ -354,6 +365,7 @@ impl Resident {
         checkers: usize,
         (build, split, project_files): (Duration, BuildSplit, Vec<String>),
     ) -> Self {
+        let held = owner.files();
         Self {
             owner,
             _loader_regions: loader_regions,
@@ -364,6 +376,7 @@ impl Resident {
             build,
             split,
             project_files,
+            _project_files: held,
             _files: files,
             _configs: configs,
         }

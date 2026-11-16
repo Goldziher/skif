@@ -233,6 +233,15 @@ pub fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
     session::analyze(input)
 }
 
+/// Retires the regions of the project files the programs of later analyses free: their pages go back to
+/// the system at once instead of when the rest of their slabs is freed, which keeps the peak resident set of a large
+/// run down, but their address range is never reused. Process-wide and off by default; only a process that exits
+/// after one run (the `skif` binary's lint) turns it on. A host that keeps analysing, such as the npm addon or an
+/// editor, must not: each run would give up more of the address range for good, and tsrs aborts once it is spent.
+pub fn retire_freed_sources() {
+    shared_files::retire_freed_sources();
+}
+
 /// The bytes of tsrs's arenas in use now, for tests that check repeated analyses give their memory back and for the
 /// host's timings.
 ///
