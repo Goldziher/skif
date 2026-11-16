@@ -86,6 +86,41 @@ url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-windows-
 checksum = "sha256:538f9c846355d9e847b2671bc00c47da4229a0befb24df3282b739770f3b475f"
 url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-windows-x64-baseline.zip"
 
+[[tools."github:Goldziher/adrlint"]]
+version = "0.5.0"
+backend = "github:Goldziher/adrlint"
+specifiers = ["0.5.0"]
+
+[tools."github:Goldziher/adrlint"."platforms.linux-arm64"]
+checksum = "sha256:08a044bca3339ab0ecfa29bef5ec4820cf4666d69b87a0790e49cb8f8f2a4863"
+checksum_source = "mise-versions"
+url = "https://github.com/Goldziher/adrlint/releases/download/v0.5.0/adrlint-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/Goldziher/adrlint/releases/assets/717211611"
+
+[tools."github:Goldziher/adrlint"."platforms.linux-x64"]
+checksum = "sha256:1cba6c9dd7320f267769886b5e4e05e5fb45523961cfa51f2426cbccf8ba07d8"
+checksum_source = "mise-versions"
+url = "https://github.com/Goldziher/adrlint/releases/download/v0.5.0/adrlint-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/Goldziher/adrlint/releases/assets/717213073"
+
+[tools."github:Goldziher/adrlint"."platforms.macos-arm64"]
+checksum = "sha256:ae3b63c3c5efcb0e13a17cf6f216d4482918537687ff1f2c107929a48c3d1395"
+checksum_source = "mise-versions"
+url = "https://github.com/Goldziher/adrlint/releases/download/v0.5.0/adrlint-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/Goldziher/adrlint/releases/assets/717213425"
+
+[tools."github:Goldziher/adrlint"."platforms.macos-x64"]
+checksum = "sha256:ae444640b041d7f8733f45fca9b22ed19e19d3d2fd53b3c2c7d964752c9dd8e7"
+checksum_source = "mise-versions"
+url = "https://github.com/Goldziher/adrlint/releases/download/v0.5.0/adrlint-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/Goldziher/adrlint/releases/assets/717230707"
+
+[tools."github:Goldziher/adrlint"."platforms.windows-x64"]
+checksum = "sha256:2e74f313e0c01ae421c2494db85b22648c9af0492db2faaa8991240cf115c771"
+checksum_source = "mise-versions"
+url = "https://github.com/Goldziher/adrlint/releases/download/v0.5.0/adrlint-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/Goldziher/adrlint/releases/assets/717213796"
+
 [[tools."github:Goldziher/gh-actions-updater"]]
 version = "0.4.0"
 backend = "github:Goldziher/gh-actions-updater"
@@ -155,41 +190,6 @@ checksum = "sha256:8fed74dac18197bbb2520125b0199255e09709bed7903a7672a06225a5d7e
 checksum_source = "mise-versions"
 url = "https://github.com/mstange/samply/releases/download/samply-v0.13.1/samply-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/mstange/samply/releases/assets/225379071"
-
-[[tools."github:polylint/adrlint"]]
-version = "0.5.0"
-backend = "github:polylint/adrlint"
-specifiers = ["0.5.0"]
-
-[tools."github:polylint/adrlint"."platforms.linux-arm64"]
-checksum = "sha256:08a044bca3339ab0ecfa29bef5ec4820cf4666d69b87a0790e49cb8f8f2a4863"
-checksum_source = "mise-versions"
-url = "https://github.com/polylint/adrlint/releases/download/v0.5.0/adrlint-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/polylint/adrlint/releases/assets/717211611"
-
-[tools."github:polylint/adrlint"."platforms.linux-x64"]
-checksum = "sha256:1cba6c9dd7320f267769886b5e4e05e5fb45523961cfa51f2426cbccf8ba07d8"
-checksum_source = "mise-versions"
-url = "https://github.com/polylint/adrlint/releases/download/v0.5.0/adrlint-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/polylint/adrlint/releases/assets/717213073"
-
-[tools."github:polylint/adrlint"."platforms.macos-arm64"]
-checksum = "sha256:ae3b63c3c5efcb0e13a17cf6f216d4482918537687ff1f2c107929a48c3d1395"
-checksum_source = "mise-versions"
-url = "https://github.com/polylint/adrlint/releases/download/v0.5.0/adrlint-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/polylint/adrlint/releases/assets/717213425"
-
-[tools."github:polylint/adrlint"."platforms.macos-x64"]
-checksum = "sha256:ae444640b041d7f8733f45fca9b22ed19e19d3d2fd53b3c2c7d964752c9dd8e7"
-checksum_source = "mise-versions"
-url = "https://github.com/polylint/adrlint/releases/download/v0.5.0/adrlint-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/polylint/adrlint/releases/assets/717230707"
-
-[tools."github:polylint/adrlint"."platforms.windows-x64"]
-checksum = "sha256:2e74f313e0c01ae421c2494db85b22648c9af0492db2faaa8991240cf115c771"
-checksum_source = "mise-versions"
-url = "https://github.com/polylint/adrlint/releases/download/v0.5.0/adrlint-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/polylint/adrlint/releases/assets/717213796"
 
 [[tools."github:polylint/polylint"]]
 version = "0.34.2"

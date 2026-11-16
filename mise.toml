@@ -8,7 +8,8 @@ task.run_auto_install = false
 
 [tools]
 "github:polylint/polylint" = "0.34.2"
-"github:polylint/adrlint" = "0.5.0"
+# ~keep xberg-io reusable-validate installs adrlint as github:Goldziher/adrlint; keep the name until it moves.
+"github:Goldziher/adrlint" = "0.5.0"
 node = "26.13.0"
 bun = "1.3"
 pnpm = "12.18.0"
