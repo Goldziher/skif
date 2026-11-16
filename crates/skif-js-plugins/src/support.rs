@@ -425,11 +425,12 @@ pub(crate) fn name_of(value: &ConfigValue) -> Option<&str> {
     }
 }
 
-/// The objects of a value that is an object or a (nested) array of objects.
+/// The objects of a value that is an object or a (nested) array of objects; a value that is one of several is each of
+/// them.
 pub(crate) fn objects(value: &ConfigValue) -> Vec<&ConfigValue> {
     match value {
         ConfigValue::Object(_) => vec![value],
-        ConfigValue::Array(items) => items.iter().flat_map(objects).collect(),
+        ConfigValue::Array(items) | ConfigValue::OneOf(items) => items.iter().flat_map(objects).collect(),
         _ => Vec::new(),
     }
 }

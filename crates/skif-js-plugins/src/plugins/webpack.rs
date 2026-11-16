@@ -51,6 +51,9 @@ pub(crate) fn bundler_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> 
         }
         if let Some(rules) = object.get("module").and_then(|m| m.get("rules")) {
             rule_loaders(rules, config, &mut out, 0);
+            if rules_unknown(rules, 0) {
+                out.push(PluginInput::EntriesIncomplete);
+            }
         }
         if let Some(alias) = get_in(object, &["resolve", "alias"]) {
             out.extend(alias_inputs(alias, config));
@@ -123,6 +126,28 @@ fn rule_loaders(rules: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugi
                 rule_loaders(nested, config, out, depth + 1);
             }
         }
+    }
+}
+
+/// Whether `rules` may hold a rule, or a loader of one, that is not known: an unknown rule, an object that may have
+/// other keys, or an unknown `use` or `loader`. A rule the config adds by a change the evaluator does not follow is
+/// one of these, so the package is not judged without the loaders it names.
+fn rules_unknown(rules: &ConfigValue, depth: u8) -> bool {
+    if depth > 6 {
+        return true;
+    }
+    match rules {
+        ConfigValue::Array(items) | ConfigValue::OneOf(items) => items.iter().any(|item| rules_unknown(item, depth)),
+        ConfigValue::Object(_) => {
+            rules.get("...").is_some()
+                || ["use", "loader"]
+                    .iter()
+                    .any(|key| rules.get(key).is_some_and(ConfigValue::has_unknown))
+                || ["oneOf", "rules"]
+                    .iter()
+                    .any(|key| rules.get(key).is_some_and(|nested| rules_unknown(nested, depth + 1)))
+        }
+        other => other.is_unknown(),
     }
 }
 

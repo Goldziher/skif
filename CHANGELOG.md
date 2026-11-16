@@ -26,6 +26,13 @@ All notable changes to this project are documented here. The format follows
 - The GitHub Action and the pre-commit launcher verify build attestations against `polylint/skif`, and still accept a
   release up to v0.6.0 attested by `Goldziher/skif`, the repository before the move.
 
+### Fixed
+
+- A webpack or rspack config built in a function that changes the config after its literal (`config.module.rules.unshift(…)`
+  under a test) credits the loaders of the literal and of the change again, instead of reporting every loader as an
+  unused dependency. A rule list the evaluator cannot follow leaves the package unjudged
+  ([#248](https://github.com/polylint/skif/issues/248)).
+
 ## [0.6.0] - 2026-11-16
 
 skif 0.6.0 adds opt-in type-aware analysis. With `--type-aware` or `[js] type-aware = true`, where a package has a

@@ -1351,3 +1351,58 @@ fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
         );
     }
 }
+
+const MUTATED_LITERAL: &str = "\
+const config = {\n\
+  entry: './src/index.js',\n\
+  module: { rules: [{ test: /\\.scss$/, use: ['sass-loader'] }] },\n\
+};\n";
+
+/// A config object changed after its literal still credits the loaders of the literal and of the change; what the
+/// evaluator cannot follow leaves the config incomplete, never without loaders.
+#[test]
+fn bundler_config_mutated_after_its_literal_credits_every_loader() {
+    let mutation = "if (process.env.MODE === 'development') {\n  \
+                    config.module.rules.unshift({ test: /\\.js$/, use: { loader: 'babel-loader' } });\n}\n";
+    let cases = [
+        format!("function getConfig() {{\n{MUTATED_LITERAL}{mutation}return config;\n}}\nmodule.exports = getConfig;"),
+        format!("function getConfig() {{\n{MUTATED_LITERAL}return config;\n}}\nmodule.exports = getConfig;"),
+        format!("{MUTATED_LITERAL}{mutation}module.exports = config;"),
+        format!("module.exports = () => {{\n{MUTATED_LITERAL}{mutation}return config;\n}};"),
+        format!(
+            "function getConfig() {{\n{MUTATED_LITERAL}config.module.rules.push({{ test: /\\.js$/, use: 'babel-loader' }});\nreturn config;\n}}\nmodule.exports = getConfig;"
+        ),
+    ];
+    for (index, config) in cases.iter().enumerate() {
+        for (plugin, file) in [("webpack", "webpack.config.js"), ("rspack", "rspack.config.js")] {
+            let dependency = if plugin == "rspack" { "@rspack/core" } else { plugin };
+            let results = run(&[(file, config)], &[dependency], &[]);
+            let out = output(&results, plugin);
+            // The evaluator does not run a top-level statement: the change leaves the rules partly unknown, so the
+            // package is not judged rather than judged without the loader the change names.
+            if index == 2 {
+                assert_deps(out, &["sass-loader"]);
+                assert!(out.entries_incomplete, "{plugin}: {config}");
+            } else if index == 1 {
+                assert_deps(out, &["sass-loader"]);
+                assert!(!out.entries_incomplete, "{plugin}: {config}");
+            } else {
+                assert_deps(out, &["sass-loader", "babel-loader"]);
+                assert!(!out.entries_incomplete, "{plugin}: {config}");
+            }
+        }
+    }
+}
+
+/// A mutation the evaluator cannot follow leaves the loaders of the literal credited and the package incomplete, so it is
+/// not judged without the loaders the mutation may add.
+#[test]
+fn bundler_config_with_an_unevaluable_mutation_keeps_the_literal_loaders() {
+    let config = format!(
+        "function getConfig() {{\n{MUTATED_LITERAL}config.module.rules.splice(idx(), 0, extra());\nreturn config;\n}}\nmodule.exports = getConfig;"
+    );
+    let results = run(&[("webpack.config.js", &config)], &["webpack"], &[]);
+    let out = output(&results, "webpack");
+    assert_deps(out, &["sass-loader"]);
+    assert!(out.entries_incomplete);
+}
