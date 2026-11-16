@@ -378,8 +378,10 @@ fn checked(
 
     use skif_js_types::{TypeError, TypeInput, TypePackage};
 
-    let (query, decls) = asked::build_query(analysis);
     let root = &analysis.workspace.root;
+    let (query, decls) = skif_core::timing::phase(format_args!("js build query {}", root.display()), || {
+        asked::build_query(analysis)
+    });
     let typed_packages: Vec<TypePackage> = packages
         .iter()
         .filter(|analysed| analysed.type_aware)
@@ -427,6 +429,20 @@ fn checked(
 #[cfg(feature = "type-aware")]
 const SLOWEST_PROGRAMS: usize = 5;
 
+/// The build split and project file counts of `timings`, as the line `SKIF_TIMINGS` prints.
+#[cfg(feature = "type-aware")]
+fn program_split(timings: &skif_js_types::TypeTimings) -> String {
+    format!(
+        "program build split: config parse {} ms, program creation {} ms, bind {} ms (summed); project files: {} \
+         parsed across programs, {} distinct",
+        timings.config_parse.as_millis(),
+        timings.program_creation.as_millis(),
+        timings.bind.as_millis(),
+        timings.project_files_parsed,
+        timings.project_files_distinct
+    )
+}
+
 /// With timings on, the type-aware stages of the analysis at `root`: planning, the build and query times summed over
 /// the programs beside the wall time and the time the analysis waited for them once the graph was done, how its
 /// programs got the lib and `node_modules` declaration files they share with the run (and how the run's `programs`
@@ -455,6 +471,7 @@ fn note_timings(
         timings.early,
         timings.threads
     ));
+    skif_core::timing::note(format_args!("js types {}: {}", root.display(), program_split(timings)));
     let files = timings.shared_files;
     skif_core::timing::note(format_args!(
         "js types {}: shared declaration files: {} parsed, {} reused, {} parsed unshared",
@@ -743,5 +760,29 @@ impl Typed {
 
     fn unresolved_readers(&self, _name: &str) -> &[ModuleId] {
         match self.never {}
+    }
+}
+
+#[cfg(all(test, feature = "type-aware"))]
+mod timing_tests {
+    use std::time::Duration;
+
+    #[test]
+    #[allow(
+        clippy::field_reassign_with_default,
+        reason = "TypeTimings is non-exhaustive, so a struct literal is not available here"
+    )]
+    fn the_program_split_line_names_each_part_and_the_duplicate_parsing() {
+        let mut timings = skif_js_types::TypeTimings::default();
+        timings.config_parse = Duration::from_millis(3);
+        timings.program_creation = Duration::from_millis(40);
+        timings.bind = Duration::from_millis(7);
+        timings.project_files_parsed = 90;
+        timings.project_files_distinct = 30;
+        assert_eq!(
+            super::program_split(&timings),
+            "program build split: config parse 3 ms, program creation 40 ms, bind 7 ms (summed); project files: 90 \
+             parsed across programs, 30 distinct"
+        );
     }
 }

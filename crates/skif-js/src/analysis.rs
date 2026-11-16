@@ -733,14 +733,16 @@ impl<'a> JsAnalysis<'a> {
             let entry_origins = found.origins;
             let config_hints = {
                 let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
-                config_hints(&HintInputs {
-                    workspace,
-                    config,
-                    setup: &setup,
-                    candidates: &candidates,
-                    entries: &entry_set,
-                    provided: &found.provided,
-                    disk: disk.as_ref(),
+                timing::phase(phase("config hints"), || {
+                    config_hints(&HintInputs {
+                        workspace,
+                        config,
+                        setup: &setup,
+                        candidates: &candidates,
+                        entries: &entry_set,
+                        provided: &found.provided,
+                        disk: disk.as_ref(),
+                    })
                 })
             };
             graph::report_timings(&workspace.root);
@@ -753,7 +755,9 @@ impl<'a> JsAnalysis<'a> {
             });
             mark_foreign_paths(&resolver, &graph, &mut dependencies);
 
-            let ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules));
+            let ambient_modules = timing::phase(phase("ambient modules"), || {
+                collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules))
+            });
             let outside_graph: HashSet<String> = candidates
                 .iter()
                 .filter(|candidate| graph.id_of(&candidate.abs).is_none())
@@ -785,7 +789,9 @@ impl<'a> JsAnalysis<'a> {
                         relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
                     })
             };
-            let judged_patterns = judged_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref());
+            let judged_patterns = timing::phase(phase("judged patterns"), || {
+                judged_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref())
+            });
             let judged_ignore_files = judged_ignore_files(workspace, config, &setup, &unreached, disk.as_ref());
             let unused_files = unreached
                 .iter()
