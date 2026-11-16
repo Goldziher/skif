@@ -166,6 +166,7 @@ description = "Check version surfaces, documentation pins, exact oxc pins, works
 run = [
   "scripts/check-versions.sh",
   "scripts/check-doc-pins.sh",
+  "scripts/check-tool-version-docs.sh",
   "scripts/check-pins.sh",
   "scripts/check-headers.sh",
   "scripts/check-rule-ids.sh",
