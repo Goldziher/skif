@@ -684,6 +684,43 @@ reach are unused files and exports for knip only. Exports of a nested root's plu
 Enum and namespace members whose only users lie in a non-member project or a skipped directory stay compared: their
 keys name the member, not the export an import reads.
 
+## Typed diff against a reference binary
+
+`skif-bench typed-diff` is the correctness gate for changes to the type-aware analysis. For every repository of the
+`bench` suite it runs a reference skif binary (the build before the change) and the binary under test with
+`. --format json --no-install` (plus `--recursive` where the repository sets `recursive`), once with `--type-aware` and
+once without, and compares the two JSON documents. It fetches a checkout only when it is missing, so installed
+checkouts under `target/bench-corpus` are used as they are.
+
+```sh
+mise run typed:diff <reference-binary> [--allow allow.json]
+cargo run --release -p skif-bench -- typed-diff --reference <old skif> --skif target/release/skif [--only babel,vue-core] [--corpus-dir DIR] [--allow FILE] [--out report.json]
+```
+
+Each comparison prints `identical`, `identical but for N allowed difference(s)`, `FAILED: <reason>` (a run timed out,
+printed no report or exited with a different code) or `DIFFERENT` with the top-level sections that differ, the findings
+only one side reports (`+` the binary under test, `-` the reference, by rule, file, line and message; the whole
+diagnostic is compared, so a changed severity or fix shows as a `-` and a `+`) and the packages whose
+`type-aware.packages` entry changed (`~ dir: typed -> partial (reason)`). Lists are capped at 20 entries. The exit code
+is non-zero when any comparison is not identical or allowed. The `skif` version stamp is not compared. `--out` also
+writes the result as JSON.
+
+`--allow` names a JSON file for differences a decision record sanctions. A comparison whose differences are all covered
+passes; anything left over fails.
+
+```json
+{"allow": [
+  {"kind": "added", "reason": "ADR 00NN", "repo": "babel", "mode": "typed", "rule": "unused-export", "file": "src/a.ts"},
+  {"kind": "package", "reason": "ADR 00NN", "package": "packages/core"},
+  {"kind": "section", "reason": "ADR 00NN", "section": "incomplete-packages"}
+]}
+```
+
+`kind` is `added` or `removed` (a finding), `package` or `section`; `reason` is required. `repo`, `mode` (`typed` or
+`untyped`), `rule`, `file`, `package` and `section` narrow an entry, and a field left out matches anything. When every
+added and removed finding is covered, the `diagnostics` and `summary` sections count as covered; likewise `type-aware`
+when every package change is covered and nothing else in it differs. Any other section needs a `section` entry.
+
 ## Policy diff against syncpack
 
 `skif-bench syncpack-diff` compares skif's policy rules (`version-mismatch`, `semver-range-mismatch`,
