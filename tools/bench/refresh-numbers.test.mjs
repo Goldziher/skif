@@ -142,8 +142,7 @@ test("pinnedTools reads the [tools] table of corpus.toml and stops at the next t
 });
 
 test("a summary measured against the pinned tool versions is accepted, whether or not a version carries its tool name", () => {
-  const pinned = { knip: "6.44.1", syncpack: "15.3.3", sherif: "1.13.0" };
-  assert.deepEqual(summaryProblems(summary(), pinned), []);
+  assert.deepEqual(summaryProblems(summary(), { knip: KNIP, syncpack: SYNCPACK, sherif: SHERIF }), []);
 });
 
 test("a summary measured against other tool versions than corpus.toml pins is refused", () => {
@@ -735,6 +734,16 @@ function scriptTree(t) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     cpSync(join(repo, file), join(root, file));
   }
+  // The script refuses a summary whose tool versions differ from the pins, so pin the synthetic versions.
+  const corpus = join(root, "tools/bench/corpus.toml");
+  const synthetic = { knip: KNIP, syncpack: SYNCPACK, sherif: SHERIF };
+  writeFileSync(
+    corpus,
+    readFileSync(corpus, "utf8").replace(
+      /^(knip|syncpack|sherif) = "[^"]*"$/gmu,
+      (_line, tool) => `${tool} = "${synthetic[tool]}"`,
+    ),
+  );
   return root;
 }
 
