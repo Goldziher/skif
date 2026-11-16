@@ -27,11 +27,11 @@ and `skif migrate` translates an existing sherif, syncpack and knip setup in one
 ## Performance
 
 <!-- bench:claims:start -->
-- [**1.5–8.3x faster than knip**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 3.8x) for dead-code analysis, on 7 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core (on n8n and next-js it exits with an error after its report).
-- [**up to 7.2x faster than sherif**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 2.8x), and slower on 3 of 12 targets for manifest and workspace checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
-- [**1.3–14.2x faster than syncpack**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 7.7x) for version-policy checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+- [**4.0–8.2x faster than knip**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 5.3x) for dead-code analysis, on 7 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core (on n8n and next-js it exits with an error after its report).
+- [**up to 6.8x faster than sherif**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 3.2x), and slower on 3 of 12 targets for manifest and workspace checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+- [**1.6–21.7x faster than syncpack**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 7.5x) for version-policy checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
 
-skif 0.6.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs (5 on angular, vscode, n8n and next-js) on a GitHub-hosted runner, measured on 2026-11-16.
+skif 0.6.0 against knip 6.45.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs (5 on angular, vscode, n8n and next-js) on a GitHub-hosted runner, measured on 2026-11-16.
 <!-- bench:claims:end -->
 
 The knip numbers time a whole skif run as it runs by default; the sherif and syncpack numbers time `skif --no-js`,
