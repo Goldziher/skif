@@ -604,7 +604,7 @@ const DEFAULT_ENTRY: [&str; 2] = [
 ];
 
 /// Marker written into a checkout once its dependencies are installed, holding the pinned commit.
-const INSTALLED_MARKER: &str = ".skif-bench-installed";
+pub(crate) const INSTALLED_MARKER: &str = ".skif-bench-installed";
 
 // Independent command-line switches, one per flag.
 #[allow(clippy::struct_excessive_bools)]
@@ -6050,7 +6050,7 @@ fn run_step(
 /// What the install marker of a checkout holds once the install (and the build, if any) succeeded: the pinned commit,
 /// then a line for the corpus `install-command` and one for the `build-command` when the repository sets them, so a
 /// marker written before a command was added or changed is stale.
-fn install_marker(repo: &Repo) -> String {
+pub(crate) fn install_marker(repo: &Repo) -> String {
     let mut marker = repo.rev.clone();
     for (label, command) in [("install", &repo.install_command), ("build", &repo.build_command)] {
         if !command.is_empty() {

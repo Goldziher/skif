@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::corpus::{self, Repo};
+use crate::parity::is_installed;
 use crate::proc::capture;
 use crate::type_aware::TYPE_AWARE_FLAG;
 
@@ -301,12 +302,19 @@ pub fn load_allow(path: &Path) -> Result<Vec<Allow>> {
 pub struct Assessment {
     pub residual: Diff,
     pub allowed: usize,
+    /// The indexes into the allow list of the entries that covered at least one difference.
+    pub used: BTreeSet<usize>,
 }
 
 /// Removes from `diff` what `allow` covers for this repository and mode. `diagnostics` and `summary` count as covered
 /// when every finding difference is; `type-aware` when every package change is and nothing else of it differs.
 pub fn apply_allow(diff: &Diff, allow: &[Allow], repo: &str, mode: Mode) -> Assessment {
-    let applicable: Vec<&Allow> = allow.iter().filter(|entry| entry.applies(repo, mode)).collect();
+    let applicable: Vec<(usize, &Allow)> = allow
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.applies(repo, mode))
+        .collect();
+    let mut used = BTreeSet::new();
     let mut residual = Diff {
         sections: diff.sections.clone(),
         ..Diff::default()
@@ -317,27 +325,39 @@ pub fn apply_allow(diff: &Diff, allow: &[Allow], repo: &str, mode: Mode) -> Asse
         (Kind::Removed, &diff.removed, &mut residual.removed),
     ] {
         for finding in findings {
-            if applicable.iter().any(|entry| entry.covers_finding(kind, finding)) {
-                allowed += 1;
-            } else {
+            let covering: Vec<usize> = applicable
+                .iter()
+                .filter(|(_, entry)| entry.covers_finding(kind, finding))
+                .map(|(index, _)| *index)
+                .collect();
+            if covering.is_empty() {
                 kept.push(finding.clone());
+            } else {
+                used.extend(covering);
+                allowed += 1;
             }
         }
     }
     for change in &diff.packages {
-        let covered = applicable
+        let covering: Vec<usize> = applicable
             .iter()
-            .any(|entry| entry.kind == Kind::Package && entry.package.as_deref().is_none_or(|dir| dir == change.dir));
-        if covered {
-            allowed += 1;
-        } else {
+            .filter(|(_, entry)| {
+                entry.kind == Kind::Package && entry.package.as_deref().is_none_or(|dir| dir == change.dir)
+            })
+            .map(|(index, _)| *index)
+            .collect();
+        if covering.is_empty() {
             residual.packages.push(change.clone());
+        } else {
+            used.extend(covering);
+            allowed += 1;
         }
     }
-    for entry in applicable.iter().filter(|entry| entry.kind == Kind::Section) {
+    for (index, entry) in applicable.iter().filter(|(_, entry)| entry.kind == Kind::Section) {
         if let Some(section) = &entry.section
             && residual.sections.remove(section)
         {
+            used.insert(*index);
             allowed += 1;
         }
     }
@@ -351,7 +371,11 @@ pub fn apply_allow(diff: &Diff, allow: &[Allow], repo: &str, mode: Mode) -> Asse
     if diff.packages_only && residual.packages.is_empty() {
         residual.sections.remove("type-aware");
     }
-    Assessment { residual, allowed }
+    Assessment {
+        residual,
+        allowed,
+        used,
+    }
 }
 
 /// The outcome of comparing one repository in one mode.
@@ -366,6 +390,16 @@ pub enum Outcome {
 }
 
 impl Outcome {
+    /// The allow-list entries that covered a difference of this comparison.
+    fn used_allows(&self) -> impl Iterator<Item = usize> + '_ {
+        match self {
+            Self::Allowed(assessment) | Self::Different(assessment) => Some(assessment.used.iter().copied()),
+            Self::Identical | Self::Failed(_) => None,
+        }
+        .into_iter()
+        .flatten()
+    }
+
     const fn passes(&self) -> bool {
         matches!(self, Self::Identical | Self::Allowed(_))
     }
@@ -513,6 +547,50 @@ fn run_binary(
     Ok(Ok((doc, run.code)))
 }
 
+/// How many packages of a report are in state `typed`.
+fn typed_packages(document: &Value) -> usize {
+    packages_by_dir(document)
+        .values()
+        .filter(|package| package.get("state").and_then(Value::as_str) == Some("typed"))
+        .count()
+}
+
+/// Turns a reference typed run that typed no package into a failure: such a run compares two untyped reports and
+/// would pass without examining anything about types.
+fn require_typed(run: Result<(Value, Option<i32>), String>, mode: Mode) -> Result<(Value, Option<i32>), String> {
+    match run {
+        Ok((document, _)) if mode == Mode::Typed && typed_packages(&document) == 0 => {
+            Err("typed run has no package in state typed, so nothing type-aware was compared".to_owned())
+        }
+        other => other,
+    }
+}
+
+/// The checkouts of `repos` whose dependencies are not installed.
+fn uninstalled<'a>(repos: &'a [(Repo, PathBuf)]) -> Vec<&'a str> {
+    repos
+        .iter()
+        .filter(|(repo, root)| !is_installed(repo, root))
+        .map(|(repo, _)| repo.name.as_str())
+        .collect()
+}
+
+/// The allow-list entries no comparison used, as report lines.
+fn unused_allows(allow: &[Allow], rows: &[Row]) -> Vec<String> {
+    let used: BTreeSet<usize> = rows.iter().flat_map(|row| row.outcome.used_allows()).collect();
+    allow
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !used.contains(index))
+        .map(|(index, entry)| {
+            format!(
+                "allow entry {index} ({:?}: {}) matched nothing",
+                entry.kind, entry.reason
+            )
+        })
+        .collect()
+}
+
 fn compare_runs(
     reference: Result<(Value, Option<i32>), String>,
     skif: Result<(Value, Option<i32>), String>,
@@ -552,18 +630,29 @@ pub fn run(options: &Options) -> Result<()> {
         .transpose()?
         .unwrap_or_default();
     let suite = corpus::fetch_suite(&options.corpus_file, SUITE, &options.only, &options.corpus_dir)?;
+    let missing = uninstalled(&suite.repos);
+    if !missing.is_empty() {
+        bail!(
+            "typed-diff runs with --no-install, so the dependencies must be installed first (`skif-bench parity \
+             --install`); not installed: {}",
+            missing.join(", ")
+        );
+    }
     let mut rows = Vec::new();
     for (repo, root) in &suite.repos {
         for mode in Mode::ALL {
             eprintln!("typed-diff: {} ({})", repo.name, mode.name());
-            let reference = run_binary(
-                &reference,
-                (repo, root),
+            let reference = require_typed(
+                run_binary(
+                    &reference,
+                    (repo, root),
+                    mode,
+                    &scratch,
+                    options.timeout,
+                    &format!("{}-{}-reference", repo.name, mode.name()),
+                )?,
                 mode,
-                &scratch,
-                options.timeout,
-                &format!("{}-{}-reference", repo.name, mode.name()),
-            )?;
+            );
             let skif = run_binary(
                 &skif,
                 (repo, root),
@@ -580,6 +669,11 @@ pub fn run(options: &Options) -> Result<()> {
         }
     }
     print!("{}", render(&rows));
+    if options.only.is_empty() {
+        for line in unused_allows(&allow, &rows) {
+            eprintln!("typed-diff: warning: {line}");
+        }
+    }
     if let Some(out) = &options.out {
         fs::write(out, serde_json::to_string_pretty(&report_json(&rows))?)
             .with_context(|| format!("writing {}", out.display()))?;
@@ -796,6 +890,57 @@ mod tests {
             outcome: compare(&document(&[], &[]), &document(&many, &[]), &[], "a", Mode::Typed),
         }];
         assert!(render(&rows).contains("... and 10 more"));
+    }
+
+    #[test]
+    fn a_reference_typed_run_that_typed_nothing_fails() {
+        let untyped = document(&[], &[package(".", "untyped"), package("web", "partial")]);
+        let run = |doc: &Value, mode| require_typed(Ok((doc.clone(), Some(0))), mode);
+        assert!(run(&untyped, Mode::Typed).unwrap_err().contains("nothing type-aware"));
+        assert!(run(&document(&[], &[]), Mode::Typed).is_err(), "no packages at all");
+        assert!(
+            run(&untyped, Mode::Untyped).is_ok(),
+            "the untyped run is expected to type nothing"
+        );
+        assert!(run(&base(), Mode::Typed).is_ok());
+        let one_typed = document(&[], &[package(".", "untyped"), package("web", "typed")]);
+        assert!(run(&one_typed, Mode::Typed).is_ok());
+    }
+
+    #[test]
+    fn an_uninstalled_checkout_is_reported() {
+        let dir = std::env::temp_dir().join(format!("skif-typed-diff-installed-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let repo = corpus::load_manifest(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml")))
+            .unwrap()
+            .repo
+            .remove(0);
+        let repos = vec![(repo, dir.clone())];
+        assert_eq!(uninstalled(&repos), [repos[0].0.name.as_str()]);
+        fs::write(
+            dir.join(crate::parity::INSTALLED_MARKER),
+            crate::parity::install_marker(&repos[0].0),
+        )
+        .unwrap();
+        assert!(uninstalled(&repos).is_empty());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn allow_entries_that_matched_nothing_are_reported() {
+        let new = document(&[diagnostic("unused-file", "a.ts", 1)], &[package(".", "partial")]);
+        let entries = allow(&json!([
+            {"kind": "package", "package": ".", "reason": "used"},
+            {"kind": "added", "rule": "no-such-rule", "reason": "stale"},
+        ]));
+        let rows = vec![Row {
+            repo: "r".into(),
+            mode: Mode::Typed,
+            outcome: compare(&base(), &new, &entries, "r", Mode::Typed),
+        }];
+        let unused = unused_allows(&entries, &rows);
+        assert_eq!(unused.len(), 1, "{unused:?}");
+        assert!(unused[0].contains("entry 1") && unused[0].contains("stale"));
     }
 
     #[test]
