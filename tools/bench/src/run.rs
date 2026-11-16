@@ -385,9 +385,10 @@ struct Summary {
     type_aware_budget_checks: Vec<TargetCheck>,
 }
 
-/// Quotes one argument for hyperfine's no-shell command splitting.
+/// Quotes one argument for hyperfine's no-shell command splitting, which drops a bare backslash and an empty
+/// argument.
 fn quote(argument: &str) -> String {
-    if argument.contains(char::is_whitespace) || argument.contains('"') {
+    if argument.is_empty() || argument.contains(char::is_whitespace) || argument.contains(['"', '\\']) {
         format!("\"{}\"", argument.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         argument.to_owned()
@@ -2433,6 +2434,8 @@ mod tests {
     fn quotes_only_when_needed() {
         assert_eq!(quote("/usr/bin/skif"), "/usr/bin/skif");
         assert_eq!(quote("/my dir/skif"), "\"/my dir/skif\"");
+        assert_eq!(quote(""), "\"\"");
+        assert_eq!(quote(r"C:\tools\skif.exe"), r#""C:\\tools\\skif.exe""#);
     }
 
     #[test]

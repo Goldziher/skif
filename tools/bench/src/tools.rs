@@ -272,8 +272,11 @@ pub fn update(
     Ok(())
 }
 
-fn npm_command() -> Command {
-    Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
+/// The npm executable's file name: on Windows a `.cmd` shim.
+pub const NPM_PROGRAM: &str = if cfg!(windows) { "npm.cmd" } else { "npm" };
+
+pub fn npm_command() -> Command {
+    Command::new(NPM_PROGRAM)
 }
 
 /// Runs an npm command and returns its stdout; a failure or timeout names `what`.

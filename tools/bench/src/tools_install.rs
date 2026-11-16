@@ -4,13 +4,13 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
 use crate::corpus;
 use crate::proc::{capture, find_on_path};
+use crate::tools::{NPM_PROGRAM, npm_command};
 
 /// The files of the lock directory ([`corpus::tool_lock_dir`]) that `npm ci` installs from.
 const TOOL_LOCK_FILES: [&str; 2] = ["package.json", "package-lock.json"];
@@ -31,12 +31,24 @@ pub fn tool_install_args(prefix: &Path) -> Vec<String> {
     args
 }
 
+/// The `.bin` file npm creates for `package`: on Windows a `.cmd` shim, as there is no extensionless executable.
+fn bin_name(package: &str, windows: bool) -> String {
+    if windows {
+        format!("{package}.cmd")
+    } else {
+        package.to_owned()
+    }
+}
+
 /// The absolute path of the executable of an installed tool, which stays valid when a command changes directory.
 ///
 /// # Errors
 /// Fails when the current directory cannot be read to resolve a relative `prefix`.
 pub fn program(prefix: &Path, package: &str) -> Result<PathBuf> {
-    let path = prefix.join("node_modules").join(".bin").join(package);
+    let path = prefix
+        .join("node_modules")
+        .join(".bin")
+        .join(bin_name(package, cfg!(windows)));
     std::path::absolute(&path).with_context(|| format!("resolving {}", path.display()))
 }
 
@@ -59,7 +71,7 @@ fn is_installed(lock_dir: &Path, prefix: &Path) -> bool {
 /// # Errors
 /// Fails when the lock files cannot be copied or `npm` cannot be started.
 pub fn install(lock_dir: &Path, prefix: &Path) -> Result<Result<(), String>> {
-    if find_on_path("npm").is_none() {
+    if find_on_path(NPM_PROGRAM).is_none() {
         return Ok(Err("npm is not installed, so the pinned tools cannot be".to_owned()));
     }
     let prefix = std::path::absolute(prefix).with_context(|| format!("resolving {}", prefix.display()))?;
@@ -77,9 +89,7 @@ pub fn install(lock_dir: &Path, prefix: &Path) -> Result<Result<(), String>> {
         prefix.display()
     );
     let run = capture(
-        Command::new("npm")
-            .args(tool_install_args(&prefix))
-            .current_dir(&prefix),
+        npm_command().args(tool_install_args(&prefix)).current_dir(&prefix),
         &prefix,
         "npm-ci",
         INSTALL_TIMEOUT,
@@ -133,9 +143,16 @@ mod tests {
     fn a_tool_runs_from_the_bin_of_the_install_by_absolute_path() {
         assert_eq!(
             program(Path::new("/bench/tools"), "knip").unwrap(),
-            std::path::absolute(Path::new("/bench/tools/node_modules/.bin/knip")).unwrap()
+            std::path::absolute(Path::new("/bench/tools/node_modules/.bin").join(bin_name("knip", cfg!(windows))))
+                .unwrap()
         );
         assert!(program(Path::new("target/tools"), "knip").unwrap().is_absolute());
+    }
+
+    #[test]
+    fn a_windows_tool_is_the_cmd_shim() {
+        assert_eq!(bin_name("knip", true), "knip.cmd");
+        assert_eq!(bin_name("knip", false), "knip");
     }
 
     #[test]
@@ -151,7 +168,7 @@ mod tests {
         }
         assert!(!is_installed(&lock, &prefix), "no executables yet");
         for tool in LOCKED_TOOLS {
-            fs::write(bin.join(tool), "").unwrap();
+            fs::write(bin.join(bin_name(tool, cfg!(windows))), "").unwrap();
         }
         assert!(is_installed(&lock, &prefix));
         fs::write(lock.join("package-lock.json"), "{ }").unwrap();
