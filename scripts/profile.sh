@@ -28,5 +28,10 @@ SKIF_TIMINGS=1 samply record --save-only --unstable-presymbolicate -o "$profile"
   "$root/target/profiling/skif" "$target_dir" --format json --no-install "$@" \
   >/dev/null 2>"$timings" || true
 
+if [ ! -s "$profile" ]; then
+  echo "profile.sh: samply wrote no profile to $profile; see $timings" >&2
+  exit 1
+fi
+
 echo "profile: $profile (open with: samply load $profile)"
 echo "timings: $timings"
