@@ -210,7 +210,7 @@ impl Repo {
 
 /// Whether `version` names one release, `major.minor.patch` with an optional pre-release or build suffix, and not a
 /// range or a dist-tag that resolves to another release over time.
-fn is_exact_version(version: &str) -> bool {
+pub fn is_exact_version(version: &str) -> bool {
     let core = version.split(['-', '+']).next().unwrap_or_default();
     let parts: Vec<&str> = core.split('.').collect();
     parts.len() == 3
@@ -914,7 +914,7 @@ mod tests {
         load_locked(name, tools, rev, None)
     }
 
-    const PINNED: (&str, &str, &str) = ("6.44.1", "15.3.3", "1.13.0");
+    const PINNED: (&str, &str, &str) = ("6.1.0", "15.2.0", "1.3.0");
 
     #[test]
     fn rejects_branch_pins() {
@@ -927,12 +927,12 @@ mod tests {
     fn rejects_a_comparison_tool_version_that_is_not_exact() {
         let sha = "a".repeat(40);
         for (tools, tool, version) in [
-            (("^6.44.1", "15.3.3", "1.13.0"), "knip", "^6.44.1"),
-            (("6.44.1", "latest", "1.13.0"), "syncpack", "latest"),
-            (("6.44.1", "15.3.3", "1.13"), "sherif", "1.13"),
-            (("6.44.1", "15.x.3", "1.13.0"), "syncpack", "15.x.3"),
-            (("6.44.1", "15.3.3", ">=1.13.0"), "sherif", ">=1.13.0"),
-            (("6.44.1 || 7.0.0", "15.3.3", "1.13.0"), "knip", "6.44.1 || 7.0.0"),
+            (("^6.1.0", "15.2.0", "1.3.0"), "knip", "^6.1.0"),
+            (("6.1.0", "latest", "1.3.0"), "syncpack", "latest"),
+            (("6.1.0", "15.2.0", "1.3"), "sherif", "1.3"),
+            (("6.1.0", "15.x.3", "1.3.0"), "syncpack", "15.x.3"),
+            (("6.1.0", "15.2.0", ">=1.3.0"), "sherif", ">=1.3.0"),
+            (("6.1.0 || 7.0.0", "15.2.0", "1.3.0"), "knip", "6.1.0 || 7.0.0"),
         ] {
             let error = load_with("range", tools, &sha).unwrap_err().to_string();
             assert_eq!(
@@ -940,15 +940,21 @@ mod tests {
                 format!("[tools] {tool}: the version must be exact (major.minor.patch), got {version:?}")
             );
         }
-        assert!(load_with("prerelease", ("6.0.0-beta.2", "15.3.3", "1.13.0+build.1"), &sha).is_ok());
+        assert!(load_with("prerelease", ("6.0.0-beta.2", "15.2.0", "1.3.0+build.1"), &sha).is_ok());
     }
 
     #[test]
     fn the_shipped_tool_lock_installs_the_pinned_tools() {
         let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
         assert_eq!(tool_lock_dir(file), Path::new(env!("CARGO_MANIFEST_DIR")).join("tools"));
-        assert!(load_manifest(file).is_ok());
-        assert!(tool_lock_dir(file).join("package.json").is_file());
+        let manifest = load_manifest(file).unwrap();
+        let package = fs::read_to_string(tool_lock_dir(file).join("package.json")).unwrap();
+        for (tool, version) in tool_pins(&manifest.tools) {
+            assert!(
+                package.contains(&format!("{tool:?}: {version:?}")),
+                "{tool} {version} in package.json"
+            );
+        }
         assert_eq!(tool_lock_dir(Path::new("corpus.toml")), Path::new("tools"));
     }
 
@@ -956,27 +962,27 @@ mod tests {
     fn rejects_a_tool_lock_that_names_other_versions_than_the_manifest() {
         let sha = "a".repeat(40);
         assert!(load_locked("lock-match", PINNED, &sha, Some(&lock_text(PINNED))).is_ok());
-        let root_only = lock_text(PINNED).replace(r#""knip": "6.44.1""#, r#""knip": "6.45.0""#);
+        let root_only = lock_text(PINNED).replace(r#""knip": "6.1.0""#, r#""knip": "6.9.0""#);
         let installed_only = lock_text(PINNED).replace(
-            r#""node_modules/sherif": {"version": "1.13.0"}"#,
-            r#""node_modules/sherif": {"version": "1.14.0"}"#,
+            r#""node_modules/sherif": {"version": "1.3.0"}"#,
+            r#""node_modules/sherif": {"version": "1.9.0"}"#,
         );
-        let extra = lock_text(PINNED).replace(r#""knip": "6.44.1","#, r#""knip": "6.44.1", "eslint": "9.0.0","#);
+        let extra = lock_text(PINNED).replace(r#""knip": "6.1.0","#, r#""knip": "6.1.0", "eslint": "9.0.0","#);
         for (name, lock, problem) in [
             (
                 "lock-root",
                 root_only,
-                r#"knip is "6.44.1" in [tools] but "6.45.0" in the lock's root and "6.44.1" installed by it"#,
+                r#"knip is "6.1.0" in [tools] but "6.9.0" in the lock's root and "6.1.0" installed by it"#,
             ),
             (
                 "lock-installed",
                 installed_only,
-                r#"sherif is "1.13.0" in [tools] but "1.13.0" in the lock's root and "1.14.0" installed by it"#,
+                r#"sherif is "1.3.0" in [tools] but "1.3.0" in the lock's root and "1.9.0" installed by it"#,
             ),
             (
                 "lock-newer",
-                lock_text(("6.44.1", "15.4.0", "1.13.0")),
-                r#"syncpack is "15.3.3" in [tools] but "15.4.0" in the lock's root and "15.4.0" installed by it"#,
+                lock_text(("6.1.0", "15.9.0", "1.3.0")),
+                r#"syncpack is "15.2.0" in [tools] but "15.9.0" in the lock's root and "15.9.0" installed by it"#,
             ),
             (
                 "lock-extra",
