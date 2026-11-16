@@ -133,7 +133,7 @@ mod tests {
     fn a_tool_runs_from_the_bin_of_the_install_by_absolute_path() {
         assert_eq!(
             program(Path::new("/bench/tools"), "knip").unwrap(),
-            Path::new("/bench/tools/node_modules/.bin/knip")
+            std::path::absolute(Path::new("/bench/tools/node_modules/.bin/knip")).unwrap()
         );
         assert!(program(Path::new("target/tools"), "knip").unwrap().is_absolute());
     }
