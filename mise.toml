@@ -47,6 +47,17 @@ run = [
   "cargo run --release --locked -p skif-bench -- run --skif target/release/skif",
 ]
 
+[tasks."typed:diff"]
+description = "Build skif in release mode and compare its JSON output, typed and untyped, on the installed bench corpus with a reference skif binary; fails on any difference the allow list does not cover"
+usage = '''
+arg "<reference>" help="Reference skif binary (the build before the change)"
+flag "--allow <file>" help="JSON list of expected differences"
+'''
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- typed-diff --skif target/release/skif --reference \"$usage_reference\" ${usage_allow:+--allow \"$usage_allow\"}",
+]
+
 [tasks."bench:local"]
 description = "Run the bench task the way CI does: install the corpus and tools (--install) and do not exit on the ADR targets (--no-enforce). Local numbers are not publishable"
 run = [

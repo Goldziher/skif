@@ -13,6 +13,7 @@ mod syncpack;
 mod tools;
 mod tools_install;
 mod type_aware;
+mod typed_diff;
 
 use std::fs;
 use std::path::PathBuf;
@@ -61,6 +62,41 @@ enum Command {
     SyncpackDiff(SyncpackArgs),
     /// Measure dead-code precision and recall of skif (and the pinned knip) against a generated answer key.
     Deadcode(DeadcodeArgs),
+    /// Compare the JSON output of a reference skif binary with the binary under test on the bench corpus, typed and
+    /// untyped; fails on any difference the allow list does not cover.
+    TypedDiff(TypedDiffArgs),
+}
+
+#[derive(Args)]
+struct TypedDiffArgs {
+    /// The reference skif binary (the build before the change).
+    #[arg(long)]
+    reference: PathBuf,
+    /// The skif binary under test.
+    #[arg(long, default_value = "target/release/skif")]
+    skif: PathBuf,
+    /// Only these repositories of the `bench` suite.
+    #[arg(long, value_delimiter = ',')]
+    only: Vec<String>,
+    /// Corpus manifest.
+    #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
+    corpus_file: PathBuf,
+    /// Cache directory holding the corpus checkouts (fetched when missing, installed checkouts are used as they are).
+    #[arg(long, default_value = "target/bench-corpus")]
+    corpus_dir: PathBuf,
+    /// JSON file listing expected differences: `{"allow": [{"kind": "added|removed|package|section", "reason": "...",
+    /// "repo", "mode", "rule", "file", "package", "section"}]}`; fields left out match anything.
+    #[arg(long)]
+    allow: Option<PathBuf>,
+    /// Also write the comparison as JSON to this file.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Where the captured output of each run is written.
+    #[arg(long, default_value = "target/bench-typed-diff")]
+    scratch: PathBuf,
+    /// Seconds each skif run may take.
+    #[arg(long, default_value_t = 900)]
+    timeout_secs: u64,
 }
 
 #[derive(Args)]
@@ -450,6 +486,17 @@ fn main() -> Result<()> {
             json: args.json,
             timeout: Duration::from_secs(args.timeout_secs),
             force: args.force,
+        }),
+        Command::TypedDiff(args) => typed_diff::run(&typed_diff::Options {
+            reference: args.reference,
+            skif: args.skif,
+            corpus_file: args.corpus_file,
+            corpus_dir: args.corpus_dir,
+            only: args.only,
+            allow: args.allow,
+            out: args.out,
+            scratch: args.scratch,
+            timeout: Duration::from_secs(args.timeout_secs),
         }),
         Command::Run(args) => run::run(&RunOptions {
             skif: args.skif,
