@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use globset::{GlobBuilder, GlobMatcher};
+use rayon::prelude::*;
 
 use skif_core::FileSystem;
 
@@ -237,6 +238,9 @@ fn join(dir: &str, name: &str) -> String {
 pub(crate) struct Expander<'a> {
     pub fs: &'a dyn FileSystem,
     pub root: &'a Path,
+    /// Walk `**` on the calling thread instead of fanning the subdirectories out on the current rayon pool. The
+    /// selection is the same either way.
+    pub sequential: bool,
 }
 
 impl Expander<'_> {
@@ -323,9 +327,9 @@ impl Expander<'_> {
                     return;
                 }
                 self.walk(dir, rest, depth + 1, false, found);
-                for name in self.child_dirs(dir, false) {
-                    self.double_star(&join(dir, &name), rest, depth + 1, found);
-                }
+                self.fan_out(dir, found, |child, found| {
+                    self.double_star(child, rest, depth + 1, found);
+                });
             }
         }
     }
@@ -341,8 +345,42 @@ impl Expander<'_> {
         if include_self && !dir.is_empty() && self.has_manifest(dir) {
             found.insert(dir.to_owned());
         }
-        for name in children {
-            self.nested_packages(&join(dir, &name), true, depth + 1, found);
+        self.fan_out_of(dir, children, found, |child, found| {
+            self.nested_packages(child, true, depth + 1, found);
+        });
+    }
+
+    /// Runs `visit` on every non-hidden subdirectory of `dir`, each adding what it finds to `found`.
+    fn fan_out(&self, dir: &str, found: &mut BTreeSet<String>, visit: impl Fn(&str, &mut BTreeSet<String>) + Sync) {
+        let children = self.child_dirs(dir, false);
+        self.fan_out_of(dir, children, found, visit);
+    }
+
+    /// [`fan_out`](Self::fan_out) over the listed `children` of `dir`: in parallel unless the walk is sequential, with
+    /// one set per subdirectory merged into `found`, so the selection does not depend on which thread finishes first.
+    fn fan_out_of(
+        &self,
+        dir: &str,
+        children: Vec<String>,
+        found: &mut BTreeSet<String>,
+        visit: impl Fn(&str, &mut BTreeSet<String>) + Sync,
+    ) {
+        if self.sequential || children.len() < 2 {
+            for name in children {
+                visit(&join(dir, &name), found);
+            }
+            return;
+        }
+        let sets: Vec<BTreeSet<String>> = children
+            .par_iter()
+            .map(|name| {
+                let mut local = BTreeSet::new();
+                visit(&join(dir, name), &mut local);
+                local
+            })
+            .collect();
+        for set in sets {
+            found.extend(set);
         }
     }
 }
@@ -426,6 +464,7 @@ mod tests {
         let expander = Expander {
             fs,
             root: Path::new("/ws"),
+            sequential: false,
         };
         expander.expand(&Pattern::new(raw).unwrap()).into_iter().collect()
     }
@@ -459,6 +498,7 @@ mod tests {
         let expander = Expander {
             fs: &fs,
             root: Path::new("/ws"),
+            sequential: false,
         };
         let outside = |raw: &str| -> Vec<String> {
             expander
@@ -473,6 +513,56 @@ mod tests {
         assert!(Pattern::parse("libs/../shared", true).is_err());
         assert!(is_outside_root("../shared") && is_outside_root(".."));
         assert!(!is_outside_root("..x/y") && !is_outside_root("packages/a"));
+    }
+
+    #[test]
+    fn a_parallel_double_star_selects_what_a_sequential_one_does() {
+        let mut inner = MemoryFs::new();
+        let mut expected_api = Vec::new();
+        for group in 0..6 {
+            for package in 0..5 {
+                let dir = format!("g{group}/p{package}");
+                inner.insert(format!("/ws/{dir}/package.json"), "{}");
+                inner.insert(format!("/ws/{dir}/api/package.json"), "{}");
+                inner.insert(format!("/ws/{dir}/deep/er/package.json"), "{}");
+                inner.insert(format!("/ws/{dir}/node_modules/x/package.json"), "{}");
+                inner.insert(format!("/ws/{dir}/.hidden/package.json"), "{}");
+                expected_api.push(format!("{dir}/api"));
+            }
+        }
+        expected_api.sort();
+        let fs = Probes {
+            inner,
+            is_dir: AtomicUsize::new(0),
+        };
+        let select = |raw: &str, sequential: bool| -> Vec<String> {
+            let expander = Expander {
+                fs: &fs,
+                root: Path::new("/ws"),
+                sequential,
+            };
+            expander.expand(&Pattern::new(raw).unwrap()).into_iter().collect()
+        };
+        for raw in [
+            "**",
+            "g1/**",
+            "g2/**/*",
+            "**/api",
+            "g3/**/er",
+            "{g0,g4}/**",
+            "**/missing",
+        ] {
+            let parallel = select(raw, false);
+            assert_eq!(parallel, select(raw, true), "{raw}");
+            assert!(parallel.is_sorted(), "{raw}");
+        }
+        assert_eq!(
+            select("**", false).len(),
+            6 * 5 * 3,
+            "every package below the root, none in hidden or node_modules"
+        );
+        assert_eq!(select("**/api", false), expected_api);
+        assert_eq!(select("**/missing", false), Vec::<String>::new());
     }
 
     #[test]
