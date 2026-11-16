@@ -1618,6 +1618,32 @@ fn child_process_calls_are_commands() {
     assert!(other.commands.is_empty(), "{:?}", other.commands);
 }
 
+/// A bundle with many functions that have nothing to do with the one call: its command is read from the call alone.
+#[test]
+fn child_process_command_in_a_large_file_of_unrelated_functions() {
+    let mut source = String::from("import { execSync } from 'node:child_process';\n");
+    source.extend((0..2000).map(|index| {
+        format!(
+            "function work{index}(options, items) {{ const out = []; for (const item of items) {{ out.push(item + {index}); }} \
+             options.count = out.length; return {{ ...options, out }}; }}\n"
+        )
+    }));
+    source.push_str("export function run(command) { execSync(command); return execSync('npm run x'); }\n");
+    let info = parse("big.ts", &source);
+    assert_eq!(info.commands, ["npm run x"]);
+}
+
+/// An argument that is a constant declared elsewhere in the file is still evaluated, through the constants it names.
+#[test]
+fn child_process_command_from_a_constant_declared_elsewhere() {
+    let source = "import { execSync, spawnSync } from 'node:child_process';\n\
+                  export function build() { return execSync(BUILD); }\n\
+                  const BASE = 'tsc';\nconst BUILD = `${BASE} -b`;\n\
+                  const ARGS = ['--noEmit'];\nfunction check() { spawnSync(BASE, ARGS); }\n";
+    let info = parse("a.ts", source);
+    assert_eq!(info.commands, ["tsc -b", "tsc --noEmit"]);
+}
+
 /// A literal argument that is not a plain word (SQL, a sentence, an empty string) reaches the program as one word, so
 /// it is single-quoted in the command line; a program that is not a plain word drops the call.
 #[test]
