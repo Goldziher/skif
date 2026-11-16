@@ -33,7 +33,7 @@ Code scanning:
 
 ## Other CI systems
 
-Run the npm package or a release binary: `npx skif-cli --format codeclimate --output gl-code-quality.json` feeds
+Run the npm package or a release binary: `npx @polylint/skif --format codeclimate --output gl-code-quality.json` feeds
 GitLab Code Quality. One run can write several reports:
 `skif --format human --format json=skif.json --format sarif=skif.sarif`. `--format markdown` (or `disclosure`)
 renders a pull request comment, and `--format codeowners` groups findings by CODEOWNERS owner.

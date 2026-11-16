@@ -193,12 +193,8 @@ under [Parity with knip](#parity-with-knip).
 | Package manager versions tested | Latest two majors of npm, pnpm and Yarn 2+; newest Yarn Classic 1.x and Bun 1.x | None pinned; one unit test runs the CI image's `npm install` | None: CI installs no package manager | None pinned: pnpm 10 for knip's own repository; the ecosystem projects use their own |
 | Layouts | Single packages, workspaces, nested workspaces, standalone packages below a root, `-r` over several roots, Rush (`rush.json`), Lerna, Nx integrated workspaces, Bazel (`bazel run`) | One workspace root, from `workspaces` in `package.json` or `pnpm-workspace.yaml`; no single packages, no nested workspaces, and `**` matches one directory level | Workspaces from `package.json`, `pnpm-workspace.yaml` or `lerna.json`, else `packages/*`; `--source` globs replace them | Workspaces and the directories knip's `workspaces` map lists; integrated monorepos (Nx) as one workspace with hand-written `entry` and `project` |
 | Runtime | Native binary; the npm package is a Node addon for Node.js 22, 24, 26 and Bun 1.x | Native binary; the npm launcher is a Node.js script with no `engines` | Native binary; npm launcher (`engines`: Node.js 14.17+) | Node.js 20.19+ or 22.12+; Bun through `knip-bun` (CI tests Bun 1.4.4) |
-| Operating systems and architectures | macOS, Linux (glibc, musl), Windows; x64 and arm64 (1) | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | Where `oxc-parser` has a native binding (macOS, Linux glibc and musl, Windows, FreeBSD and more); CI runs macOS, Linux and Windows |
+| Operating systems and architectures | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | Where `oxc-parser` has a native binding (macOS, Linux glibc and musl, Windows, FreeBSD and more); CI runs macOS, Linux and Windows |
 | Distribution | npm, crates.io, cargo-binstall, GitHub release archives, Homebrew, Scoop, GitHub Action, pre-commit and prek, Poly | npm, GitHub release archives, GitHub Action; Homebrew (homebrew-core) | npm; crates.io up to 14.0.0 | npm |
-
-1. On Windows, use the release archives, cargo-binstall, Scoop or the GitHub Action. Windows has no npm package:
-   `skif-cli` ships no Windows addon until the Windows platform package names exist on npm
-   ([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-distribution-and-release.md)).
 
 The skif versions and operating systems per package manager are under
 [Supported versions](../../start/installation/#supported-versions)

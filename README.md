@@ -6,7 +6,7 @@
 npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · type-aware · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
-[![npm](https://img.shields.io/npm/v/skif-cli?style=flat-square)](https://www.npmjs.com/package/skif-cli)
+[![npm](https://img.shields.io/npm/v/%40polylint%2Fskif?style=flat-square)](https://www.npmjs.com/package/@polylint/skif)
 [![CI](https://img.shields.io/github/actions/workflow/status/Goldziher/skif/ci.yml?style=flat-square)](https://github.com/Goldziher/skif/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-goldziher.github.io%2Fskif-f07a1a?style=flat-square)](https://goldziher.github.io/skif/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -43,7 +43,7 @@ with knip on real repositories.
 ## Installation
 
 ```bash
-pnpm add -D skif-cli                  # or npm install -D, yarn add -D, bun add -D; the command is `skif`
+pnpm add -D @polylint/skif            # or npm install -D, yarn add -D, bun add -D; the command is `skif`
 cargo binstall skif-cli               # prebuilt binary; or cargo install skif-cli
 brew install goldziher/tap/skif       # Homebrew
 ```
@@ -53,9 +53,7 @@ scoop bucket add goldziher https://github.com/Goldziher/scoop-bucket
 scoop install skif
 ```
 
-The npm package needs Node.js 22, 24 or 26, or Bun 1.x, on macOS or Linux. Windows has no npm package
-([ADR 0027](adrs/0027-distribution-and-release.md)): on Windows, use cargo-binstall, Scoop or the
-[release archives](https://goldziher.github.io/skif/start/installation/#prebuilt-binaries).
+The npm package needs Node.js 22, 24 or 26, or Bun 1.x, on macOS, Linux or Windows.
 
 GitHub Action:
 
@@ -84,11 +82,11 @@ covers the Action inputs, Poly, Lefthook, GitLab CI and the npm API.
 ## Quick start
 
 ```bash
-npx skif-cli                  # lint the workspace or package you are in
-npx skif-cli --fix --dry-run  # show the safe fixes as a diff
-npx skif-cli --fix            # apply them, then run the package manager's install
-npx skif-cli migrate          # translate sherif, syncpack and knip config into a skif.toml
-npx skif-cli baseline write   # record the findings you cannot fix yet; CI then accepts only fewer
+npx @polylint/skif                  # lint the workspace or package you are in
+npx @polylint/skif --fix --dry-run  # show the safe fixes as a diff
+npx @polylint/skif --fix            # apply them, then run the package manager's install
+npx @polylint/skif migrate          # translate sherif, syncpack and knip config into a skif.toml
+npx @polylint/skif baseline write   # record the findings you cannot fix yet; CI then accepts only fewer
 ```
 
 skif works without configuration. `skif init` writes a starter `skif.toml`, and files layer from a project up to the
@@ -136,7 +134,7 @@ git root, so one organisation file applies to every project below it. See the
 | Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) |
 | Runtime | Native binary, or through npm on Node.js 22, 24, 26 and Bun 1.x |
 | Type checker | tsrs 7.1.0-beta.tsrs1, a Rust port of the TypeScript 7 checker, for packages with a `tsconfig.json` or `jsconfig.json` |
-| Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 (Windows not on npm) |
+| Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 |
 
 Versions per package manager and operating system are under
 [supported versions](https://goldziher.github.io/skif/start/installation/#supported-versions). The

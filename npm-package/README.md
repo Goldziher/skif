@@ -15,22 +15,24 @@ Node.js 22.12 or newer.
 ## Install
 
 ```sh
-pnpm add --save-dev skif-cli
-# or: npm install --save-dev skif-cli / yarn add --dev skif-cli / bun add --dev skif-cli
+pnpm add --save-dev @polylint/skif
+# or: npm install --save-dev @polylint/skif / yarn add --dev @polylint/skif / bun add --dev @polylint/skif
 ```
+
+Earlier releases were published as `skif-cli`. That package is deprecated on npm and receives no new versions.
 
 Run it without installing:
 
 ```sh
-pnpm dlx skif-cli
-npx skif-cli
-bunx -p skif-cli skif
+pnpm dlx @polylint/skif
+npx @polylint/skif
+bunx @polylint/skif
 ```
 
 ## Use from code
 
 ```js
-import { lint, lintAsync, run } from "skif-cli";
+import { lint, lintAsync, run } from "@polylint/skif";
 
 const report = JSON.parse(lint("./my-monorepo", { production: true }));
 console.log(report.summary);
@@ -71,19 +73,17 @@ covered by the registry's integrity hashes.
 
 | Platform | Package |
 | --- | --- |
-| macOS (Apple silicon) | `skif-darwin-arm64` |
-| macOS (Intel) | `skif-darwin-x64` |
-| Linux arm64 (glibc) | `skif-linux-arm64-gnu` |
-| Linux arm64 (musl, Alpine) | `skif-linux-arm64-musl` |
-| Linux x64 (glibc) | `skif-linux-x64-gnu` |
-| Linux x64 (musl, Alpine) | `skif-linux-x64-musl` |
-
-Windows has no platform package, so importing `skif-cli` on Windows fails; use the
-[release archives](https://github.com/Goldziher/skif/releases), `cargo binstall skif-cli` or
-[Scoop](https://github.com/Goldziher/skif#installation) instead ([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-distribution-and-release.md)).
+| macOS (Apple silicon) | `@polylint/skif-darwin-arm64` |
+| macOS (Intel) | `@polylint/skif-darwin-x64` |
+| Linux arm64 (glibc) | `@polylint/skif-linux-arm64-gnu` |
+| Linux arm64 (musl, Alpine) | `@polylint/skif-linux-arm64-musl` |
+| Linux x64 (glibc) | `@polylint/skif-linux-x64-gnu` |
+| Linux x64 (musl, Alpine) | `@polylint/skif-linux-x64-musl` |
+| Windows x64 | `@polylint/skif-win32-x64-msvc` |
+| Windows arm64 | `@polylint/skif-win32-arm64-msvc` |
 
 If no platform package is installed (for example because optional dependencies were disabled), importing
-`skif-cli` fails with an error naming the missing package.
+`@polylint/skif` fails with an error naming the missing package.
 
 ## Links
 

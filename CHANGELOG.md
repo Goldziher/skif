@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **The npm package is `@polylint/skif`**: its platform packages are `@polylint/skif-<platform>`, and `skif-cli` and
+  `skif-<platform>` on npm are deprecated and receive no new versions. The command stays `skif`, and Windows x64 and
+  arm64 now install from npm ([ADR 0035](adrs/0035-publish-the-npm-packages-under-the-polylint-scope.md)).
+
 ## [0.6.0] - 2026-11-16
 
 skif 0.6.0 adds opt-in type-aware analysis. With `--type-aware` or `[js] type-aware = true`, where a package has a
