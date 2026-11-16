@@ -57,9 +57,11 @@ jobs:
           corepack enable
       - name: Build skif and the harness
         run: cargo build --release --locked -p skif-cli -p skif-bench
-      # ~keep Fails before any comparison when a tool pinned in tools/bench/corpus.toml is behind its latest npm
-      # ~keep release.
+      # ~keep Fails the job when a tool pinned in tools/bench/corpus.toml is behind its latest npm release, but not
+      # ~keep before the parity and syncpack checks: a new upstream release must not hide drift against the pinned one.
       - name: Check the pinned comparison tools are current
+        id: tools
+        continue-on-error: true
         run: target/release/skif-bench tools check
       # ~keep Each run's output goes to a log, so the summary step can show the drift lines next to the table.
       - name: Parity with knip
@@ -122,3 +124,9 @@ jobs:
         with:
           name: corpus-baselines
           path: tools/bench/baselines/*.json
+      # ~keep continue-on-error turned the pin check green; this step makes the job fail for it after the reports.
+      - name: Fail when a pinned comparison tool is behind
+        if: ${{ !cancelled() && steps.tools.outcome == 'failure' }}
+        run: |
+          echo "::error::a comparison tool pinned in tools/bench/corpus.toml is behind its latest release; run skif-bench tools update"
+          exit 1
