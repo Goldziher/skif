@@ -2659,6 +2659,7 @@ dependencies = [
  "indexmap",
  "jsonc-parser",
  "rayon",
+ "serde",
  "serde-saphyr",
  "serde_json",
  "skif-config",
