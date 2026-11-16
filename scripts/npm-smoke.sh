@@ -93,9 +93,9 @@ sed -i.bak "s#ADDON#${root}/npm-package/index.js#" "${project}/addon.mjs"
 echo "== ${runtime}: import, run(), lint(), lintAsync() and a panic"
 "$runtime" "${project}/addon.mjs" "$fixture" "${project}/does-not-exist"
 
-mkdir -p "${project}/node_modules/.bin"
-ln -s "${root}/npm-package" "${project}/node_modules/skif-cli"
-ln -s ../skif-cli/bin/skif.js "${project}/node_modules/.bin/skif"
+mkdir -p "${project}/node_modules/.bin" "${project}/node_modules/@polylint"
+ln -s "${root}/npm-package" "${project}/node_modules/@polylint/skif"
+ln -s ../@polylint/skif/bin/skif.js "${project}/node_modules/.bin/skif"
 echo '{"name":"smoke","private":true}' >"${project}/package.json"
 
 echo "== ${runtime}: bin --version"

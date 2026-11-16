@@ -1,5 +1,5 @@
 {
-  "name": "skif-cli",
+  "name": "@polylint/skif",
   "version": "0.6.0",
   "description": "A dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with first-class monorepo support.",
   "keywords": [
@@ -48,14 +48,16 @@
   ],
   "napi": {
     "binaryName": "skif",
-    "packageName": "skif",
+    "packageName": "@polylint/skif",
     "targets": [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",
       "x86_64-unknown-linux-gnu",
       "aarch64-unknown-linux-gnu",
       "x86_64-unknown-linux-musl",
-      "aarch64-unknown-linux-musl"
+      "aarch64-unknown-linux-musl",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc"
     ]
   },
   "scripts": {
