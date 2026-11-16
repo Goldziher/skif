@@ -771,6 +771,22 @@ fn a_file_of_a_nested_root_that_an_outer_root_imports_is_its_entry() {
 }
 
 #[test]
+fn without_js_analysis_a_nested_root_is_linted_with_its_outer_root_and_the_report_is_stable() {
+    // Without JS analysis no root hands files to another, so the outer and nested roots are linted in one pass; the
+    // report must not depend on which finishes first.
+    let dir = fixture("multi/nested-imports");
+    let args = ["--format", "json", "-r", "--no-js"];
+    let first = run(skif().args(args).arg(dir.path()));
+    let report = first.json();
+    assert_eq!(root_paths(&report), [".", "build"], "{report}");
+    assert_eq!(js_findings(&report), Vec::<String>::new());
+    for _ in 0..4 {
+        let again = run(skif().args(args).arg(dir.path()));
+        assert_eq!(again.stdout, first.stdout);
+    }
+}
+
+#[test]
 fn a_directory_whose_manifest_only_sets_the_module_type_is_linted_once_by_the_root_above() {
     let dir = tempfile::tempdir().unwrap();
     put(
