@@ -39,7 +39,7 @@ enum Listed {
 }
 
 /// Packages that are used by tooling rather than imports and never reported as unused.
-const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
+const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif", "@polylint/skif"];
 
 /// The packages that compile a file type skif extracts imports from without running a compiler (ADR 0001): a file
 /// of that type in the graph uses those of them its package lists, the way knip's built-in compilers mark them.
