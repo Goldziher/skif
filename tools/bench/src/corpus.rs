@@ -534,7 +534,17 @@ mod tests {
         let commit = |dir: &Path| {
             for args in [
                 &["init", "--quiet"][..],
-                &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--allow-empty", "-m", "c"],
+                &[
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "commit",
+                    "--quiet",
+                    "--allow-empty",
+                    "-m",
+                    "c",
+                ],
             ] {
                 git(dir, args).unwrap();
             }
@@ -547,13 +557,16 @@ mod tests {
         let cache = enclosing.join("target/bench-corpus");
         fs::create_dir_all(cache.join("r/.git")).unwrap();
         let repo: Repo = toml::from_str(&format!(
-            "name = \"r\"\nurl = \"{}\"\nrev = \"{rev}\"\npackage-manager = \"pnpm\"\nsuites = [\"parity\"]\n",
+            "name = \"r\"\nurl = '{}'\nrev = \"{rev}\"\npackage-manager = \"pnpm\"\nsuites = [\"parity\"]\n",
             upstream.display()
         ))
         .unwrap();
         let dir = fetch_repo(&repo, &cache).unwrap();
         assert_eq!(git(&dir, &["rev-parse", "HEAD"]).unwrap(), rev);
-        assert!(git(&enclosing, &["remote"]).unwrap().is_empty(), "the enclosing repository gained no remote");
+        assert!(
+            git(&enclosing, &["remote"]).unwrap().is_empty(),
+            "the enclosing repository gained no remote"
+        );
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -836,7 +849,10 @@ mod tests {
     fn opencode_installs_with_a_pinned_bun() {
         let repos = manifest().repo;
         let opencode = repos.iter().find(|r| r.name == "opencode").unwrap();
-        assert_eq!(&opencode.install_command[..7], ["env", "MISE_LOCKED=0", "mise", "x", "bun@1.3.14", "--", "bun"]);
+        assert_eq!(
+            &opencode.install_command[..7],
+            ["env", "MISE_LOCKED=0", "mise", "x", "bun@1.3.14", "--", "bun"]
+        );
         assert!(opencode.install_command.iter().any(|arg| arg == "--frozen-lockfile"));
     }
 
