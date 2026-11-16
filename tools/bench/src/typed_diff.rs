@@ -922,7 +922,7 @@ mod tests {
             crate::parity::install_marker(&repos[0].0),
         )
         .unwrap();
-        assert!(uninstalled(&repos).is_empty());
+        assert_eq!(uninstalled(&repos), [] as [&str; 0]);
         fs::remove_dir_all(&dir).unwrap();
     }
 
