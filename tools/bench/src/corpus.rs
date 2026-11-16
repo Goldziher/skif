@@ -785,7 +785,7 @@ mod tests {
     fn opencode_installs_with_a_pinned_bun() {
         let repos = manifest().repo;
         let opencode = repos.iter().find(|r| r.name == "opencode").unwrap();
-        assert_eq!(&opencode.install_command[..5], ["mise", "x", "bun@1.3.14", "--", "bun"]);
+        assert_eq!(&opencode.install_command[..7], ["env", "MISE_LOCKED=0", "mise", "x", "bun@1.3.14", "--", "bun"]);
         assert!(opencode.install_command.iter().any(|arg| arg == "--frozen-lockfile"));
     }
 
