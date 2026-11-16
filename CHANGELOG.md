@@ -34,7 +34,8 @@ All notable changes to this project are documented here. The format follows
   reads, and `child_process` command analysis is built only when a command needs it. `skif -r` lints nested roots
   alongside their enclosing roots, with the same report. A typed run asks the checker only for escapes that can reach
   an asked declaration and for the ancestors only of classes with heritage, and reuses its parsed config for each
-  program's own config. Release builds use fat LTO.
+  program's own config. The programs of a typed run share each project source they read instead of parsing it once
+  per program, which cuts babel's typed run by about a third. Release builds use fat LTO.
 - The Homebrew formula is bottled for macOS arm64 and Linux x86_64 and arm64.
 - The GitHub Action and the pre-commit launcher verify build attestations against `polylint/skif`, and still accept a
   release up to v0.6.0 attested by `Goldziher/skif`, the repository before the move.
