@@ -44,9 +44,8 @@ All notable changes to this project are documented here. The format follows
 
 - A webpack or rspack config built in a function that changes the config after its literal (`config.module.rules.unshift(…)`
   under a test) credits the loaders of the literal and of the change again, instead of reporting every loader as an
-  unused dependency. A rule the evaluator cannot see, or one whose loaders are computed, leaves the package unjudged;
-  one unknown entry in a known loader list (`MiniCssExtractPlugin.loader`) does not
-  ([#248](https://github.com/polylint/skif/issues/248)).
+  unused dependency. A rule the evaluator cannot see leaves the package unjudged; one unknown
+  entry in a known loader list (`MiniCssExtractPlugin.loader`) does not ([#248](https://github.com/polylint/skif/issues/248)).
 - `@polylint/skif` is never reported as an unused dependency.
 - A bundler alias or `paths` target in the build output of a workspace package (`../lib/dist/index.js`) stands for
   the source that output is built from whether or not the output exists, so the verdicts no longer depend on a local
