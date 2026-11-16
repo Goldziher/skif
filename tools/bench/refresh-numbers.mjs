@@ -20,10 +20,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
-export const SUMMARY_SCHEMA = 7;
+export const SUMMARY_SCHEMA = 8;
 const SKIF = "skif";
 const SKIF_TYPED = "skif --type-aware";
 const SKIF_MANIFEST = "skif --no-js";
+const SKIF_RECURSIVE = "skif --recursive";
 const SHERIF = "sherif";
 const SYNCPACK = "syncpack lint";
 const KNIP = "knip --reporter json";
@@ -267,11 +268,18 @@ export function benchDetail(summary) {
         lines.push(`| ${row.tool} | ${fails(row)} | - | - |`);
         continue;
       }
-      const skifRow = row.tool === SKIF || row.tool === SKIF_TYPED || row.tool === SKIF_MANIFEST;
+      const skifRow = [SKIF, SKIF_TYPED, SKIF_MANIFEST, SKIF_RECURSIVE].includes(row.tool);
       const relative = skifRow || row.relative_to_skif == null ? "-" : `${row.relative_to_skif.toFixed(1)}x`;
       lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);
     }
     lines.push("");
+    if (find(target, SKIF_RECURSIVE) != null) {
+      lines.push(
+        `\`${SKIF_RECURSIVE}\` also lints the nested roots that are not workspace members. No comparison tool reads ` +
+          "them, so the row has no ratio and is part of no claim.",
+        "",
+      );
+    }
     for (const row of target.results.filter(erroredAfterReport)) {
       const reason = row.failure.reason;
       lines.push(`${row.tool} exits with an error after its report here, as corpus.toml declares: ${reason}.`, "");

@@ -69,8 +69,14 @@ two n8n Vite configurations): a run that matches it keeps its times and its rati
 as for a clean run with the reason beside it, and `summary.md` and the published tables give its time with the reason.
 Such a time is that of a run without those entries. A corpus
 repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif reads (npm-cli sets
-`--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive` (babel, vscode, next-js), as
-`parity` runs it. A repository that sets `bench-knip-config = "parity"` (angular, vscode, n8n, next-js) times knip with
+`--no-gitignore`). Every compared row is timed on the scope its comparison tool reads
+([ADR 0037](../../adrs/0037-time-each-comparison-tool-on-the-scope-it-reads.md)): `skif --no-js` against sherif and
+syncpack, and the full `skif` against knip, run without `--recursive`, because a recursive run lints the nested roots
+that are not workspace members, which none of those tools reads (next-js has 403). The full row would use
+`--recursive` only where knip itself is configured to read such nested projects; no repository does. Where a repository
+sets `recursive` (babel, vscode, next-js; `parity` runs it recursively), the run adds an informational
+`skif --recursive` row: it has no ratio and no peak RSS, is in no ADR 0001 or budget check and enters no compact table
+or claim. A repository that sets `bench-knip-config = "parity"` (angular, vscode, n8n, next-js) times knip with
 the configuration of the knip comparison instead of its own (`--config` to a file in `<generated-dir>/configs/<name>`
 that is empty apart from the repository's `entry` files) and skif with a `--config` that adds the same `entry` files,
 so both read what `parity` compares: n8n's own `knip.ts` checks dependencies only, and vscode's workbench is reached
@@ -920,8 +926,8 @@ in-process part.
   with `bench-knip-failure` and knip's row is published as failing, or, with `timed = true` where knip prints its
   whole report first, with its time and the reason.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
-- The skif command line is `skif . --format json --no-install [--no-js] [--recursive] [--config <entry files>]`; the
-  working directory is the target.
+- The skif command line is `skif . --format json --no-install [--no-js] [--config <entry files>]`, plus `--recursive`
+  on the informational `skif --recursive` row alone (ADR 0037); the working directory is the target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
   mean over many `--runs`.
 - The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each

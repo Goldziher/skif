@@ -75,7 +75,7 @@ function machine() {
 
 function summary() {
   return {
-    schema: 7,
+    schema: 8,
     skif: "skif 0.3.0",
     source_rev: "0123456789ab",
     harness_rev: "0123456789ab",
@@ -465,8 +465,8 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "sherif was not timed on any target: npm is not installed",
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
-  assert.deepEqual(summaryProblems({ ...summary(), schema: 6 }), [
-    "summary schema 6 is not 7; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+  assert.deepEqual(summaryProblems({ ...summary(), schema: 7 }), [
+    "summary schema 7 is not 8; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
   ]);
   assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
     "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",
@@ -550,6 +550,19 @@ test("the detail tables print no ratio for the skif rows and name what installed
   assert.match(text, /\| skif --no-js \| 9\.4 \| 9\.4 \| - \|/);
   assert.match(text, /\| knip --reporter json \| 7200 \| 7200 \| 8\.1x \|/);
   assert.match(text, /\| corpus: babel \(yarn\) \| d \| pass \|/);
+});
+
+test("an informational recursive row prints no ratio, is no required row and joins no table or claim", () => {
+  const recursive = summary();
+  const babel = recursive.targets[1];
+  babel.results.push(row("skif --recursive", 5400, { relative_to_skif: null }));
+  assert.deepEqual(summaryProblems(recursive), []);
+  const detail = benchDetail(recursive);
+  assert.match(detail, /\| skif --recursive \| 5400 \| 5400 \| - \|/);
+  assert.match(detail, /`skif --recursive` also lints the nested roots that are not workspace members/);
+  assert.doesNotMatch(benchDetail(summary()), /skif --recursive/);
+  assert.equal(benchSummary(recursive), benchSummary(summary()));
+  assert.equal(benchClaims(recursive), benchClaims(summary()));
 });
 
 test("the claims give each tool's ratio range over the targets it was timed on, with the runs they come from", () => {
