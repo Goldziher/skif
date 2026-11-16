@@ -20,18 +20,28 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # ~keep The corepack whose shims install the corpus, pinned as in bench.yml: a repository without a `packageManager`
+  # ~keep gets the version this corepack names as its default, never the registry's latest.
+  COREPACK_VERSION: "0.36.0"
+  COREPACK_DEFAULT_TO_LATEST: "0"
 
 jobs:
   corpus:
     name: Parity and syncpack diff against the baselines
     timeout-minutes: 240
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      # ~keep The rust-version Cargo.toml declares (the MSRV the CI job checks), as in bench.yml, rather than `stable`.
+      - name: Resolve the Rust toolchain
+        id: resolve
+        run: |
+          set -euo pipefail
+          rust="$(bash scripts/msrv.sh Cargo.toml)" || { echo "::error::Cargo.toml declares no rust-version"; exit 1; }
+          echo "rust=${rust}" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: stable
+          toolchain: ${{ steps.resolve.outputs.rust }}
       - uses: Swatinem/rust-cache@v2
       - uses: xberg-io/actions/setup-mise@v1
         with:
@@ -39,10 +49,14 @@ jobs:
       # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly.
       - name: Enable corepack
         run: |
-          npm install --global corepack@latest
+          npm install --global "corepack@${COREPACK_VERSION}"
           corepack enable
       - name: Build skif and the harness
         run: cargo build --release --locked -p skif-cli -p skif-bench
+      # ~keep Fails before any comparison when a tool pinned in tools/bench/corpus.toml is behind its latest npm
+      # ~keep release.
+      - name: Check the pinned comparison tools are current
+        run: target/release/skif-bench tools check
       # ~keep Each run's output goes to a log, so the summary step can show the drift lines next to the table.
       - name: Parity with knip
         env:

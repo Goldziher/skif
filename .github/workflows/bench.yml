@@ -5,8 +5,10 @@ name: bench
 # corpus come from the dispatched ref, checked out at the workspace root; the measured skif from the `ref` input,
 # checked out in measured/ (untracked there, so the harness commit stays clean). The summary records the machine, the
 # runner and the toolchain. Each corpus and graph target is timed without types (the default) and with --type-aware,
-# and each mode's peak RSS is measured by /usr/bin/time; a run that breaks the type-aware budget of ADR 0029 fails
-# after its summary is written. `mise run bench:import -- <run-id>` brings the results into the repository.
+# and each mode's peak RSS is measured by /usr/bin/time; the type-aware budget of ADR 0029 is checked and published
+# but does not fail the run while types are opt-in (`--check-budget` is not passed). A run whose pinned comparison
+# tools are behind their latest npm release fails before anything is timed. `mise run bench:import -- <run-id>`
+# brings the results into the repository.
 on:
   workflow_dispatch:
     inputs:
@@ -152,6 +154,10 @@ jobs:
         env:
           TOOLCHAIN: ${{ steps.resolve.outputs.harness_rust }}
         run: cargo "+${TOOLCHAIN}" build --release --locked -p skif-bench
+      # ~keep Fails before anything is timed when a tool pinned in tools/bench/corpus.toml is behind its latest npm
+      # ~keep release, so a published comparison never runs against a stale knip, sherif or syncpack.
+      - name: Check the pinned comparison tools are current
+        run: target/release/skif-bench tools check
       # ~keep The harness rejects a corpus repository not pinned to a full commit SHA and a comparison tool not pinned
       # ~keep to an exact version, so an unpinned input fails the run before anything is timed. RUSTUP_TOOLCHAIN makes
       # ~keep the recorded rustc the one that built skif. The corpus and the generated workspaces go to the runner's
