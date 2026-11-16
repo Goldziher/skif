@@ -75,8 +75,8 @@ rejected.
 
 * `scripts/check-npm-packages-exist.sh` stops a release unless all nine packages exist on the registry.
 * `scripts/check-npm-tarballs.sh` accepts exactly the umbrella and the eight platform tarballs.
-* The `verify_npm` jobs install the published packages on Linux, macOS and Windows, including arm64 Windows, and run
-  `scripts/npm-smoke.sh`.
+* The `load_addon_windows` job loads the x64 and arm64 addons on their own runners before anything is published, and
+  `verify_npm` installs the published umbrella on Linux and on x64 Windows and runs `skif --version`.
 
 ## Pros and Cons of the Options
 
