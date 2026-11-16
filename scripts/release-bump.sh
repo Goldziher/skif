@@ -6,7 +6,7 @@
 #   Cargo.toml                              [workspace.package] version and internal dependency pins
 #   crates/*/Cargo.toml                     internal dependency pins
 #   npm-package/package.json                version (the platform packages take it from `napi version`)
-#   .claude-plugin/plugin.json,             the agent plugin version and the skif-cli version its MCP server runs
+#   .claude-plugin/plugin.json,             the agent plugin version and the @polylint/skif version its MCP server runs
 #   .codex-plugin/plugin.json
 #   poly-hooks.toml                         pinned npm channel version
 #   scripts/pre-commit/run-skif.sh          SKIF_VERSION default
@@ -57,16 +57,16 @@ jq --arg v "$version" '.version = $v' npm-package/package.json >"$tmp"
 cat "$tmp" >npm-package/package.json
 rm -f "$tmp"
 
-# The top-level `version` line and the `skif-cli@` pin of the MCP server, so the manifests keep the layout the
+# The top-level `version` line and the `@polylint/skif@` pin of the MCP server, so the manifests keep the layout the
 # formatter gives them.
 for manifest in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
   echo "${manifest} -> ${version}"
   rewrite "$manifest" "s/^(  \"version\": \")[^\"]*(\")/\1${version}\2/"
-  rewrite "$manifest" "s/(\"skif-cli@)[^\"]*(\")/\1${version}\2/g"
+  rewrite "$manifest" "s#(\"@polylint/skif@)[^\"]*(\")#\1${version}\2#g"
 done
 
 echo "poly-hooks.toml, scripts/pre-commit/run-skif.sh -> ${version}"
-rewrite poly-hooks.toml "s/(skif-cli@)[0-9][^ \"]*/\1${version}/g"
+rewrite poly-hooks.toml "s#(@polylint/skif@)[0-9][^ \"]*#\1${version}#g"
 rewrite scripts/pre-commit/run-skif.sh "s/^(SKIF_VERSION=\"\\$\\{SKIF_VERSION:-)v?[^}]+(\\}\")$/\1v${version}\2/"
 
 echo "action.yml -> ${version}"

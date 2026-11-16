@@ -277,7 +277,7 @@ grep -qF 'BAKED_VERSION: "9.8.7"' "${tree}/action.yml" || fail "release-bump: th
 grep -qF '"=9.8.7"' "${tree}/Cargo.toml" || fail "release-bump: internal dependency pin"
 for manifest in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
   [[ "$(jq -r '.version' "${tree}/${manifest}")" == 9.8.7 ]] || fail "release-bump: ${manifest} version"
-  [[ "$(jq -c '.mcpServers.skif.args' "${tree}/${manifest}")" == '["-y","skif-cli@9.8.7","mcp"]' ]] ||
+  [[ "$(jq -c '.mcpServers.skif.args' "${tree}/${manifest}")" == '["-y","@polylint/skif@9.8.7","mcp"]' ]] ||
     fail "release-bump: ${manifest} MCP server pin"
 done
 
@@ -294,12 +294,12 @@ expect_in_out "check-versions plugin drift" ".codex-plugin/plugin.json version: 
 jq '.version = "9.8.7"' "${tree}/.codex-plugin/plugin.json" >"${work}/plugin.json"
 cat "${work}/plugin.json" >"${tree}/.codex-plugin/plugin.json"
 cp "${tree}/.claude-plugin/plugin.json" "${work}/claude-plugin.json"
-jq '.mcpServers.skif.args[1] = "skif-cli@0.0.1"' "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
+jq '.mcpServers.skif.args[1] = "@polylint/skif@0.0.1"' "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
 expect "check-versions catches a drifted MCP server pin" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
-expect_in_out "check-versions MCP pin drift" ".claude-plugin/plugin.json MCP server skif-cli version: expected 9.8.7, found 0.0.1"
+expect_in_out "check-versions MCP pin drift" ".claude-plugin/plugin.json MCP server @polylint/skif version: expected 9.8.7, found 0.0.1"
 jq 'del(.mcpServers)' "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
 expect "check-versions catches a missing MCP server pin" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
-expect_in_out "check-versions MCP pin missing" ".claude-plugin/plugin.json MCP server skif-cli version: expected 9.8.7, found <none>"
+expect_in_out "check-versions MCP pin missing" ".claude-plugin/plugin.json MCP server @polylint/skif version: expected 9.8.7, found <none>"
 cat "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
 
 # The documentation pins follow a final release and stay on the previous one through a pre-release.
@@ -315,7 +315,7 @@ expect "check-doc-pins after the bump" 0 bash "${tree}/scripts/check-doc-pins.sh
 expect "release-bump to a pre-release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 9.9.0-rc.1
 expect_in_out "release-bump pre-release pins" "9.9.0-rc.1 is a pre-release, left unchanged"
 grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: a pre-release moved the pre-commit rev"
-[[ "$(jq -r '.mcpServers.skif.args[1]' "${tree}/.claude-plugin/plugin.json")" == skif-cli@9.9.0-rc.1 ]] ||
+[[ "$(jq -r '.mcpServers.skif.args[1]' "${tree}/.claude-plugin/plugin.json")" == @polylint/skif@9.9.0-rc.1 ]] ||
   fail "release-bump: a pre-release left the MCP server on the previous release"
 expect "release-bump to a 0.x release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 0.7.1
 grep -qF 'Goldziher/skif@v0.7' "${tree}/README.md" || fail "release-bump: a 0.x release floats as v0.M"
@@ -353,7 +353,7 @@ fi
 expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
 
 # ---------------------------------------------------------------- check-npm-tarballs
-platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl)
+platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl win32-arm64-msvc win32-x64-msvc)
 
 # pack_tarball <directory> <tarball name> <package.json content> <member...>: a tarball whose members all sit under package/.
 pack_tarball() {
@@ -370,15 +370,15 @@ pack_tarball() {
   tar czf "${out}/${name}" -C "$stage" package
 }
 
-# npm_fixture <directory> <version>: the complete umbrella plus the six platform packages.
+# npm_fixture <directory> <version>: the complete umbrella plus the eight platform packages.
 npm_fixture() {
   local out="$1" version="$2" optional platform
   mkdir -p "$out"
-  optional="$(for platform in "${platforms[@]}"; do printf '"skif-%s": "%s",' "$platform" "$version"; done)"
-  pack_tarball "$out" "skif-cli-${version}.tgz" "{\"optionalDependencies\": {${optional%,}}}" \
+  optional="$(for platform in "${platforms[@]}"; do printf '"@polylint/skif-%s": "%s",' "$platform" "$version"; done)"
+  pack_tarball "$out" "polylint-skif-${version}.tgz" "{\"optionalDependencies\": {${optional%,}}}" \
     index.js index.d.ts bin/skif.js LICENSE ATTRIBUTIONS.md README.md
   for platform in "${platforms[@]}"; do
-    pack_tarball "$out" "skif-${platform}-${version}.tgz" '{}' "skif.${platform}.node" LICENSE ATTRIBUTIONS.md
+    pack_tarball "$out" "polylint-skif-${platform}-${version}.tgz" '{}' "skif.${platform}.node" LICENSE ATTRIBUTIONS.md
   done
 }
 
@@ -386,15 +386,15 @@ npm_fixture "${work}/npm-ok" 1.2.3
 expect "check-npm-tarballs accepts the complete set" 0 bash scripts/check-npm-tarballs.sh "${work}/npm-ok" 1.2.3
 
 npm_fixture "${work}/npm-missing" 1.2.3
-rm "${work}/npm-missing/skif-linux-x64-musl-1.2.3.tgz"
+rm "${work}/npm-missing/polylint-skif-linux-x64-musl-1.2.3.tgz"
 expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-missing" 1.2.3
-expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
+expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the eight platform packages"
 
-# No Windows package is published until its npm name exists (ADR 0027).
+# The Windows packages are part of the set: one without its addon fails.
 npm_fixture "${work}/npm-windows" 1.2.3
-pack_tarball "${work}/npm-windows" skif-win32-x64-msvc-1.2.3.tgz '{}' skif.win32-x64-msvc.node LICENSE ATTRIBUTIONS.md
-expect "check-npm-tarballs rejects a Windows package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-windows" 1.2.3
-expect_in_out "check-npm-tarballs Windows package" "skif-win32-x64-msvc-1.2.3.tgz"
+pack_tarball "${work}/npm-windows" polylint-skif-win32-x64-msvc-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
+expect "check-npm-tarballs rejects a Windows package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-windows" 1.2.3
+expect_in_out "check-npm-tarballs Windows addon" "skif.win32-x64-msvc.node"
 
 # GNU tar fails on a closed pipe (bsdtar exits 0), so a reader that stops at its first match reports a present member as
 # missing under pipefail. The stub keeps listing past the pipe buffer and dies the same way on every platform.
@@ -411,30 +411,30 @@ expect "check-npm-tarballs reads a long listing to its end" 0 env PATH="${work}/
   bash scripts/check-npm-tarballs.sh "${work}/npm-long-listing" 1.2.3
 
 npm_fixture "${work}/npm-extra" 1.2.3
-cp "${work}/npm-extra/skif-cli-1.2.3.tgz" "${work}/npm-extra/skif-other-1.2.3.tgz"
+cp "${work}/npm-extra/polylint-skif-1.2.3.tgz" "${work}/npm-extra/polylint-skif-other-1.2.3.tgz"
 expect "check-npm-tarballs rejects an extra tarball" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-extra" 1.2.3
 
 npm_fixture "${work}/npm-version" 1.2.3
 expect "check-npm-tarballs rejects a different version" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-version" 1.2.4
 
 npm_fixture "${work}/npm-no-loader" 1.2.3
-pack_tarball "${work}/npm-no-loader" skif-cli-1.2.3.tgz \
-  "$(tar -xzOf "${work}/npm-ok/skif-cli-1.2.3.tgz" package/package.json)" bin/skif.js LICENSE ATTRIBUTIONS.md README.md
+pack_tarball "${work}/npm-no-loader" polylint-skif-1.2.3.tgz \
+  "$(tar -xzOf "${work}/npm-ok/polylint-skif-1.2.3.tgz" package/package.json)" bin/skif.js LICENSE ATTRIBUTIONS.md README.md
 expect "check-npm-tarballs rejects an umbrella without the generated loader" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-loader" 1.2.3
 expect_in_out "check-npm-tarballs missing loader" "does not contain index.js"
 
 npm_fixture "${work}/npm-no-addon" 1.2.3
-pack_tarball "${work}/npm-no-addon" skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
+pack_tarball "${work}/npm-no-addon" polylint-skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
 expect "check-npm-tarballs rejects a platform package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-addon" 1.2.3
 expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
 
 npm_fixture "${work}/npm-no-tsrs" 1.2.3
-TSRS_SECTION="## knip" pack_tarball "${work}/npm-no-tsrs" skif-linux-arm64-musl-1.2.3.tgz '{}' skif.linux-arm64-musl.node LICENSE ATTRIBUTIONS.md
+TSRS_SECTION="## knip" pack_tarball "${work}/npm-no-tsrs" polylint-skif-linux-arm64-musl-1.2.3.tgz '{}' skif.linux-arm64-musl.node LICENSE ATTRIBUTIONS.md
 expect "check-npm-tarballs rejects an ATTRIBUTIONS.md without the tsrs section" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-tsrs" 1.2.3
-expect_in_out "check-npm-tarballs tsrs section" "ATTRIBUTIONS.md in skif-linux-arm64-musl-1.2.3.tgz lacks the '## tsrs (and TypeScript)' section"
+expect_in_out "check-npm-tarballs tsrs section" "ATTRIBUTIONS.md in polylint-skif-linux-arm64-musl-1.2.3.tgz lacks the '## tsrs (and TypeScript)' section"
 
 npm_fixture "${work}/npm-bad-optional" 1.2.3
-pack_tarball "${work}/npm-bad-optional" skif-cli-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \
+pack_tarball "${work}/npm-bad-optional" polylint-skif-1.2.3.tgz '{"optionalDependencies": {"@polylint/skif-darwin-arm64": "1.2.3"}}' \
   index.js index.d.ts bin/skif.js LICENSE ATTRIBUTIONS.md README.md
 expect "check-npm-tarballs rejects incomplete optionalDependencies" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-bad-optional" 1.2.3
 expect_in_out "check-npm-tarballs optionalDependencies" "optionalDependencies"

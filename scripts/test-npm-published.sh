@@ -35,7 +35,7 @@ probe_case() {
   printf '%s\n' "$@" >"${work}/script"
   rm -f "${work}/count"
   got_out="$(PATH="${work}/bin:${PATH}" STUB_SCRIPT="${work}/script" STUB_COUNT="${work}/count" \
-    NPM_PROBE_ATTEMPTS=3 NPM_PROBE_DELAY=0 bash "$probe" skif 1.2.3 2>/dev/null)" || status=$?
+    NPM_PROBE_ATTEMPTS=3 NPM_PROBE_DELAY=0 bash "$probe" @polylint/skif 1.2.3 2>/dev/null)" || status=$?
   if [[ "$got_out" != "$want_out" || "$status" -ne "$want_status" ]]; then
     echo "FAIL ${label}: got '${got_out}' (exit ${status}), want '${want_out}' (exit ${want_status})" >&2
     failures=$((failures + 1))
@@ -51,14 +51,15 @@ probe_case "network failure is not 'unpublished'" "" 2 "1|npm error code ENOTFOU
 
 # ---------------------------------------------------------------- check-npm-packages-exist
 # This stub answers `npm view <name> name` from ${STUB_REGISTRY}/<name> ("<exit status>|<output>"); a name with no file
-# is a 404. Every call is logged to ${STUB_REGISTRY}.log.
+# is a 404 ("/" in a scoped name is written "__" in the file name). Every call is logged to ${STUB_REGISTRY}.log.
 mkdir -p "${work}/exist-bin" "${work}/registry"
 cat >"${work}/exist-bin/npm" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >>"${STUB_REGISTRY:?}.log"
 [[ "$1 $3" == "view name" ]] || { echo "unexpected npm call: $*" >&2; exit 99; }
-if [[ -f "${STUB_REGISTRY}/$2" ]]; then
-  line="$(cat "${STUB_REGISTRY}/$2")"
+entry="${STUB_REGISTRY}/${2//\//__}"
+if [[ -f "$entry" ]]; then
+  line="$(cat "$entry")"
   [[ -z "${line#*|}" ]] || echo "${line#*|}"
   exit "${line%%|*}"
 fi
@@ -68,15 +69,18 @@ STUB
 chmod +x "${work}/exist-bin/npm"
 cat >"${work}/package.json" <<'JSON'
 {
-  "name": "skif-cli",
+  "name": "@polylint/skif",
   "napi": {
     "binaryName": "skif",
-    "packageName": "skif",
+    "packageName": "@polylint/skif",
     "targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"]
   }
 }
 JSON
-all_packages=(skif-cli skif-darwin-arm64 skif-linux-x64-musl skif-win32-x64-msvc skif-win32-arm64-msvc)
+all_packages=(@polylint/skif @polylint/skif-darwin-arm64 @polylint/skif-linux-x64-musl @polylint/skif-win32-x64-msvc
+  @polylint/skif-win32-arm64-msvc)
+# registry_file <package name>: the stub registry's file for it.
+registry_file() { echo "${work}/registry/${1//\//__}"; }
 
 # exist_case <label> <expected exit> <manifest>: runs the check against the stub registry, output to ${work}/exist-out.
 exist_case() {
@@ -97,7 +101,7 @@ exist_expect() {
   }
 }
 
-for name in "${all_packages[@]}"; do echo "0|${name}" >"${work}/registry/${name}"; done
+for name in "${all_packages[@]}"; do echo "0|${name}" >"$(registry_file "$name")"; done
 exist_case "every package exists" 0 "${work}/package.json"
 exist_expect "every package exists" "npm packages: all 5 exist"
 for name in "${all_packages[@]}"; do
@@ -107,17 +111,17 @@ for name in "${all_packages[@]}"; do
   }
 done
 
-rm "${work}/registry/skif-win32-x64-msvc" "${work}/registry/skif-win32-arm64-msvc"
+rm "$(registry_file @polylint/skif-win32-x64-msvc)" "$(registry_file @polylint/skif-win32-arm64-msvc)"
 exist_case "the Windows placeholders are missing" 1 "${work}/package.json"
-exist_expect "missing x64" "::error::npm package skif-win32-x64-msvc does not exist"
-exist_expect "missing arm64" "::error::npm package skif-win32-arm64-msvc does not exist"
-exist_expect "missing: the others are reported" "skif-darwin-arm64: exists"
+exist_expect "missing x64" "::error::npm package @polylint/skif-win32-x64-msvc does not exist"
+exist_expect "missing arm64" "::error::npm package @polylint/skif-win32-arm64-msvc does not exist"
+exist_expect "missing: the others are reported" "@polylint/skif-darwin-arm64: exists"
 
-echo "0|skif-win32-x64-msvc" >"${work}/registry/skif-win32-x64-msvc"
-echo "1|npm error code E429" >"${work}/registry/skif-win32-arm64-msvc"
+echo "0|@polylint/skif-win32-x64-msvc" >"$(registry_file @polylint/skif-win32-x64-msvc)"
+echo "1|npm error code E429" >"$(registry_file @polylint/skif-win32-arm64-msvc)"
 exist_case "a rate limit is not 'exists' or 'missing'" 2 "${work}/package.json"
-exist_expect "rate limit" "could not tell whether the npm package skif-win32-arm64-msvc exists"
-[[ "$(grep -c "view skif-win32-arm64-msvc name" "${work}/registry.log")" -eq 2 ]] || {
+exist_expect "rate limit" "could not tell whether the npm package @polylint/skif-win32-arm64-msvc exists"
+[[ "$(grep -c "view @polylint/skif-win32-arm64-msvc name" "${work}/registry.log")" -eq 2 ]] || {
   echo "FAIL rate limit: the probe was not retried" >&2
   failures=$((failures + 1))
 }
@@ -126,18 +130,17 @@ jq '.napi.targets += ["riscv64gc-unknown-linux-gnu"]' "${work}/package.json" >"$
 exist_case "a target napi does not name" 2 "${work}/unknown.json"
 exist_expect "unknown target" "napi target riscv64gc-unknown-linux-gnu has no known npm platform name"
 
-# The real manifest: the umbrella plus its six platform packages. The Windows names do not exist yet, so the
-# manifest must not list them (ADR 0027).
-rm -f "${work}/registry/skif-win32-x64-msvc" "${work}/registry/skif-win32-arm64-msvc"
-for name in skif-cli skif-darwin-arm64 skif-darwin-x64 skif-linux-x64-gnu skif-linux-arm64-gnu skif-linux-x64-musl \
-  skif-linux-arm64-musl; do
-  echo "0|${name}" >"${work}/registry/${name}"
+# The real manifest: the umbrella plus its eight platform packages, the Windows ones included.
+for name in @polylint/skif @polylint/skif-darwin-arm64 @polylint/skif-darwin-x64 @polylint/skif-linux-x64-gnu \
+  @polylint/skif-linux-arm64-gnu @polylint/skif-linux-x64-musl @polylint/skif-linux-arm64-musl \
+  @polylint/skif-win32-x64-msvc @polylint/skif-win32-arm64-msvc; do
+  echo "0|${name}" >"$(registry_file "$name")"
 done
 exist_case "npm-package/package.json" 0 npm-package/package.json
-exist_expect "npm-package/package.json" "npm packages: all 7 exist"
-rm "${work}/registry/skif-linux-arm64-musl"
+exist_expect "npm-package/package.json" "npm packages: all 9 exist"
+rm "$(registry_file @polylint/skif-win32-arm64-msvc)"
 exist_case "npm-package/package.json without a platform package" 1 npm-package/package.json
-exist_expect "npm-package/package.json missing" "npm package skif-linux-arm64-musl does not exist"
+exist_expect "npm-package/package.json missing" "npm package @polylint/skif-win32-arm64-msvc does not exist"
 
 if [[ "$failures" -ne 0 ]]; then
   echo "${failures} case(s) failed" >&2
