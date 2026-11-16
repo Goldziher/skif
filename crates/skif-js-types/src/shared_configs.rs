@@ -14,9 +14,9 @@
 //!   condition [`TypePrograms`](crate::TypePrograms) already sets) and of its absolute name: tsrs reads the current
 //!   directory of the parse host only to make a name absolute, and the names asked for are absolute. A program takes
 //!   the config it is built from as a copy of the run's parse ([`ConfigReader::parse_own`]), which it owns and may
-//!   change, so the program's own config is never one of the shared configs it references. The configs a config extends come from the cache keyed by their path: tsrs
-//!   itself bypasses the cache for a config that extends itself through the chain being parsed (the resolution stack),
-//!   which is the one case where the parse depends on who asks.
+//!   change, so the program's own config is never one of the shared configs it references. The configs a config
+//!   extends come from the cache keyed by their path: tsrs itself bypasses the cache for a config that extends itself
+//!   through the chain being parsed (the resolution stack), which is the one case where the parse depends on who asks.
 //! - **Writes.** A program or a planning writes into a config only its lazily computed tables (`file_names_by_path`,
 //!   the output-name maps, the common source directory), each set once behind a `OnceLock` from the config alone. tsrs
 //!   allocates the arena data of those in the region that owns the config (`enter_owner`), found through the region
