@@ -174,4 +174,4 @@ blake3 = "a35f79de39e590d2ddc2e7ddaaf0a9e6a97a0c6c131d3c7847687cf96c899d8a"
 [adrs."adrs/0035-publish-the-npm-packages-under-the-polylint-scope.md"]
 number = 35
 status = "accepted"
-blake3 = "932bf01506cea0cffc1ed4dfad92567ffbd2ea4066f65a2a868ae30de11f7543"
+blake3 = "b27011e69aee2d0cb075c13b4dc328b57b57e6e0a36e133b9b1d52fa47fa7281"
