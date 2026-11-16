@@ -24,7 +24,7 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
           - target: aarch64-pc-windows-msvc
-            os: windows-11-arm
+            os: windows-latest
     steps:
       - name: Validate the tag
         env:
@@ -73,13 +73,62 @@ jobs:
           --target ${{ matrix.target }}
         shell: bash
 
-      - name: Load the addon and run skif --version
-        run: node scripts/load-addon.mjs npm-package
-        shell: bash
-
       - name: Save the addon
         uses: actions/upload-artifact@v7
         with:
           name: bindings-${{ matrix.target }}
           path: npm-package/skif.*.node
           if-no-files-found: error
+
+      - name: Save the generated loader
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-loader
+          path: |
+            npm-package/index.js
+            npm-package/index.d.ts
+          if-no-files-found: error
+
+  # The aarch64 addon is cross-built on x64, so only an ARM64 runner proves it loads. mise.lock has no windows-arm64
+  # entry, so the runtime comes from setup-node, as in publish.yaml's load_addon_windows.
+  load_addon:
+    name: Load npm addon / ${{ matrix.target }}
+    needs: build_addon
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Download the generated loader
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-loader
+          path: npm-package
+
+      - name: Download the addon
+        uses: actions/download-artifact@v8
+        with:
+          name: bindings-${{ matrix.target }}
+          path: npm-package
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Load the addon and run skif --version
+        run: node scripts/load-addon.mjs npm-package
