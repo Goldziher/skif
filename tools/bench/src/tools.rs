@@ -229,7 +229,7 @@ pub fn check(corpus_file: &Path, resolve: Resolver<'_>, out: &mut dyn Write) -> 
 
 /// `tools update`: moves every pin that is behind to its latest release in `corpus.toml` and `tools/package.json`, then
 /// has `relock` regenerate the lock in the `tools/` directory. Nothing is written when every pin is current or a
-/// lookup fails.
+/// lookup fails; when `relock` fails the files are restored.
 ///
 /// # Errors
 /// Fails when a file cannot be read or written, a lookup fails or `relock` fails.
@@ -260,11 +260,30 @@ pub fn update(
     if !changed {
         return Ok(());
     }
+    let (old_text, old_package_text) = (text.clone(), package_text.clone());
     let text = rewrite_tools_table(&text, &new)?;
     let package_text = rewrite_package_json(&package_text, &new)?;
     fs::write(corpus_file, text).with_context(|| format!("writing {}", corpus_file.display()))?;
     fs::write(&package_path, package_text).with_context(|| format!("writing {}", package_path.display()))?;
-    relock(&lock_dir)?;
+    let lock_path = lock_dir.join("package-lock.json");
+    let lock_text = fs::read_to_string(&lock_path).ok();
+    if let Err(error) = relock(&lock_dir) {
+        let mut restored = vec![
+            fs::write(corpus_file, &old_text).map_err(|e| format!("{}: {e}", corpus_file.display())),
+            fs::write(&package_path, &old_package_text).map_err(|e| format!("{}: {e}", package_path.display())),
+        ];
+        if let Some(lock_text) = &lock_text {
+            restored.push(fs::write(&lock_path, lock_text).map_err(|e| format!("{}: {e}", lock_path.display())));
+        }
+        let failed: Vec<String> = restored.into_iter().filter_map(Result::err).collect();
+        if failed.is_empty() {
+            return Err(error.context("relocking failed; corpus.toml, package.json and the lock are restored"));
+        }
+        return Err(error.context(format!(
+            "relocking failed and restoring failed too, so revert by hand: {}",
+            failed.join("; ")
+        )));
+    }
     writeln!(
         out,
         "re-record the parity, syncpack and type-aware baselines (see tools/bench/README.md)"
@@ -435,6 +454,33 @@ mod tests {
         let relock = |_: &Path| -> Result<()> { bail!("must not run") };
         assert!(update(&dir.join("corpus.toml"), &offline, &relock, &mut Vec::new()).is_err());
         assert_eq!(fs::read_to_string(dir.join("corpus.toml")).unwrap(), CORPUS);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_relock_restores_the_files() {
+        let dir = fixture("relock-fails");
+        let file = dir.join("corpus.toml");
+        let lock = dir.join("tools").join("package-lock.json");
+        fs::write(&lock, "lock").unwrap();
+        let relock = |lock_dir: &Path| -> Result<()> {
+            fs::write(lock_dir.join("package-lock.json"), "half written").unwrap();
+            bail!("npm ERR! network")
+        };
+        let error = format!(
+            "{:#}",
+            update(&file, &resolver("1.1.0", "2.0.0", "3.0.0"), &relock, &mut Vec::new()).unwrap_err()
+        );
+        assert!(
+            error.contains("restored") && error.contains("npm ERR! network"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(&file).unwrap(), CORPUS);
+        assert_eq!(
+            fs::read_to_string(dir.join("tools").join("package.json")).unwrap(),
+            PACKAGE
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), "lock");
         fs::remove_dir_all(&dir).unwrap();
     }
 
