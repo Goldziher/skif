@@ -377,3 +377,21 @@ fn a_dev_dependency_the_manifest_also_lists_in_dependencies_is_reported() {
         "{diagnostics:#?}"
     );
 }
+
+/// The npm package that ships skif is used by tooling (a script, a hook or CI runs its bin), so listing it is never
+/// reported as unused.
+#[test]
+fn the_polylint_skif_package_is_always_used() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"@polylint/skif":"0.6.0","left-pad":"1.3.0"}}"#,
+        ),
+        ("src/index.ts", "export const main = (): number => 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["package.json: left-pad"],
+        "{diagnostics:#?}"
+    );
+}
