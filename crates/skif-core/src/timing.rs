@@ -4,8 +4,8 @@
 
 use std::fmt::Display;
 use std::io::Write;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 type Sink = Box<dyn Fn(&str) + Send + Sync>;
@@ -25,17 +25,61 @@ pub fn enable(sink: impl Fn(&str) + Send + Sync + 'static) -> bool {
     SINK.set(Box::new(sink)).is_ok()
 }
 
-/// Switches the timings on and writes each line to stderr; see [`enable`].
+/// A line and its arrival number, so the per-thread buffers merge back into arrival order.
+type Numbered = (u64, String);
+
+/// Every thread's buffer of the stderr sink, each behind a mutex only its thread and [`flush_stderr`] ever lock.
+static BUFFERS: Mutex<Vec<Arc<Mutex<Vec<Numbered>>>>> = Mutex::new(Vec::new());
+
+/// The arrival number of the next buffered line.
+static ARRIVAL: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    static BUFFER: Arc<Mutex<Vec<Numbered>>> = {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        BUFFERS.lock().unwrap_or_else(PoisonError::into_inner).push(Arc::clone(&buffer));
+        buffer
+    };
+}
+
+/// Switches the timings on and collects each line in memory for [`flush_stderr`] to write to stderr; see [`enable`].
 ///
-/// A closed or broken stderr is ignored: a trace is not worth failing a run for.
+/// Writing a line to stderr as it arrives serialises every thread on one lock and costs a system call per line, which
+/// distorts the very run being measured, so the lines wait in per-thread buffers instead. The host calls
+/// [`flush_stderr`] when the run ends; lines still buffered at process exit without it are lost.
 #[allow(
     clippy::must_use_candidate,
     reason = "installing the sink is the point; the flag is informational"
 )]
 pub fn enable_stderr() -> bool {
     enable(|line| {
-        let _ = writeln!(std::io::stderr().lock(), "{line}");
+        let number = ARRIVAL.fetch_add(1, Ordering::Relaxed);
+        let _ = BUFFER.try_with(|buffer| {
+            buffer
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((number, line.to_owned()));
+        });
     })
+}
+
+/// Writes the lines collected by the [`enable_stderr`] sink to stderr in arrival order, in one write, and empties the
+/// buffers. A closed or broken stderr is ignored: a trace is not worth failing a run for. Does nothing without the sink.
+pub fn flush_stderr() {
+    let mut lines: Vec<Numbered> = Vec::new();
+    for buffer in BUFFERS.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+        lines.append(&mut buffer.lock().unwrap_or_else(PoisonError::into_inner));
+    }
+    if lines.is_empty() {
+        return;
+    }
+    lines.sort_unstable_by_key(|(number, _)| *number);
+    let mut text = String::with_capacity(lines.iter().map(|(_, line)| line.len() + 1).sum());
+    for (_, line) in &lines {
+        text.push_str(line);
+        text.push('\n');
+    }
+    let _ = std::io::stderr().lock().write_all(text.as_bytes());
 }
 
 /// Whether a sink is installed.
@@ -156,6 +200,28 @@ mod tests {
         assert_eq!(during.len(), 1);
         assert!(during[0].starts_with("skif timing: during the sink: "), "{}", during[0]);
         assert!(during[0].ends_with(" ms"), "{}", during[0]);
+    }
+
+    #[test]
+    fn stderr_lines_merge_across_threads_in_arrival_order() {
+        BUFFERS.lock().unwrap().clear();
+        let numbers: Vec<u64> = (0..3).map(|_| ARRIVAL.fetch_add(1, Ordering::Relaxed)).collect();
+        for (offset, number) in numbers.iter().enumerate().rev() {
+            let number = *number;
+            std::thread::spawn(move || {
+                BUFFER.with(|buffer| buffer.lock().unwrap().push((number, format!("line {offset}"))));
+            })
+            .join()
+            .unwrap();
+        }
+        let mut lines: Vec<Numbered> = Vec::new();
+        for buffer in BUFFERS.lock().unwrap().iter() {
+            lines.append(&mut buffer.lock().unwrap());
+        }
+        lines.sort_unstable_by_key(|(number, _)| *number);
+        let texts: Vec<&str> = lines.iter().map(|(_, line)| line.as_str()).collect();
+        assert_eq!(texts, ["line 0", "line 1", "line 2"]);
+        flush_stderr();
     }
 
     #[test]
