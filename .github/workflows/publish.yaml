@@ -191,7 +191,12 @@ jobs:
             flag=""
             [ "$PRERELEASE" = "true" ] && flag="--prerelease"
             # shellcheck disable=SC2086
-            gh release create "$TAG" --title "$TAG" --notes "Release $TAG" --verify-tag --draft $flag
+            # The notes are the release's CHANGELOG section, which the meta job's release gate requires.
+            version="${TAG#v}"
+            awk -v head="## [${version}]" 'index($0, head) == 1 { on = 1; next } on && /^## \[/ { exit } on' \
+              CHANGELOG.md >"$RUNNER_TEMP/notes.md"
+            [ -s "$RUNNER_TEMP/notes.md" ] || echo "Release $TAG" >"$RUNNER_TEMP/notes.md"
+            gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag --draft $flag
           fi
 
   build:
@@ -507,9 +512,10 @@ jobs:
   # stop the release before any crate is live, not after.
   publish_crates:
     name: Publish crates.io
-    needs: [meta, checksums, load_addon]
+    needs: [meta, checksums, load_addon, load_addon_windows, pack_npm]
     if: >-
       always() && needs.meta.result == 'success' && needs.load_addon.result == 'success'
+      && needs.load_addon_windows.result == 'success' && needs.pack_npm.result == 'success'
       && (needs.meta.outputs.dry_run == 'true'
           || needs.checksums.result == 'success'
           || needs.meta.outputs.release_complete == 'true')
@@ -965,7 +971,8 @@ jobs:
               return 0
             fi
             echo "publishing ${name}@${VERSION} (--tag ${npm_tag})"
-            (cd "$dir" && pnpm publish --no-git-checks --provenance --access public --tag "$npm_tag")
+            # npm itself (11.5+, bundled with the pinned Node) exchanges the OIDC token for trusted publishing.
+            (cd "$dir" && npm publish --provenance --access public --tag "$npm_tag")
           }
 
           # Platform packages first: the umbrella must never list a package that does not exist.
