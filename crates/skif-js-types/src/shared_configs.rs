@@ -214,7 +214,7 @@ impl ConfigReader {
     /// Counts in the run's counts and in the analysis's.
     fn count(&self, add: impl Fn(&ConfigCounts)) {
         add(&self.configs.counts);
-        add(&*self.counts);
+        add(&self.counts);
     }
 }
 
@@ -296,13 +296,7 @@ fn claim<K: Eq + std::hash::Hash + Clone, T>(
 
 /// Keeps `value`, parsed in `region`, in the slot of `key` that this request claimed.
 fn keep<K: Eq + std::hash::Hash, T>(slots: &Mutex<skif_core::HashMap<K, Slot<T>>>, key: K, value: T, region: Region) {
-    lock(slots).insert(
-        key,
-        Slot::Parsed(Kept {
-            value,
-            _region: region,
-        }),
-    );
+    lock(slots).insert(key, Slot::Parsed(Kept { value, _region: region }));
 }
 
 /// Why a planning cannot use the config at `path`, parsed as `config` with `diagnostics`: what made it unreadable, or
@@ -315,7 +309,11 @@ fn problem(path: &str, config: Option<&ParsedCommandLine>, diagnostics: &[P<Diag
         return Some(format!("cannot read {path}"));
     };
     let syntax = config.config_file?.source_file.diagnostics();
-    if syntax.is_empty() { None } else { Some(messages(syntax)) }
+    if syntax.is_empty() {
+        None
+    } else {
+        Some(messages(syntax))
+    }
 }
 
 fn messages(diagnostics: &[P<Diagnostic>]) -> String {
@@ -367,7 +365,11 @@ mod tests {
     /// A reader of `configs` over `memory`, as one analysis reads them.
     fn reader(memory: &MemoryFs, configs: &Arc<SharedConfigs>) -> ConfigReader {
         let (fs, _) = vfs::tsrs_fs(Arc::new(memory.clone()));
-        ConfigReader::new(Arc::clone(configs), Arc::default(), ConfigHost::new(fs, "/ws".to_owned()))
+        ConfigReader::new(
+            Arc::clone(configs),
+            Arc::default(),
+            ConfigHost::new(fs, "/ws".to_owned()),
+        )
     }
 
     const fn counts(parsed: usize, reused: usize, unshared: usize) -> SharedConfigCounts {
@@ -392,7 +394,10 @@ mod tests {
             .iter()
             .map(|reader| reader.config(A).usable().expect("the config parses"))
             .collect();
-        assert!(parsed.iter().all(|&config| config == parsed[0]), "every request gets the one parse");
+        assert!(
+            parsed.iter().all(|&config| config == parsed[0]),
+            "every request gets the one parse"
+        );
         assert_eq!(parsed[0].file_names(), ["/ws/packages/a/src/a.ts"]);
         assert_eq!(configs.counts().0, counts(1, READERS - 1, 0), "the run's counts");
         assert_eq!(readers[0].counts().0, counts(1, 0, 0), "the analysis that parsed it");
@@ -405,8 +410,14 @@ mod tests {
         let configs = Arc::new(SharedConfigs::default());
         let reader = reader(&memory, &configs);
         let [a, b, c] = [A, B, "/ws/packages/c/tsconfig.json"].map(|name| reader.config(name).usable().unwrap());
-        assert!(strict(a) && strict(b), "both take the options of the config they extend");
-        assert!(!strict(c), "a config that extends another config keeps that config's options");
+        assert!(
+            strict(a) && strict(b),
+            "both take the options of the config they extend"
+        );
+        assert!(
+            !strict(c),
+            "a config that extends another config keeps that config's options"
+        );
         assert_eq!(configs.counts(), (counts(3, 0, 0), counts(2, 1, 0)));
     }
 
@@ -435,11 +446,17 @@ mod tests {
         let missing = reader.config("/ws/missing/tsconfig.json");
         assert!(missing.config.is_none() && missing.problem.is_some());
         let broken = reader.config("/ws/broken/tsconfig.json");
-        assert!(broken.config.is_some(), "a project reference still reads a config with syntax errors");
+        assert!(
+            broken.config.is_some(),
+            "a project reference still reads a config with syntax errors"
+        );
         assert!(broken.problem.is_some(), "a planning does not");
         assert!(broken.usable().is_none());
         let again = reader.config("/ws/broken/tsconfig.json");
-        assert!(again.config == broken.config, "the second request reads the first one's parse");
+        assert!(
+            again.config == broken.config,
+            "the second request reads the first one's parse"
+        );
         assert_eq!(again.problem, broken.problem);
         assert_eq!(configs.counts().0, counts(2, 1, 0));
     }
@@ -472,7 +489,10 @@ mod tests {
             reader.config(A).usable().unwrap()
         };
         let shared = reader.config(A).usable().unwrap();
-        assert!(alone != shared, "the request inside the scratch region left the cache empty");
+        assert!(
+            alone != shared,
+            "the request inside the scratch region left the cache empty"
+        );
         assert_eq!(configs.counts(), (counts(1, 0, 1), counts(1, 0, 1)));
     }
 }

@@ -63,7 +63,10 @@ fn workspace() -> Workspace {
     Workspace::from_owned(
         [
             ("tsconfig.base.json", BASE.to_owned()),
-            ("tsconfig.other.json", BASE.replace(r#""strict": true"#, r#""strict": false"#)),
+            (
+                "tsconfig.other.json",
+                BASE.replace(r#""strict": true"#, r#""strict": false"#),
+            ),
             ("packages/lib/tsconfig.json", LIB.to_owned()),
             ("packages/lib/src/widget.ts", WIDGET.to_owned()),
             ("packages/a/tsconfig.json", app_config("tsconfig.base.json")),
@@ -140,9 +143,18 @@ fn analyses_that_read_their_configs_together_find_the_facts_of_analyses_that_rea
     let workspace = workspace();
     let packages = [app("a"), app("b"), app("c")];
     let together = analyse(&workspace, &packages, 8);
-    let (configs, extended) = (together.timings.shared_configs, together.timings.shared_extended_configs);
-    assert_eq!(configs.parsed, 4, "the configs of `a`, `b`, `c` and the library, each parsed once");
-    assert_eq!(extended.parsed, 2, "two configs are extended, each parsed once for the run");
+    let (configs, extended) = (
+        together.timings.shared_configs,
+        together.timings.shared_extended_configs,
+    );
+    assert_eq!(
+        configs.parsed, 4,
+        "the configs of `a`, `b`, `c` and the library, each parsed once"
+    );
+    assert_eq!(
+        extended.parsed, 2,
+        "two configs are extended, each parsed once for the run"
+    );
     let alone: Vec<TypeFacts> = packages
         .iter()
         .map(|package| analyse(&workspace, std::slice::from_ref(package), 8))

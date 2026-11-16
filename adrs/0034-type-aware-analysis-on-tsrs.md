@@ -91,6 +91,14 @@ parsed lib and `@types` files, which a new ADR records.
   analysis. Each config is built once.
 * A file in no program is analysed without types; skif builds no inferred program.
 * The facts are copied out and each program is freed before the rules run.
+* The programs of a run share what does not depend on the program. The bundled `lib.*.d.ts` files and the declaration
+  files below `node_modules` are read, parsed and bound once per run, each in a region of its own that outlives every
+  program reading it. Each `tsconfig.json` or `jsconfig.json` that planning searches or a program references, and each
+  config those extend, is parsed once per run in the same way. Sharing is sound because a parse depends only on the
+  file's text and parse options (the cache key) and checkers write only into stores of their own or into caches set
+  once in the region that owns the file. This is how tsrs shares files between the projects of `tsc -b`. The planning
+  that assigns files to configs searches each config chain once instead of once per file. Workspace sources are still
+  parsed once per program.
 
 ### Coverage
 
@@ -155,9 +163,8 @@ parsed lib and `@types` files, which a new ADR records.
   turns on the precise member findings.
 * Good, because hosts that do not want tsrs never build it, the addon cannot abort Node.js through a reservation, and
   upgrades are visible and measured.
-* Bad, because typed runs read and bind every file of each program a second time, beside oxc's parse, and parse the
-  lib and `@types` files once per program; the cost is published and budgeted, not avoided, and keeps types off by
-  default until those files are shared.
+* Bad, because typed runs read and bind every workspace file of each program a second time, beside oxc's parse; the
+  cost is published and budgeted, not avoided, and keeps types off by default until it meets the budget.
 * Bad, because the default run keeps the less accurate member findings, and users who never turn types on never get
   the precise ones.
 * Bad, because skif takes on a large pre-release dependency with process-level constraints, the CLI binary grows by the

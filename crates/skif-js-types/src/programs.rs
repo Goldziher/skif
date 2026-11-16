@@ -757,7 +757,11 @@ mod tests {
                 .with_file("/ws/shared/f.ts", "")
                 .with_file("/ws/other/g.ts", "");
             let plan = plan(memory, &[package("/ws", &[file])]);
-            assert_eq!(placements(&plan), pairs(&[(file, expected)]), "references {references:?}");
+            assert_eq!(
+                placements(&plan),
+                pairs(&[(file, expected)]),
+                "references {references:?}"
+            );
         }
     }
 
