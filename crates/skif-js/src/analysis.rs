@@ -666,27 +666,29 @@ impl<'a> JsAnalysis<'a> {
                     ModuleResolver::new(Arc::clone(fs), workspace, setup)
                 })
             };
-            let graph_of =
-                |setup: &Setup, resolver: &ModuleResolver, found: &EntryFiles, known: &HashMap<PathBuf, Arc<str>>| {
-                    let inputs = Inputs {
-                        fs: fs.as_ref(),
-                        resolver,
-                        root: &workspace.root,
-                        candidates: &candidates,
-                        links: &links,
-                        setup,
-                        sequential,
-                        modules,
-                        known_texts: known,
-                    };
-                    timing::phase(phase("graph (read, parse, resolve)"), || {
-                        graph::build(&inputs, &found.files, &found.build_sources, &found.declarations)
-                    })
+            // A graph is built again once the reached sources were searched: what reading and parsing gave for each
+            // file is kept for it while a package scans those sources.
+            let graph_of = |setup: &Setup, resolver: &ModuleResolver, found: &EntryFiles, earlier: &graph::Scans| {
+                let inputs = Inputs {
+                    fs: fs.as_ref(),
+                    resolver,
+                    root: &workspace.root,
+                    candidates: &candidates,
+                    links: &links,
+                    setup,
+                    sequential,
+                    modules,
+                    earlier,
+                    keep_scans: setup.scans_reached_sources(),
                 };
+                timing::phase(phase("graph (read, parse, resolve)"), || {
+                    graph::build(&inputs, &found.files, &found.build_sources, &found.declarations)
+                })
+            };
             let mut found = entries_of(&setup);
             setup.mark_entries_incomplete(&found.unknown);
             let mut resolver = resolver_of(&setup);
-            let mut graph = graph_of(&setup, &resolver, &found, &HashMap::default());
+            let mut graph = graph_of(&setup, &resolver, &found, &graph::Scans::default());
             // The plugins that search source files read those the graph reaches, as knip does. The commands they find
             // can run files that become entries, which the graph is built again to reach; it reaches more files each
             // time, so the search stops once a graph reaches no new file or what it finds adds no file to the graph.
@@ -711,12 +713,10 @@ impl<'a> JsAnalysis<'a> {
                 found = entries_of(&setup);
                 setup.mark_entries_incomplete(&found.unknown);
                 resolver = resolver_of(&setup);
-                let known: HashMap<PathBuf, Arc<str>> = graph
-                    .kept_texts()
-                    .iter()
-                    .map(|(id, text)| (graph.module(*id).abs.clone(), Arc::clone(text)))
-                    .collect();
-                graph = graph_of(&setup, &resolver, &found, &known);
+                // The new setup can change the entries and what the resolver follows, not what a file holds: the files
+                // are not read or parsed again, only resolved. The graph before goes first, as the new one replaces it.
+                let earlier = std::mem::take(&mut graph).into_scans();
+                graph = graph_of(&setup, &resolver, &found, &earlier);
             }
             graph.release_texts();
             let mut entries = found.files;
