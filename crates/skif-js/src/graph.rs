@@ -1514,18 +1514,19 @@ mod tests {
     /// A chain of `depth` files, `src/c0.ts` importing `src/c1.ts` and so on; every tenth also imports a side file,
     /// which imports the file five links further down the chain, reached again later.
     fn chain(depth: usize) -> Vec<(String, String)> {
+        use std::fmt::Write as _;
         let mut files = owned(&[("package.json", r#"{"name":"root","private":true}"#)]);
         for index in 0..depth {
             let mut text = String::new();
             if index + 1 < depth {
-                text.push_str(&format!("import {{ v{next} }} from './c{next}';\n", next = index + 1));
+                let _ = writeln!(text, "import {{ v{next} }} from './c{next}';", next = index + 1);
             }
             if index % 10 == 0 {
-                text.push_str(&format!("import './side{index}';\n"));
+                let _ = writeln!(text, "import './side{index}';");
                 let further = (index + 5).min(depth - 1);
                 files.push((format!("src/side{index}.ts"), format!("import './c{further}';\n")));
             }
-            text.push_str(&format!("export const v{index} = 1;\n"));
+            let _ = writeln!(text, "export const v{index} = 1;");
             files.push((format!("src/c{index}.ts"), text));
         }
         files
