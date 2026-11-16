@@ -110,7 +110,7 @@ unnecessary_box_returns = "allow"
 
 # Panics unwind so that a failure inside the type checker falls back to the untyped analysis (ADR 0027).
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 strip = "symbols"
 panic = "unwind"
