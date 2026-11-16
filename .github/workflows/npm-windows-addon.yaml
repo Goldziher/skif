@@ -1,0 +1,85 @@
+# One-off: builds the Windows npm addons of an existing release tag, which published without them. Delete this
+# workflow once publish.yaml builds the Windows addons itself.
+name: Windows npm addons
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, e.g. v0.6.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build_addon:
+    name: Build npm addon / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+    steps:
+      - name: Validate the tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '$TAG' is not a release tag like v1.2.3"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: napi-${{ matrix.target }}
+
+      - name: Setup Node.js and pnpm
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          config-ref: ${{ github.sha }}
+          tools: node pnpm
+
+      - name: Install napi-rs
+        working-directory: npm-package
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the addon
+        working-directory: npm-package
+        env:
+          # The MSVC runtime is linked statically so the addon loads without the VC++ redistributable.
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: >-
+          pnpm exec napi build --platform --profile node --esm --package skif-node
+          --manifest-path ../crates/skif-node/Cargo.toml --output-dir .
+          --target ${{ matrix.target }}
+        shell: bash
+
+      - name: Load the addon and run skif --version
+        run: node scripts/load-addon.mjs npm-package
+        shell: bash
+
+      - name: Save the addon
+        uses: actions/upload-artifact@v7
+        with:
+          name: bindings-${{ matrix.target }}
+          path: npm-package/skif.*.node
+          if-no-files-found: error
