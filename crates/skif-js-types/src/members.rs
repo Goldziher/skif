@@ -46,6 +46,7 @@ pub(crate) struct Candidates {
     by_key: skif_core::HashMap<DeclKey, Vec<DeclId>>,
     decls: Vec<Candidate>,
     names: skif_core::HashSet<String>,
+    files: skif_core::HashSet<String>,
 }
 
 #[derive(Debug)]
@@ -63,6 +64,7 @@ impl Candidates {
                 .entry(DeclKey::new(&decl.file, decl.name_start))
                 .or_default()
                 .push(id);
+            candidates.files.insert(tsrs_path(&decl.file));
             candidates.names.extend(decl.members.iter().cloned());
             candidates.decls.push(Candidate {
                 members: decl.members.iter().cloned().collect(),
@@ -79,6 +81,11 @@ impl Candidates {
     /// Whether some asked declaration has a member `name`: reads of other names are not sent to the checker.
     pub(crate) fn is_member_name(&self, name: &str) -> bool {
         self.names.contains(name)
+    }
+
+    /// Whether some asked declaration is in the file tsrs names `file`.
+    pub(crate) fn has_file(&self, file: &str) -> bool {
+        self.files.contains(file)
     }
 
     /// The asked declarations at `key`.
@@ -292,6 +299,7 @@ mod tests {
         assert!(!candidates.is_member_name("length"));
         assert!(candidates.is_asked(&key("/ws/child.ts", 13)) && candidates.is_asked(&key("/ws/e.ts", 12)));
         assert!(!candidates.is_asked(&key("/ws/base.ts", 13)));
+        assert!(candidates.has_file(&key("/ws/e.ts", 0).file) && !candidates.has_file(&key("/ws/base.ts", 0).file));
         assert!(Candidates::new(&TypeQuery::default()).is_empty());
     }
 }

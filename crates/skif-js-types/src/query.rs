@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use tsrs_ast::{Kind, Node, SourceFile, Symbol, SymbolFlags};
+use tsrs_ast::{Kind, Node, SourceFile, Symbol, SymbolFlags, SymbolTable};
 use tsrs_checker::{Checker, ObjectFlags, Type, TypeFlags};
 use tsrs_compiler::Program;
 use tsrs_core::{P, tspath};
@@ -11,10 +11,176 @@ use tsrs_core::{P, tspath};
 use crate::members::{Candidates, DeclKey, Implementation, MemberRead};
 use crate::vfs::BomFiles;
 
-/// What the walks share.
+/// What the walks of one program share.
 pub(crate) struct QueryContext<'a> {
     pub(crate) candidates: &'a Candidates,
     pub(crate) boms: &'a BomFiles,
+    pub(crate) escapes: EscapeNames,
+}
+
+impl<'a> QueryContext<'a> {
+    /// The context of the walks of `program`.
+    pub(crate) fn new(candidates: &'a Candidates, boms: &'a BomFiles, program: &Program) -> Self {
+        let escapes = if candidates.is_empty() {
+            EscapeNames::default()
+        } else {
+            EscapeNames::of(program, candidates, boms)
+        };
+        Self {
+            candidates,
+            boms,
+            escapes,
+        }
+    }
+}
+
+/// The names a property access `x.name` must have for its escape to be sent to the checker: resolving it checks the
+/// receiver `x`, most of the time of a query.
+///
+/// The escape credits nothing unless the symbol the checker resolves `name` to, through its aliases, is a class, enum
+/// or namespace with an asked declaration, or a variable [`aliases_a_value`] says may hold one ([`Walker::escape`]),
+/// and credits only reach asked declarations ([`crate::members::credit`]). A property access resolves to a property of
+/// the receiver's type under its own name, and the only such properties that are aliases, containers or variables are
+/// symbols of the tables of the program: the exports of its modules and namespaces and its globals. So every name that
+/// can matter is in this set:
+///
+/// - `default`, the name of a default export;
+/// - the name of every symbol of those tables that has an asked declaration (`export default class C` declares `C`
+///   and `default`);
+/// - the name of every variable of those tables that may alias a value;
+/// - the name of every alias whose declaration does not name its target (a namespace import, `import x = require()`,
+///   `export * as x`, `export as namespace x`, a `CommonJS` export or `require` in `JavaScript`);
+/// - and, closed over, the name of every alias whose declaration names a target in the set: an import or export
+///   specifier (`export { C as D }`), an `import x = A.C` and a default import. An alias resolves through the symbol
+///   of the name it targets, so a chain that ends at a credited symbol has every name in the set.
+///
+/// A name outside the set resolves to a symbol whose escape credits nothing, and skipping the checker for it changes no
+/// fact. The tables of every file of the program are walked, not only the judged files', because any receiver's type
+/// may be a module. A program with a file left unbound gets no filter.
+#[derive(Debug, Default)]
+pub(crate) struct EscapeNames(Option<skif_core::HashSet<&'static str>>);
+
+impl EscapeNames {
+    fn of(program: &Program, candidates: &Candidates, boms: &BomFiles) -> Self {
+        let files = program.get_source_files();
+        if files.iter().any(|file| !file.is_bound()) {
+            return Self(None);
+        }
+        let mut collector = EscapeCollector {
+            candidates,
+            boms,
+            names: skif_core::HashSet::default(),
+            targets: skif_core::HashMap::default(),
+            seen: skif_core::HashSet::default(),
+            tables: Vec::new(),
+        };
+        collector.names.insert(tsrs_ast::INTERNAL_SYMBOL_NAME_DEFAULT);
+        for &file in files {
+            collector.tables.extend(file.locals());
+            collector.tables.extend(file.symbol().and_then(|symbol| symbol.exports()));
+            collector.tables.extend(file.global_exports());
+        }
+        collector.walk();
+        Self(Some(collector.close()))
+    }
+
+    /// Whether the escape of a property access of `name` may credit an asked declaration.
+    fn may_reach(&self, name: &str) -> bool {
+        self.0.as_ref().is_none_or(|names| names.contains(name))
+    }
+}
+
+/// The walk of the symbol tables behind [`EscapeNames`].
+struct EscapeCollector<'a> {
+    candidates: &'a Candidates,
+    boms: &'a BomFiles,
+    names: skif_core::HashSet<&'static str>,
+    /// The aliases by the name of the target their declaration names.
+    targets: skif_core::HashMap<&'static str, Vec<&'static str>>,
+    seen: skif_core::HashSet<P<Symbol>>,
+    tables: Vec<P<SymbolTable>>,
+}
+
+impl EscapeCollector<'_> {
+    fn walk(&mut self) {
+        while let Some(table) = self.tables.pop() {
+            for symbol in table.values() {
+                if self.seen.insert(symbol) {
+                    self.symbol(symbol);
+                }
+            }
+        }
+    }
+
+    fn symbol(&mut self, symbol: P<Symbol>) {
+        let name = symbol.name();
+        let flags = symbol.flags();
+        if flags.intersects(SymbolFlags::Alias) {
+            let declarations = symbol.declarations();
+            if declarations.is_empty() {
+                self.names.insert(name);
+            }
+            for &declaration in declarations {
+                match alias_target(declaration) {
+                    Some(target) => self.targets.entry(target).or_default().push(name),
+                    None => {
+                        self.names.insert(name);
+                    }
+                }
+            }
+        }
+        if (flags.intersects(SymbolFlags::Variable) && aliases_a_value(symbol)) || self.declares_asked(symbol) {
+            self.names.insert(name);
+        }
+        // Namespaces and their merges, ambient modules and global augmentations. Function bodies hold no table walked:
+        // no receiver's type has their declarations as properties.
+        if flags.intersects(SymbolFlags::Module) {
+            self.tables.extend(symbol.exports());
+            for &declaration in symbol.declarations() {
+                if declaration.kind() == Kind::ModuleDeclaration {
+                    self.tables.extend(declaration.locals());
+                }
+            }
+        }
+    }
+
+    fn declares_asked(&self, symbol: P<Symbol>) -> bool {
+        symbol.declarations().iter().any(|&declaration| {
+            tsrs_ast::get_source_file_of_node(declaration)
+                .is_some_and(|file| self.candidates.has_file(file.file_name()))
+                && key_of(declaration, self.boms).is_some_and(|key| self.candidates.is_asked(&key))
+        })
+    }
+
+    /// The names in the set and the aliases that reach them, transitively.
+    fn close(mut self) -> skif_core::HashSet<&'static str> {
+        let mut queue: Vec<&'static str> = self.names.iter().copied().collect();
+        while let Some(name) = queue.pop() {
+            for alias in self.targets.remove(name).unwrap_or_default() {
+                if self.names.insert(alias) {
+                    queue.push(alias);
+                }
+            }
+        }
+        self.names
+    }
+}
+
+/// The name an alias declaration gives its target by, where it gives one.
+fn alias_target(declaration: P<Node>) -> Option<&'static str> {
+    match declaration.kind() {
+        Kind::ImportSpecifier | Kind::ExportSpecifier => declaration.property_name_or_name().map(|name| name.text()),
+        Kind::ImportClause => Some(tsrs_ast::INTERNAL_SYMBOL_NAME_DEFAULT),
+        Kind::ImportEqualsDeclaration => {
+            let reference = declaration.as_import_equals_declaration().module_reference();
+            match reference.kind() {
+                Kind::Identifier => Some(reference.text()),
+                Kind::QualifiedName => Some(reference.as_qualified_name().right.text()),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// What the walk of one file found, as owned data.
@@ -337,7 +503,15 @@ impl Walker<'_, '_> {
         let expression = skip_outer_expressions(expression);
         let name = match expression.kind() {
             Kind::Identifier => expression,
-            Kind::PropertyAccessExpression => expression.as_property_access_expression().name(),
+            Kind::PropertyAccessExpression => {
+                let name = expression.as_property_access_expression().name();
+                if !self.context.escapes.may_reach(name.text()) {
+                    return;
+                }
+                #[cfg(test)]
+                tests::record_escape_lookup(name);
+                name
+            }
             _ => return,
         };
         if let Some(symbol) = self.checker.get_symbol_at_location_exported(name) {
@@ -494,25 +668,29 @@ impl Walker<'_, '_> {
         }
     }
 
-    /// The key of a class, enum or namespace declaration: its file and the offset of its name in skif's text, or for
-    /// an anonymous `export default class {}`, which has no name, the offset just past its closing brace.
     fn key_of(&self, declaration: P<Node>) -> Option<DeclKey> {
-        let name = declaration_name(declaration);
-        if name.is_none() && declaration.kind() != Kind::ClassDeclaration {
-            return None;
-        }
-        let file = tsrs_ast::get_source_file_of_node(declaration)?;
-        let file_name = file.file_name();
-        let bom = self.context.boms.offset(file_name);
-        let name_start = match name {
-            Some(name) => skif_offset(file.text(), name.pos().source_offset()?, bom),
-            None => declaration.end().source_offset()?.saturating_add(bom),
-        };
-        Some(DeclKey {
-            file: file_name.to_owned(),
-            name_start,
-        })
+        key_of(declaration, self.context.boms)
     }
+}
+
+/// The key of a class, enum or namespace declaration: its file and the offset of its name in skif's text, or for an
+/// anonymous `export default class {}`, which has no name, the offset just past its closing brace.
+fn key_of(declaration: P<Node>, boms: &BomFiles) -> Option<DeclKey> {
+    let name = declaration_name(declaration);
+    if name.is_none() && declaration.kind() != Kind::ClassDeclaration {
+        return None;
+    }
+    let file = tsrs_ast::get_source_file_of_node(declaration)?;
+    let file_name = file.file_name();
+    let bom = boms.offset(file_name);
+    let name_start = match name {
+        Some(name) => skif_offset(file.text(), name.pos().source_offset()?, bom),
+        None => declaration.end().source_offset()?.saturating_add(bom),
+    };
+    Some(DeclKey {
+        file: file_name.to_owned(),
+        name_start,
+    })
 }
 
 /// The name a declaration is known by: its own, or for `const C = class {}` the variable's.
@@ -585,7 +763,78 @@ fn constituents(t: P<Type>) -> Vec<P<Type>> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+
+    use skif_core::{FileSystem, MemoryFs};
+
     use super::*;
+    use crate::{DeclId, DeclKind, DeclQuery, TypeInput, TypePackage, TypeQuery};
+
+    /// The `(file, name)` of every property-access escape sent to the checker, by every test of the crate; each test
+    /// reads only its own files.
+    static ESCAPE_LOOKUPS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+    pub(super) fn record_escape_lookup(name: P<Node>) {
+        if let Some(file) = tsrs_ast::get_source_file_of_node(name) {
+            ESCAPE_LOOKUPS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push((file.file_name().to_owned(), name.text().to_owned()));
+        }
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    fn only_escapes_that_can_reach_an_asked_declaration_ask_the_checker() {
+        let root = PathBuf::from("/escape-filter");
+        let colors = "export enum Color {\n  Red,\n}\n";
+        let files = [
+            (
+                "tsconfig.json",
+                r#"{ "compilerOptions": { "strict": true, "noEmit": true, "module": "esnext", "moduleResolution": "bundler" }, "include": ["src"] }"#,
+            ),
+            ("src/colors.ts", colors),
+            ("src/barrel.ts", "export { Color as Hue } from './colors';\n"),
+            (
+                "src/main.ts",
+                "import * as barrel from './barrel';\n\ndeclare function register(value: object): void;\ndeclare const options: { verbose: object };\nregister(options.verbose);\nregister(barrel.Hue);\n",
+            ),
+        ];
+        let fs: Arc<dyn FileSystem> = Arc::new(
+            files
+                .iter()
+                .fold(MemoryFs::new(), |fs, (rel, text)| fs.with_file(root.join(rel), text)),
+        );
+        let query = TypeQuery {
+            decls: vec![DeclQuery {
+                file: root.join("src/colors.ts"),
+                name_start: u32::try_from(colors.find("Color").unwrap()).unwrap(),
+                kind: DeclKind::Enum,
+                members: vec!["Red".to_owned()],
+            }],
+        };
+        let packages = [TypePackage {
+            dir: root.clone(),
+            name: Some("app".to_owned()),
+            files: vec![root.join("src/colors.ts"), root.join("src/main.ts")],
+        }];
+        let facts = crate::analyze(&TypeInput::new(fs, &root, &packages, &query)).expect("the analysis fails");
+        assert_eq!(facts.whole.iter().copied().collect::<Vec<_>>(), [DeclId(0)]);
+        let main = tsrs_path_of(&root.join("src/main.ts"));
+        let looked_up: Vec<String> = ESCAPE_LOOKUPS
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(file, _)| *file == main)
+            .map(|(_, name)| name.clone())
+            .collect();
+        assert_eq!(looked_up, ["Hue"]);
+    }
+
+    fn tsrs_path_of(path: &Path) -> String {
+        crate::vfs::tsrs_path(path)
+    }
 
     /// tsrs's position of the first token of `skif_text` after `skif_prefix`, in tsrs's text (`skif_text` without its
     /// byte order mark), as the parser gives it: the end of the previous token, before the trivia.
