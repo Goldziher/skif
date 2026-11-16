@@ -20,8 +20,21 @@ All notable changes to this project are documented here. The format follows
   `scoop bucket add polylint https://github.com/polylint/scoop-bucket`. `skif init` and `skif migrate` write the
   `#:schema` URL of `polylint/skif`, and SARIF output names it as the tool's information URI.
 
+### Added
+
+- `--performance`, `--debug` and `SKIF_TIMINGS=1` split the time of the typed programs into config parse, program
+  creation and bind, report the project files parsed against the distinct ones, and time the query build, the config
+  hints, the ambient modules, the judged patterns and each JS rule. Timing lines are buffered and written once when
+  the run ends, so printing them no longer serialises the threads of a recursive run.
+
 ### Changed
 
+- Faster runs: the module graph parses the files it reaches ahead of its rounds and reuses each file's parse when it is
+  built again, `**` workspace globs are expanded in parallel, the pnpm lockfile parser skips the sections no rule
+  reads, and `child_process` command analysis is built only when a command needs it. `skif -r` lints nested roots
+  alongside their enclosing roots, with the same report. A typed run asks the checker only for escapes that can reach
+  an asked declaration and for the ancestors only of classes with heritage, and reuses its parsed config for each
+  program's own config. Release builds use fat LTO.
 - The Homebrew formula is bottled for macOS arm64 and Linux x86_64 and arm64.
 - The GitHub Action and the pre-commit launcher verify build attestations against `polylint/skif`, and still accept a
   release up to v0.6.0 attested by `Goldziher/skif`, the repository before the move.
@@ -30,8 +43,9 @@ All notable changes to this project are documented here. The format follows
 
 - A webpack or rspack config built in a function that changes the config after its literal (`config.module.rules.unshift(…)`
   under a test) credits the loaders of the literal and of the change again, instead of reporting every loader as an
-  unused dependency. A rule list the evaluator cannot follow leaves the package unjudged
-  ([#248](https://github.com/polylint/skif/issues/248)).
+  unused dependency. A rule list the evaluator cannot follow leaves the package unjudged: only an unknown rule does, not an unknown `use` or `loader` entry inside a known
+  rule (`MiniCssExtractPlugin.loader`) ([#248](https://github.com/polylint/skif/issues/248)).
+- `@polylint/skif` is never reported as an unused dependency.
 
 ## [0.6.0] - 2026-11-16
 
