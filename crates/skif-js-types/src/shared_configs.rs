@@ -1,4 +1,4 @@
-//! The configs the plannings and programs of a run share (ADR 0034): each `tsconfig.json` or `jsconfig.json` a planning
+//! The configs the plannings and programs of a run share (ADR 0010): each `tsconfig.json` or `jsconfig.json` a planning
 //! searches or a program references, and each config one of those extends, is read and parsed once for the run
 //! instead of once by each planning and again by every program whose project references reach it.
 //!
@@ -12,9 +12,9 @@
 //!   never frees or touches a config another program reads.
 //! - **Identical parse.** A config's parse is a function of the texts and directory listings of one file system (the
 //!   condition [`TypePrograms`](crate::TypePrograms) already sets) and of its absolute name: tsrs reads the current
-//!   directory of the parse host only to make a name absolute, and the names asked for are absolute. A config the
-//!   program is built from is still parsed by its program, so that the program's own config is never one of the
-//!   configs it references, as before. The configs a config extends come from the cache keyed by their path: tsrs
+//!   directory of the parse host only to make a name absolute, and the names asked for are absolute. A program takes
+//!   the config it is built from as a copy of the run's parse ([`ConfigReader::parse_own`]), which it owns and may
+//!   change, so the program's own config is never one of the shared configs it references. The configs a config extends come from the cache keyed by their path: tsrs
 //!   itself bypasses the cache for a config that extends itself through the chain being parsed (the resolution stack),
 //!   which is the one case where the parse depends on who asks.
 //! - **Writes.** A program or a planning writes into a config only its lazily computed tables (`file_names_by_path`,
