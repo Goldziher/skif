@@ -1637,10 +1637,14 @@ impl ModuleResolver {
             .or_else(|| self.is_generated(path).then_some(Resolved::Ignored))
     }
 
-    /// [`Self::follow_alias`] without generated code: what is there at `path`.
+    /// [`Self::follow_alias`] without generated code: what is there at `path`. A path into the build output of a
+    /// package stands for its source whether or not the output was built ([`Self::through_aliased_build_output`]).
     fn follow_existing(&self, kind: Kind, directory: &Path, path: &Path, within: (&Path, &str)) -> Option<Resolved> {
         if let Some(package) = node_modules_package(path) {
             return Some(Resolved::External(package));
+        }
+        if let Some(found) = self.through_aliased_build_output(path) {
+            return Some(found);
         }
         if let Some(found) = self.resolve_path(kind, directory, path) {
             return Some(self.classify(found));
@@ -1682,6 +1686,40 @@ impl ModuleResolver {
     /// inside that directory names no build output, so its own relative imports are never mapped.
     fn through_build_output(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
         let target = join_normalized(importer.parent()?, specifier);
+        self.in_build_output(&target, |member, output| {
+            if importer.starts_with(output) {
+                return None;
+            }
+            let rest = slash(target.strip_prefix(&member.dir).ok()?);
+            self.map_member_target(member, &rest).map(|path| self.classify(path))
+        })
+    }
+
+    /// An alias or `paths` target in the build output of a package (`../lib/dist/index.js`): the source that output
+    /// maps back to ([`Self::map_member_target`], also as a directory's `index`), whether or not the output was built,
+    /// so the verdicts do not depend on a local build (issue #251). An ignored output file is never the answer; when
+    /// nothing else maps, an ignored target is generated code. `None` when `path` is not in build output, or when its
+    /// committed output has no source to map to, which then resolves as it is.
+    fn through_aliased_build_output(&self, path: &Path) -> Option<Resolved> {
+        self.in_build_output(path, |member, output| {
+            let rest = slash(path.strip_prefix(&member.dir).ok()?);
+            let index = format!("{rest}/index");
+            let source = [rest.as_str(), index.as_str()]
+                .into_iter()
+                .filter_map(|target| self.map_member_target(member, target))
+                .find(|found| !(found.starts_with(output) && self.is_generated(found)));
+            match source {
+                Some(found) => Some(self.classify(found)),
+                None => self.is_generated(path).then_some(Resolved::Ignored),
+            }
+        })
+    }
+
+    /// Calls `then` with the package that `target` lies in and the build output directory of that package it lies in,
+    /// when it lies in one: an `outDir` of the package's build directories, or a first directory of the package named
+    /// like build output (`dist`, `lib`, ...). The package is the nearest one at or above the target's directory below
+    /// the root, a workspace member or another directory with a `package.json`.
+    fn in_build_output<T>(&self, target: &Path, then: impl FnOnce(&Member, &Path) -> Option<T>) -> Option<T> {
         let dir = target
             .ancestors()
             .skip(1)
@@ -1704,11 +1742,7 @@ impl ModuleResolver {
                 let first = first.as_os_str().to_str()?;
                 is_out_dir(first).then(|| member.dir.join(first))
             })?;
-        if importer.starts_with(&output) {
-            return None;
-        }
-        let rest = slash(target.strip_prefix(&member.dir).ok()?);
-        self.map_member_target(member, &rest).map(|path| self.classify(path))
+        then(member, &output)
     }
 
     /// The package in `dir` that is not a workspace member, with its manifest parsed once per directory.

@@ -308,3 +308,61 @@ fn a_relative_require_into_unbuilt_output_reaches_its_source() {
         "{diagnostics:#?}"
     );
 }
+
+/// A pnpm workspace whose `app` aliases `lib` to the ignored build output of the `lib` package (issue #251), with the
+/// built `dist/index.js` on disk when `built`.
+fn aliased_build_output(built: bool) -> Vec<String> {
+    let mut files = vec![
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#,
+        ),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        (".gitignore", "dist/\n"),
+        (
+            "packages/lib/package.json",
+            r#"{"name":"lib","version":"1.0.0","main":"./dist/index.js","exports":{".":"./dist/index.js"},
+            "dependencies":{"left-pad":"1.3.0"}}"#,
+        ),
+        ("packages/lib/src/index.ts", "export const x = 1;\n"),
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","private":true,"dependencies":{"lib":"workspace:*"},"devDependencies":{"@rspack/core":"1.0.0"}}"#,
+        ),
+        (
+            "packages/app/rspack.config.js",
+            "const path = require('path');\n\
+             module.exports = { entry: { main: './src/main.js' }, \
+             resolve: { alias: { lib: path.resolve(__dirname, '../lib/dist/index.js') } } };\n",
+        ),
+        (
+            "packages/app/src/main.js",
+            "import { x } from 'lib';\nconsole.log(x);\n",
+        ),
+    ];
+    if built {
+        files.push((
+            "packages/lib/dist/index.js",
+            "import leftPad from 'left-pad';\nexport const x = leftPad('a', 2);\n",
+        ));
+    }
+    let diagnostics = lint_files(&files);
+    diagnostics
+        .iter()
+        .map(|d| format!("{} {} {}", d.location.path.display(), d.rule.as_str(), d.message))
+        .collect()
+}
+
+/// An alias into the ignored build output of a workspace package stands for that package's source, whether or not the
+/// output was built, so the verdicts are the same on a fresh clone and after a local build.
+#[test]
+fn an_alias_into_a_members_build_output_follows_its_source_whether_or_not_it_was_built() {
+    let unbuilt = aliased_build_output(false);
+    assert_eq!(aliased_build_output(true), unbuilt);
+    assert!(
+        unbuilt
+            .iter()
+            .any(|line| line.starts_with("packages/lib/package.json unused-dependencies") && line.contains("left-pad")),
+        "{unbuilt:#?}"
+    );
+}
