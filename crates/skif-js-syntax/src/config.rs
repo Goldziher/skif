@@ -1361,11 +1361,50 @@ fn first_parameter(callable: Callable<'_, '_>) -> Option<String> {
 struct TopLevel<'p, 'a> {
     consts: HashMap<String, &'p Expression<'a>>,
     functions: HashMap<String, Callable<'p, 'a>>,
+    analysis: Deferred<'p, 'a>,
+}
+
+/// What the whole-program pass computes of a module.
+struct Computed {
+    /// The bindings code the evaluator does not follow may change.
+    unstable: Unstable,
     /// The names top-level statements other than function declarations assign or change (`config.plugins.push(x)`,
     /// `if (env) config.a = 1`, `const n = list.push(x)`), with how: a constant among them is not only its initialiser.
     changed: HashMap<String, TopChange>,
-    /// The bindings code the evaluator does not follow may change.
-    unstable: Unstable,
+}
+
+/// The [`Computed`] of a module, run on first use when built [`Deferred::lazy`]: the pass costs a whole program,
+/// and a call whose arguments need none of it (literals, names the evaluator cannot know) skips it.
+#[derive(Default)]
+struct Deferred<'p, 'a> {
+    program: Option<&'p Program<'a>>,
+    cell: std::cell::OnceCell<Computed>,
+}
+
+impl<'p, 'a> Deferred<'p, 'a> {
+    fn ready(computed: Computed) -> Self {
+        Self {
+            program: None,
+            cell: std::cell::OnceCell::from(computed),
+        }
+    }
+
+    fn lazy(program: &'p Program<'a>) -> Self {
+        Self {
+            program: Some(program),
+            cell: std::cell::OnceCell::new(),
+        }
+    }
+
+    fn get(&self) -> &Computed {
+        self.cell.get_or_init(|| match self.program {
+            Some(program) => top_analysis(program, &NoImports),
+            None => Computed {
+                unstable: Unstable::default(),
+                changed: HashMap::default(),
+            },
+        })
+    }
 }
 
 /// A function the evaluator can call.
@@ -1607,18 +1646,25 @@ impl Imports for FollowedImports<'_, '_> {
 
 /// The top-level bindings of `program`, where `imports` says what the evaluator knows of the modules it imports.
 fn top_level<'p, 'a>(program: &'p Program<'a>, imports: &dyn Imports) -> TopLevel<'p, 'a> {
+    let mut top = declarations(program);
+    top.analysis = Deferred::ready(top_analysis(program, imports));
+    top
+}
+
+/// As [`top_level`] for a module that follows no import, with the whole-program analysis left until a value the
+/// evaluator reads needs it: a call whose arguments are literals or names it cannot know never runs it.
+fn top_level_deferred<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
+    let mut top = declarations(program);
+    top.analysis = Deferred::lazy(program);
+    top
+}
+
+/// What the whole-program pass says of `program`: the bindings code the evaluator does not follow may change, and the
+/// names top-level statements other than declarations assign or change.
+fn top_analysis(program: &Program<'_>, imports: &dyn Imports) -> Computed {
     let unstable = Unstable::of(program, imports);
-    let mut top = TopLevel {
-        consts: HashMap::default(),
-        functions: HashMap::default(),
-        changed: HashMap::default(),
-        unstable: Unstable::default(),
-    };
+    let mut changed = HashMap::default();
     for stmt in &program.body {
-        let decl = match stmt {
-            Statement::ExportDeclaration(e) => Some(&e.declaration),
-            other => other.as_declaration(),
-        };
         let writes = match stmt {
             // Only what the statement itself does, as for a statement of a function: an exported value may read
             // members of a constant (`base.plugins.map(f)`) without changing it.
@@ -1640,8 +1686,24 @@ fn top_level<'p, 'a>(program: &'p Program<'a>, imports: &dyn Imports) -> TopLeve
             _ => None,
         };
         if let Some(writes) = writes {
-            top.record(writes);
+            record_changes(&mut changed, writes);
         }
+    }
+    Computed { unstable, changed }
+}
+
+/// The top-level constants and functions of `program`.
+fn declarations<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
+    let mut top = TopLevel {
+        consts: HashMap::default(),
+        functions: HashMap::default(),
+        analysis: Deferred::default(),
+    };
+    for stmt in &program.body {
+        let decl = match stmt {
+            Statement::ExportDeclaration(e) => Some(&e.declaration),
+            other => other.as_declaration(),
+        };
         match decl {
             Some(Declaration::VariableDeclaration(v)) if v.kind == VariableDeclarationKind::Const => {
                 for d in &v.declarations {
@@ -1662,27 +1724,20 @@ fn top_level<'p, 'a>(program: &'p Program<'a>, imports: &dyn Imports) -> TopLeve
             _ => {}
         }
     }
-    top.unstable = unstable;
     top
 }
 
 /// Array methods [`Evaluator::array_callback_call`] runs over a known array.
 const ARRAY_CALLBACK_METHODS: &[&str] = &["map", "flatMap", "filter"];
 
-impl TopLevel<'_, '_> {
-    /// Records what a top-level statement writes ([`Writes`]).
-    fn record(&mut self, writes: Writes<'_>) {
-        for name in writes.assigned {
-            self.changed.insert(name, TopChange::Assigned);
-        }
-        for (name, write) in writes.changed {
-            if let TopChange::Written(list) = self
-                .changed
-                .entry(name)
-                .or_insert_with(|| TopChange::Written(Vec::new()))
-            {
-                list.push(write);
-            }
+/// Records what a top-level statement writes ([`Writes`]).
+fn record_changes(changed: &mut HashMap<String, TopChange>, writes: Writes<'_>) {
+    for name in writes.assigned {
+        changed.insert(name, TopChange::Assigned);
+    }
+    for (name, write) in writes.changed {
+        if let TopChange::Written(list) = changed.entry(name).or_insert_with(|| TopChange::Written(Vec::new())) {
+            list.push(write);
         }
     }
 }
@@ -2120,7 +2175,7 @@ pub(crate) fn imported_calls_in(
     if imported.is_empty() {
         return Vec::new();
     }
-    let top = top_level(program, &NoImports);
+    let top = top_level_deferred(program);
     let bindings = module_bindings(program);
     let mut finder = CallFinder {
         top: &top,
@@ -2830,10 +2885,8 @@ fn node_count(value: &Value) -> usize {
 
 struct Evaluator<'c, 'p, 'a> {
     consts: &'c HashMap<String, &'p Expression<'a>>,
-    /// Top-level names changed by statements after their declaration; see [`TopLevel::changed`].
-    changed: &'c HashMap<String, TopChange>,
-    /// The bindings code the evaluator does not follow may change; see [`Unstable`].
-    unstable: &'c Unstable,
+    /// What the whole-program pass says of the module; see [`Computed`].
+    analysis: &'c Deferred<'p, 'a>,
     functions: &'c HashMap<String, Callable<'p, 'a>>,
     bindings: &'c ModuleBindings,
     /// File name of the module, which `__filename` and `import.meta.url` name.
@@ -2885,8 +2938,7 @@ impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
     ) -> Self {
         Self {
             consts: &top.consts,
-            changed: &top.changed,
-            unstable: &top.unstable,
+            analysis: &top.analysis,
             functions: &top.functions,
             bindings,
             file,
@@ -2993,7 +3045,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// as definite as the value bound to it.
     fn reference(&self, id: &IdentifierReference<'a>, depth: u32) -> Value {
         let value = self.identifier(id.name.as_str(), depth);
-        let Some(change) = self.unstable.of_reference(id) else {
+        // A change leaves an unknown value unknown, so the pass need not run for it.
+        if matches!(value, Value::Unknown) {
+            return value;
+        }
+        let Some(change) = self.analysis.get().unstable.of_reference(id) else {
             return value;
         };
         let (value, definite) = value.split();
@@ -3059,7 +3115,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// `value` of the top-level binding `name`, a constant or an import, as the top-level statements the evaluator does
     /// not run ([`TopLevel::changed`]) and code it does not follow ([`Unstable::of_top`]) may leave it.
     fn changed_top(&self, name: &str, value: Value) -> Value {
-        match self.changed.get(name) {
+        match self.analysis.get().changed.get(name) {
             Some(TopChange::Assigned) => changed(value),
             written => {
                 let mut value = value;
@@ -3068,7 +3124,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         edit_at(&mut value, &write.keys, &write.edit());
                     }
                 }
-                match self.unstable.of_top(name) {
+                match self.analysis.get().unstable.of_top(name) {
                     Some(change) => unstable(value, change),
                     None => value,
                 }
@@ -3381,7 +3437,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 let name = namespace.name.as_str();
                 let exports = Value::Object(vec![(property.to_owned(), self.namespace_member(name, property))]);
                 let exports = self.changed_top(name, exports);
-                let exports = match self.unstable.of_reference(namespace) {
+                let exports = match self.analysis.get().unstable.of_reference(namespace) {
                     Some(change) => unstable(exports, change),
                     None => exports,
                 };
@@ -4130,13 +4186,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// ([`Unstable::calls_foreign`]): a helper of a module of the project or of a workspace package, or a method of
     /// an object the module declares (`const { defineProperty } = Object`), may return anything.
     fn defined(&self, call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
-        defined(call).filter(|_| self.unstable.calls_foreign(call))
+        defined(call).filter(|_| self.analysis.get().unstable.calls_foreign(call))
     }
 
     /// How `call` merges its arguments ([`merge_style`]) when no code of the project is behind it
     /// ([`Unstable::calls_foreign`]): a `merge` of a module of the project may merge any way.
     fn merge_style(&self, call: &CallExpression<'_>) -> Option<MergeStyle> {
-        merge_style(&call.callee, self.bindings).filter(|_| self.unstable.calls_foreign(call))
+        merge_style(&call.callee, self.bindings).filter(|_| self.analysis.get().unstable.calls_foreign(call))
     }
 
     /// The arguments of the calls the evaluator cannot follow whose results `expr`, which evaluated to `value`, is or
@@ -4457,7 +4513,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 Statement::ReturnStatement(r) => {
                     // What the evaluator reads expressions for, it does not run for what they change.
                     if let Some(argument) = &r.argument {
-                        self.havoc(Writes::of_expression(argument, self.unstable));
+                        self.havoc(Writes::of_expression(argument, &self.analysis.get().unstable));
                     }
                     return Some(r.argument.as_ref().map_or(Value::Unknown, |e| self.expr(e, depth)));
                 }
@@ -4468,7 +4524,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     }
                 }
                 Statement::IfStatement(i) => {
-                    self.havoc(Writes::of_expression(&i.test, self.unstable));
+                    self.havoc(Writes::of_expression(&i.test, &self.analysis.get().unstable));
                     let taken = match self.truthy(&i.test, depth) {
                         Some(true) => Some(&i.consequent),
                         Some(false) => i.alternate.as_ref(),
@@ -4488,7 +4544,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 other if returns(other) => return Some(Value::Unknown),
                 other => match other.as_declaration() {
                     Some(Declaration::VariableDeclaration(v)) => {
-                        self.havoc(Writes::of_statement(other, self.unstable));
+                        self.havoc(Writes::of_statement(other, &self.analysis.get().unstable));
                         self.declare(v, depth);
                     }
                     Some(Declaration::FunctionDeclaration(f)) => {
@@ -4497,7 +4553,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         }
                     }
                     Some(_) => {}
-                    None => self.havoc(Writes::of_statement(other, self.unstable)),
+                    None => self.havoc(Writes::of_statement(other, &self.analysis.get().unstable)),
                 },
             }
         }
@@ -4582,7 +4638,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 .flatten()
             {
                 if !returns(branch) {
-                    self.havoc(Writes::of_statement(branch, self.unstable));
+                    self.havoc(Writes::of_statement(branch, &self.analysis.get().unstable));
                 }
             }
             self.run(rest, depth).unwrap_or(Value::Unknown)
@@ -4640,7 +4696,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         alias_names(&declarator.id)
             .unwrap_or_default()
             .into_iter()
-            .filter(|(id, _)| self.unstable.follows(id))
+            .filter(|(id, _)| self.analysis.get().unstable.follows(id))
             .map(|(id, key)| {
                 let mut keys = keys.clone();
                 keys.extend(key);
@@ -4688,7 +4744,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         match expr.get_inner_expression() {
             Expression::AwaitExpression(a) => self.mutation(&a.argument, depth),
             Expression::AssignmentExpression(a) => {
-                self.havoc(Writes::of_expression(&a.right, self.unstable));
+                self.havoc(Writes::of_expression(&a.right, &self.analysis.get().unstable));
                 let assign = a.operator == AssignmentOperator::Assign;
                 match &a.left {
                     AssignmentTarget::AssignmentTargetIdentifier(id) => {
@@ -4713,21 +4769,21 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         // An object that is not a name or a member chain (`list.find(…).loader = …`) may be any part
                         // of a local it may hold.
                         None => {
-                            let mut writes = Writes::new(self.unstable);
+                            let mut writes = Writes::new(&self.analysis.get().unstable);
                             writes.visit_assignment_target(&a.left);
                             self.havoc(writes.through_aliases());
                         }
                     },
-                    _ => self.havoc(Writes::of_expression(expr, self.unstable)),
+                    _ => self.havoc(Writes::of_expression(expr, &self.analysis.get().unstable)),
                 }
             }
             Expression::CallExpression(c) => {
                 if !self.capture_set(c, depth) && !self.insert(c, depth) {
-                    self.havoc(Writes::of_effect(expr, self.unstable));
+                    self.havoc(Writes::of_effect(expr, &self.analysis.get().unstable));
                 }
             }
             // `cond && (x = 1)`, `x++`, `a = b = 1`: what it writes may or may not be written.
-            _ => self.havoc(Writes::of_expression(expr, self.unstable)),
+            _ => self.havoc(Writes::of_expression(expr, &self.analysis.get().unstable)),
         }
     }
 
@@ -4758,7 +4814,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             return false;
         }
         for argument in &arguments {
-            self.havoc(Writes::of_expression(argument, self.unstable));
+            self.havoc(Writes::of_expression(argument, &self.analysis.get().unstable));
         }
         let items = arguments
             .into_iter()
