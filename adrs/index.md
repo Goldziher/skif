@@ -42,3 +42,4 @@ old one.
 | 0032 | [Nx and Lerna (and Pruned Output Trees): Projects as Scopes, Lerna as Facts, Layouts Recognised by Shape](0032-nx-and-lerna-and-pruned-output-trees.md) | accepted |
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
 | 0034 | [Type-Aware Analysis on tsrs](0034-type-aware-analysis-on-tsrs.md) | accepted |
+| 0035 | [Publish the npm Packages Under the polylint Scope](0035-publish-the-npm-packages-under-the-polylint-scope.md) | accepted |
