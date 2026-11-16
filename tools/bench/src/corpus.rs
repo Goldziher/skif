@@ -361,7 +361,15 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 }
 
 fn is_checked_out(dir: &Path, rev: &str) -> bool {
-    dir.join(".git").exists() && git(dir, &["rev-parse", "HEAD"]).is_ok_and(|head| head == rev)
+    is_own_repository(dir) && git(dir, &["rev-parse", "HEAD"]).is_ok_and(|head| head == rev)
+}
+
+/// Whether `dir` is the top of a repository of its own. A `.git` git does not recognise (one a cache restored
+/// partly) is not, and git then finds the repository enclosing `dir`, such as the skif checkout CI keeps the corpus in.
+fn is_own_repository(dir: &Path) -> bool {
+    dir.join(".git").exists()
+        && git(dir, &["rev-parse", "--show-toplevel"])
+            .is_ok_and(|top| fs::canonicalize(top).ok() == fs::canonicalize(dir).ok())
 }
 
 /// Fetches one repository at its pinned commit into `cache/<name>`; a no-op when already there.
@@ -377,10 +385,19 @@ pub fn fetch_repo(repo: &Repo, cache: &Path) -> Result<PathBuf> {
     }
     eprintln!("corpus: fetching {} at {}", repo.name, &repo.rev[..12]);
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    if !dir.join(".git").exists() {
+    if !is_own_repository(&dir) {
+        let dot_git = dir.join(".git");
+        if dot_git.is_dir() {
+            fs::remove_dir_all(&dot_git).with_context(|| format!("removing {}", dot_git.display()))?;
+        } else if dot_git.exists() {
+            fs::remove_file(&dot_git).with_context(|| format!("removing {}", dot_git.display()))?;
+        }
         git(&dir, &["init", "--quiet"])?;
     }
-    if git(&dir, &["remote", "get-url", "origin"]).is_err() {
+    // The manifest's URL wins over the one a cached checkout was cloned from, so a moved repository is fetched anew.
+    if git(&dir, &["remote", "get-url", "origin"]).is_ok() {
+        git(&dir, &["remote", "set-url", "origin", &repo.url])?;
+    } else {
         git(&dir, &["remote", "add", "origin", &repo.url])?;
     }
     if !repo.sparse.is_empty() {
@@ -504,6 +521,40 @@ mod tests {
 
     fn manifest() -> Manifest {
         load_manifest(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"))).unwrap()
+    }
+
+    /// A cached checkout whose `.git` was restored empty is not a repository, so git would act on the repository
+    /// that encloses the cache (CI keeps the corpus under the skif checkout) and fetch the pin from its origin.
+    #[test]
+    fn a_broken_cached_checkout_is_fetched_again_rather_than_the_enclosing_repository() {
+        let root = std::env::temp_dir().join(format!("skif-bench-fetch-broken-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let upstream = root.join("upstream");
+        fs::create_dir_all(&upstream).unwrap();
+        let commit = |dir: &Path| {
+            for args in [
+                &["init", "--quiet"][..],
+                &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--allow-empty", "-m", "c"],
+            ] {
+                git(dir, args).unwrap();
+            }
+            git(dir, &["rev-parse", "HEAD"]).unwrap()
+        };
+        let rev = commit(&upstream);
+        let enclosing = root.join("enclosing");
+        fs::create_dir_all(&enclosing).unwrap();
+        commit(&enclosing);
+        let cache = enclosing.join("target/bench-corpus");
+        fs::create_dir_all(cache.join("r/.git")).unwrap();
+        let repo: Repo = toml::from_str(&format!(
+            "name = \"r\"\nurl = \"{}\"\nrev = \"{rev}\"\npackage-manager = \"pnpm\"\nsuites = [\"parity\"]\n",
+            upstream.display()
+        ))
+        .unwrap();
+        let dir = fetch_repo(&repo, &cache).unwrap();
+        assert_eq!(git(&dir, &["rev-parse", "HEAD"]).unwrap(), rev);
+        assert!(git(&enclosing, &["remote"]).unwrap().is_empty(), "the enclosing repository gained no remote");
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
