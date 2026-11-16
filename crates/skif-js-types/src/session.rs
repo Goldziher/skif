@@ -858,6 +858,11 @@ struct BuiltProgram {
     files: usize,
     checkers: usize,
     build: Duration,
+    /// Where `build` went; zero when another analysis of the run built the program.
+    split: BuildSplit,
+    /// The names of the files below the project (not the lib or `node_modules` declaration files the run shares) the
+    /// program parsed, collected only with timings on and only by the analysis that built it.
+    project_files: Vec<String>,
     query: Duration,
     /// Waiting for its cores.
     cores_waited: Duration,
@@ -865,6 +870,32 @@ struct BuiltProgram {
     early: bool,
     /// Whether another analysis of the run built the program ([`TypePrograms`](crate::TypePrograms)).
     shared: bool,
+}
+
+/// The parts of one program's build.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct BuildSplit {
+    /// Reading and parsing the program's own config.
+    pub(crate) config_parse: Duration,
+    /// Creating the program: reading, parsing and resolving its files.
+    pub(crate) program_creation: Duration,
+    /// Binding its source files.
+    pub(crate) bind: Duration,
+}
+
+/// The names of the program's files that no other program of the run shares; empty with timings off, where nothing
+/// reads them.
+fn project_files(owner: &ProgramOwner) -> Vec<String> {
+    if !skif_core::timing::enabled() {
+        return Vec::new();
+    }
+    owner
+        .program()
+        .get_source_files()
+        .iter()
+        .map(|file| file.file_name().to_owned())
+        .filter(|name| !shared_files::shareable(name))
+        .collect()
 }
 
 struct WalkedFile {
@@ -1115,9 +1146,10 @@ impl Session<'_> {
             let _scope = region.enter();
             self.build(path, checkers, ticket.is_some())
         };
-        let Some((owner, loader_regions, files)) = built else {
+        let Some((owner, loader_regions, files, split)) = built else {
             return Some(Outcome::ConfigError);
         };
+        let project_files = project_files(&owner);
         let resident = Arc::new(Resident::new(
             (owner, loader_regions, region),
             (
@@ -1127,7 +1159,7 @@ impl Session<'_> {
             ),
             ProgramKey::new(path, self.single_threaded),
             checkers,
-            start.elapsed(),
+            (start.elapsed(), split, project_files),
         ));
         if let Some(ticket) = ticket {
             ticket.publish(&resident, &files, &self.shared.cwd);
@@ -1159,8 +1191,10 @@ impl Session<'_> {
         path: &str,
         checkers: usize,
         listed: bool,
-    ) -> Option<(ProgramOwner, Arc<ProgramRegions>, Vec<String>)> {
+    ) -> Option<(ProgramOwner, Arc<ProgramRegions>, Vec<String>, BuildSplit)> {
+        let parse_start = Instant::now();
         let mut config = self.shared.configs.parse_own(path)?;
+        let config_parse = parse_start.elapsed();
         let base = config.compiler_options()?;
         let files = if listed {
             config.file_names().to_vec()
@@ -1209,9 +1243,17 @@ impl Session<'_> {
             options.single_threaded = Tristate::True;
         }
         let pool = self.shared.pool.clone();
+        let create_start = Instant::now();
         let owner = self.shared.on_pool(|| ProgramOwner::new(options, pool));
+        let program_creation = create_start.elapsed();
+        let bind_start = Instant::now();
         self.shared.on_pool(|| owner.program().bind_source_files());
-        Some((owner, loader_regions, files))
+        let split = BuildSplit {
+            config_parse,
+            program_creation,
+            bind: bind_start.elapsed(),
+        };
+        Some((owner, loader_regions, files, split))
     }
 
     /// Walks the judged files of `resident`, the program of `path`, copying out what the walks find; `started` says
@@ -1288,6 +1330,16 @@ impl Session<'_> {
             files: tsrs.get_source_files().len(),
             checkers: resident.checkers(),
             build: if built_here { resident.build() } else { Duration::ZERO },
+            split: if built_here {
+                resident.split()
+            } else {
+                BuildSplit::default()
+            },
+            project_files: if built_here {
+                resident.project_files().to_vec()
+            } else {
+                Vec::new()
+            },
             query,
             cores_waited: Duration::ZERO,
             early,
@@ -1316,10 +1368,16 @@ fn assemble(
     let mut found = Found::default();
     let mut unresolved_names: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
     let mut timings = TypeTimings::default();
+    let mut distinct_project_files: BTreeSet<String> = BTreeSet::new();
     for (program, outcome) in plan.programs.iter().zip(outcomes) {
         match outcome {
             Outcome::Built(built) => {
                 timings.programs += built.build;
+                timings.config_parse += built.split.config_parse;
+                timings.program_creation += built.split.program_creation;
+                timings.bind += built.split.bind;
+                timings.project_files_parsed += built.project_files.len();
+                distinct_project_files.extend(built.project_files);
                 timings.queries += built.query;
                 timings.cores_waited += built.cores_waited;
                 timings.early += usize::from(built.early);
@@ -1361,6 +1419,7 @@ fn assemble(
             Outcome::Cancelled => return Err(TypeError::Cancelled),
         }
     }
+    timings.project_files_distinct = distinct_project_files.len();
     let credits = members::credit(candidates, &found);
     let covered = plan
         .files

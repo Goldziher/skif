@@ -144,7 +144,7 @@ fn parse(options: SourceFileParseOptions, host: &dyn CompilerHost, boms: &BomFil
 
 /// Whether the file `file_name` is shared: a bundled lib file or a declaration file below `node_modules`. A project's
 /// own files, declaration files included, are parsed for each program that reads them.
-fn shareable(file_name: &str) -> bool {
+pub(crate) fn shareable(file_name: &str) -> bool {
     tsrs_vfs::bundled::embedded_file(file_name).is_some()
         || (file_name.contains("/node_modules/") && tspath::is_declaration_file_name(file_name))
 }

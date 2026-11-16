@@ -143,6 +143,20 @@ pub struct TypeTimings {
     /// Reading the configs of the programs, building and binding them, summed over the programs: several build at
     /// once, so the sum can exceed the wall time.
     pub programs: Duration,
+    /// Reading and parsing the programs' own configs, summed over the programs; a part of [`TypeTimings::programs`].
+    pub config_parse: Duration,
+    /// Creating the programs (reading, parsing and resolving their files), summed over the programs; a part of
+    /// [`TypeTimings::programs`].
+    pub program_creation: Duration,
+    /// Binding the programs' source files, summed over the programs; a part of [`TypeTimings::programs`].
+    pub bind: Duration,
+    /// The project files (not the lib or `node_modules` declaration files the run shares) the programs this analysis
+    /// built parsed, summed over the programs: a file in several programs counts once for each. Counted only with
+    /// timings on.
+    pub project_files_parsed: usize,
+    /// The distinct files among those counted by [`TypeTimings::project_files_parsed`]; the gap to it is the parsing
+    /// repeated across programs.
+    pub project_files_distinct: usize,
     /// Walking the files and asking the checker, summed over the programs as [`TypeTimings::programs`] is.
     pub queries: Duration,
     /// Waiting for cores before building, summed over the programs as [`TypeTimings::programs`] is: on a

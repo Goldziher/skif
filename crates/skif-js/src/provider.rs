@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use skif_config::{Config, ConfigError};
+use skif_core::timing::{self, Tally};
 use skif_core::{FileSystem, OsFs, RuleMeta};
 use skif_js_syntax::ModuleCache;
 use skif_lint::{
@@ -164,10 +165,23 @@ impl RuleProvider for JsProvider {
         let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) =
             active.iter().copied().partition(|rule| rule.runs_last());
         let base = &*out;
+        let tallies: Vec<(&str, Tally)> = if timing::enabled() {
+            let mut ids: Vec<&str> = active.iter().map(|rule| rule.meta().id).collect();
+            ids.sort_unstable();
+            ids.into_iter().map(|id| (id, Tally::new())).collect()
+        } else {
+            Vec::new()
+        };
+        let timed = |rule: &dyn JsRule, part: &mut Emitter<'_>| match tallies
+            .binary_search_by(|(id, _)| (*id).cmp(rule.meta().id))
+        {
+            Ok(position) => tallies[position].1.time(|| rule.check(&analysis, part)),
+            Err(_) => rule.check(&analysis, part),
+        };
         let parts: Vec<Emitter<'_>> = map_ordered(&concurrent, cx.sequential, |rule| {
             let mut part = base.fork();
             if !part.is_cancelled() {
-                rule.check(&analysis, &mut part);
+                timed(*rule, &mut part);
             }
             part
         });
@@ -177,11 +191,14 @@ impl RuleProvider for JsProvider {
             .map(|rule| {
                 let mut part = base.fork();
                 if !part.is_cancelled() {
-                    rule.check(&analysis, &mut part);
+                    timed(*rule, &mut part);
                 }
                 part
             })
             .collect();
+        for (id, tally) in &tallies {
+            tally.report(format_args!("js rule {id} {}", cx.workspace.root.display()));
+        }
         for part in parts.into_iter().chain(after) {
             out.merge(part);
         }

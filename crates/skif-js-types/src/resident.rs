@@ -21,6 +21,7 @@ use tsrs_compiler::{Program, ProgramRegions};
 use tsrs_core::arena::{Region, RegionScope};
 
 use crate::owner::ProgramOwner;
+use crate::session::BuildSplit;
 use crate::shared_configs::SharedConfigs;
 use crate::shared_files::SharedFiles;
 use crate::vfs::{BomFiles, tsrs_path};
@@ -336,6 +337,8 @@ pub(crate) struct Resident {
     key: ProgramKey,
     checkers: usize,
     build: Duration,
+    split: BuildSplit,
+    project_files: Vec<String>,
     _files: Arc<SharedFiles>,
     _configs: Arc<SharedConfigs>,
 }
@@ -349,7 +352,7 @@ impl Resident {
         (boms, files, configs): (Arc<BomFiles>, Arc<SharedFiles>, Arc<SharedConfigs>),
         key: ProgramKey,
         checkers: usize,
-        build: Duration,
+        (build, split, project_files): (Duration, BuildSplit, Vec<String>),
     ) -> Self {
         Self {
             owner,
@@ -359,6 +362,8 @@ impl Resident {
             key,
             checkers,
             build,
+            split,
+            project_files,
             _files: files,
             _configs: configs,
         }
@@ -380,6 +385,16 @@ impl Resident {
     /// Reading the config, building and binding the program.
     pub(crate) const fn build(&self) -> Duration {
         self.build
+    }
+
+    /// Where [`Resident::build`] went.
+    pub(crate) const fn split(&self) -> BuildSplit {
+        self.split
+    }
+
+    /// The names of the project files the program parsed; empty unless timings were on.
+    pub(crate) fn project_files(&self) -> &[String] {
+        &self.project_files
     }
 
     /// Enters the program's region for a walk, waiting while another analysis walks it: what the walking thread
