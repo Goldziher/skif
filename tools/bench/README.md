@@ -110,6 +110,9 @@ their dependencies installed.
 
 ```sh
 mise run bench            # build release skif, fetch the corpus, run everything
+mise run bench:local      # as CI runs it: --install --no-enforce (numbers are not publishable)
+mise run bench:tools:update  # update the pinned sherif, syncpack and knip (bench:tools:check verifies them)
+mise run profile -- <repo-dir> [skif args...]  # samply profile plus SKIF_TIMINGS of one run (see "Profiling")
 mise run bench:micro      # all criterion benchmarks (see "In-process benchmarks")
 mise run bench:corpus     # only fetch the timed corpus repositories
 mise run bench:import -- <run-id>  # import a bench workflow run into tools/bench/results and refresh the speed numbers
@@ -150,7 +153,30 @@ modules in which each imports its predecessor, ending in the `src/index.ts` that
 `dependencies`, an `@types/*` package in `dependencies`, an empty `optionalDependencies`. The command prints the
 injected counts as JSON.
 
-Profile with `cargo build --profile profiling` (release plus debug symbols, no stripping).
+## Profiling
+
+`mise run profile -- <repo-dir> [skif args...]` builds `skif` with `cargo build --profile profiling` (release plus debug
+symbols, no stripping), then records one run on `<repo-dir>` with [samply](https://github.com/mstange/samply)
+(pinned in `mise.toml`) as `skif <repo-dir> --format json --no-install [args]`. Pass `--type-aware` or `--no-type-aware`
+to profile the typed or the untyped run. It writes `reports/profile-<name>-<timestamp>.json.gz` (open it with
+`samply load`) and, from `SKIF_TIMINGS=1`, `reports/timings-<name>-<timestamp>.txt`; `reports/` is untracked. Run it on
+a corpus checkout in `target/bench-corpus` after `mise run bench:corpus`.
+
+`SKIF_TIMINGS=1` prints one `skif timing: ...` line per phase to stderr. In the JS analysis of each root:
+
+- `js <phase> <root>: N ms` for `git index`, `setup (plugins, configs)`, `discover`, `entries`, `resolver`,
+  `graph (read, parse, resolve)`, `reached sources`, `config hints`, `exports`, `dependencies`, `ambient modules`,
+  `judged patterns` and, with types, `build query`.
+- `js types <root>: ...`: planning, program, query, wait and wall times, then
+  `program build split: config parse A ms, program creation B ms, bind C ms (summed); project files: N parsed across
+  programs, M distinct`. The split divides the `programs` time into reading the config, creating the program (reading,
+  parsing and resolving its files) and binding it, summed over programs that run in parallel. `N` against `M` is how
+  many project files are parsed more than once because several programs include them; the lib and `node_modules`
+  declaration files are shared and counted on the `shared declaration files` line.
+- `js rule <rule-id> <root> (summed over threads): N ms`, one line per enabled rule in rule-id order, for the time of
+  its check inside the `provider js` phase.
+
+Timings are off by default and cost nothing then.
 
 ## Parity with knip
 
