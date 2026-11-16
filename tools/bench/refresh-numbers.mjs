@@ -149,8 +149,40 @@ function provenanceProblems(summary) {
   return problems;
 }
 
-/** Every reason the summary cannot be published; empty when it can. */
-export function summaryProblems(summary) {
+/** The `[tools]` table of corpus.toml: tool name to its exact pinned version. */
+export function pinnedTools(toml) {
+  const section = /^\[tools\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(toml);
+  if (section == null) throw new Error("corpus.toml has no [tools] table");
+  const tools = {};
+  for (const [, name, version] of section[1].matchAll(/^([A-Za-z0-9_-]+)\s*=\s*"([^"]*)"/gm)) tools[name] = version;
+  return tools;
+}
+
+/** A recorded tool version without the tool-name prefix some tools print (`sherif 1.13.0`). */
+const bareVersion = (tool, version) => (version.startsWith(`${tool} `) ? version.slice(tool.length + 1) : version);
+
+/** The reasons the summary's tool versions differ from the pinned ones in corpus.toml `[tools]`. */
+function toolVersionProblems(summary, pinned) {
+  const problems = [];
+  for (const [tool, version] of Object.entries(pinned)) {
+    const recorded = summary.tool_versions[tool];
+    if (recorded == null) {
+      problems.push(`the summary records no ${tool} version; corpus.toml pins ${tool} ${version}`);
+    } else if (bareVersion(tool, recorded) !== version) {
+      problems.push(
+        `the summary was measured against ${tool} ${bareVersion(tool, recorded)}, but corpus.toml pins ${version}; ` +
+          "measure again with the bench workflow",
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * Every reason the summary cannot be published; empty when it can. `pinned` (corpus.toml `[tools]`, see `pinnedTools`)
+ * adds the check that the comparison tools measured are the ones pinned now.
+ */
+export function summaryProblems(summary, pinned = null) {
   if (summary.schema !== SUMMARY_SCHEMA) {
     return [
       `summary schema ${summary.schema} is not ${SUMMARY_SCHEMA}; measure again with the bench workflow and ` +
@@ -158,6 +190,7 @@ export function summaryProblems(summary) {
     ];
   }
   const problems = provenanceProblems(summary);
+  if (pinned != null) problems.push(...toolVersionProblems(summary, pinned));
   problems.push(
     ...summary.skipped_tools.map(
       (skip) => `${skip.tool} was not timed on ${skip.target ?? "any target"}: ${skip.reason}`,
@@ -515,7 +548,8 @@ function main() {
     console.log(`refresh-numbers: no ${options.summary}, so the speed blocks are left as they are`);
   } else if (options.bench) {
     const summary = readJson(options.summary);
-    const found = summaryProblems(summary);
+    const pinned = pinnedTools(readFileSync(join(repo, "tools", "bench", "corpus.toml"), "utf8"));
+    const found = summaryProblems(summary, pinned);
     problems.push(...found.map((problem) => `${options.summary}: ${problem}`));
     if (found.length === 0) {
       update(comparison, "bench:claims", benchClaims(summary), true);
