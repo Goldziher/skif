@@ -9,7 +9,6 @@
 # longer or different. The patterns, each followed by the version, per file and tool:
 #   website/src/content/docs/guides/comparison.mdx
 #     intro of the capability tables   The tables compare skif with sherif V, syncpack V and knip V
-#     the measured-numbers sentence    against knip V, sherif V, syncpack V
 #     the Sources list                 "- sherif V:", "- syncpack V:", "- knip V:"
 #     Sources links                    QuiiBz/sherif/{blob,tree,releases/tag}/vV, JamieMason/syncpack/{blob,tree}/V,
 #                                      webpro-nl/knip/{blob,tree}/knip%40V
@@ -17,6 +16,8 @@
 #   website/src/content/docs/guides/migrating.mdx
 #     the port's sources               "(sherif V, syncpack V, knip V)"
 #     the fixed behaviours             "behaviours of sherif V"
+# The generated "against knip V, sherif V, syncpack V" sentence names the versions of the imported benchmark run;
+# refresh-numbers.mjs ties those to the pins, so it is not checked here.
 # Every tool must be stated at least once per file, so a pattern that no longer matches fails instead of passing.
 set -euo pipefail
 
@@ -66,11 +67,11 @@ for file in "$comparison" "$migrating"; do
 done
 if [[ "$failures" -gt 0 ]]; then exit 1; fi
 
-check "$comparison" sherif 'The tables compare skif with sherif ' 'against knip [0-9.]+, sherif ' '^- sherif ' \
+check "$comparison" sherif 'The tables compare skif with sherif ' '^- sherif ' \
   'QuiiBz/sherif/(blob|tree|releases/tag)/v'
 check "$comparison" syncpack 'The tables compare skif with sherif [0-9.]+, syncpack ' \
-  'against knip [0-9.]+, sherif [0-9.]+, syncpack ' '^- syncpack ' 'JamieMason/syncpack/(blob|tree)/'
-check "$comparison" knip 'syncpack [0-9.]+ and knip ' 'against knip ' '^- knip ' 'webpro-nl/knip/(blob|tree)/knip%40' \
+  '^- syncpack ' 'JamieMason/syncpack/(blob|tree)/'
+check "$comparison" knip 'syncpack [0-9.]+ and knip ' '^- knip ' 'webpro-nl/knip/(blob|tree)/knip%40' \
   'issue types of knip ' 'Every issue type of knip '
 check "$migrating" sherif '\(sherif ' 'behaviours of sherif '
 check "$migrating" syncpack '\(sherif [0-9.]+, syncpack '
