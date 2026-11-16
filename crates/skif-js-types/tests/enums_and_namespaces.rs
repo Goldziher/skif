@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{Expected, TSCONFIG, Workspace, assert_case, package, query, run, typed};
+use common::{Expected, TSCONFIG, Workspace, assert_case, assert_facts, package, query, run, typed};
 use skif_js_types::DeclKind;
 
 const COLORS: &str = "\
@@ -154,4 +154,153 @@ fn a_namespace_member_read_through_this_or_a_qualified_name_credits_that_member(
             },
         );
     }
+}
+
+/// Names under which `Color` reaches other modules: a re-export, an import passed on, the default export, a variable
+/// initialized from it, one declared `typeof` it and a namespace import alias.
+const BARREL: &str = "\
+import { Color as Tint } from './colors';
+export { Color as Hue } from './colors';
+export { Tint as Shade };
+export default Tint;
+export const Palette = Tint;
+export let Swatch: typeof Tint;
+export namespace Kit {
+  export import Tone = Tint;
+}
+";
+
+/// The escapes of the barrel's names that are property accesses: their names are not `Color`, and only the program's
+/// aliases and alias-capable variables lead from them to it.
+#[test]
+fn an_enum_that_escapes_through_a_member_of_another_name_is_used_as_a_whole() {
+    let prelude = "import * as barrel from './barrel';\n\ndeclare function register(value: object): void;\n";
+    for (case, body) in [
+        ("a re-export", "register(barrel.Hue);\n"),
+        ("an import exported again", "register(barrel.Shade);\n"),
+        ("the default export", "register(barrel.default);\n"),
+        ("a variable initialized from it", "register(barrel.Palette);\n"),
+        ("a variable declared typeof it", "register(barrel.Swatch);\n"),
+        ("an import alias in a namespace", "register(barrel.Kit.Tone);\n"),
+        (
+            "an alias of the namespace import",
+            "const alias = barrel;\nregister(alias.Hue);\n",
+        ),
+        (
+            "a parameter typed as the namespace",
+            "export function pass(module: typeof barrel): void {\n  register(module.Palette);\n}\n",
+        ),
+        ("a return", "export function hue(): object {\n  return barrel.Hue;\n}\n"),
+        ("an array element", "export const all = [barrel.Shade];\n"),
+        ("a spread", "export const copy = { ...barrel.Swatch };\n"),
+        ("an assignment", "export let held: object;\nheld = barrel.Palette;\n"),
+        (
+            "an object literal value",
+            "export const held = { color: barrel.Hue };\n",
+        ),
+    ] {
+        let workspace = Workspace::new(&[
+            ("tsconfig.json", TSCONFIG),
+            ("src/colors.ts", COLORS),
+            ("src/barrel.ts", BARREL),
+            ("src/main.ts", &format!("{prelude}{body}")),
+        ]);
+        let query = query(vec![workspace.decl(
+            "src/colors.ts",
+            DeclKind::Enum,
+            "Color",
+            &["Red", "Green", "Blue"],
+        )]);
+        let facts = run(
+            &workspace,
+            &[package("", "app", &["src/colors.ts", "src/main.ts"])],
+            &query,
+        );
+        assert_case(
+            case,
+            &facts,
+            &Expected {
+                whole: vec![0],
+                covered: vec!["src/colors.ts", "src/main.ts"],
+                coverage: vec![typed("", "app")],
+                ..Expected::default()
+            },
+        );
+    }
+}
+
+/// A member destructured from a namespace import is read on the module; the variable it declares is no alias of the
+/// enum, so passing it on is no whole use.
+#[test]
+fn a_member_destructured_from_a_namespace_import_is_read_and_not_used_as_a_whole() {
+    let workspace = Workspace::new(&[
+        ("tsconfig.json", TSCONFIG),
+        ("src/colors.ts", COLORS),
+        ("src/barrel.ts", BARREL),
+        (
+            "src/main.ts",
+            "import * as barrel from './barrel';\n\ndeclare function register(value: object): void;\nconst { Hue } = barrel;\nregister(Hue);\nexport const red = Hue.Red;\n",
+        ),
+    ]);
+    let query = query(vec![workspace.decl(
+        "src/colors.ts",
+        DeclKind::Enum,
+        "Color",
+        &["Red", "Green", "Blue"],
+    )]);
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/colors.ts", "src/main.ts"])],
+        &query,
+    );
+    assert_facts(
+        &facts,
+        &Expected {
+            reads: vec![(0, vec!["Red"])],
+            covered: vec!["src/colors.ts", "src/main.ts"],
+            coverage: vec![typed("", "app")],
+            ..Expected::default()
+        },
+    );
+}
+
+/// `exports.Hue = Color` in checked JavaScript is an alias the binder declares on the module, not a statement skif
+/// reads: the escape of `cjs.Hue` reaches the enum through it.
+#[test]
+fn an_enum_exported_by_a_commonjs_assignment_escapes_through_the_export() {
+    let workspace = Workspace::new(&[
+        (
+            "tsconfig.json",
+            r#"{ "compilerOptions": { "allowJs": true, "checkJs": true, "noEmit": true, "strict": true, "module": "esnext", "moduleResolution": "bundler", "esModuleInterop": true }, "include": ["src"] }"#,
+        ),
+        ("src/colors.ts", COLORS),
+        (
+            "src/cjs.js",
+            "const { Color } = require('./colors');\nexports.Hue = Color;\n",
+        ),
+        (
+            "src/main.ts",
+            "import * as cjs from './cjs';\n\ndeclare function register(value: object): void;\nregister(cjs.Hue);\n",
+        ),
+    ]);
+    let query = query(vec![workspace.decl(
+        "src/colors.ts",
+        DeclKind::Enum,
+        "Color",
+        &["Red", "Green", "Blue"],
+    )]);
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/colors.ts", "src/main.ts"])],
+        &query,
+    );
+    assert_facts(
+        &facts,
+        &Expected {
+            whole: vec![0],
+            covered: vec!["src/colors.ts", "src/main.ts"],
+            coverage: vec![typed("", "app")],
+            ..Expected::default()
+        },
+    );
 }
