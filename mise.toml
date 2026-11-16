@@ -15,6 +15,7 @@ pnpm = "12.18.0"
 actionlint = "1.7.12"
 "github:Goldziher/gh-actions-updater" = "0.4.0"
 hyperfine = "1.20.0"
+"github:mstange/samply" = "samply-v0.13.1"
 
 [tasks.setup]
 description = "Install all dependencies and the git hooks. Idempotent."
@@ -44,6 +45,25 @@ run = [
   "cargo build --release --locked -p skif-cli",
   "cargo run --release --locked -p skif-bench -- run --skif target/release/skif",
 ]
+
+[tasks."bench:local"]
+description = "Run the bench task the way CI does: install the corpus and tools (--install) and do not exit on the ADR targets (--no-enforce). Local numbers are not publishable"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- run --skif target/release/skif --install --no-enforce",
+]
+
+[tasks."bench:tools:update"]
+description = "Update the pinned benchmark tools (sherif, syncpack, knip) in tools/bench/corpus.toml"
+run = "cargo run --release --locked -p skif-bench -- tools update"
+
+[tasks."bench:tools:check"]
+description = "Check that the pinned benchmark tools in tools/bench/corpus.toml are current"
+run = "cargo run --release --locked -p skif-bench -- tools check"
+
+[tasks.profile]
+description = "Profile one skif run with samply and SKIF_TIMINGS: mise run profile -- <repo-dir> [skif args...]; writes reports/profile-<name>-<timestamp>.json.gz and reports/timings-<name>-<timestamp>.txt"
+run = "bash scripts/profile.sh"
 
 [tasks."bench:micro"]
 description = "Run the criterion micro-benchmarks"

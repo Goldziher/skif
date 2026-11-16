@@ -1,4 +1,5 @@
 /target
+/reports/
 node_modules/
 /dist
 /website/dist/
