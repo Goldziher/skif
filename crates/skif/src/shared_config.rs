@@ -1,5 +1,5 @@
 //! Deciding the `stale-js-config` findings about a configuration file several roots of a multi-root run read, over
-//! the final reports of those roots (ADR 0004).
+//! the final reports of those roots (ADR 0003).
 
 use std::collections::{BTreeMap, BTreeSet};
 

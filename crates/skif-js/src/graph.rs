@@ -73,7 +73,7 @@ pub struct ResolvedImport {
     pub package: Option<String>,
     /// The import brings in types only.
     pub type_only: bool,
-    /// The import is one skif adds for a registered component a template uses (ADR 0020), not one written in the
+    /// The import is one skif adds for a registered component a template uses (ADR 0009), not one written in the
     /// file: it has no location, and `circular-imports` leaves it out.
     pub component: bool,
 }
@@ -651,7 +651,7 @@ fn resolve_imports(path: &Path, scan: Scan, inputs: &Inputs<'_>) -> Parsed {
 
 /// The local components a generated `components.d.ts` registers, and the positions of the imports that register
 /// them: where the graph links components by tag, such a component is used where a template uses it, not by the
-/// declaration file (ADR 0020).
+/// declaration file (ADR 0009).
 fn registered(
     info: &ModuleInfo,
     imports: &[RawImport],
@@ -951,7 +951,7 @@ impl<'a> Builder<'a> {
     }
 
     /// Imports each registered component into the modules whose `template_tags` name it, as knip's compiler adds the
-    /// import (ADR 0020), and returns the modules this reaches for the first time. Only the modules read since the
+    /// import (ADR 0009), and returns the modules this reaches for the first time. Only the modules read since the
     /// last linking are visited, unless components were registered since.
     fn link_components(&mut self) -> Vec<ModuleId> {
         let mut fresh = Vec::new();

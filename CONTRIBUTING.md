@@ -37,7 +37,7 @@ the same checks on commit; do not commit with `--no-verify`. Commits are convent
 corpus (`tools/bench/corpus.toml`) and print the per-repository differences; `mise run corpus:check` checks both against
 the baselines committed in `tools/bench/baselines`, as the weekly `corpus` workflow does. A change that moves
 the findings of a rule on real code refreshes the baselines with `--write-baseline` in the same pull request
-(see `tools/bench/README.md`, [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). `mise run bench`
+(see `tools/bench/README.md`, [ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md)). `mise run bench`
 exits non-zero when a speed target of ADR 0001 fails.
 
 `mise run schema:check` regenerates the JSON Schema of `skif.toml` and fails when `schema/skif.schema.json`
@@ -57,7 +57,7 @@ the CI matrices, and the LICENSE and ATTRIBUTIONS files each published crate mus
 5. For a JS plugin, add its row to `skif-js-plugins`, list it in `crates/skif-js-plugins/README.md` and in
    `website/src/content/docs/reference/configuration.mdx` (`scripts/check-plugin-list.sh` compares both with the
    code), add a fixture project
-   that exercises it ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)), and compare the behaviour with the pinned knip commit recorded in `ATTRIBUTIONS.md`.
+   that exercises it ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)), and compare the behaviour with the pinned knip commit recorded in `ATTRIBUTIONS.md`.
 6. Add or extend an end-to-end scenario under `fixtures/e2e` when the rule changes what a package manager
    layout produces (see [End-to-end tests](#end-to-end-tests)), and a bench in `tools/bench` when it changes the
    hot path.
@@ -94,7 +94,7 @@ linker without installing.
 ## Upgrading tsrs
 
 tsrs, the TypeScript checker behind type-aware analysis, is upgraded on its own, never alongside other work
-([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)):
+([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)):
 
 1. Move every `tsrs_*` entry of `[workspace.dependencies]` to the new version together, each as an exact `=` pin;
    `scripts/check-pins.sh` fails otherwise. Only `skif-js-types` may depend on them, and `skif` without default
@@ -107,7 +107,7 @@ tsrs, the TypeScript checker behind type-aware analysis, is upgraded on its own,
    `LICENSE` texts of the release), copy it over every other `ATTRIBUTIONS.md`, and run `scripts/check-headers.sh`
    and `scripts/check-package-contents.sh`.
 5. Attach the evidence to the change: the parity run, the typed-versus-untyped comparison on the corpus, the
-   benchmark against the budget of [ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md), and
+   benchmark against the budget of [ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md), and
    `repeated_analyses_free_their_arenas`.
 
 ## Architecture decisions
@@ -134,7 +134,7 @@ publishing; the steps around it are by hand.
    - crates.io: every crate in `scripts/publish-crates.sh`. `skif-node` and `skif-bench` are `publish = false`.
    - The organization GitHub App (`BOT_APP_ID` / `BOT_APP_PRIVATE_KEY` organization secrets) must be installed on
      `polylint/homebrew-tap` and `polylint/scoop-bucket` with contents write, and on this repository with contents
-     and workflows write to move the floating tag ([ADR 0036](adrs/0036-move-to-the-polylint-organization.md)). The
+     and workflows write to move the floating tag ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)). The
      formula and the manifest are rendered from the templates in `scripts/publish/`.
 2. **Bump.** `scripts/release-bump.sh <version>` rewrites every version surface (the workspace version and `=` pins,
    `npm-package/package.json`, `poly-hooks.toml`, the pre-commit launcher, `action.yml` `BAKED_VERSION`, the agent

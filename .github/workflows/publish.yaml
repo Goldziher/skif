@@ -121,7 +121,7 @@ jobs:
       - name: Verify version consistency
         run: scripts/check-versions.sh "${{ steps.version.outputs.version }}"
 
-      # The newest Bun 1.x (ADR 0030), resolved once so every Bun job of the run tests the same release and Bun 2 does
+      # The newest Bun 1.x (ADR 0015), resolved once so every Bun job of the run tests the same release and Bun 2 does
       # not silently enter the matrix.
       - name: Resolve the newest Bun 1.x
         id: bun
@@ -992,7 +992,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        # ADR 0030: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
+        # ADR 0015: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
         runtime: [node-22, node-24, node-26, bun]
         include:
           # The published win32-x64-msvc package through npm's .cmd shim, the path a Windows user takes. mise.lock has
@@ -1064,7 +1064,7 @@ jobs:
           exit 1
 
   # The formula and the manifest are rendered from scripts/publish/ by the shared xberg-io actions, which hash the
-  # release's own archives, and pushed to the organization's tap and bucket by the org GitHub App (ADR 0036). They
+  # release's own archives, and pushed to the organization's tap and bucket by the org GitHub App (ADR 0015). They
   # serve the public release, so they wait for it the way the floating tag does.
   publish_homebrew:
     name: Update Homebrew formula

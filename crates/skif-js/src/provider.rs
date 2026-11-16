@@ -55,7 +55,7 @@ impl JsProvider {
         Self::new(Arc::new(OsFs))
     }
 
-    /// Parses source files through `modules`, a cache the host keeps across runs (ADR 0029). The cache changes no
+    /// Parses source files through `modules`, a cache the host keeps across runs (ADR 0007). The cache changes no
     /// result: its keys cover everything a parse depends on.
     #[must_use]
     pub fn with_module_cache(mut self, modules: Arc<dyn ModuleCache>) -> Self {
@@ -63,7 +63,7 @@ impl JsProvider {
         self
     }
 
-    /// Parses source files through `modules`, the cache the linters of one run share (ADR 0029), which decides which
+    /// Parses source files through `modules`, the cache the linters of one run share (ADR 0007), which decides which
     /// files it holds and whether concurrent lookups of a file wait for one parse. Like any module cache it changes
     /// no result.
     #[must_use]

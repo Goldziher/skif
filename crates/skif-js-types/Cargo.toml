@@ -16,7 +16,7 @@ include = ["/src/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md"
 
 [features]
 # Plain 64-bit pointers instead of tsrs's compressed handles, which reserve a fixed 32 GiB range of the address space
-# (ADR 0034). Only `tsrs_core` has the switch; every other tsrs crate follows it.
+# (ADR 0010). Only `tsrs_core` has the switch; every other tsrs crate follows it.
 plain-ptrs = ["tsrs_core/plain-ptrs"]
 
 [dependencies]
@@ -35,7 +35,7 @@ tsrs_tsoptions.workspace = true
 tsrs_vfs.workspace = true
 
 # The workspace table, except that unsafe code is denied instead of forbidden: freeing a program's arenas
-# (`free_unshared_program`) is the one unsafe call, allowed where it is made (ADR 0034).
+# (`free_unshared_program`) is the one unsafe call, allowed where it is made (ADR 0010).
 [lints.rust]
 unsafe_code = "deny"
 

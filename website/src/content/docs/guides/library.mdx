@@ -47,7 +47,7 @@ inside the checker is caught and leaves the packages of that program untyped (`c
 unwind on panic for that, as the release binaries do. Roots linted at once take the cores of their TypeScript
 programs from one budget; a host that runs several analyses at once shares a `TypeBudget` between them with
 `TypeBuild::with_budget` and `TypeInput::with_budget` of `skif-js-types`
-([ADR 0034](https://github.com/polylint/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)). No `oxc` or `rayon` type
+([ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md)). No `oxc` or `rayon` type
 appears in a public signature; a host that lints often passes an `Executor` (a reusable thread pool) in
 `RunOptions`. The data model is part of the contract: `serde` (the derives of the data model), `serde_json` (fix
 values and manifest values), `toml` (rule options), `indexmap` (the ordered maps of `Config`) and `nodejs_semver` (parsed specifier ranges). A major release of
@@ -159,7 +159,7 @@ passes the `SharedModules` it returns to each `Linter::with_shared_modules`.
 
 A `ModuleCache` only stores and returns results: coalescing concurrent parses is done beside it, so a cache that
 wraps another implements `get` and `put` and nothing else. The design is recorded in
-[ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md).
+[ADR 0007](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md).
 
 A `Linter` built with `Linter::with_fs` remembers directory listings, existence checks and small configuration
 files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits

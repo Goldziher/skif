@@ -147,7 +147,7 @@ impl IncompleteScopeGlobs {
 
 /// Entry regular expressions compiled once, shared by the [`Globs`] including them: those of the package, matched
 /// against `/` followed by the path relative to the package directory, and those of each scope (an Nx project, ADR
-/// 0109), matched against `/` followed by the path relative to the scope, for the files below it only.
+/// 0011), matched against `/` followed by the path relative to the scope, for the files below it only.
 #[derive(Debug, Clone)]
 pub(crate) struct EntryRegexes {
     package: Option<RegexSet>,

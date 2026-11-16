@@ -1,4 +1,4 @@
-//! The programs the analyses of a run over several roots share ([`TypePrograms`], ADR 0034, ADR 0029).
+//! The programs the analyses of a run over several roots share ([`TypePrograms`], ADR 0010).
 //!
 //! A root nested in another often has no `tsconfig.json` of its own, so TypeScript's discovery places its judged
 //! files in the program of a config above it: the outer root's, which the outer root and every other root below that

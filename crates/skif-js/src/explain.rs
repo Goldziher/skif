@@ -56,10 +56,10 @@ pub enum EntryReason {
     /// `playwright.config.ts` naming the tests of a member.
     EnclosingEntryGlob,
     /// In the narrowed scope of a package whose entries are incomplete: a config the analysis cannot fully read may
-    /// make it an entry, so it is treated as one (ADR 0016).
+    /// make it an entry, so it is treated as one (ADR 0008).
     IncompleteScope,
     /// In the narrowed scope of an incomplete package that contains its package, such as a root test config whose
-    /// globs reach the files of the members below it (ADR 0016).
+    /// globs reach the files of the members below it (ADR 0008).
     EnclosingIncompleteScope,
     /// The module is an entry, but none of the known rules accounts for it.
     Unknown,
@@ -122,7 +122,7 @@ pub struct Importer {
     /// The importing file, relative to the workspace root.
     pub file: String,
     /// 1-based line of the import; 0 for an import with no location, that of a registered component a template of the
-    /// file uses (ADR 0020).
+    /// file uses (ADR 0009).
     pub line: u32,
     /// How the import is written.
     pub kind: ImportKind,
@@ -141,7 +141,7 @@ pub struct ExportUser {
     /// The importing file, relative to the workspace root.
     pub file: String,
     /// 1-based line of the import; 0 for an import with no location, that of a registered component a template of the
-    /// file uses (ADR 0020).
+    /// file uses (ADR 0009).
     pub line: u32,
     /// What the import takes.
     pub how: String,
@@ -207,7 +207,7 @@ pub struct ExportReport {
     pub in_used_signature: bool,
     /// The export is itself a re-export.
     pub is_re_export: bool,
-    /// The class behind the export is registered as a custom element (ADR 0020), so the browser uses it.
+    /// The class behind the export is registered as a custom element (ADR 0009), so the browser uses it.
     #[serde(skip_serializing_if = "is_false")]
     pub registered: bool,
     /// The entry files of the package are not fully known and the file may be one of the unknown ones (the package
@@ -274,7 +274,7 @@ impl MemberOf {
     }
 }
 
-/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0034).
+/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0010).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -292,7 +292,7 @@ pub struct TypedEvidence {
     pub unresolved_readers: Vec<String>,
 }
 
-/// Why one member of an exported class, enum or namespace counts as used or not (ADR 0018).
+/// Why one member of an exported class, enum or namespace counts as used or not (ADR 0009).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -345,7 +345,7 @@ pub struct UsageReport {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub incomplete: Vec<IncompleteEntries>,
     /// When the entry files of its package are not fully known but can only be files matching these globs (relative
-    /// to the package directory): the narrowed scope of ADR 0016. Files in it are treated as entries and every other
+    /// to the package directory): the narrowed scope of ADR 0008. Files in it are treated as entries and every other
     /// file is judged; [`UsageReport::incomplete`] then lists the reasons too. Empty when the package's entries are
     /// known, or unknown package-wide.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -1040,7 +1040,7 @@ impl JsAnalysis<'_> {
     }
 
     /// Why `member` of the enum or namespace behind `export` of `module` counts as used or not: the uses without
-    /// types, and the typed reads and whole uses that add to them (ADR 0034).
+    /// types, and the typed reads and whole uses that add to them (ADR 0010).
     fn explain_enum_member(
         &self,
         module: &Module,

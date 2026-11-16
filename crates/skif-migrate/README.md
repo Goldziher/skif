@@ -11,4 +11,4 @@ One-shot translation of sherif, syncpack and knip configuration into a `skif.tom
   key path it came from.
 
 See the [migration guide](https://github.com/polylint/skif/blob/main/website/src/content/docs/guides/migrating.mdx) and
-[ADR 0025](https://github.com/polylint/skif/blob/main/adrs/0025-skif-migrate.md).
+[ADR 0003](https://github.com/polylint/skif/blob/main/adrs/0003-configuration-suppressions-baselines-and-migration.md).

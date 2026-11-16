@@ -513,7 +513,7 @@ test("an invalid type-aware budget check is refused and a failed one is publishe
   assert.deepEqual(summaryProblems(failed), []);
   assert.ok(
     benchDetail(failed).includes(
-      "| Type-aware budget (ADR 0029) | Check | Result |\n| --- | --- | --- |\n" +
+      "| Type-aware budget (ADR 0010) | Check | Result |\n| --- | --- | --- |\n" +
         "| corpus: babel (yarn) | peak RSS with types <= 4096 MiB (measured 4200 MiB) | FAIL |\n",
     ),
     benchDetail(failed),

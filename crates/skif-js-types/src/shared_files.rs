@@ -1,4 +1,4 @@
-//! The declaration files the programs of a run share (ADR 0034): the bundled `lib.*.d.ts` files and the declaration
+//! The declaration files the programs of a run share (ADR 0010): the bundled `lib.*.d.ts` files and the declaration
 //! files below `node_modules` are read, parsed and bound once for the run instead of once per program.
 //!
 //! # Why sharing is sound

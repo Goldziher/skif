@@ -253,7 +253,7 @@ const LAZY_FILES: [(&str, &str); 6] = [
 ];
 
 /// `lazy` of React and `next/dynamic` read only the export the loader resolves to, as knip counts them; an import
-/// returned to any other call keeps the namespace in use, since that call may read any export (ADR 0018).
+/// returned to any other call keeps the namespace in use, since that call may read any export (ADR 0009).
 #[test]
 fn a_lazy_component_loader_uses_only_the_export_it_renders() {
     let diagnostics = lint_files(&LAZY_FILES);
@@ -292,7 +292,7 @@ fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
 }
 
 /// knip counts a namespace passed to `spyOn` as a use of the whole module and reports nothing here; skif reads the
-/// spied member only (ADR 0018), so an export that neither the named import nor the spy reads stays unused.
+/// spied member only (ADR 0009), so an export that neither the named import nor the spy reads stays unused.
 #[test]
 fn a_spy_next_to_a_named_import_leaves_the_other_exports_unused() {
     let diagnostics = lint_files(&[

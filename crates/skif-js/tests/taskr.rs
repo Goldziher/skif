@@ -1,4 +1,4 @@
-//! The `taskr` plugin (ADR 0020), linted from the `taskr` fixture with the plugin table.
+//! The `taskr` plugin (ADR 0009), linted from the `taskr` fixture with the plugin table.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

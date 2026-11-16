@@ -405,7 +405,7 @@ pub enum Heritage {
     Opaque,
 }
 
-/// The members and heritage of a class behind an export, which `unused-class-members` judges (ADR 0018).
+/// The members and heritage of a class behind an export, which `unused-class-members` judges (ADR 0009).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ClassShape {
@@ -520,12 +520,12 @@ pub struct Export {
     /// The byte offset of the name of the class, enum or namespace declaration of this module the export stands for
     /// (`Foo` in `class Foo`, also behind `export { Foo }` and `export default Foo`), or for an anonymous
     /// `export default class {}`, which has no name, the offset just past its closing brace. The type-aware analysis
-    /// keys declarations by it (ADR 0034), and the exports of one class share it; `None` for other exports.
+    /// keys declarations by it (ADR 0010), and the exports of one class share it; `None` for other exports.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration_start: Option<u32>,
 }
 
-/// How a class is registered as a custom element (ADR 0020).
+/// How a class is registered as a custom element (ADR 0009).
 ///
 /// [`Registration::Define`] is unambiguous on its own. The other two only name the binding the registration goes
 /// through; whether that binding registers anything depends on the library it comes from, which the caller decides
@@ -613,7 +613,7 @@ pub struct ModuleInfo {
     /// The tag names of the template of a `.vue` file as written (`AppButton`, `app-card`, `div`), with the static
     /// values of its `is` attributes (`is="AppButton"`, `:is="'AppButton'"`), and the names of the
     /// `resolveComponent('AppButton')` calls of any file, sorted and without duplicates: `unplugin-vue-components`
-    /// imports the components it registers into the files that use them so (ADR 0020). Empty for other files.
+    /// imports the components it registers into the files that use them so (ADR 0009). Empty for other files.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_tags: Vec<String>,
     /// The property names the file reads, on any object: `x.name`, `x?.name`, `x['name']`, an element access whose key

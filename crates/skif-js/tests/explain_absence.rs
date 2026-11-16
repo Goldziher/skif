@@ -327,7 +327,7 @@ fn a_file_in_the_narrowed_scope_is_an_entry() {
     );
 }
 
-/// The narrowed scope of an incomplete root reaches the files of the members below it (ADR 0016); the reason names
+/// The narrowed scope of an incomplete root reaches the files of the members below it (ADR 0008); the reason names
 /// that enclosing scope and its package rather than none.
 #[test]
 fn a_member_file_in_the_narrowed_scope_of_the_root_is_an_entry_of_that_scope() {
@@ -370,7 +370,7 @@ fn a_member_file_in_the_narrowed_scope_of_the_root_is_an_entry_of_that_scope() {
 }
 
 /// The exports of a file outside the narrowed scope are judged: every file of the scope is an entry, so whatever an
-/// unknown entry imports is counted (ADR 0016). The exports of a file in the scope stay unjudged.
+/// unknown entry imports is counted (ADR 0008). The exports of a file in the scope stay unjudged.
 #[test]
 fn an_export_outside_the_narrowed_scope_is_judged() {
     let files = [
@@ -449,7 +449,7 @@ fn published_build_output_without_a_source() {
 }
 
 /// A published path into nothing (no file, no source behind it, not build output) contributes no entry and leaves the
-/// package's entries known (ADR 0016).
+/// package's entries known (ADR 0008).
 #[test]
 fn a_published_path_into_nothing_leaves_the_package_judged() {
     let files = [
@@ -483,7 +483,7 @@ fn bundling(entry: &str) -> [(&'static str, String); 4] {
 }
 
 /// A plugin entry in build output that maps back to no source file hides what the bundle reaches, so the package's
-/// entries are incomplete and name the entry (ADR 0016).
+/// entries are incomplete and name the entry (ADR 0008).
 #[test]
 fn a_plugin_entry_in_build_output_without_a_source() {
     let files = bundling("'lib-esm', 'entry.js'");
@@ -498,7 +498,7 @@ fn a_plugin_entry_in_build_output_without_a_source() {
 }
 
 /// A plugin entry into nothing (no file, no source behind it, not build output) contributes no entry and leaves the
-/// package's entries known, as a published path into nothing does (ADR 0016).
+/// package's entries known, as a published path into nothing does (ADR 0008).
 #[test]
 fn a_plugin_entry_into_nothing_leaves_the_package_judged() {
     let files = bundling("'app', 'entry.js'");

@@ -1,4 +1,4 @@
-//! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0028, ADR 0029).
+//! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0013, ADR 0007).
 //!
 //! It lints the root containing a document and publishes the diagnostics of every file of that root. The lint reads
 //! the text of the open documents, unsaved changes included, through a [`BufferFs`] over the disk: on open, save and

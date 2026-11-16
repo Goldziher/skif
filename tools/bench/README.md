@@ -70,7 +70,7 @@ as for a clean run with the reason beside it, and `summary.md` and the published
 Such a time is that of a run without those entries. A corpus
 repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif reads (npm-cli sets
 `--no-gitignore`). Every compared row is timed on the scope its comparison tool reads
-([ADR 0037](../../adrs/0037-time-each-comparison-tool-on-the-scope-it-reads.md)): `skif --no-js` against sherif and
+([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md)): `skif --no-js` against sherif and
 syncpack, and the full `skif` against knip, run without `--recursive`, because a recursive run lints the nested roots
 that are not workspace members, which none of those tools reads (next-js has 403). The full row would use
 `--recursive` only where knip itself is configured to read such nested projects; no repository does. Where a repository
@@ -91,12 +91,12 @@ Each corpus and module graph target is timed in both modes of the whole run: `sk
 `skif --type-aware`, in the same hyperfine run. Each mode then runs once more under `/usr/bin/time` (`-v`, GNU time,
 on Linux; `-l` on macOS) for its peak RSS; where neither is available the RSS is `null` and its check `not-measured`.
 `summary.md` and the published tables show both modes, labelled "types on" and "types off (default)", with their peak
-RSS. The type-aware budget of ADR 0029 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: `--type-aware` at
+RSS. The type-aware budget of ADR 0010 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: `--type-aware` at
 most 3x the default run on the largest corpus repository (the one whose untyped run takes longest), a median of at most 2x across
 the corpus, at most 4 GiB peak RSS with types on every target, at most 5 s with types on the module graph case, and
 at least 5x faster than knip with types wherever knip completes. `--check-budget` makes `run` exit non-zero when one
 of them fails, after writing the summary. The `bench` workflow does not pass it while types are opt-in: the budget
-is the bar they must meet to become the default again (ADR 0029).
+is the bar they must meet to become the default again (ADR 0010).
 
 ## Targets (ADR 0001)
 
@@ -217,10 +217,10 @@ and side, or as many as `--samples <N>` asks for, and every one-sided finding wi
 files only one tool reports in a repository. Samples name files of the corpus repositories and are never committed.
 
 **Types.** skif runs twice per repository: with `--type-aware`, and again with `--no-type-aware`. The typed run is
-the one compared with knip, whose counts `baselines/parity.json` holds ([ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). A one-sided finding
+the one compared with knip, whose counts `baselines/parity.json` holds ([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md)). A one-sided finding
 that no other known deviation explains is the `type-resolved` known deviation when skif reports it only with types, or
 when knip reports it and only the untyped run does too: types settle which declaration a read reaches, while knip
-credits by name ([ADR 0034](../../adrs/0034-type-aware-analysis-on-tsrs.md)). `parity.md` adds a "Typed versus untyped"
+credits by name ([ADR 0010](../../adrs/0010-type-aware-analysis-on-tsrs.md)). `parity.md` adds a "Typed versus untyped"
 table with, per repository and skif rule (every rule, not only the compared ones), the findings of each run and those
 only one run reports; `parity.json` holds them with sample keys under each repository's `type_aware`, with the untyped
 run's time (`untyped_ms`). A finding is keyed `<file>:<line>|<message>` there. When the untyped run fails or times out,
@@ -317,10 +317,10 @@ reverse, counts as shared under knip's category and key: a tsconfig `types` entr
 manifest lists for skif and a module knip cannot resolve. The two keys pair when they name the same package, a
 specifier with a subpath (`vite/client`) pairing with its package (`vite`). An import only knip reports in
 `unresolved` that skif reports as `stale-mocks` on the same file and specifier (`jest.requireActual('./x')` of a
-module that does not exist, which skif reports under its own rule, ADR 0019) counts as shared too.
+module that does not exist, which skif reports under its own rule, ADR 0009) counts as shared too.
 
 **Signature types.** skif counts an export that the signature of a used export of the same file mentions as used ([ADR
-0029](../../adrs/0018-export-namespace-and-member-rules.md)):
+0009](../../adrs/0009-what-counts-as-a-use.md)):
 `export interface Props` that `export function Widget(p: Props)` names. knip has no such rule. An export or type only
 knip reports is the `signature-type` known deviation when skif's parser (`referenced_in`) finds it in the signature of
 another export of the file that skif does not report as unused, directly or through exports in such signatures; the
@@ -339,7 +339,7 @@ ignores them. Most `test-file` findings are test files, which skif's test-runner
 and setup files; in next.js thousands are the app files of test fixtures below test directories, which are not test
 entries. The harness sets them apart by path, without establishing why skif does not report each one.
 `--include-test-files` counts the `files` of `fixture-file` and `test-file` as differences (not usable with a baseline,
-nor is `--repo-knip-config`). See [ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md).
+nor is `--repo-knip-config`). See [ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md).
 
 **Foreign tsconfig paths.** knip resolves every import through the merged tsconfig `paths` of all workspaces; skif
 uses the `paths` of the configuration the importing file follows, and reports an import that only another package's
@@ -352,8 +352,8 @@ at or above it, with its `extends` chain, `baseUrl` and `${configDir}`) map to a
 `node_modules`, which skif resolves to that source. An unlisted import a `declare module` of a script file of the
 checkout declares (the specifier, its package, or a pattern with one `*`, as skif matches them) is `ambient-module`,
 and a `data:` specifier is `data-uri`; skif takes neither for a dependency. See
-[ADR 0019](../../adrs/0019-dependency-unlisted-and-unresolved-findings.md) and
-[ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md).
+[ADR 0009](../../adrs/0009-what-counts-as-a-use.md) and
+[ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md).
 
 **Where each tool looks.** knip's workspaces are the root and the members its patterns select (`pnpm-workspace.yaml`
 or the `workspaces` of `package.json`); the harness reads them with skif's workspace discovery and records their
@@ -460,7 +460,7 @@ Two more follow from what knip makes an entry and how it credits a module object
   reads: the paths `files` lists and the files the `include` globs match (everything below the configuration's
   directory when neither is set), less the `exclude` globs, `node_modules`, the `outDir` and hidden directories, read
   through `extends` with each list relative to the configuration that sets it. skif judges a module declaration file
-  like any module and makes it an entry only when something else does (ADR 0013). Set apart are the exports,
+  like any module and makes it an entry only when something else does (ADR 0007). Set apart are the exports,
   types and members only skif reports in such a file (vscode's `extensions/git/src/api/git.d.ts`, cal-com's
   `packages/types/*.d.ts`); the unlisted dependencies and unresolved imports only knip reports in one that no code file
   imports (cal-com's `packages/types/AppGetServerSideProps.d.ts` and `next-auth`), as the import scan of
@@ -473,13 +473,13 @@ Two more follow from what knip makes an entry and how it credits a module object
 - `module-object-types`: a type only skif reports in a file that an import in a code file of the checkout uses as a
   whole module object (`import()`, `require`, a namespace used as a whole), directly or through `export … from` and
   `export *` re-exports. knip records such a use as opaque and credits every export, types included; skif's whole use
-  counts the module's values only (ADR 0018). cal-com's `crm.apps.generated.ts` maps each app to
+  counts the module's values only (ADR 0009). cal-com's `crm.apps.generated.ts` maps each app to
   `import("./<app>/lib/CrmService")`, so the `CrmService` types are skif's only. Only the files that hold `import(`,
   `require(` or `* as ` are parsed.
 
 More follow from what knip reads no use in, where skif reads one with its parser or plugins:
 
-- `heft-config`: a dependency only knip reports unused that skif's `heft` plugin credits (ADR 0015): a project's
+- `heft-config`: a dependency only knip reports unused that skif's `heft` plugin credits (ADR 0008): a project's
   `config/heft.json`, `config/rig.json` or `config/jest.config.json`, or a rig's profile (`profiles/<profile>/` of the
   rig itself, or of the installed rig a `config/rig.json` names) names it, or it is the peer of a package so named.
   knip has no Heft plugin. The harness runs skif's plugin resolver (`skif-js-plugins`) for each project that owns such
@@ -494,7 +494,7 @@ More follow from what knip reads no use in, where skif reads one with its parser
   module object, as skif's parser reads it (n8n's `methods = { listSearch, loadOptions }`, a namespace spread or
   passed to `vi.mocked`, a `require` a callback returns, a named import of a namespace re-export that escapes:
   `export * as listSearch from './listSearch'` in `methods/index.ts`), or that such a file re-exports. skif credits
-  every value export of such a module (ADR 0018); knip does not take these uses for whole ones.
+  every value export of such a module (ADR 0009); knip does not take these uses for whole ones.
 - `commonjs-default-import`: an export or namespace export only knip reports in a CommonJS file (`module.exports`, no
   `default` export) that a default import reads as a property (`import routing from './ci-routing.cjs'` and then
   `const { a } = routing` in mastra's `.github/scripts`). skif binds the default import to `module.exports`; knip
@@ -607,7 +607,7 @@ ignores (vscode's `.build/typings`); `heft-config` also covers an unresolved imp
 
 `non-member-project`, `published-source`, `published-file` and `entry-module-duplicate` check where a finding is, not
 why skif has no finding there. See
-[ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md).
+[ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md).
 
 **Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
 has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no
@@ -628,7 +628,7 @@ or `js_test`, name it in the `BUILD` file's package (a literal of a top-level ca
 one inside a nested `select`, as skif's plugin reads them), when the `srcs` or `data` of a test target (`js_test`, or
 any of these rules with `testonly = True`) add a `glob(...)` (also `native.glob`) whose include patterns match it below
 the `BUILD` file's directory (its `exclude` patterns are not applied, as skif applies none,
-[ADR 0031](../../adrs/0031-bazel.md)), or when such a file reaches it by relative
+[ADR 0011](../../adrs/0011-nx-lerna-and-bazel.md)), or when such a file reaches it by relative
 imports through other files only knip reports unused. The `glob` of a target that is no test names nothing. Their exports stay compared: skif judges the exports of `srcs` and `data` files;
 only an `entry_point` is an entry whose exports are public.
 
@@ -639,7 +639,7 @@ members, nor the files the config could make entries. A finding only knip report
 `not-judged-by-skif`, and so is one in `files`, `exports`, `types`, `nsExports`, `nsTypes`, `enumMembers` or
 `namespaceMembers` in a file skif left unjudged: any file of the package when its entry's `scope` is `"package"`, only
 a file its globs match (relative to the package directory, matched as skif matches them) when the scope is
-`{"within": [...]}` ([ADR 0016](../../adrs/0016-config-evaluation-and-incomplete-entries.md)); a package listed twice gets
+`{"within": [...]}` ([ADR 0008](../../adrs/0008-plugins-config-evaluation-and-commands.md)); a package listed twice gets
 the union of its scopes. A narrowed scope also covers the files of the packages nested below its package that its
 globs match relative to that package (a root scope of `packages/*/e2e/**` reaches `packages/web/e2e/run.ts`), as skif
 makes each of them an entry; the dependencies of a nested package are not judged only when skif lists that package
@@ -647,22 +647,22 @@ itself. These are counted in their own column of `parity.md`, apart from the agr
 other known deviations, and ignored by `--check`. `unlisted`, `unresolved`, `binaries` and `duplicates` are judged in
 every package and stay compared. `parity.json` lists the directories per repository under `not_judged_packages`, and
 the globs of the narrowed ones under `narrowed_packages`. See
-[ADR 0022](../../adrs/0022-reporting-and-output-formats.md) and [ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md).
+[ADR 0012](../../adrs/0012-cli-contract-and-reporting.md) and [ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md).
 
-**More layouts (ADR 0021).** These known deviations are decided from the finding key, the manifests, the
+**More layouts (ADR 0014).** These known deviations are decided from the finding key, the manifests, the
 configuration files and an import scan of the checkout's code files (every directory but the build output and
 `node_modules` ones, hidden directories included), with skif's parser:
 
 - `rush-provided-command`: `rush`, `rushx` or `rush-pnpm` only knip reports as an unlisted binary in a repository with
-  a `rush.json`; Rush provides them to every script (ADR 0012).
+  a `rush.json`; Rush provides them to every script (ADR 0004).
 - `shell-builtin` and `global-binary`: a binary only knip reports that is a shell builtin (`read`, `ulimit`), or a
   system or machine tool on skif's list (`IGNORED_BINARIES` and `MACHINE_BINARIES` of `skif-js-plugins`, which the
-  harness reads rather than copies, ADR 0017).
+  harness reads rather than copies, ADR 0008).
 - `replaced-knip-config`: an unused file only knip reports that is a knip configuration (`knip.ts`,
   `knip.config.js`, ...) at the root of one of its workspaces, while knip ran with the harness's empty configuration;
   skif's knip plugin makes it an entry.
 - `whole-enum-use`: an enum member only knip reports whose enum skif's parser finds used as a whole value, which ADR
-  0018 counts as a use of every member: in its own file (`Object.keys(E)`, `E[key]`, `typeof E`), or in a code file
+  0009 counts as a use of every member: in its own file (`Object.keys(E)`, `E[key]`, `typeof E`), or in a code file
   of the checkout through a named import used so (`@IsEnum(E)`, `{ enum: E }`), a namespace member used so
   (`{ KeyCode: ns.KeyCode }`), a namespace used as a whole, `import()` or `require`, directly or through re-exports,
   resolved as the import scan of `imported-by-knip-unused-file` resolves them. Only the files that name one of the
@@ -670,7 +670,7 @@ configuration files and an import scan of the checkout's code files (every direc
 - `paths-before-packages`: a dependency only skif reports unused, or a file only knip reports unused, where a file of
   the workspace imports the dependency's package by a specifier its configuration's `paths` map to that file of the
   same workspace, which exists: skif resolves through `paths` before packages, as TypeScript does, and counts the
-  import for the file (ADR 0013); knip credits the dependency. A mapping into another member or into `node_modules`
+  import for the file (ADR 0007); knip credits the dependency. A mapping into another member or into `node_modules`
   stays compared.
 - `uninstalled-project`: a dependency, binary, unlisted dependency or unresolved import one tool reports in a project
   without installed packages at or above it (no `node_modules` directory or `.pnp.cjs`), in a checkout the harness
@@ -742,7 +742,7 @@ status code, and skif's diagnostic `detail` carries the same status code names (
 **Known deviations.** A one-sided finding that the manifests show to be an intended difference (`satisfied-local-range`,
 `missing-local-version`, `floating-specifier`, `shorthand-ranking`, `npm-alias`, `unread-by-syncpack`) is taken out of
 the counts, reported per target in its own column and section with the reason, and ignored by `--check`; what stays
-one-sided is unexplained. See [ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md).
+one-sided is unexplained. See [ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md).
 
 ## Baselines and the drift check
 
@@ -774,14 +774,14 @@ be refreshed one repository at a time (install, run, then delete the checkout's 
 not hold every install at once; entries recorded with another tool version or category set are dropped on write, not
 merged. The scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests)
 runs both checks and writes the parity table and any drift to the job summary. The decision is
-[ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md).
+[ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md).
 
 ## Measured numbers
 
 The published numbers are on the [benchmarks page](https://polylint.github.io/skif/guides/benchmarks/), with the
 methodology; the README and the comparison guide carry headline claims generated from the same run. They come from the
 `bench` workflow (`.github/workflows/bench.yml`), which runs only when dispatched, on a pinned GitHub-hosted runner
-image ([ADR 0029](../../adrs/0029-performance-caching-benchmarks-and-budgets.md)):
+image ([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md)):
 
 ```sh
 gh workflow run bench.yml -f ref=v0.3.0 -f runner=ubuntu-24.04   # also: -f runs=15 -f warmup=3 -f only=babel
@@ -915,7 +915,7 @@ Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items). skif 
 | All | 33 | 1.000 | 1.000 | 0.767 | 1.000 |
 
 Both tools find every seeded finding, and skif reports nothing else: it does not report files in `fixtures`
-directories (ADR 0014) and credits the export `typeof import("./typed")["settings"]` names. knip's false findings are
+directories (ADR 0007) and credits the export `typeof import("./typed")["settings"]` names. knip's false findings are
 those five exports (`typeof-import`) and the five fixture files (`fixture-dir`). The patterns are synthetic and cover
 only these cases, so the numbers say which known traps a tool falls into, not how precise it is on a real repository.
 
@@ -964,7 +964,7 @@ in-process part.
   whole report first, with its time and the reason.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
 - The skif command line is `skif . --format json --no-install [--no-js] [--config <entry files>]`, plus `--recursive`
-  on the informational `skif --recursive` row alone (ADR 0037); the working directory is the target.
+  on the informational `skif --recursive` row alone (ADR 0014); the working directory is the target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
   mean over many `--runs`.
 - The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each

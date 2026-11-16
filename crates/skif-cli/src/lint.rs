@@ -106,7 +106,7 @@ fn rule_given_as_path(path: &Path) -> Result<(), CliError> {
 }
 
 /// Whether GitHub annotations accompany the human output: with no `--format`, `GITHUB_ACTIONS=true` selects human
-/// output plus annotations (ADR 0022).
+/// output plus annotations (ADR 0012).
 fn annotations(args: &LintArgs, env: Env) -> bool {
     args.format.is_empty() && env.github_actions
 }
@@ -151,7 +151,7 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
 }
 
 /// The base overrides of a long-running process (the language server, `skif mcp`, `--watch`): it analyses without
-/// types until repeated typed analyses are shown to free their memory (ADR 0034).
+/// types until repeated typed analyses are shown to free their memory (ADR 0010).
 pub(crate) fn server_overrides() -> ConfigOverrides {
     ConfigOverrides::default().with_no_type_aware(true)
 }
@@ -347,7 +347,7 @@ fn install_step(args: &LintArgs, changed: &[&Path], workspace: &Workspace) -> In
 }
 
 /// Whether the rendering of `format` to `file` is coloured: only the rendering of [`LintArgs::format`] can be, and
-/// only when it is `human` and goes to stdout or `--output`; a `FORMAT=FILE` rendering never is (ADR 0022).
+/// only when it is `human` and goes to stdout or `--output`; a `FORMAT=FILE` rendering never is (ADR 0012).
 fn color_enabled(args: &LintArgs, env: Env, format: Format, file: Option<&Path>) -> bool {
     let primary = format == args.format() && (file.is_none() || args.output.is_some());
     primary
@@ -1005,7 +1005,7 @@ const DEPENDENCY_REMOVALS: [&str; 2] = ["unused-dependencies", "unused-dev-depen
 
 /// Warns when a single-root run is about to fix a finding that removes a dependency while other roots lie below the
 /// root: their code is not analysed, so a dependency of this root that only they use is reported unused and the fix
-/// removes it. `skif -r` credits their uses (ADR 0006).
+/// removes it. `skif -r` credits their uses (ADR 0004).
 fn warn_nested_roots(args: &LintArgs, root: &Path, runs: &[RootRun], fs: &dyn FileSystem) {
     let removes = runs
         .iter()
@@ -1063,7 +1063,7 @@ fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)])
     Err(CliError::new(Kind::Usage, format!("--max-show-issues {reason}")))
 }
 
-/// Renders every requested format, then writes the files and stdout (ADR 0022). Every rendering is made before
+/// Renders every requested format, then writes the files and stdout (ADR 0012). Every rendering is made before
 /// anything is written, so a failing one leaves every file untouched; a write that fails partway leaves the files
 /// written before it in place. `shown` is the report `--max-show-issues` cut short: the JSON rendering lists it, and
 /// the human rendering lists the (equally cut) `views` while its annotations come from the full `report`. A run with

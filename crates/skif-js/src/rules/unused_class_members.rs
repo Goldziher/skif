@@ -18,11 +18,11 @@ pub static META: RuleMeta = RuleMeta::new(
     "A member of an exported class is never read.",
 );
 
-/// Reports members of used exported classes that no module reads (ADR 0018).
+/// Reports members of used exported classes that no module reads (ADR 0009).
 ///
 /// The class must be used by another module; an unused class is reported by `unused-exports`. A member is used when
 /// the member-usage source says so (the type checker where it covered the declaring file, reads by name elsewhere,
-/// also through an element access whose key is a constant, ADR 0018 and ADR 0034); the declarations decide which members are not
+/// also through an element access whose key is a constant, ADR 0009 and ADR 0010); the declarations decide which members are not
 /// judged at all, among them a field that exists only for the type checker
 /// ([`crate::class_members::MemberExemption`]). The fix deletes the member ([`skif_js_syntax::ClassMember::removal`]).
 pub struct UnusedClassMembers;

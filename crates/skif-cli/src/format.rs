@@ -1,4 +1,4 @@
-//! `skif format [--check]`: a lint with `package-json-format` alone (ADR 0009).
+//! `skif format [--check]`: a lint with `package-json-format` alone (ADR 0005).
 
 use skif::{Config, Level, Linter};
 

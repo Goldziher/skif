@@ -4,184 +4,74 @@ canonical = 1
 [adrs."adrs/0001-mission-scope-and-non-goals.md"]
 number = 1
 status = "accepted"
-blake3 = "f7bf375924306c4d19999b3363c9a1b7ee47efe98d4b4cc28d3856ece892272e"
+blake3 = "84f57a1e0d8c63fdbdca153ef9e53b95d409a467d6269a142971c5225d0a7518"
 
-[adrs."adrs/0002-crates-publishing-and-repository-consistency-checks.md"]
+[adrs."adrs/0002-crates-library-api-and-upstream-code.md"]
 number = 2
 status = "accepted"
-blake3 = "b161ae86761af2e49419e7c199a580153e94c70d6c1da9548b8e4e0b585e22e5"
+blake3 = "a90d3a8d1979e1bb6954f64714d9bfc785c674c552d65c9a9d89e73aaab323f5"
 
-[adrs."adrs/0003-library-api-and-embedding.md"]
+[adrs."adrs/0003-configuration-suppressions-baselines-and-migration.md"]
 number = 3
 status = "accepted"
-blake3 = "7edde996289c6cc151c7feeaacc54b80ccb0b5a22ec57df935cd37daf280cc56"
+blake3 = "6804c54d838b03ae4bae8a9e236786ea066987655a654cbdcac8a8b2bba77fc6"
 
-[adrs."adrs/0004-configuration-model-and-layering.md"]
+[adrs."adrs/0004-workspaces-roots-and-package-managers.md"]
 number = 4
 status = "accepted"
-blake3 = "00734b99bbfe4ab36e8acde56377d14180fbe83801efbc7673ae8d0a1e0fbdce"
+blake3 = "87c0d1d047e3e33cbbc1fab53514edf822966da54df9a4f5d1d7becb488e6d2f"
 
-[adrs."adrs/0005-the-js-table-ignore-lists-and-suppression-reasons.md"]
+[adrs."adrs/0005-rules-diagnostics-and-fixes.md"]
 number = 5
 status = "accepted"
-blake3 = "2e11bf621dfa1cfda390e0ce051dcbabf83a9aff3701d2a172a12bf19943699f"
+blake3 = "19e6d945a395a4f270188a7dc4ced73baa146f08e4feb6f2afedd3a35d69dbad"
 
-[adrs."adrs/0006-workspace-discovery-roots-and-multi-root-runs.md"]
+[adrs."adrs/0006-version-policies-lockfiles-toolchains-and-updates.md"]
 number = 6
 status = "accepted"
-blake3 = "80895dad49fa151727702ff114fd992686e76460d50817d287434888bcf29d81"
+blake3 = "08ebe9729de73ffa29ad86e45309c25d86110d0781c666e2aff12b9a49a3eceb"
 
-[adrs."adrs/0007-specifier-and-semver-model.md"]
+[adrs."adrs/0007-js-analysis-core-on-oxc.md"]
 number = 7
 status = "accepted"
-blake3 = "d071b87d83d047c4ab82f09f05ed0d56c1803934eec3bd6df64ed259aed58675"
+blake3 = "0fdd4a7ed75f5e6f001f20a4afe5a44a67f36561b9245ee2b9774bc1e18f2536"
 
-[adrs."adrs/0008-rule-and-diagnostic-model-rule-ids-and-severities.md"]
+[adrs."adrs/0008-plugins-config-evaluation-and-commands.md"]
 number = 8
 status = "accepted"
-blake3 = "352d4214134b51423d603356cc8586414aa6ab41f4f9861b2669667b0e6d09e7"
+blake3 = "d43f073adb2f2af6a293d6d4107aa7fbcdaae337cc499675b4d76c9e43cbc8e5"
 
-[adrs."adrs/0009-fixes-edits-and-package-json-formatting.md"]
+[adrs."adrs/0009-what-counts-as-a-use.md"]
 number = 9
 status = "accepted"
-blake3 = "b8f4659532bab3c7554c986f25110b378caf3e6b8e758f47bb480af1856fe481"
+blake3 = "bfd906987b833c5989957a738efe9ff6e4911263f6999a11947f19bd174478e0"
 
-[adrs."adrs/0010-version-semver-range-and-catalog-policies.md"]
+[adrs."adrs/0010-type-aware-analysis-on-tsrs.md"]
 number = 10
 status = "accepted"
-blake3 = "1f6c54fb5fe3a83f374f7e40833197b544a20c48f18c0fcf0d6ee0d08c23ccac"
+blake3 = "4a04109af9938cd209bfa1c0cb20847d99e5993ff8da790848899bf022425bbe"
 
-[adrs."adrs/0011-lockfile-and-toolchain-rules.md"]
+[adrs."adrs/0011-nx-lerna-and-bazel.md"]
 number = 11
 status = "accepted"
-blake3 = "3bb1ab86fe8c98a819e14d065dd30db9b3ce0e87ff9b00594ea7f439bed6e61b"
+blake3 = "8c783791bffb2bfc832b7a1dc54b97f67914c6c93fddd54b0277c0bb0ddf70ac"
 
-[adrs."adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md"]
+[adrs."adrs/0012-cli-contract-and-reporting.md"]
 number = 12
 status = "accepted"
-blake3 = "19b548eb39145353fe64c2d96e901f1887ff25318eeaafb63e43b784cbd38ee9"
+blake3 = "6bb8c261c2f61be6750a46b856925d47773f3020084d5a67406420bff6dc3e5d"
 
-[adrs."adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md"]
+[adrs."adrs/0013-editors-agents-and-git-hooks.md"]
 number = 13
 status = "accepted"
-blake3 = "3a24c43a35e1350468cbd2b0b997d76a2ab461d6f0eb9d07e3da46abb5a63b95"
+blake3 = "288bcdf7359cb806748426855bb981cc99db6eccc904a81a75ca9cda414f44c0"
 
-[adrs."adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md"]
+[adrs."adrs/0014-benchmarks-and-the-comparison-harness.md"]
 number = 14
 status = "accepted"
-blake3 = "88bd8e38bc4dfbc8bab8610a5fca1dbce8e488e17c4e9507555f087cb624c7a4"
+blake3 = "08faf587f770a7c5489635bf108c010f544ef7073a6547a73005b269b507d617"
 
-[adrs."adrs/0015-plugin-model-and-plugin-set.md"]
+[adrs."adrs/0015-distribution-release-and-supported-versions.md"]
 number = 15
 status = "accepted"
-blake3 = "c5fb4a1e15359c44464cfc3030457a3a21d867b0c84160611d138afd0fc16fcf"
-
-[adrs."adrs/0016-config-evaluation-and-incomplete-entries.md"]
-number = 16
-status = "accepted"
-blake3 = "0748c5cf84c2532d0229df899447fb2d53c4ca9e336d322abb8f0306469e757c"
-
-[adrs."adrs/0017-scripts-binaries-and-working-directories.md"]
-number = 17
-status = "accepted"
-blake3 = "e1a6f7be7276a9d53bb8fc695d04b94a5812cc1fe9b2ceb0af25a92ba563b6f7"
-
-[adrs."adrs/0018-export-namespace-and-member-rules.md"]
-number = 18
-status = "accepted"
-blake3 = "af55bcd3119168a23cbdf163d3fdd568338606349ee81e8d103695c43ce43a22"
-
-[adrs."adrs/0019-dependency-unlisted-and-unresolved-findings.md"]
-number = 19
-status = "accepted"
-blake3 = "076ff4fb171433d5b10ffa2d3c871325900bcf6a31cdcc1b04e6ecdd2a966d79"
-
-[adrs."adrs/0020-templates-components-and-custom-elements.md"]
-number = 20
-status = "accepted"
-blake3 = "a49c212f7449bdb0982a08047c8c7ac09de92a627bbc27be399d5ed14de8f665"
-
-[adrs."adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md"]
-number = 21
-status = "accepted"
-blake3 = "860dbe738d1836fc585a89e9659e4046beab6518154b619d37145c99cbaa12fc"
-
-[adrs."adrs/0022-reporting-and-output-formats.md"]
-number = 22
-status = "accepted"
-blake3 = "63271cdf9c19a4bd8b86b2f394e1790802488998d8710ff15bdee97930bf8ccf"
-
-[adrs."adrs/0023-baselines.md"]
-number = 23
-status = "accepted"
-blake3 = "d38046b32687582ac4100d0d6fef0b2d07e8950f5a3700545812e1239a8cf5f8"
-
-[adrs."adrs/0024-cli-contract.md"]
-number = 24
-status = "accepted"
-blake3 = "3bfd0b2fd717a694daad254ac77348a47a340950584631d86e0f0c3fde6a70f4"
-
-[adrs."adrs/0025-skif-migrate.md"]
-number = 25
-status = "accepted"
-blake3 = "f71fcfc334a7541a4a0aea039331461402f24538b454b09e6754f7d3958403f9"
-
-[adrs."adrs/0026-skif-update.md"]
-number = 26
-status = "accepted"
-blake3 = "28b4f573e9395f37e18d0ae38697668219131eaa4a1d1d812d2c786481e158ab"
-
-[adrs."adrs/0027-distribution-and-release.md"]
-number = 27
-status = "accepted"
-blake3 = "5c1ba0a3e3f0560831f476d25ee29eaa59e7f926e61c77e6ae032d93091d3cd4"
-
-[adrs."adrs/0028-editors-agents-and-git-hooks.md"]
-number = 28
-status = "accepted"
-blake3 = "bd22d2380cada08e296ad5c262bdb65f13e02ec94caa154c50925d924a1d156c"
-
-[adrs."adrs/0029-performance-caching-benchmarks-and-budgets.md"]
-number = 29
-status = "accepted"
-blake3 = "401fb287e1517c07510be996c44db207704d2f8e88b9110ba7f1ed889036f5b0"
-
-[adrs."adrs/0030-supported-versions-and-the-end-to-end-matrix.md"]
-number = 30
-status = "accepted"
-blake3 = "c32ea81ec0756f67bc8a73c99a62b7e7626071b86a1cf5ee4b68e16d8cabe341"
-
-[adrs."adrs/0031-bazel.md"]
-number = 31
-status = "accepted"
-blake3 = "49857b716e81697f44a2033961f570b04bd96b2886c1a18999eac5e8544e358e"
-
-[adrs."adrs/0032-nx-and-lerna-and-pruned-output-trees.md"]
-number = 32
-status = "accepted"
-blake3 = "f0a5517a727dd934ad547d2e17bd47689f15eba02d71dc413c8336da93186963"
-
-[adrs."adrs/0033-attribution-and-vendoring.md"]
-number = 33
-status = "accepted"
-blake3 = "938b925db25579b7fafee97cfdecfbb930816ddf27ac814f3da363a658c01142"
-
-[adrs."adrs/0034-type-aware-analysis-on-tsrs.md"]
-number = 34
-status = "accepted"
-blake3 = "a35f79de39e590d2ddc2e7ddaaf0a9e6a97a0c6c131d3c7847687cf96c899d8a"
-
-[adrs."adrs/0035-publish-the-npm-packages-under-the-polylint-scope.md"]
-number = 35
-status = "accepted"
-blake3 = "b27011e69aee2d0cb075c13b4dc328b57b57e6e0a36e133b9b1d52fa47fa7281"
-
-[adrs."adrs/0036-move-to-the-polylint-organization.md"]
-number = 36
-status = "accepted"
-blake3 = "a4c794068e5615c567717cdd0d0c29fdfe2b7ff370d3c6a6323d98592120d66a"
-
-[adrs."adrs/0037-time-each-comparison-tool-on-the-scope-it-reads.md"]
-number = 37
-status = "accepted"
-blake3 = "0453b54ccfcb8f6809bb62efb28cae64d41a081087b200f357dc4065ac1350c5"
+blake3 = "c0acb0d7dea35aeb8d274f73d5b5d946026a075782826e60e92145942e38d0b7"

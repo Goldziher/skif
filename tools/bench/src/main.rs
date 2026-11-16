@@ -384,7 +384,7 @@ struct RunArgs {
     /// Exit 0 even when an ADR 0001 target check fails.
     #[arg(long)]
     no_enforce: bool,
-    /// Exit with an error when a check of the type-aware budget of ADR 0029 fails: types on against types off on the
+    /// Exit with an error when a check of the type-aware budget of ADR 0010 fails: types on against types off on the
     /// corpus, peak RSS with types, the module graph case with types and the speed against knip.
     #[arg(long)]
     check_budget: bool,

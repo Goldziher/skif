@@ -1,4 +1,4 @@
-//! The plugin model of ADR 0015: a declarative [`PluginSpec`] row, an optional config resolver and the
+//! The plugin model of ADR 0008: a declarative [`PluginSpec`] row, an optional config resolver and the
 //! [`PluginOutput`] handed to the module graph.
 
 use std::path::{Path, PathBuf};
@@ -43,7 +43,7 @@ pub enum Enabler {
     ManifestKey(&'static str),
 }
 
-/// A custom element library whose registrations mark a class as used (ADR 0020).
+/// A custom element library whose registrations mark a class as used (ADR 0009).
 ///
 /// A class decorated with `decorator` imported from one of `modules` is registered, and so is a class that extends
 /// `base_class` imported from one of them and calls `Class.define(…)`.
@@ -227,7 +227,7 @@ pub enum PluginInput {
         path: String,
     },
     /// A config file the package ships for the packages that extend it, such as a `tsconfig` of a Heft rig profile
-    /// (ADR 0015), read by `plugin` as a [`PluginInput::LinkedConfig`] is, with what it extends. Its compiler options
+    /// (ADR 0008), read by `plugin` as a [`PluginInput::LinkedConfig`] is, with what it extends. Its compiler options
     /// apply to the packages extending it, so the packages they name ([`PluginInput::CompilerDependency`]) are only
     /// credits for this package, never unlisted here, and its aliases, module directories, output directories and
     /// conditions are left out.
@@ -270,7 +270,7 @@ pub struct BuildDir {
 
 /// The statically extracted content of a plugin's config file.
 ///
-/// The value comes from the static extraction of ADR 0013 for JavaScript and TypeScript, and from the JSON, YAML or TOML parsers otherwise. It holds no oxc type.
+/// The value comes from the static extraction of ADR 0007 for JavaScript and TypeScript, and from the JSON, YAML or TOML parsers otherwise. It holds no oxc type.
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigAst<'a> {
     /// Absolute path of the config file (`package.json` when the config is a key of it).
@@ -320,7 +320,7 @@ pub struct PluginContext<'a> {
     /// Finds the modules a config file imports values from (a base config of the project or of a workspace package),
     /// so they are evaluated too; `None` leaves imported values unknown.
     pub modules: Option<&'a dyn ModuleLoader>,
-    /// The Nx projects below the workspace and its directory in the Nx workspace (ADR 0032).
+    /// The Nx projects below the workspace and its directory in the Nx workspace (ADR 0011).
     /// [`resolve_plugins_with`](crate::resolve_plugins_with) sets it when the `nx` plugin is enabled; `None` reads the
     /// paths of a `project.json` as relative to the workspace directory, and has the `jest` plugin look for the
     /// projects of `getJestProjects()` itself.
@@ -409,7 +409,7 @@ pub trait Plugin: Send + Sync {
     }
 
     /// Where the entries that `config` hides for `cause` can plausibly lie, so that only those files are not judged
-    /// unused (ADR 0016). Called for an unknown or partly unknown value ([`IncompleteCause::UnknownValue`],
+    /// unused (ADR 0008). Called for an unknown or partly unknown value ([`IncompleteCause::UnknownValue`],
     /// [`IncompleteCause::UnknownSpread`]) and for computed entry keys ([`IncompleteCause::ComputedEntries`]); a
     /// config that does not parse is always [`IncompleteScope::Package`].
     ///
@@ -570,7 +570,7 @@ pub struct PluginOutput {
     /// Entry files given as regular expressions, besides `entries`; see [`PluginInput::EntryRegex`]. Not used in
     /// production mode.
     pub entry_regexes: Vec<String>,
-    /// The entry expressions that configs of the package's Nx project scopes give (ADR 0032), each with its scope; see
+    /// The entry expressions that configs of the package's Nx project scopes give (ADR 0011), each with its scope; see
     /// [`ScopedEntryRegex`]. Not used in production mode.
     pub scoped_entry_regexes: Vec<ScopedEntryRegex>,
     /// Config files that were found and read.
@@ -613,7 +613,7 @@ pub struct PluginOutput {
     pub incomplete_reasons: Vec<IncompleteEntries>,
 }
 
-/// An entry expression of an Nx project scope (ADR 0032): it selects the files below `scope`, matched as
+/// An entry expression of an Nx project scope (ADR 0011): it selects the files below `scope`, matched as
 /// [`PluginInput::EntryRegex`] is, against `/` followed by the path relative to the scope directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

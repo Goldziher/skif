@@ -8,7 +8,7 @@ command -v npx >/dev/null || command -v ai-rulez >/dev/null || {
 }
 
 # poly runs hooks only from the channels poly.local.toml (untracked, per machine) allows. The reviewed
-# ai-rulez hooks offer an npm channel (npx -y ai-rulez@latest, org ADR-0015) and a system channel (ai-rulez
+# ai-rulez hooks offer an npm channel (npx -y ai-rulez@latest, org ADR-0008) and a system channel (ai-rulez
 # on PATH); npm comes first so the hooks follow the latest release. ~keep
 preferences=poly.local.toml
 if ! grep -q '^\[hook_preferences\]' "$preferences" 2>/dev/null; then

@@ -231,7 +231,7 @@ fn ignored_member_reached_from_the_root_snapshot() {
 }
 
 /// knip's `class-members` fixture (knip 5.88.1): the members its test reports, except `AbstractClass.implemented`,
-/// which skif keeps used because `ExtendedClass` declares the same name and a module reads it (ADR 0018). The members
+/// which skif keeps used because `ExtendedClass` declares the same name and a module reads it (ADR 0009). The members
 /// React's `Component` declares (`render`, `componentDidMount`), `private` members and the members of an implemented
 /// interface are not judged.
 #[test]
@@ -327,7 +327,7 @@ fn imported_base_configs_are_followed() {
     let diagnostics = Run::new("imported-base-configs", "").lint_with_plugins();
     // The base configs of a workspace package and of a relative module are read, so the packages using them are
     // judged and their dead files reported. The config that imports itself back stays unknown, but a test config can
-    // only hide tests, so the other files of its package are judged too (ADR 0016).
+    // only hide tests, so the other files of its package are judged too (ADR 0008).
     assert_eq!(
         found(&diagnostics, "unused-files"),
         [
@@ -339,7 +339,7 @@ fn imported_base_configs_are_followed() {
     insta::assert_json_snapshot!("imported_base_configs", diagnostics);
 }
 
-/// A config skif cannot fully read leaves only the files its plugin could make entries unjudged (ADR 0016): Vite's
+/// A config skif cannot fully read leaves only the files its plugin could make entries unjudged (ADR 0008): Vite's
 /// `index`/`main` module, Vitest's and Playwright's tests, setup modules and test directories, and the Next.js
 /// router directories. Every other file is judged. A computed `import()` or an unparsable config keeps the whole
 /// package unjudged.
@@ -407,7 +407,7 @@ fn production_mode_leaves_stories_out_of_the_project() {
 
 /// The `incomplete-judged` fixture: `narrowed` merges an unknown base into its Vitest config, so its unknown entries
 /// lie in the test scope, whose files are entries; `whole` has a Vitest config unknown as a whole. The exports, types
-/// and enum members outside the narrowed scope are judged (ADR 0016), those of the scope's setup module and of the
+/// and enum members outside the narrowed scope are judged (ADR 0008), those of the scope's setup module and of the
 /// package unjudged as a whole are not.
 #[test]
 fn exports_outside_a_narrowed_incomplete_scope_are_judged() {

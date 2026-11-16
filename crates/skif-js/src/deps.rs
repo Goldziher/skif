@@ -1561,7 +1561,7 @@ impl DependencyUsage {
                     && !matches!(resolved.target, Target::Module(target) if !declares_only(graph, target))
                 {
                     // An alias that leads into the sources of the project is a local import, as it is for TypeScript
-                    // (ADR 0013): it uses no listed package of the name the specifier starts with. One that found
+                    // (ADR 0007): it uses no listed package of the name the specifier starts with. One that found
                     // no file can still stand in for the listed package, and so can one that leads to a declaration
                     // file, which types the package the import loads at runtime. A bare builtin name (`events`, `buffer`)
                     // uses a listed package of that name, the polyfill a bundler resolves it to for the browser; a

@@ -30,20 +30,21 @@ direction.
 
 ## Key decisions
 
-- [Mission and scope](https://github.com/polylint/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md)
-- [Library-first embedding](https://github.com/polylint/skif/blob/main/adrs/0003-library-api-and-embedding.md)
-- [Configuration model](https://github.com/polylint/skif/blob/main/adrs/0004-configuration-model-and-layering.md)
-- [Rule and diagnostic model](https://github.com/polylint/skif/blob/main/adrs/0008-rule-and-diagnostic-model-rule-ids-and-severities.md)
-- [Fix and edit model](https://github.com/polylint/skif/blob/main/adrs/0009-fixes-edits-and-package-json-formatting.md)
-- [Version and catalog policies](https://github.com/polylint/skif/blob/main/adrs/0010-version-semver-range-and-catalog-policies.md)
-- [JS analysis on oxc](https://github.com/polylint/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)
-- [Type-aware analysis on tsrs](https://github.com/polylint/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)
-- [CLI contract](https://github.com/polylint/skif/blob/main/adrs/0024-cli-contract.md)
-- [Several roots in one run](https://github.com/polylint/skif/blob/main/adrs/0006-workspace-discovery-roots-and-multi-root-runs.md) and
-  [root discovery](https://github.com/polylint/skif/blob/main/adrs/0006-workspace-discovery-roots-and-multi-root-runs.md)
-- [Layered configuration](https://github.com/polylint/skif/blob/main/adrs/0004-configuration-model-and-layering.md)
-- [Supported versions](https://github.com/polylint/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)
-- [Namespace export rules, virtual modules and linked configs](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)
+- [Mission, scope and non-goals](https://github.com/polylint/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md): what skif is, what it never does, and its speed targets
+- [Crates, library API and upstream code](https://github.com/polylint/skif/blob/main/adrs/0002-crates-library-api-and-upstream-code.md): layering, publishing, the pure-function contract and borrowed code
+- [Configuration, suppressions, baselines and migration](https://github.com/polylint/skif/blob/main/adrs/0003-configuration-suppressions-baselines-and-migration.md): layered `skif.toml`, ignore reasons, baselines and `skif migrate`
+- [Workspaces, roots and package managers](https://github.com/polylint/skif/blob/main/adrs/0004-workspaces-roots-and-package-managers.md): discovery, multi-root runs and per-manager semantics
+- [Rules, diagnostics and fixes](https://github.com/polylint/skif/blob/main/adrs/0005-rules-diagnostics-and-fixes.md): stable rule ids, severities and format-preserving fixes
+- [Version policies, lockfiles, toolchains and updates](https://github.com/polylint/skif/blob/main/adrs/0006-version-policies-lockfiles-toolchains-and-updates.md): syncpack-style policies, lockfile and toolchain rules, `skif update`
+- [JS analysis core on oxc](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md): module graph, resolution, file discovery and the parse cache
+- [Plugins, config evaluation and commands](https://github.com/polylint/skif/blob/main/adrs/0008-plugins-config-evaluation-and-commands.md): the declarative plugin table, static config evaluation and script parsing
+- [What counts as a use](https://github.com/polylint/skif/blob/main/adrs/0009-what-counts-as-a-use.md): export, member, dependency and template usage
+- [Type-aware analysis on tsrs](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md): opt-in typed member reads, their boundary and budget
+- [Nx, Lerna and Bazel](https://github.com/polylint/skif/blob/main/adrs/0011-nx-lerna-and-bazel.md): projects, task layouts and Starlark read as text
+- [CLI contract and reporting](https://github.com/polylint/skif/blob/main/adrs/0012-cli-contract-and-reporting.md): commands, flags, output formats, JSON contract and exit codes
+- [Editors, agents and git hooks](https://github.com/polylint/skif/blob/main/adrs/0013-editors-agents-and-git-hooks.md): `skif lsp`, `skif mcp`, `--watch` and hook launchers
+- [Benchmarks and the comparison harness](https://github.com/polylint/skif/blob/main/adrs/0014-benchmarks-and-the-comparison-harness.md): pinned corpus, parity with knip and syncpack, published numbers
+- [Distribution, release and supported versions](https://github.com/polylint/skif/blob/main/adrs/0015-distribution-release-and-supported-versions.md): channels, release workflow and the support policy
 
 The full list is the [ADR index](https://github.com/polylint/skif/blob/main/adrs/index.md).
 

@@ -1,4 +1,4 @@
-//! Type-aware member rules (ADR 0034): where the checker covers a declaring file, member uses come from it;
+//! Type-aware member rules (ADR 0010): where the checker covers a declaring file, member uses come from it;
 //! elsewhere, and for every read it cannot settle, they are credited by name. Each workspace has a real
 //! `tsconfig.json`.
 

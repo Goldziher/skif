@@ -1,4 +1,4 @@
-//! With type awareness turned off no part of the checker runs (ADR 0034). A test binary of its own: the arena counter
+//! With type awareness turned off no part of the checker runs (ADR 0010). A test binary of its own: the arena counter
 //! is process-wide, so a typed analysis on another test thread would move it.
 
 #![cfg(feature = "type-aware")]

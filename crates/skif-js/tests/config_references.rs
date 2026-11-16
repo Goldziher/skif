@@ -1,4 +1,4 @@
-//! Packages that tool configs name (ADR 0019): a `tsconfig` `extends`, `types` or plugin, an oxlint or eslint plugin
+//! Packages that tool configs name (ADR 0009): a `tsconfig` `extends`, `types` or plugin, an oxlint or eslint plugin
 //! or shareable config, a Prisma generator, a Babel preset or plugin and a postcss plugin are unlisted dependencies at
 //! the config when no manifest lists them, and uses of the manifest that does.
 
@@ -786,7 +786,7 @@ fn lint_owned(files: &[(String, String)]) -> Vec<Diagnostic> {
 }
 
 /// A coverage provider a shared config names only when an environment variable turns coverage on is an optional
-/// reference (ADR 0016): the app calling the factory without listing it has no unlisted dependency, and an app that
+/// reference (ADR 0008): the app calling the factory without listing it has no unlisted dependency, and an app that
 /// lists it uses it.
 #[test]
 fn a_package_named_only_on_an_environment_gated_branch_is_optional() {

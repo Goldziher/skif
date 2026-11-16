@@ -161,7 +161,7 @@ fn optional_peer_dependencies_must_be_installed_for_development() {
 }
 
 /// The root or a containing package that lists an optional peer in `dependencies`, `devDependencies` or
-/// `optionalDependencies` installs it for the member's development as well (ADR 0019, *Workspace isolation*); with
+/// `optionalDependencies` installs it for the member's development as well (ADR 0009, *Workspace isolation*); with
 /// `isolate-workspaces` only the member's own manifest installs it.
 #[test]
 fn an_optional_peer_the_root_installs_is_installed_for_the_member() {

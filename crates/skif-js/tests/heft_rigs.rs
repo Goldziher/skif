@@ -1,4 +1,4 @@
-//! Heft rigs in a Rush repository (ADR 0015): a project's `config/rig.json` needs the rig package, and a rig's
+//! Heft rigs in a Rush repository (ADR 0008): a project's `config/rig.json` needs the rig package, and a rig's
 //! profiles are its own configs, so what their `extends` and `pluginPackage` name are its dependencies.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

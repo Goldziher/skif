@@ -21,7 +21,7 @@ test-hooks = []
 napi.workspace = true
 napi-derive.workspace = true
 # `plain-ptrs`: Node.js holds V8's reservations and other addons, so tsrs's fixed reservation could collide and
-# abort the host (ADR 0034).
+# abort the host (ADR 0010).
 skif = { workspace = true, features = ["manifest", "js-analysis", "report", "type-aware", "plain-ptrs"] }
 skif-cli.workspace = true
 

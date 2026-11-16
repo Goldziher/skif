@@ -243,7 +243,7 @@ fn static_entries_are_complete() {
 }
 
 /// An esbuild config is a script that runs builds and exports nothing: its `entryPoints` are read wherever it writes
-/// them, at the top level through a shared helper or inside a function (ADR 0016).
+/// them, at the top level through a shared helper or inside a function (ADR 0008).
 #[test]
 fn esbuild_build_scripts_name_their_entry_points() {
     let helper = "import * as path from 'node:path';\nimport { run } from '../build-common.mts';\n\
@@ -1194,7 +1194,7 @@ fn package_wide(results: &[(PluginId, PluginOutput)], plugin: &str) -> bool {
     !reasons.is_empty() && reasons.iter().any(|reason| reason.scope == IncompleteScope::Package)
 }
 
-/// A config a plugin cannot fully read hides only what that tool takes entries from (ADR 0016).
+/// A config a plugin cannot fully read hides only what that tool takes entries from (ADR 0008).
 #[test]
 fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
     let spread = "import base from './base';\nexport default { ...base };";

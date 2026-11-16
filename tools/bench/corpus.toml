@@ -12,7 +12,7 @@
 #   build-command    optional command (program first) run after the install, building packages the configs load
 #   build-timeout-secs  optional build-command time limit, the install's when unset
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members).
-#                    `parity` then runs recursively. `skif-bench run` never compares a recursive run (ADR 0037): the
+#                    `parity` then runs recursively. `skif-bench run` never compares a recursive run (ADR 0014): the
 #                    compared rows read the scope sherif, syncpack and knip read, so it adds an informational
 #                    `skif --recursive` row, with no ratio and in no check
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
@@ -103,7 +103,7 @@ bench-knip-config = "parity"
 bench-max-runs = 5
 bench-max-warmup = 1
 # Not recursive: the nested projects knip reads (packages/compiler-cli/preprocessor, integration/*) lie inside workspace
-# members, so a recursive run does not lint them as roots either (ADR 0006). It would add at most
+# members, so a recursive run does not lint them as roots either (ADR 0004). It would add at most
 # packages/misc/angular-in-memory-web-api and packages/, whose manifest (`{"type": "module"}`) only marks the module
 # type and whose files the workspace already reads.
 notes = "Bazel-driven pnpm workspace; many integration projects."

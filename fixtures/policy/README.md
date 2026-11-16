@@ -2,7 +2,7 @@
 
 Declarative fixtures for the `policy` rules of skif: version groups, semver groups, catalogs, the
 workspace protocol, dependency families and the policy conflicts between them
-([ADR 0010](../../adrs/0010-version-semver-range-and-catalog-policies.md)). The fixtures are data only. The conformance
+([ADR 0006](../../adrs/0006-version-policies-lockfiles-toolchains-and-updates.md)). The fixtures are data only. The conformance
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
@@ -17,7 +17,7 @@ read at commit `958d306` (15.3.3): the version-group visitors (`src/version_grou
 selector (`src/group_selector/`), the specifier ordering (`crates/syncpack-specifier/`) and the
 tests next to them. `case.toml` names the syncpack test file and test each case was derived from.
 No syncpack code is copied; the workspaces, configuration and expectations are written for skif.
-Credit follows [ADR 0033](../../adrs/0033-attribution-and-vendoring.md).
+Credit follows [ADR 0002](../../adrs/0002-crates-library-api-and-upstream-code.md).
 
 ## Layout
 
@@ -70,7 +70,7 @@ use the `workspaces` array. Dependency names are real-looking but nothing is ins
 
 ### `skif.toml`
 
-The configuration under test, in the shape of [ADR 0004](../../adrs/0004-configuration-model-and-layering.md) and
+The configuration under test, in the shape of [ADR 0003](../../adrs/0003-configuration-suppressions-baselines-and-migration.md) and
 `skif-config` (kebab-case keys): `[policy]`, `[[version-groups]]` (`policy`, `pin`, `snap-to`,
 `prefer`, selectors `dependencies`, `packages`, `dependency-types`, `specifier-types`),
 `[[semver-groups]]` (selectors and `range`), `[catalog]`, `[workspace-protocol]`,
@@ -88,10 +88,10 @@ A JSON array of diagnostics, sorted by `path`, then `rule`, then `dependency`, t
 | `severity` | `error`, `warning` or `info`, after `[rules]` overrides (see defaults below) |
 | `package` | display name of the package the diagnostic is located in; `null` when the location is not a package manifest (`pnpm-workspace.yaml`, `skif.toml`) |
 | `dependency` | the dependency name, or the catalog entry name; `null` when none applies (`UnusedGroup`) |
-| `detail` | the syncpack state name from the ADR 0010 table, or `null` for rules without a state |
+| `detail` | the syncpack state name from the ADR 0006 table, or `null` for rules without a state |
 | `path` | workspace-relative path with `/` separators of the file the diagnostic is located in; `skif.toml` for `UnusedGroup` |
 | `fixable` | whether the diagnostic carries a fix |
-| `safe` | present and `true` when the diagnostic's fix is `safe`, so `--fix` applies it ([ADR 0009](../../adrs/0009-fixes-edits-and-package-json-formatting.md)); absent otherwise |
+| `safe` | present and `true` when the diagnostic's fix is `safe`, so `--fix` applies it ([ADR 0005](../../adrs/0005-rules-diagnostics-and-fixes.md)); absent otherwise |
 
 An empty array means the workspace must be clean.
 
@@ -100,7 +100,7 @@ An empty array means the workspace must be clean.
 Present when at least one diagnostic is `fixable`. It holds only the files `--fix` changes, at their
 workspace-relative paths. `package.json` and `pnpm-workspace.yaml` files are compared as parsed data
 (so key order and whitespace are not asserted here; edit-preserving formatting belongs to the
-ADR 0009 tests). The fix of a `catalog-missing-entry` also edits the workspace file that holds the
+ADR 0005 tests). The fix of a `catalog-missing-entry` also edits the workspace file that holds the
 catalog, so that file is listed too.
 
 ### `case.toml`
@@ -143,7 +143,7 @@ Tags with meaning: `assumption` and `ambiguous`
   `unresolved-catalog-references`, `invalid-local-version` and
   `unsynced-dependency-family`; `warning` for `catalog-mismatch` (it only reports under `mode = "off"`), `catalog-not-used`, `catalog-missing-entry` (both
   `error` when `[catalog] mode = "enforce"`), `unused-catalog-entries` and `policy-conflict`.
-  Severity is per rule, never per state (the emitter overwrites it, ADR 0008).
+  Severity is per rule, never per state (the emitter overwrites it, ADR 0005).
 * **`fixable`** is true for syncpack's Fixable class and false for Unfixable, Conflict and Suspect
   states. `workspace-protocol`, `unsynced-dependency-family` and `unused-catalog-entries` have no
   fix in the ADRs and are not fixable.
@@ -152,7 +152,7 @@ Tags with meaning: `assumption` and `ambiguous`
   a catch-all or `$LOCAL` semver group never rewrites a package's own `version`.
 * **Dependency types** use syncpack's names `prod`, `dev`, `peer`, `local` and `resolutions`, plus `overrides` and
   `pnpm-overrides` (syncpack: `pnpmOverrides`) and the names of `[[custom-types]]` entries
-  ([ADR 0010](../../adrs/0010-version-semver-range-and-catalog-policies.md)).
+  ([ADR 0006](../../adrs/0006-version-policies-lockfiles-toolchains-and-updates.md)).
 * **Catalog scope.** With `mode` other than `off`, a dependency that has a catalog entry (or none,
   but is used in at least `min-packages` packages) is owned by the catalog policy and is not also
   reported as a version mismatch. `prefer` and `enforce` report the same instances and differ in
@@ -166,14 +166,14 @@ Tags with meaning: `assumption` and `ambiguous`
 
 ## Deviations from syncpack
 
-Cases marked `deviation` or listed here follow ADR 0010 / skif's model where it differs from
+Cases marked `deviation` or listed here follow ADR 0006 / skif's model where it differs from
 syncpack.
 
 * No `strict` mode: a `workspace:` specifier on a workspace package is always `SatisfiesLocal`
   (syncpack's strict mode reports `DiffersToLocal`). Use `[workspace-protocol]` to require it.
   `version-mismatch/workspace-protocol-satisfies-local`.
 * A workspace package with no `version` field is not reported as `InvalidLocalVersion` (syncpack
-  reports it with an empty specifier, which would flag every private package). ADR 0010 says "cannot
+  reports it with an empty specifier, which would flag every private package). ADR 0006 says "cannot
   be parsed". `invalid-local-version/missing-version-field-not-reported`.
 * `unresolved-catalog-references` is reported with `mode = "off"` as well; syncpack only checks
   references inside its `catalog` policy. `catalog/unresolved-reported-with-mode-off`.
@@ -186,7 +186,7 @@ syncpack.
   checked (group `semver-range-only`); `skif update` does not move its instances. A semver
   group with `ignored = true` covers syncpack's `isIgnored` and `isDisabled`
   (`semver-groups/ignored-group-exempts-dependency`).
-* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0026); no case here, the
+* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0006); no case here, the
   update planner has its own tests.
 * Severity is per rule: syncpack's Conflict class (error) and Suspect class (warning) share
   `policy-conflict` and therefore one severity (see "ADR gaps").
@@ -227,8 +227,8 @@ syncpack.
 
 ## ADR gaps and contradictions found while writing the fixtures
 
-* **Severity defaults** are not specified anywhere. ADR 0010 says an unused group is reported "as a
-  warning", ADR 0008 says the emitter overwrites severity per rule, and syncpack treats Conflict
+* **Severity defaults** are not specified anywhere. ADR 0006 says an unused group is reported "as a
+  warning", ADR 0005 says the emitter overwrites severity per rule, and syncpack treats Conflict
   states as errors. The fixtures set `policy-conflict` to `warning` and cover the override in
   `policy-conflict/unused-group-severity-override`.
 * **`DependencyKind` names** are undefined (`prod`/`dev`/`peer` assumed; `optional`, `overrides`,
@@ -236,7 +236,7 @@ syncpack.
 * **Group identity in `UnusedGroup`** diagnostics: there is no field that names the group (`label`
   is only available in the message), so the JSON cannot tell two unused groups apart.
 * **`detail` for rules without a syncpack state** (`workspace-protocol`,
-  `unsynced-dependency-family`, `unused-catalog-entries`) is assumed `null`; ADR 0022 only says the
+  `unsynced-dependency-family`, `unused-catalog-entries`) is assumed `null`; ADR 0012 only says the
   values are documented per rule.
 * **`unused-catalog-entries`** has no field for the catalog name, which is ambiguous when two
   catalogs define the same dependency.
@@ -245,7 +245,7 @@ syncpack.
 * **`[[dependency-families]]`**: scope (per package vs workspace-wide), reporting granularity,
   fixability and the names of the built-in families are not specified. Assumed per package, one
   diagnostic per member below the highest, name of the React family `react`.
-* **Catalog vs version-group precedence** is open: ADR 0010 expects a `policy-conflict` when "a
+* **Catalog vs version-group precedence** is open: ADR 0006 expects a `policy-conflict` when "a
   pinned version group and an enforced catalog entry disagree" but names no state for it, so there
   is no fixture. `RefuseToCatalogLocal` is likewise not covered.
 * **`min-packages`** gating for `enforce`, and any difference between `prefer` and `enforce` beyond
@@ -282,7 +282,7 @@ syncpack.
 
 ### By syncpack state
 
-States in the ADR 0010 table. Valid states produce no diagnostic and are listed through the
+States in the ADR 0006 table. Valid states produce no diagnostic and are listed through the
 `valid-states` of the cases that exercise them.
 
 | Class | State (`detail`) | skif rule | Cases |
@@ -316,7 +316,7 @@ States in the ADR 0010 table. Valid states produce no diagnostic and are listed 
 | Fixable | `DiffersToCatalog` | `catalog-mismatch` | `catalog/off-catalog-mismatch` |
 | Fixable | `NotUsingCatalog` | `catalog-not-used` | `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog`, `catalog/enforce-not-using-catalog`, `catalog/exclude-dependency` (+3 more) |
 | Fixable | `MissingFromCatalog` | `catalog-missing-entry` | `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-no-catalog-pnpm`, `catalog/missing-entry-single-catalog` |
-| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0026) | `skif update` tests (ADR 0026) |
+| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0006) | `skif update` tests (ADR 0006) |
 | Unfixable | `NonSemverMismatch` | `version-mismatch` | `same-minor/non-semver-differing-unfixable`, `version-mismatch/unsupported-specifiers-differ` |
 | Unfixable | `SameRangeMismatch` | `version-mismatch` | `same-range/different-exact-versions`, `same-range/one-disjoint-range-flags-all`, `same-range/tilde-different-minors` |
 | Unfixable | `SameMinorMismatch` | `version-mismatch` | `same-minor/minor-mismatch-unfixable` |

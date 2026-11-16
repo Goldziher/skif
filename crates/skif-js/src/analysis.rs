@@ -106,7 +106,7 @@ pub struct JsAnalysis<'a> {
     /// The positions of the unused exports of each module, by module index, computed once for the rules that ask:
     /// see [`Self::unused_exports`].
     unused_export_memo: Vec<OnceLock<Vec<usize>>>,
-    /// What the type checker found, or why it did not run (ADR 0034).
+    /// What the type checker found, or why it did not run (ADR 0010).
     pub(crate) types: TypeState,
     /// How far the type checker covered each package, for the report; `None` when no rule read types.
     pub(crate) type_summary: Option<TypeAwareSummary>,
@@ -1038,7 +1038,7 @@ impl<'a> JsAnalysis<'a> {
     }
 
     /// Whether the exports of `module` can be judged although the entry files of its package may be incomplete
-    /// (ADR 0016). In a package whose entries are known, always. In a package unjudged as a whole, never: a file no
+    /// (ADR 0008). In a package whose entries are known, always. In a package unjudged as a whole, never: a file no
     /// known entry reaches may be an entry and import the module. In a package whose incomplete entries lie in a
     /// narrowed scope, every file the scope matches is an entry of the graph already (outside the package's `project`
     /// globs and in the packages nested below it too), so each import an unknown entry can make is counted: only a
@@ -1175,7 +1175,7 @@ impl<'a> JsAnalysis<'a> {
     }
 
     /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`. Types only add
-    /// uses (ADR 0034): a typed read of the member or a typed use of the whole declaration counts beside every
+    /// uses (ADR 0010): a typed read of the member or a typed use of the whole declaration counts beside every
     /// syntactic use.
     pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
         self.member_used_without_types(module, export, member)

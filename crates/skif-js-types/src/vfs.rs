@@ -65,7 +65,7 @@ pub(crate) fn tsrs_fs(fs: Arc<dyn FileSystem>) -> (Arc<dyn FS>, Arc<BomFiles>) {
 }
 
 /// The directory of the `lib.*.d.ts` files embedded in tsrs. Passed explicitly: `bundled::default_lib_path` reads
-/// `TSRS_LIB_PATH` (ADR 0034).
+/// `TSRS_LIB_PATH` (ADR 0010).
 pub(crate) fn lib_path() -> String {
     bundled::lib_path()
 }
@@ -82,7 +82,7 @@ fn read_only(path: &str) -> String {
 impl FS for SkifVfs {
     fn use_case_sensitive_file_names(&self) -> bool {
         // The platform's default, decided when skif is built: a skif file system has no case-sensitivity query, and
-        // probing the disk would make the answer depend on the machine (ADR 0003).
+        // probing the disk would make the answer depend on the machine (ADR 0002).
         !cfg!(any(target_os = "macos", target_os = "windows"))
     }
 

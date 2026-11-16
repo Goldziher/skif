@@ -394,7 +394,7 @@ fn child_process_commands_follow_the_scripts_of_their_package() {
 }
 
 /// `declare module 'pkg/sub'` declares that module only: the other imports of the package still need it listed. A
-/// declared package or a pattern with a literal start still covers the imports it matches (ADR 0019).
+/// declared package or a pattern with a literal start still covers the imports it matches (ADR 0009).
 #[test]
 fn a_declared_subpath_declares_only_that_module() {
     let diagnostics = lint(&[

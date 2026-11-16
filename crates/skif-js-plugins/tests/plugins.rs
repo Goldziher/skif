@@ -2688,7 +2688,7 @@ fn reference_of(results: &[(PluginId, PluginOutput)], id: &str, name: &str) -> O
 }
 
 /// A package a config names itself (a `tsconfig` `extends` or plugin, a Prisma generator) is recorded at that file as
-/// named by it; one a command of a config names is a reference of the config but not named by it (ADR 0019).
+/// named by it; one a command of a config names is a reference of the config but not named by it (ADR 0009).
 #[test]
 fn packages_a_config_names_are_recorded_at_the_file_that_names_them() {
     let tsconfig =
@@ -2755,7 +2755,7 @@ fn references_to_a_package_from_one_file_merge() {
 }
 
 /// A package a config names only to tune a tool that runs without it (Vite's `optimizeDeps.include`, an
-/// `eslint-plugin-import` resolver) is an optional reference, as knip reads them: it is never unlisted (ADR 0019).
+/// `eslint-plugin-import` resolver) is an optional reference, as knip reads them: it is never unlisted (ADR 0009).
 #[test]
 fn packages_named_only_to_tune_a_tool_are_optional_references() {
     let results = resolve(

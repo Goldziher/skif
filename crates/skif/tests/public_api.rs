@@ -1,5 +1,5 @@
 //! Audits the public surface of the facade for third-party types outside the allow-list that the `skif` crate
-//! documentation states once (`<!-- allow-list: ... -->`), the amendment of ADR 0003 records.
+//! documentation states once (`<!-- allow-list: ... -->`), the amendment of ADR 0002 records.
 //!
 //! A rustdoc-JSON check needs a nightly toolchain, so this audit reads the sources instead. For the facade and for
 //! every `skif_*` crate it re-exports from, each public item header (a `pub` function, type, field, constant) is

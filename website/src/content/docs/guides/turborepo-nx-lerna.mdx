@@ -93,7 +93,7 @@ ancestor, or `[js.plugins] nx = true`):
 - `nx exec -- <cmd>` is walked as a command of the package. `nx run` and `nx run-many` take task names.
 
 The details are under [Nx workspaces](../workspaces/#nx-workspaces) and in
-[ADR 0032](https://github.com/polylint/skif/blob/main/adrs/0032-nx-and-lerna-and-pruned-output-trees.md).
+[ADR 0011](https://github.com/polylint/skif/blob/main/adrs/0011-nx-lerna-and-bazel.md).
 
 `missing-package-manifest` does not report an Nx project (a directory with a `project.json`), or a grouping directory
 such as `libs/cart` under `["libs/*", "libs/*/*"]` whose content is only selected members.
@@ -131,7 +131,7 @@ What skif reads:
   `rimraf` and an unlisted binary there is reported. `lerna run <task>` takes task names.
 
 See [Lerna](../workspaces/#lerna) for the precedence in full and
-[ADR 0032](https://github.com/polylint/skif/blob/main/adrs/0032-nx-and-lerna-and-pruned-output-trees.md).
+[ADR 0011](https://github.com/polylint/skif/blob/main/adrs/0011-nx-lerna-and-bazel.md).
 
 ## Task-ordering dependencies
 

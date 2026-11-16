@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fails when schema/skif.schema.json differs from the schema `skif schema` prints (ADR 0004).
+# Fails when schema/skif.schema.json differs from the schema `skif schema` prints (ADR 0003).
 #
 # Usage: scripts/check-schema.sh [path-to-skif-binary]
 #

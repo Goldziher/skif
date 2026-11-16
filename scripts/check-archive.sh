@@ -5,7 +5,7 @@
 #
 # Every skif-<target>.tar.gz or .zip must hold the binary (skif, or skif.exe for Windows), LICENSE and
 # ATTRIBUTIONS.md at its top level, and ATTRIBUTIONS.md must hold the tsrs section the checker's NOTICE requires
-# (ADR 0033). The archives are listed and read to stdout, never extracted to disk.
+# (ADR 0002). The archives are listed and read to stdout, never extracted to disk.
 set -euo pipefail
 
 [[ $# -gt 0 ]] || {

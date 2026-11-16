@@ -1,4 +1,4 @@
-//! The facts do not depend on how many threads the checker uses or how the programs are scheduled (ADR 0034).
+//! The facts do not depend on how many threads the checker uses or how the programs are scheduled (ADR 0010).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

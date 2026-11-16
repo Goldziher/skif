@@ -1,6 +1,6 @@
 //! Which programs to build: every judged file goes to the `tsconfig.json` or `jsconfig.json` TypeScript's own
 //! discovery gives it (tsserver's rules, after tsrs-lint's `find_tsconfig`), each config is built once, and a file no
-//! config includes stays untyped. skif builds no inferred program (ADR 0034).
+//! config includes stays untyped. skif builds no inferred program (ADR 0010).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};

@@ -496,7 +496,7 @@ pub struct ExtractedConfig {
     /// undecided taken as true, then as false: a condition whose test reads `process.env` or `import.meta.env`
     /// (`process.env.CI ? a : b`, `...(process.env.COVERAGE === 'true' && { coverage })`, `if (!process.env.CI)`),
     /// directly or through a top-level constant. What a config names in both is what it names however the
-    /// environment is set; what it names only in [`ExtractedConfig::value`] depends on the environment (ADR 0016).
+    /// environment is set; what it names only in [`ExtractedConfig::value`] depends on the environment (ADR 0008).
     /// Empty when the evaluation decides no such test.
     pub environment_variants: Vec<ConfigValue>,
 }

@@ -19,7 +19,7 @@ pub static META: RuleMeta = RuleMeta::new(
 );
 
 /// Reports strongly connected components of value imports. Type-only imports and the imports skif adds for registered
-/// Vue components (ADR 0020; mutually recursive components are common) do not count, nor do resolve calls
+/// Vue components (ADR 0009; mutually recursive components are common) do not count, nor do resolve calls
 /// (`require.resolve`), which load nothing, and dynamic imports count only with `[js.cycles] dynamic-imports`. A
 /// component whose files are exactly those of a `[js.cycles] allow` entry is not reported.
 pub struct CircularImports;

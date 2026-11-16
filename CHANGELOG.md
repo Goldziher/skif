@@ -13,8 +13,8 @@ All notable changes to this project are documented here. The format follows
 
 - **The npm package is `@polylint/skif`**: its platform packages are `@polylint/skif-<platform>`, and `skif-cli` and
   `skif-<platform>` on npm are deprecated and receive no new versions. The command stays `skif`, and Windows x64 and
-  arm64 now install from npm ([ADR 0035](adrs/0035-publish-the-npm-packages-under-the-polylint-scope.md)).
-- **skif moved to the polylint organization** ([ADR 0036](adrs/0036-move-to-the-polylint-organization.md)): the
+  arm64 now install from npm ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)).
+- **skif moved to the polylint organization** ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)): the
   repository is `polylint/skif`, the documentation is at <https://polylint.github.io/skif/>, the Action is
   `polylint/skif@v0.M`, Homebrew is `brew install polylint/tap/skif` and Scoop is
   `scoop bucket add polylint https://github.com/polylint/scoop-bucket`. `skif init` and `skif migrate` write the
@@ -42,7 +42,7 @@ reaches instead of by its name. It is off by default because a typed run reads a
 again for each TypeScript program. The programs of a run now share their lib, `@types` and other `node_modules`
 declaration files and their configs, but on a 4-vCPU GitHub runner a typed run still takes up to 15 times as long as an
 untyped one and about as long as knip, and twice as long on babel. Types are to become the default again once typed
-runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
+runs meet the budget ([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)).
 
 ### Breaking changes
 
@@ -52,16 +52,16 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   (`a.dispose()`) no longer keeps every member of that name in use. A typed run is slower and uses more memory: on the 0.6.0 benchmark, on a 4-vCPU GitHub runner, tanstack-query takes
 3.1 s typed against 0.36 s untyped and 3.0 s for knip, babel 8.9 s against 0.88 s and 4.3 s, angular 3.5 s against
 0.97 s and 3.4 s, vscode 11.7 s against 4.0 s and 12.8 s, and n8n 20.6 s against 5.4 s and 20.8 s
-([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)). `--no-type-aware` and the npm option
+([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)). `--no-type-aware` and the npm option
   `noTypeAware` keep types off over a configuration that turns them on
-  ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
+  ([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)).
 - **New findings**:
   - `unused-class-members` (a warning) reports the unused methods, fields and accessors of used exported classes, by
     name by default; with types on, also a member whose name is read only on receivers of other classes. See Added.
   - `unused-dev-dependencies` reports a `devDependencies` entry that the same manifest also lists in `dependencies`,
     used or not ("is listed in `devDependencies` and in `dependencies`"), with an unsafe fix that removes it: the
     production entry installs the package for development as well. knip reports it too
-    ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+    ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
     [#98](https://github.com/Goldziher/skif/issues/98)).
   - **Declaration files**: only a declaration file that applies without an import is an entry: a script (no
     top-level `import` or `export`), or a module file with `declare global`, `export as namespace` or a
@@ -70,9 +70,9 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
     glob names it or a `tsconfig.json` lists it in `files` (now a `typescript` plugin entry). Once a module imports
     it, `unused-types` and `unused-exports` report what no importer uses, and what only an unimported one uses is no
     longer kept in use, as in knip. Declaration files are still
-    never reported by `unused-files` ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+    never reported by `unused-files` ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)).
 - **`paths` named like a dependency resolve as TypeScript resolves them**, a deliberate departure from knip
-  ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md),
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md),
   [#222](https://github.com/Goldziher/skif/issues/222)). The `paths` of `[js.workspaces.<dir>.paths]` are tried
   before installed packages and workspace members, so `src/*` to `./src/*` beside a member named `src` reaches the
   local file instead of the member's, and that file is no longer reported by `unused-files`; a mapping whose targets
@@ -93,10 +93,10 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   where one of them is enabled; `InputSource::reached_inputs` gives it for the source files the host hands it. A
   `skif-js-plugins` host that resolves plugins itself keeps the single pass of `resolve_plugins_in`, or splits it
   with `resolve_pass_in`, `PluginPass` and `PackageSources::reached`
-  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#233](https://github.com/Goldziher/skif/issues/233)).
 - **`skif-cli` library users**: `install_panic_hook` is removed. `run_to_exit` now catches a panic itself and exits
-  2, as `run` does, so a binary built on it needs no hook ([ADR 0027](adrs/0027-distribution-and-release.md)).
+  2, as `run` does, so a binary built on it needs no hook ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)).
 - **Library users of `skif-report`**: `type-aware` is a reserved top-level key of the JSON document, so
   `render_json_with` rejects an extra member of that name.
 - **Library users of `skif-config`**: `ConfigOverrides::no_type_aware` is replaced by `type_aware: Option<bool>`
@@ -111,7 +111,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   the two conflict, and `--type-aware` conflicts with `--watch`. Each judged file is checked with the program of
   its nearest `tsconfig.json` or `jsconfig.json`, found as TypeScript finds it (solution configs followed through
   their references, `[js] tsconfig` for the root package). The language server, `skif mcp` and `--watch` run
-  without types ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
+  without types ([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)).
   - `unused-class-members` takes member uses from the checker in every file it covers, through the member's class,
     a union, a base class it overrides or an interface it implements, also one it inherits up its chain
     (`BaseCell.getRange` of `class CodeCell extends BaseCell implements ICell {}` is used by `c.getRange()` with
@@ -141,9 +141,9 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   field, a brand typed `void`, `never`, `undefined` or `unique symbol` with no value but `undefined`) are not
   judged. A default-exported class is judged like a named one, and a class exported under two names is reported
   once. `skif explain-usage FILE#Class.member` explains one member, and `ignore-members` also exempts class members
-  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md)).
 - **Plugins**: `evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown`, ported
-  from knip 6.45.1, and `heft`. The table holds 213 plugins ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
+  from knip 6.45.1, and `heft`. The table holds 213 plugins ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
   - `evalite`: `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of `evalite.config.*` are used.
   - `mikro-orm`: the `entities`, `entitiesTs`, migrations and seeders directories are production entries, from
     `mikro-orm.config.*` and the configs `package.json#mikro-orm.configPaths` names.
@@ -167,7 +167,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `packages` pattern of a file in the root that matches no package. A pattern is warned about only when it selects
   nothing at every root of the run that reads it. `skif migrate --output <FILE>` writes the `files` of the
   `[[overrides]]` it writes with `$ROOT/` when `FILE` is not in the project directory.
-- **Cargo features** ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)): `type-aware` of `skif` (implies
+- **Cargo features** ([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)): `type-aware` of `skif` (implies
   `js-analysis`; off by default) and of `skif-cli` (on by default; `--no-default-features` builds a CLI that always
   analyses without types). A build without it reports every package untyped (`not-built`). `plain-ptrs` of `skif`,
   `skif-js` and `skif-js-types` makes tsrs use plain pointers instead of its fixed 32 GiB address-space reservation;
@@ -195,7 +195,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   - `skif-workspace`: `MARKER_FIELDS`, `is_marker_manifest`, `is_package_manifest` and `subpath_entries`.
   - `skif-js`: `UnlistedImport::type_only`.
 - `ATTRIBUTIONS.md` has a "tsrs (and TypeScript)" section with the full NOTICE and the Apache-2.0 licence of tsrs,
-  and ships in every crate, binary archive and npm package ([ADR 0033](adrs/0033-attribution-and-vendoring.md)).
+  and ships in every crate, binary archive and npm package ([ADR 0002](adrs/0002-crates-library-api-and-upstream-code.md)).
 
 ### Changed
 
@@ -220,17 +220,17 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   Before, such a call used no export, and `unused-exports` reported the methods of a worker and the default export of
   a loader. Type exports are still reported unless an importer names them or a used export's signature mentions them.
   `explain-usage` says `resolve: its path, loaded by it: every value export`
-  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md), [#165](https://github.com/Goldziher/skif/issues/165)).
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md), [#165](https://github.com/Goldziher/skif/issues/165)).
 - **`unlisted-binaries`, `unused-dependencies`**: the `execa`, `zx` and `nano-spawn` plugins read the commands of the
   source files the module graph reaches, as knip does, instead of every source file of each package that lists or
   inherits the library. A command in a source file nothing imports or runs, such as a test fixture's `execa("x")`,
   runs no binary, so it is no longer reported unlisted and no longer credits the package that provides it. A file
   such a command runs (`execa("node", ["scripts/next.mjs"])`) is an entry as before
-  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#233](https://github.com/Goldziher/skif/issues/233)).
 - Release binaries unwind on panic (`panic = "unwind"`) instead of aborting, so a panic inside the type checker can
   fall back to the untyped analysis. A panic that ends a run still exits 2, prints its message to stderr and, with
-  `--format json`, writes one `internal` error document ([ADR 0027](adrs/0027-distribution-and-release.md)).
+  `--format json`, writes one `internal` error document ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)).
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
 - **Performance**:
   - **Type-aware analysis**: the TypeScript programs start building while the module graph is built, from the
@@ -238,7 +238,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
     program no judged file needs is freed unwalked. The programs with the most judged files are built first, and a
     program gets checkers in proportion to its share of the judged files, so a repository whose root program holds
     most of the files no longer checks it on a quarter of the cores. The programs that run at once never hold more
-    checkers than the run has threads ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
+    checkers than the run has threads ([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)).
   - **Type-aware analysis of several roots** (`--recursive`, several paths): the roots linted at once take the cores
     of their TypeScript programs from one budget of the machine's cores instead of each from cores of its own, which
     also bounds how many programs are in memory at once.
@@ -265,8 +265,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
     ([#233](https://github.com/Goldziher/skif/issues/233)).
   - None of these change the findings.
 - **Benchmarks and the knip comparison** (repository tooling; the published numbers change)
-  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md),
-  [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md),
+  ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md),
   [#244](https://github.com/Goldziher/skif/issues/244)):
   - The `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular and n8n, with
     capped run counts for those four, knip timed with the knip comparison's configuration where `corpus.toml` says
@@ -288,7 +287,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   2 MiB default. The CLI and the npm addon now build rayon's global pool with 64 MiB stacks, and the types pool gets
   the stack of the program threads. A library host that runs recursive type-aware analyses builds its own global
   pool with a larger stack, or calls `skif_cli::configure_global_pool`.
-- `unused-class-members` ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)):
+- `unused-class-members` ([ADR 0009](adrs/0009-what-counts-as-a-use.md)):
   - An element access whose key is a constant reads the member the constant names: `target[ReactiveFlags.SKIP]`
     with `enum ReactiveFlags { SKIP = '__v_skip' }` reads `__v_skip`, also through a namespace import or a
     re-export. A key held by a `let`, a plain object or a parameter still reads nothing.
@@ -307,7 +306,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `preact/compat`, `React.lazy`, `next/dynamic`, and `@loadable/component` without `resolveComponent`) uses the
   default export only, so the module's named exports that nothing else reads are reported, as knip reports them.
   Returned to any other call, it still uses the whole module, and `skif explain-usage` names the call
-  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md), [#237](https://github.com/Goldziher/skif/issues/237)).
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md), [#237](https://github.com/Goldziher/skif/issues/237)).
 - `unused-exports`, `unused-namespace-exports`: the default import of a CommonJS module without a `default` export
   (`import lib from "./lib.js"` of a file with `module.exports = { a, b }` or `exports.a = …`) binds its
   `module.exports` object, as `esModuleInterop` and bundlers do. The properties read through it and, when the binding
@@ -318,7 +317,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `EntityContext` was created with, a type predicate passed to a call (`items.filter(isItem)`), the parameters of a
   called local function without a return type and the return type of one with it, and the result of a method called
   on a local object literal, followed transitively. An argument passed inside a function body and anything below an
-  explicit return type do not count ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md),
+  explicit return type do not count ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#165](https://github.com/Goldziher/skif/issues/165)).
 - `unused-types`: the exported `Props` interface or type alias of an Astro component is used whenever the component
   is, as the Astro compiler types the component's props with it. The analysis cache is invalidated
@@ -352,13 +351,13 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
     ([#165](https://github.com/Goldziher/skif/issues/165)).
   - A relative import into a package's own build output that was never built (`require('./dist/client/link')` in a
     file the package publishes beside `dist`) resolves to the source the output is built from, as a published path
-    does ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
+    does ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
     [#240](https://github.com/Goldziher/skif/issues/240)).
   - Bazel: a target with `testonly = True` is a test target, and the include patterns of a `glob([...])` that the
     `srcs` or `data` of a test target add are build sources outside `--production`, so the `*_spec.ts` files of a
     `testonly` `ts_project` are used. rules_angular's `ng_project` is read as `ts_project` is, and the `index.ts` of
     each Bazel package of the npm package that the `deps` of an `ng_package` name is a production entry
-    ([ADR 0031](adrs/0031-bazel.md), [#240](https://github.com/Goldziher/skif/issues/240)).
+    ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md), [#240](https://github.com/Goldziher/skif/issues/240)).
   - In production mode a plain `entry` pattern of the config no longer cancels a plugin's production entry for the
     same file (`entry = ["src/mastra/index.ts"]` in a Mastra package, or a plain pattern naming an `entry` of
     `tsup.config.ts`), as in knip. A `!` pattern of the config still removes it
@@ -366,12 +365,12 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   - The `paths` of `[js.workspaces.<dir>.paths]` come before the `paths` and `baseUrl` of the workspace's
     `jsconfig.json` or `tsconfig.json`: when both map `*` to the same directories in a different order, the import
     reaches the configured target, and the file the compiler config tries first is the one reported
-    ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md),
+    ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md),
     [#238](https://github.com/Goldziher/skif/issues/238)).
 - `unused-dependencies`: a module declaration file that exports nothing and loads a module for its effect
   (`import "sst"`, `/// <reference path="…" />`, as SST's generated `sst-env.d.ts`) is an entry, so the package it
   loads is no longer reported as unused. A declaration file with an export stays a module
-  ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)).
 - `unused-dependencies`, `unused-dev-dependencies`:
   - The `next` plugin names `react` and `react-dom` for a package without a `next.config` only when the package
     depends on `next` itself, so a package that inherits the plugin from the root's `next` (a test fixture package of
@@ -389,7 +388,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - `unlisted-dependencies`, `unused-dependencies`: the stylesheet a `tailwindcss --input` (`-i`) script compiles is an
   entry, so the packages its `@import`s name are used, and reported when no manifest lists them, as knip has it
   ([#242](https://github.com/Goldziher/skif/issues/242)).
-- `unlisted-dependencies` ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md)):
+- `unlisted-dependencies` ([ADR 0009](adrs/0009-what-counts-as-a-use.md)):
   - The `resolve` of a `createRequire` given another location than the file itself
     (`createRequire(join(otherPackage, 'package.json')).resolve('pkg/data.json')`) names no import: Node.js resolves
     the specifier from that location. Only `import.meta.url`, `import.meta.filename` and `__filename` make the call
@@ -402,7 +401,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
     optional reference: a use of a package that lists it, and no longer unlisted. A shared Vitest config that spreads
     `coverage: { provider: 'v8' }` only when `process.env.COVERAGE_ENABLED === 'true'` no longer makes
     `@vitest/coverage-v8` unlisted in every package calling its factory. This holds for every plugin that derives
-    package names from config values ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
+    package names from config values ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
     [#229](https://github.com/Goldziher/skif/issues/229)).
   - A bundler alias `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }`) that a
     shared config factory of another workspace package builds is judged against the package whose Vite, Vitest,
@@ -417,7 +416,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   listed `@anthropic-ai/claude-code` still provides it ([#243](https://github.com/Goldziher/skif/issues/243)).
 - `unlisted-binaries`: a `retry-cli` command with `-n`, `-f`, `--factor` or `-t` (`retry -n 3 tsx scripts/a.ts`) runs
   the command after the flags' values, so the binary and the file it runs are found.
-- `unused-optional-peer-dependencies` ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+- `unused-optional-peer-dependencies` ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#98](https://github.com/Goldziher/skif/issues/98)):
   - An optional peer that the root or a containing package lists in `dependencies`, `devDependencies` or
     `optionalDependencies` is installed for the member too, and is no longer reported there.
@@ -434,7 +433,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   - A function-form Vite config (`defineConfig((env) => ({ … }))`) whose plugin factory branches on what it is given
     no longer leaves a `build.rolldownOptions.input` computed from a list unknown and the package incomplete
     (`computed-entries`). The `sep` and `delimiter` of `path` evaluate to `/` and `:`.
-- **Recursive runs** ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
+- **Recursive runs** ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md),
   [#100](https://github.com/Goldziher/skif/issues/100)): a directory whose `package.json` makes no package and that
   lies below another `package.json` of the run is no root of its own: one holding only `type`, `sideEffects` or
   `imports` (`{"type": "commonjs"}` in a `scripts` folder), or only `main`, `module`, `types`, `typings` or `browser`
@@ -466,7 +465,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `Report::other_project_build_sources`. Pass those below the root, made relative to the nested root that owns them,
   to `RunOptions::with_extra_build_sources` of its run, and credit those outside it as the files of
   `other_project_files` are; a host that reads only `other_project_files` no longer makes them used
-  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
+  ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md),
   [#226](https://github.com/Goldziher/skif/issues/226)).
 
 ### Added
@@ -539,7 +538,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   imports or names as an entry stays an entry. A package of the nested root that such a build source belongs to is no
   longer taken as one another root imports, so `unused-subpath-exports` now judges its `exports` unless an enclosing
   root imports or runs one of its files
-  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
+  ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md),
   [#226](https://github.com/Goldziher/skif/issues/226)).
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
@@ -615,7 +614,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `unused-files` and `unused-dependencies`. Such an entry in build output that maps to no source file makes its
   package incomplete with the new cause `unmapped-entry`, whose `file` is the entry, instead of being dropped while
   the package was judged; an entry into nothing outside build output is still no entry
-  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md)).
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 
 ## [0.4.0] - 2026-11-12
 
@@ -641,7 +640,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `sources` (an `Option<&PackageSources>`), and `ScriptInfo::turbo_tasks` is removed. `skif-js`: `Module` is
   `#[non_exhaustive]` (and gains `is_build_source`), `UnlistedBinary` gains `runs_in`, `ConfigDependency` gains `span`
   and `reader_lists`. `skif-js-syntax`: `Export` gains `used_whole_in_file`. `skif-rules`: `ToolchainKind` gains `Bazel`
-  ([ADR 0031](adrs/0031-bazel.md)).
+  ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md)).
 - **Library users of `skif-workspace`**: `DependencyEntry::name` and `DependencyEntry::specifier` are `Arc<str>` instead
   of `String`, so a consumer can keep a name without copying its text; read them as `&str` with `&*entry.name`, which
   also compares with a string (`&*entry.name == "react"`) ([#206](https://github.com/Goldziher/skif/issues/206)).
@@ -652,7 +651,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   the import kind `url` instead of `require`, a whole use of a module object is no longer listed as a user of its type
   exports, and the entry kinds `enclosing-incomplete-scope`, `script` (for the source of build output a script runs) and
   `bin-stub` replace `unknown` for the files they describe ([ADR
-  0125](adrs/0018-export-namespace-and-member-rules.md),
+  0009](adrs/0009-what-counts-as-a-use.md),
   [#165](https://github.com/Goldziher/skif/issues/165)).
 
 ### Added
@@ -665,7 +664,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   same mode, and `stale-js-config` judges `ignore-dependencies` entries against that one run. `skif migrate --from knip`
   writes knip's `--strict` to `[js] strict = true` when every script runs knip with it; when only some scripts do, a
   note leaves it to a human. knip 5's `--isolate-workspaces`, which only split the TypeScript programs, stays without
-  effect ([ADR 0005](adrs/0005-the-js-table-ignore-lists-and-suppression-reasons.md),
+  effect ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md),
   [#221](https://github.com/Goldziher/skif/issues/221)).
 - `[js.compilers]`, the static counterpart of knip's `compilers`: an extension skif has no reader for is read by regular
   expressions with one capture group (`html = { imports = ['<script[^>]+src="([^"]+)"'] }`), whose captures are imports
@@ -678,7 +677,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `node_modules` above a package is available to it, so importing it unlisted is no `unlisted-dependencies` finding.
   `unused-dependencies` and strict mode are unchanged. `YamlSource` of `skif-workspace` gains `public_hoist_pattern` and
   `shamefully_hoist`, and `skif-js-plugins` exports `bazel::public_hoist_packages` ([ADR
-  0123](adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md),
+  0004](adrs/0004-workspaces-roots-and-package-managers.md),
   [#178](https://github.com/Goldziher/skif/issues/178)).
 - **JS rules** for knip's `subpaths` issue type: `unused-subpath-imports` (warning) reports a `package.json` `imports`
   entry that no `#` specifier of the package's files selects, with an unsafe fix that removes it;
@@ -713,21 +712,19 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `ReaderDependency` and `PluginOutput::build_sources` and `production_build_sources`; `WorkspaceInputs` gains
   `build_source` and `production_build_source`; `UsageReport` gains `build_source` and `chain_from_build_source`,
   serialized as `build-source` and `chain-from-build-source` when true, and `skif explain-usage` says when a file is a
-  build source ([ADR 0031](adrs/0031-bazel.md), [ADR
-  0124](adrs/0031-bazel.md), [ADR
-  0130](adrs/0031-bazel.md),
+  build source ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md),
   [#169](https://github.com/Goldziher/skif/issues/169), [#220](https://github.com/Goldziher/skif/issues/220)).
 - **Bazel**: `toolchain-pin-drift` reads the root's `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE`, a new `bazel`
   kind read by default: the `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)` (rules_js) and the
   `node_version` of `node.toolchain(...)` and `nodejs_register_toolchains(...)` (rules_nodejs) are checked against
   `packageManager` and the root's Node version, statically. A `files` glob also reads `.bzl` and `*.MODULE.bazel` files
-  ([ADR 0031](adrs/0031-bazel.md),
+  ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md),
   [#175](https://github.com/Goldziher/skif/issues/175)).
 - **`knip` plugin**: in a project that runs knip next to skif, with `knip` as a dependency, knip's config files
   (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of `package.json`)
   are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports them and what they
   import is used. With it and the `bazel` plugin the table holds 207 plugins ([ADR
-  0128](adrs/0015-plugin-model-and-plugin-set.md),
+  0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#217](https://github.com/Goldziher/skif/issues/217)).
 - **Bun workspaces** ([#158](https://github.com/Goldziher/skif/issues/158)): a workspace pattern with leading `..`
   segments (`../shared`, `../libs/*`) selects members outside the root, as `bun install` does: it is no longer an
@@ -750,7 +747,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   the package manager's workspaces, that select other packages than the workspace declaration skif follows; the finding
   names both lists and the packages only one selects. `DiscoveryFacts::lerna` records a valid root `lerna.json`
   (`LernaFacts`) also when another file declares the members ([ADR
-  0119](adrs/0032-nx-and-lerna-and-pruned-output-trees.md),
+  0011](adrs/0011-nx-lerna-and-bazel.md),
   [#189](https://github.com/Goldziher/skif/issues/189), [#190](https://github.com/Goldziher/skif/issues/190)).
 
 ### Changed
@@ -760,14 +757,14 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   interfaces and type aliases, which it cannot reach; such a type stays used when read by name (`ns.Type`) or when the
   importer exports the namespace itself (`export default ns`), and is otherwise reported by `unused-types`. A file
   loaded with `new URL("./x", import.meta.url)` runs as a program of its own and keeps using every export, types
-  included, as an entry does ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
+  included, as an entry does ([ADR 0009](adrs/0009-what-counts-as-a-use.md)).
 - `unused-dependencies` and `unused-dev-dependencies` no longer report a dependency on a workspace member that has no
   `main`, `module`, `exports`, `bin`, `browser`, `types` or `typings` and no source file (a tooling, asset or style
   package): such a dependency only orders tasks, as Turborepo's `^build` and Nx's task dependencies do ([ADR
-  0119](adrs/0032-nx-and-lerna-and-pruned-output-trees.md),
+  0011](adrs/0011-nx-lerna-and-bazel.md),
   [#191](https://github.com/Goldziher/skif/issues/191)).
 - `explain-usage`: a file that the narrowed incomplete scope of an enclosing package makes an entry (a root test config
-  whose globs reach the files of the members below it, ADR 0016) has the entry kind `enclosing-incomplete-scope`, with
+  whose globs reach the files of the members below it, ADR 0008) has the entry kind `enclosing-incomplete-scope`, with
   that package's directory in `scope-package` and its scope and reasons in `incomplete-scope` and `incomplete`; the
   source of the build output a script runs (`node dist/cli.js` for `src/cli.ts`) has the entry kind `script`, and a file
   an extensionless `bin` stub loads the kind `bin-stub`. `skif_js::EntryReason` gains `EnclosingIncompleteScope` and
@@ -780,7 +777,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `git_common_dir`. `skif-lint` gains `LintContext::tracked_files`, `LintContext::listing_fs`,
   `LintContext::index_cache` and `RunOptions::with_index_cache`; the JS provider reads the index through the run's cache
   when the host passes one, and the `skif` facade's `Linter` does, so a run parses the index once ([ADR
-  0121](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md), [#200](https://github.com/Goldziher/skif/issues/200)).
+  0007](adrs/0007-js-analysis-core-on-oxc.md), [#200](https://github.com/Goldziher/skif/issues/200)).
 - **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): the linters of a run read through the cache of
   root discovery, `yarn.lock` is read only as far as its header, the claimed directories of an ancestor workspace are
   found without loading its members, and several lookups use an index instead of a scan. The plugins that search a
@@ -814,7 +811,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   Bazel `BUILD` file names, an unlisted finding at such a file, and a dependency only knip reports unused that is a peer
   dependency of a dependency a `BUILD` file credits, as skif credits the peers of a used package), `declaration-file` (a
   `.d.ts` file only knip reports unused) and `signature-type` (a type or export a used export's signature names, ADR
-  0029). It reads the `BUILD` files below a `coverage`, `out` or `target` directory that is not directly in the root or
+  0009). It reads the `BUILD` files below a `coverage`, `out` or `target` directory that is not directly in the root or
   a package directory, as skif's file discovery does. `published-source` maps published paths through the tsconfig
   `outDir` and `rootDir` of the package and covers the exports, types and members of the published sources;
   `not-judged-by-skif` applies the narrowed scope of an enclosing incomplete package to the members below it;
@@ -849,7 +846,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   binary that is only a credit, and `PluginOutput::referenced_binaries` leaves out the binaries a command runs in
   another directory, which `run_binaries` holds; `RunBinary` of `skif-js` gains `judged`, `WorkspaceInputs` gains
   `relocated_dependencies`, and `RunsIn` is exported ([ADR
-  0120](adrs/0017-scripts-binaries-and-working-directories.md)).
+  0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - **Config evaluation reads more of a config as known** ([#148](https://github.com/Goldziher/skif/issues/148),
   [#166](https://github.com/Goldziher/skif/issues/166)). An optional member (`base?.setupFiles`, `undefined` when `base`
   is `null` or `undefined`) and a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`)
@@ -986,7 +983,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   ([#216](https://github.com/Goldziher/skif/issues/216)).
 - **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
   `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
-  ([ADR 0005](adrs/0005-the-js-table-ignore-lists-and-suppression-reasons.md),
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md),
   [#218](https://github.com/Goldziher/skif/issues/218)).
 - **JS, exports**: `ignore-exports-used-in-file` exempts an import binding the file re-exports and reads as a value
   (`import a from "./a"; export { a, bMod as b }; export default { a, b: bMod }`), as it exempts a local declaration,
@@ -1007,7 +1004,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   spread, `for (k in E)`, passing, storing or returning `E`, `typeof E`, `keyof typeof E`, `` `${E}` `` in a template
   literal type) uses every member, as a whole use in another file does; `unused-enum-members` reported them all. A type
   annotation `x: E` still uses no member. skif now reports fewer enum members than knip in such files ([ADR
-  0126](adrs/0018-export-namespace-and-member-rules.md)); the parse cache schema is raised.
+  0009](adrs/0009-what-counts-as-a-use.md)); the parse cache schema is raised.
 - **JS, declaration files**: `.d.mts` and `.d.cts` files are declaration files wherever `.d.ts` files are: a declaration
   file outside the module graph is left out of `unused-files` and its `declare module` blocks name ambient modules,
   `explain-usage` gives it the `declaration-file` absence, and the AWS CDK and Knex plugins skip it when scanning
@@ -1034,7 +1031,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file the
   `!` pattern makes an entry; the report names the list (`replaced-existing`). In the `[js]` ignore lists, `x` covers
   `x!`. Elsewhere a trailing `!` is part of the entry ([ADR
-  0127](adrs/0025-skif-migrate.md), [#219](https://github.com/Goldziher/skif/issues/219)).
+  0003](adrs/0003-configuration-suppressions-baselines-and-migration.md), [#219](https://github.com/Goldziher/skif/issues/219)).
   `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE` instead of the
   translation alone, and leaves the existing file as it is; an existing `FILE` is refused. A merge with the `exact`
   profile no longer turns off the default rules a file without a `sources` line relies on: it writes no `off` value into
@@ -1052,7 +1049,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   the last build: an import that reaches a file there is generated code, and a relative import of a missing file that
   the nearest `BUILD` file declares as an output (`outs`, `out`, `stdout`, `out_dirs`, `out_dir`) is not unresolved,
   whether or not `rootDirs` point into `bazel-bin` and whatever was built. An import that no `BUILD` file declares is
-  unresolved in every state ([ADR 0031](adrs/0031-bazel.md),
+  unresolved in every state ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md),
   [#170](https://github.com/Goldziher/skif/issues/170)).
 - **Bazel**: `unlisted-binaries` no longer reports `bazel`, `bazelisk` and `ibazel`: they are build tools of the
   machine, as `docker` and `make` are, unless `ignore-global-binaries` is off. A listed `@bazel/bazelisk` or
@@ -1061,7 +1058,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `bazel-bin`), which a `*` or glob segment of a pattern follows as pnpm's does, once with the detail
   `BazelConvenienceLink` and `!bazel-*` as the pattern to add. The member stays in the workspace but is excluded from
   analysis, so the root's findings are no longer repeated under `bazel-<name>/` ([ADR
-  0116](adrs/0031-bazel.md),
+  0011](adrs/0011-nx-lerna-and-bazel.md),
   [#174](https://github.com/Goldziher/skif/issues/174)).
 - **Bazel**: `stray-lockfile` sees more Bazel consumers of a member lockfile: a label inside a longer string where
   `$(location ...)`, `$(execpath ...)` or another location function expands it (a `genrule`'s `cmd`), and a `glob(...)`
@@ -1070,11 +1067,11 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   only another package's `BUILD` file names, or a macro such a file loads: when the files Bazel reads for a lockfile do
   not name it, the Bazel repository is listed for its `BUILD` files, skipping hidden directories, `node_modules`,
   symbolic links and `.bazelignore`d directories ([ADR
-  0116](adrs/0031-bazel.md),
+  0011](adrs/0011-nx-lerna-and-bazel.md),
   [#198](https://github.com/Goldziher/skif/issues/198)).
 - **Bazel**: under `bazel test` (`TEST_TMPDIR` set), `--cache` without `--cache-location` keeps its store in
   `$TEST_TMPDIR/skif` instead of writing `node_modules/.cache/skif` into Bazel's output tree through the runfiles links
-  ([ADR 0031](adrs/0031-bazel.md), [#177](https://github.com/Goldziher/skif/issues/177)),
+  ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md), [#177](https://github.com/Goldziher/skif/issues/177)),
   and `skif explain-usage` finds a file below a linked directory (`bazel-bin`) by its path through the link, as the lint
   report names it, instead of failing with the canonical path as outside the workspace
   ([#176](https://github.com/Goldziher/skif/issues/176)).
@@ -1086,13 +1083,13 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   path relative to the workspace root or a `paths` alias of the root `tsconfig.base.json` is no longer an unlisted
   package; a local plugin's module is an entry, and the `implementation`, `batchImplementation` and `factory` files of
   the `executors`, `builders`, `generators` and `schematics` collections its `package.json` names (or a workspace
-  package's own) are entries ([#185](https://github.com/Goldziher/skif/issues/185)). In a project scope (ADR 0032) whose
+  package's own) are entries ([#185](https://github.com/Goldziher/skif/issues/185)). In a project scope (ADR 0011) whose
   `project.json` targets run a tool's Nx executor (`@nx/vite:build`, `@nrwl/vite:*`), the tool's plugin runs without a
   config file and applies its config-less conventions: Vite's `index.html` makes `src/main.tsx` an entry
   ([#202](https://github.com/Goldziher/skif/issues/202)). A Cypress `e2e` config that spreads Nx's `nxE2EPreset()` has
   the preset's `supportFile` and `specPattern` (`src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below
   `cypressDir`), so the support files of Nx e2e projects are no longer unused ([ADR
-  0118](adrs/0032-nx-and-lerna-and-pruned-output-trees.md),
+  0011](adrs/0011-nx-lerna-and-bazel.md),
   [#188](https://github.com/Goldziher/skif/issues/188)).
 - **Scripts**: the command of `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` is walked as a command of
   the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
@@ -1102,7 +1099,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   to them are skipped ([#194](https://github.com/Goldziher/skif/issues/194)). `missing-package-manifest` no longer
   reports an Nx project (a directory with a `project.json`) or a grouping directory whose content is only directories
   the patterns select too, such as `libs/cart` under `["libs/*", "libs/*/*"]` ([ADR
-  0119](adrs/0032-nx-and-lerna-and-pruned-output-trees.md),
+  0011](adrs/0011-nx-lerna-and-bazel.md),
   [#192](https://github.com/Goldziher/skif/issues/192)).
 - `skif config` accepts `--config <FILE>` and `--no-config`, so `--show` and `--explain` report the configuration a lint
   run with the same flag uses; with `-r` and `--config` each root below the start names the directory the file's
@@ -1117,11 +1114,11 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `npm install -g pnpm@`) and GitHub workflows against the root's version file, `engines.node` and `packageManager`;
   a range that admits the root's version is no drift. Options `kinds`, `files`, `ignore-files`, and
   `# skif-ignore-next-line` / `# skif-ignore-file` comments with a reason
-  ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
+  ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#138](https://github.com/Goldziher/skif/issues/138)).
 - `foreign-package-manager-command` (`warn`): Dockerfile `RUN` steps, workflow `run:` steps and `*.sh` scripts that
   run another package manager than the workspace's (`npm ci` or `npx` in a pnpm workspace); read-only commands and
-  projects outside the workspace are not reported ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
+  projects outside the workspace are not reported ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#139](https://github.com/Goldziher/skif/issues/139)).
 - `stray-lockfile`: a lockfile in a workspace member, or one at the root written by another package manager (also a
   `bun.lockb` beside a `bun.lock`, which Bun ignores, and a `package-lock.json` beside an `npm-shrinkwrap.json`, which
@@ -1134,40 +1131,40 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `nested-workspace-root`: a `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares
   `workspaces`. Both skip gitignored files and take `allow`, globs of files kept on purpose, each a string or
   `{ name, reason }`
-  ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
-  [ADR 0012](adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md),
-  [ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
+  ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
+  [ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md),
+  [ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#140](https://github.com/Goldziher/skif/issues/140)).
 - `stale-patched-dependencies` (`warn`): a `patchedDependencies` entry (pnpm, or Bun's root `package.json`) whose
   `name@version` the lockfile no longer resolves or records without the patch, a missing patch file or one outside
-  `allowed-patch-paths`, and a `*.patch` file no entry references ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
+  `allowed-patch-paths`, and a `*.patch` file no entry references ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#142](https://github.com/Goldziher/skif/issues/142)).
 - `invalid-workspace-file` (`error`): a member `package.json` that is not valid JSON, an unusable workspace pattern
   and an invalid `.yarnrc.yml` are reported at the error; such a member used to drop out of the run silently. An
   unusable pattern (`../shared`) is no longer also reported by `unmatched-workspace-patterns`, whose fix removed it
-  ([ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md),
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md),
   [#154](https://github.com/Goldziher/skif/issues/154)).
 - `stale-mocks` (`error`): a `vi.mock`, `jest.mock`, `rs.mock` or other test-runner call (also
   `vi.mock(import('./x'))`) whose relative or aliased specifier names a module that does not exist. Virtual mocks and
   unresolved package names are not reported; `skif migrate --profile exact` turns it off
-  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#111](https://github.com/Goldziher/skif/issues/111)).
 - **Lockfile scopes**: `[[version-groups]]` with `policy = "banned"` and `scope = "lockfile"` make `banned-dependency`
   check every version `pnpm-lock.yaml` resolves, transitive ones included, with the chain that pulls it in;
   `[[dependency-families]]` take `scope = "importer"` or `"lockfile"` and an `anchor` (`@types/react` per major of
   `react`). The lockfile checks read `pnpm-lock.yaml` format 9 (pnpm 9 and 10) and say when nothing was checked
-  ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
+  ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#141](https://github.com/Goldziher/skif/issues/141)).
 - `unlisted-dependencies` reports a package a tool config names (a `tsconfig` `extends` or `types`, an ESLint plugin
   or shareable config, a Babel preset, a PostCSS plugin, a Prisma generator, ...) that no manifest lists, at the
   config, with the detail `ConfigReference`
-  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#96](https://github.com/Goldziher/skif/issues/96)).
 - **Marko**: `.marko` files are read (imports, `import()` and the imports of `<style>` and `style { }` blocks), and a
   reached `.marko` file uses `marko`
-  ([ADR 0020](adrs/0020-templates-components-and-custom-elements.md)).
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md)).
 - **Plugins** read more of their configs
-  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#103](https://github.com/Goldziher/skif/issues/103)): `sst` (SST 2 stack handlers), `serverless-framework`
   (`${self:…}` and `${opt:…}` variables in handlers), `vue` (a `configureWebpack` function), `eleventy`
   (`addPassthroughCopy`), `rstest` (`exclude`, negated `include`, `rs.mock()`), `mise` (file tasks, also
@@ -1178,21 +1175,21 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `Bun.spawn`, the `entrypoints` of `Bun.build` and `import.meta.dir` / `path` / `file`; and credits `@types/bun` or
   `bun-types` where sources use the `Bun` global.
 - **Bun**: a root `bunfig.toml` with an `[install]` table detects Bun when nothing else decides
-  ([ADR 0012](adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md)).
+  ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md)).
 - `skif baseline write|prune|check`: a suppression baseline that can only shrink. `write` records every error and
   warning as an `[[ignore]]` entry in `skif.baseline.toml` and adds it to the root's `extends`; `prune` drops entries
   that match nothing; `check --base <REF>` fails when the baseline grew. Findings about a file are recorded with it,
   version findings with `name@specifier`; the commands take the lint flags, cover several roots (`-r`) and exit `2`
   when the configuration does not apply the baseline. The GitHub Action runs them, also with `from-sherif: true`
-  ([ADR 0023](adrs/0023-baselines.md),
-  [ADR 0023](adrs/0023-baselines.md),
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md),
+  [ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md),
   [#114](https://github.com/Goldziher/skif/issues/114)).
 - `[[ignore]] files`: globs of the files a finding is located in, relative to the workspace root
-  ([ADR 0023](adrs/0023-baselines.md)).
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md)).
 - **Ignore reasons**: the `[js]` ignore lists (`ignore-dependencies`, `ignore-files`, ..., and their `extend-` keys,
   at every level) take `{ name = "...", reason = "..." }` beside plain strings, a blank reason is rejected, and
   `[lint] require-ignore-reasons = true` turns on `--require-ignore-reasons` from the file
-  ([ADR 0005](adrs/0005-the-js-table-ignore-lists-and-suppression-reasons.md), [#113](https://github.com/Goldziher/skif/issues/113)).
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md), [#113](https://github.com/Goldziher/skif/issues/113)).
 - `skif migrate` carries the comment beside a knip ignore entry over as its `reason`, and the comment above a syncpack
   group to its `[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry
   ([#113](https://github.com/Goldziher/skif/issues/113)).
@@ -1202,7 +1199,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - **Agent skill and plugin**: `skills/skif` teaches coding agents the lint, triage and fix loop; install it with
   `npx skills add Goldziher/skif`, or as a plugin for Claude Code, Codex, Factory Droid and GitHub Copilot CLI, which
   also registers the MCP server (`npx -y skif-cli@<release> mcp`) pinned to the release
-  ([ADR 0028](adrs/0028-editors-agents-and-git-hooks.md)).
+  ([ADR 0013](adrs/0013-editors-agents-and-git-hooks.md)).
 - **Nx workspaces**: a project directory with a `project.json` and no `package.json` (an integrated workspace) is a
   scope of the package that owns it. Every plugin reads the project's configs there (`vite.config.ts`, `index.html`,
   `eslint.config.mjs`, `jest.config.ts`, `tsconfig.json`), and what they name counts for the root, so an integrated
@@ -1213,11 +1210,11 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `jestConfig`, `webpackConfig`, `cypressConfig` and `eslintConfig` target options, and `configFile`, `config` and
   `configDir` of `@nx/vite`, `@nx/playwright` and `@nx/storybook`, relative to the workspace root also in a member,
   the `{projectRoot}` and `{workspaceRoot}` tokens, and the `cwd` of `run-commands`. One walk finds the projects of
-  every package of a run ([ADR 0032](adrs/0032-nx-and-lerna-and-pruned-output-trees.md)).
+  every package of a run ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md)).
 - **Library API**:
   - `skif`: `Linter::for_targets`, `for_targets_with_cache`, `shared_modules` and `with_shared_modules`
     (`SharedModules`) share one module cache across roots
-    ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md));
+    ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md));
     `settle_shared_config` decides shared `stale-js-config` findings as `skif -r` does; `join_lexical`,
     `Target::retain_ignore` and `Target::locate`; `ignore_matches` lists the findings each `[[ignore]]` entry matches.
   - `skif-lint`: `RunOptions::with_fs` and `LintContext::fs` give rules the host's file system. `skif-rules`:
@@ -1272,7 +1269,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   and refuses a comparison tool in `corpus.toml` that is not pinned to an exact version. `refresh-numbers.mjs` publishes
   only a summary from a GitHub-hosted workflow run of clean checkouts with no `invalid` check, in which no tool exited
   with an error other than a declared knip failure the run matched, and names the harness commit when it differs from
-  the measured one ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
+  the measured one ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md)).
 
 ### Changed
 
@@ -1286,19 +1283,19 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `[js.workspaces]` keys and `ignore-workspaces` globs of that file are relative to the start directory, not to each
   root, so `"."` no longer configures every nested root. Prefix a key meant for a nested root with its directory
   (`"tools/sub"`, `"tools/sub/packages/*"`)
-  ([ADR 0004](adrs/0004-configuration-model-and-layering.md)).
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md)).
 - **Breaking** for library hosts of `skif_cli::run`: a panic no longer unwinds out of `run`; it returns exit code `2`
   (with the `internal` error document under `--format json`), and the first call chains a panic hook in front of the
   process's. A host that installs its own panic hook later should chain the previous one.
 - **Breaking** for library hosts: `Report::other_project_files` lists absolute paths and includes the files outside
   the root the analysed code reaches; `Report::ancestor_dependency_uses` also lists what those files import. Compare
-  against absolute paths ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
+  against absolute paths ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - **Breaking** for library users matching `skif_js_syntax::ConfigValue` exhaustively: the new variant `OneOf` holds a
   value that is one of several known values (`process.env.CI ? 'github' : 'list'`), where `Unknown` was given;
   `ConfigValue::Regex` gains `flags`. Add arms for them; `is_unknown` treats `OneOf` as unknown, and
   `ConfigValue::alternatives` lists its values
-  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md)).
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - **Breaking** for library users of the `[js]` configuration: the ignore-list fields of `skif_config::Js`,
   `JsWorkspace` and `PackageJs` are `Vec<IgnoreItem>` instead of `Vec<String>`. Read `item.name`; an `IgnoreItem`
   converts from and compares with a string ([#113](https://github.com/Goldziher/skif/issues/113)).
@@ -1323,14 +1320,14 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   untracked file and so report false `unused-files` and `unused-exports` (and delete a used file with
   `--allow-remove-files`). `discovery = "git"` checks modified directories on disk, and its `unused-files` findings
   offer no fix, so the rule is listed as fixable `sometimes`
-  ([ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)).
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)).
 - **Multi-root runs** (`skif -r`) parse a file several roots reach once per run instead of once per root, also without
   `--cache`; `--performance` adds the cache's hits, misses and waits per root
-  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md),
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md),
   [#144](https://github.com/Goldziher/skif/issues/144)).
 - `--fix` over several roots writes the fixes of every root before it lints again or runs an install step; when a
   later root fails, the earlier roots' install steps are reported as skipped and the run exits `2`
-  ([ADR 0004](adrs/0004-configuration-model-and-layering.md)).
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md)).
 - **Performance**: finding the exports a signature mentions is linear instead of quadratic in a file's exports
   ([#145](https://github.com/Goldziher/skif/issues/145)); `[[ignore]]` entries are indexed by rule, so large
   baselines stay cheap; each tool config is checked against `.gitignore` once; and one semantic analysis is shared per
@@ -1347,45 +1344,43 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - **Windows npm packages are deferred**: 0.3.0 publishes no `skif-win32-x64-msvc` or `skif-win32-arm64-msvc` package,
   because the npm names cannot be created yet. On Windows, `npx skif-cli` fails at import; use the release archives,
   `cargo binstall skif-cli` or Scoop. The packages return in a later release once both names exist
-  ([ADR 0027](adrs/0027-distribution-and-release.md), amending
-  [ADR 0027](adrs/0027-distribution-and-release.md)).
+  ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)).
 - A `--cache` store written by 0.2 is discarded and rebuilt on the first run.
 - **Incomplete packages**: `incomplete-packages[]` entries of the JSON report carry a `scope`, `"package"` or
   `{"within": [globs]}` naming the only files left unjudged, and the human note names the globs
-  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md)). In a narrowed package the export, type, member and
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)). In a narrowed package the export, type, member and
   namespace rules judge every file outside the scope
-  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#101](https://github.com/Goldziher/skif/issues/101)).
 - **Templates**: expressions in `.vue`, `.svelte`, `.astro` and `.mdx` templates are parsed as JavaScript under the
   scopes of `v-for`, `v-slot`, `{#each}`, `{#snippet}`, `let:` and arrow parameters, so a template local no longer
   counts as a use of a namespace export of the same name
-  ([ADR 0020](adrs/0020-templates-components-and-custom-elements.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#102](https://github.com/Goldziher/skif/issues/102)).
 - **Vue components**: a component `unplugin-vue-components` registers in `components.d.ts` is used only where a
   template names it as Vue resolves tags, in a static `is` or in `resolveComponent()`; one no template uses is
   reported by `unused-files`. A package with `.tsx`/`.jsx` files, Pug templates or a VitePress site still credits all
-  of them ([ADR 0020](adrs/0020-templates-components-and-custom-elements.md),
-  [ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
+  of them ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
+  [ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - `unlisted-binaries` also judges the commands of workflow steps, Git hooks, `lint-staged` and other tool configs,
   `execa`, `zx`, `nano-spawn` and `node:child_process` calls, and reports a missing binary at the file that runs it.
   CI steps, hooks, MCP servers and task runners judge only binaries run through a package manager or
   `node_modules/.bin`, as knip's `optionalBinaries` does
-  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
-  [ADR 0015](adrs/0015-plugin-model-and-plugin-set.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#97](https://github.com/Goldziher/skif/issues/97)).
 - `unlisted-dependencies`: an import mapped only by another workspace package's tsconfig `paths` gets the detail
   `ForeignTsconfigPaths`, names the config and suggests the mapping or an import by package name; `skif migrate
-  --from knip` notes the difference ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  --from knip` notes the difference ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#112](https://github.com/Goldziher/skif/issues/112)).
 - `[policy] dependency-types` without `local` (`["prod", "dev"]`) leaves the own versions of workspace packages out,
   as syncpack's `--dependency-types` does; add `local` to keep comparing them
-  ([ADR 0010](adrs/0010-version-semver-range-and-catalog-policies.md)).
+  ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md)).
 - `unsynced-dependency-family` honours `[policy] dependency-types`.
 - `skif migrate`: sherif migrations write `[policy] dependency-types = ["prod", "dev"]`; syncpack format keys turn on
   `package-json-format` and `unsorted-dependencies` only when a script runs `syncpack format`; and syncpack's
   `policy: catalog` becomes `[catalog] mode = "enforce"` with `min-packages = 1`.
 - **Supported versions and CI**: the newest Yarn Classic 1.x is supported and tested, no longer untested legacy input
-  ([ADR 0030](adrs/0030-supported-versions-and-the-end-to-end-matrix.md)). The
+  ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)). The
   end-to-end job runs every scenario under every linker of its manager (pnpm isolated and hoisted, Yarn 2+ Plug'n'Play,
   `node-modules` and `pnpm`, Bun default, hoisted and isolated), checks that the install produced that layout, and
   runs the newest slot of npm, pnpm, Yarn 2+, Yarn Classic and Bun on Linux, macOS and Windows; the previous majors
@@ -1399,7 +1394,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   scenario's expectation.
 - `mise run bench:publish` is removed: the published speed tables come from the `bench` workflow and
   `mise run bench:import`; `mise run bench` still measures locally
-  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
+  ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md)).
 
 ### Fixed
 
@@ -1410,12 +1405,12 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - `version-mismatch` no longer rewrites a path dependency (`../a`, `file:`, `link:`, `portal:`, `~/a`) to a version.
   While `local-path-dependency` is on, the paths of the dependency sections take no part in the version groups, so
   that rule gives the one fix a path gets; with it off, and in override sections and custom types, a path keeps its
-  state without a fix ([ADR 0010](adrs/0010-version-semver-range-and-catalog-policies.md),
+  state without a fix ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#153](https://github.com/Goldziher/skif/issues/153)).
 - `local-path-dependency` under Yarn Classic replaces a path to a workspace member with `*` (the exact version for a
   prerelease member, which `*` does not match), as under npm, instead of offering no fix and calling the member a
   path outside the workspace; the help names the member
-  ([ADR 0010](adrs/0010-version-semver-range-and-catalog-policies.md),
+  ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#160](https://github.com/Goldziher/skif/issues/160)).
 - `local-path-dependency` reads a home-relative path (`~/a`) as a path, and when a path to a workspace member resolves
   to another directory, its help names both directories: the fix links the member, which installs other code.
@@ -1442,10 +1437,10 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - **Playwright** `testMatch` regular expressions with `?` or a character class become globs instead of making every
   script below `testDir` an entry ([#100](https://github.com/Goldziher/skif/issues/100)).
 - `esbuild` build scripts that export nothing (`await esbuild.build({ entryPoints })`) give production entries instead
-  of leaving the package unjudged ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
+  of leaving the package unjudged ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#101](https://github.com/Goldziher/skif/issues/101)).
 - **Serverless** handlers with a run-time variable (`${opt:stage, 'dev'}`) match every stage, not only the fallback
-  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - **Plugin credits**: Vitest's `agent`, `html` and `minimal` reporters and the `nuxt` environment; Karma's `jasmine`
   (`jasmine-core`); `next lint` (`eslint`, `eslint-config-next`); `vercel.json` commands; an ESLint `eslint:recommended`
   extends; and `@jest-environment` / `@vitest-environment` pragmas
@@ -1454,83 +1449,81 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `extends` of an ESLint flat config, Vite's `optimizeDeps.include`, `eslint-plugin-import` resolvers,
   `node_modules/.bin` paths, a bare `@import` of a stylesheet beside the file, and a runtime module (`vscode`) an
   enclosing package's `engines` provides
-  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#96](https://github.com/Goldziher/skif/issues/96)).
 - `declare module 'pkg/sub'` declares only that module, not the whole package; a workspace package reached through an
   alias or `tsconfig` mapping to not-yet-generated code is still that package
-  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#96](https://github.com/Goldziher/skif/issues/96)).
 - A package a shared config module of another workspace package names (an Oxlint `extends`, a spread Stylelint base)
   is judged against the package that owns the module, not reported unlisted or unused
-  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)).
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - `unresolved-imports` no longer reports SvelteKit's `./$types` before `svelte-kit sync`, files a nested `.gitignore`
   lists, ungenerated `rootDirs` paths (React Router's `./+types/root`) or root-relative assets such as `/vite.svg`
-  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#99](https://github.com/Goldziher/skif/issues/99)).
 - A project whose only JavaScript is a pnpm install hook (`.pnpmfile.cjs`) is not judged for unused dependencies
-  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#98](https://github.com/Goldziher/skif/issues/98)).
 - A package with no source, entry or script of its own is listed in `incomplete-packages` with the cause `no-entries`
-  instead of `unmapped-published` ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md)).
+  instead of `unmapped-published` ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - A published path that names no file (a `bin` with nothing behind it and no build step that writes it) is reported
   by `stale-js-config` instead of leaving the package unjudged; `bun build`, `vite build`, `bunchee`, `pkg` and
   output flags count as build steps
-  ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#109](https://github.com/Goldziher/skif/issues/109)).
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.less`, ...) in `project`
   ([#110](https://github.com/Goldziher/skif/issues/110)).
 - **Multi-root runs**: a file another root uses or reaches is no longer reported by `unused-files` or deleted by
   `--allow-remove-files`, and a dependency only a nested root uses counts for the enclosing manifest that lists it
-  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
-  [ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md), [#98](https://github.com/Goldziher/skif/issues/98),
+  ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md), [#98](https://github.com/Goldziher/skif/issues/98),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - **Shared `stale-js-config`**: a finding about a config file several roots read is reported once, at the highest
   severity, and decided over the reports the run shows (after `--fix`, `--workspace`, `--include`, `--exclude`)
-  ([ADR 0004](adrs/0004-configuration-model-and-layering.md)).
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md)).
 - Hidden directories that hold workspace members (`.vscode/extensions/*`) are walked
-  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md),
+  ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - **Commands in other directories**: a script, workflow step or source command after `cd <dir>`, `pushd`,
   `npm --prefix`, `pnpm -C`, `yarn --cwd` or with a `cwd` option runs in that directory, so its binaries and
   scripts are credited to the package there; `$GITHUB_WORKSPACE` and `${{ github.workspace }}` name the workspace
   root; a `cd` inside a subshell ends with it
-  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
-  [ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md)).
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - **Member binaries**: under pnpm's and Bun's isolated linkers, Yarn Berry and Rush, a member's binary satisfies only
   the packages that depend on it, as those link it; under pnpm's hoisted linker (`nodeLinker: hoisted` in
   `pnpm-workspace.yaml`, or `node-linker=hoisted` in the root `.npmrc` only before pnpm 11) it satisfies every
   package, as under npm;
   `rush`, `rushx` and `rush-pnpm` are provided in a Rush repository
-  ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md),
-  [ADR 0012](adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
+  [ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md),
   [#146](https://github.com/Goldziher/skif/issues/146)).
 - **Bun**: `bun --filter`, `bun -F` and `bun run --workspaces` are runs in other packages, and a member listed by its
   literal path stays a member despite a matching negation
-  ([ADR 0012](adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md)).
+  ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md)).
 - **Script parsing**: here-documents, `case` patterns and shell functions are not binaries; a command a source file
   runs follows the package's scripts; zx PowerShell cmdlets and more system tools (`mkfifo`, `taskkill`, `osascript`,
-  ...) are not unlisted ([ADR 0017](adrs/0017-scripts-binaries-and-working-directories.md)).
+  ...) are not unlisted ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md)).
 - **Installed binaries**: a dependency named like a binary provides it only while its manifest is unknown
   ([#97](https://github.com/Goldziher/skif/issues/97)); `directories.bin` is read as npm reads it; a classic Yarn
   `yarn.lock` is no longer taken for one without binaries, which reported used devDependencies unused.
 - **Namespaces and shadowing**: an enum or namespace read through a namespace import uses only the members read;
   a parameter or local shadowing an import does not use it; a type sharing its name with a value export credits what
   it mentions; overloads credit every signature
-  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md)).
 - `vi.spyOn(ns, "a")` and `jest.spyOn(ns, "a")` read only member `a`, and `const [{ a }, ns] = await
   Promise.all([import("./x"), import("./y")])` binds each import to its element
-  ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md)).
 - `duplicate-exports` reports `export const b = a` when `a` is itself an aliased export, and a type re-export named in
   a used export's signature is no longer unused.
 - `explain-usage` describes template uses of registered Vue components, `export *` forwards and the
   `enclosing-entry-glob` entry kind ([#100](https://github.com/Goldziher/skif/issues/100)).
 - One `--fix` run applies a value fix in an object `unsorted-dependencies` also sorts, instead of needing a second
-  run ([ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)).
+  run ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)).
 - A bare-major range (`^2`, `~1`) covers its versions instead of being padded to `^2.HUGE.HUGE`.
 - `unsynced-dependency-family` no longer compares a dependency listed in two sections of one package with itself.
 - A dependency in none of several catalogs is `catalog-missing-entry` ("no catalog holds `lodash`; more than one
   could", detail `MissingFromCatalogAndCatalogUnknown`) instead of `catalog-not-used`
-  ([ADR 0011](adrs/0011-lockfile-and-toolchain-rules.md),
+  ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md),
   [#155](https://github.com/Goldziher/skif/issues/155)).
 - The `version-mismatch` message for non-semver specifiers no longer says none of them is semver.
 - **Panics** exit `2` in every format, with the message and location on stderr and the `internal` error document under
@@ -1539,7 +1532,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - An unknown rule ID in the configuration names the file and line that set it, also in an extended preset.
 - **Nx and Jest**: the root `jest.config.ts` Nx generates (`projects: await getJestProjectsAsync()`, or
   `getJestProjects()`, from `@nx/jest` or `@nrwl/jest`, also spread into an array beside other projects) no longer
-  leaves the root package unjudged; its projects are the Jest configs of the Nx projects ([ADR 0032](adrs/0032-nx-and-lerna-and-pruned-output-trees.md)).
+  leaves the root package unjudged; its projects are the Jest configs of the Nx projects ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md)).
 - **TypeScript 6** `types: ["*"]` (every Nx 24 `tsconfig.base.json`) is no longer an unlisted package `*`; it keeps
   every `@types` package visible.
 - **TypeScript 6** defaults `compilerOptions.types` to `[]`: under it, a `tsconfig.json` chain without `types` no
@@ -1549,7 +1542,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   another entry; `<6` is below 6), else the root's; below version 6, or when none is known, every `@types` package
   stays visible. A config's own `types` and `typeRoots` replace the inherited ones, a later `extends` entry overriding
   an earlier one, and a solution config is judged by the configs its `references` name
-  ([ADR 0019](adrs/0019-dependency-unlisted-and-unresolved-findings.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#201](https://github.com/Goldziher/skif/issues/201)).
 - `[js.workspaces."<dir>"]` tables accept the `extend-ignore*` keys instead of rejecting them.
 - A leading UTF-8 byte order mark no longer shifts first-line columns.
@@ -1577,7 +1570,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - **`bazel run`**: with `BUILD_WORKSPACE_DIRECTORY` set, the `skif` binary and the npm package's `skif` bin first
   change to `BUILD_WORKING_DIRECTORY`, else the workspace root, so `bazel run //:skif -- --fix` lints and fixes the
   source tree instead of failing on the runfiles tree, and `PATH`, `--config` and report files resolve as typed in the
-  shell ([ADR 0031](adrs/0031-bazel.md), [#171](https://github.com/Goldziher/skif/issues/171)).
+  shell ([ADR 0011](adrs/0011-nx-lerna-and-bazel.md), [#171](https://github.com/Goldziher/skif/issues/171)).
 - A specifier `.bin/x`, `node_modules/.bin/x` or `./node_modules/.bin/x` in any import (`require.resolve`,
   `import.meta.resolve`, `require`, `import`) is no longer an `unresolved-imports` finding before the install: it
   names binary `x`, which uses the listed dependency that provides it, so that dependency is not unused, and is an
@@ -1587,7 +1580,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   package's directory and is not a listed source file belongs to the importing file's package, as do such files it
   imports below the same root directory, instead of the root: its imports are no longer `unlisted-dependencies` of the
   root and do not leave the package's dependencies unused. A file of a workspace package stays that package's
-  ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md),
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md),
   [#168](https://github.com/Goldziher/skif/issues/168)).
 
 ## [0.2.0] - 2026-11-08
@@ -1598,16 +1591,16 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `--cache-location <DIR>` moves the store; the cache is keyed by each file's name and text and never changes the
   report. `--watch`, `skif lsp` and `skif mcp` keep an in-memory cache for as long as they run. Library hosts pass a
   `ModuleCache` to `Linter::with_module_cache`; `MemoryModuleCache` is the in-process one
-  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md),
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `skif lsp` lints the editor's unsaved buffers: it takes the full text on every change, lints a project 250
   milliseconds after its last change, and offers fixes for unsaved documents at positions in the buffer, with the
   document version in `documentChanges` when the client supports it. Library hosts overlay buffers on a file system
-  with `BufferFs` ([#44](https://github.com/Goldziher/skif/issues/44), [ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)).
+  with `BufferFs` ([#44](https://github.com/Goldziher/skif/issues/44), [ADR 0002](adrs/0002-crates-library-api-and-upstream-code.md)).
 - `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`,
   `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`,
   `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`
-  plugins ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md),
+  plugins ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#39](https://github.com/Goldziher/skif/issues/39)). The table holds 127 plugins.
 - The command of `glob -c "<command>" <patterns>` in a script is parsed as a script
   ([#39](https://github.com/Goldziher/skif/issues/39)).
@@ -1616,7 +1609,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `hardhat`, `temporal`, `relay`, `react-email`, `openapi-ts`, `orval`, `danger`, `xo`, `textlint`, `taskfile`, `mise`,
   `moonrepo`, `wireit`, `travis`, `buf`, `vite-plugin-pwa`, `nuxtjs-i18n`, `rstest`, `sveltejs-package`,
   `playwright-ct`, `fumadocs`, `purgecss`, `nano-staged` and `changelogen` plugins
-  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#40](https://github.com/Goldziher/skif/issues/40)). The table holds 162 plugins. `sst` also reads the handlers of
   the modules `sst.config.ts` imports, such as `infra/*`.
 - `skif-js-syntax` extracts the values of a property wherever it is written in a file (`extract_property_values`).
@@ -1626,14 +1619,14 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   `npm-package-json-lint`, `openclaw`, `osls`, `playwright-test`, `railway`, `raycast`, `react-cosmos`,
   `solidjs-vite-plugin`, `tsrs`, `typescript-content-mapper`, `varlock`, `vercel-og`, `vite-plugin-pages`,
   `vite-plugin-vue-layouts-next`, `vite-plus`, `vite-pwa-assets-generator` and `yorkie` plugins
-  ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md),
+  ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#41](https://github.com/Goldziher/skif/issues/41)). The table holds 201 plugins. `mcp` reads the commands of the
   servers in `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json` and `.codex/config.toml`, and `varlock` the
   `@plugin` and `@import` decorators of `.env` files.
 - A plugin can be enabled by a key of the workspace's `package.json` (`Enabler::ManifestKey`).
 - An exported class registered as a custom element is no unused export: `customElements.define("x-y", Class)`
   always counts, and the registering decorator or base class of an enabled plugin's library counts too
-  ([ADR 0020](adrs/0020-templates-components-and-custom-elements.md),
+  ([ADR 0009](adrs/0009-what-counts-as-a-use.md),
   [#38](https://github.com/Goldziher/skif/issues/38)). `stencil` now marks `@Component` classes.
 - `lit`, `catalyst` and `fast` plugins, which mark the classes their decorators (`@customElement`, `@controller`) or
   `FASTElement.define()` register ([#39](https://github.com/Goldziher/skif/issues/39),
@@ -1658,13 +1651,13 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
   package manager, as syncpack reads them; the file is read only then, and an invalid one declares nothing
   ([#35](https://github.com/Goldziher/skif/issues/35)).
-- [ADR 0010](adrs/0010-version-semver-range-and-catalog-policies.md) records these
+- [ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md) records these
   additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
   policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
 - `skif update [--check] [--target latest|minor|patch] [--dependencies <NAME>]`: newer published versions from the npm
   registry, written format-preserving or, with `--check`, reported with exit `1`, as syncpack's `update`
   ([#34](https://github.com/Goldziher/skif/issues/34),
-  [ADR 0026](adrs/0026-skif-update.md)). It is the only command that uses the
+  [ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md)). It is the only command that uses the
   network; linting never does. It reads the registry and tokens of `.npmrc` (the project's `.npmrc` expands an
   environment variable only in a token, which is then only sent over https to `registry.npmjs.org` or a host the user's
   own configuration names; a registry URL there that reads one is ignored), honours
@@ -1703,23 +1696,23 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   ([#18](https://github.com/Goldziher/skif/issues/18)).
 - `--allow-remove-files` lets a fix run delete files, and `--fix-type` limits it to some rules, given as rule ids or
   knip issue types (`dependencies`, `exports`, `types`, `enumMembers`, `files`, `catalog`, ...), as knip's flags do
-  ([ADR 0009](adrs/0009-fixes-edits-and-package-json-formatting.md),
+  ([ADR 0005](adrs/0005-rules-diagnostics-and-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
 - Unsafe fixes for `unused-enum-members`, `unused-namespace-members` and `unused-catalog-entries`, and for
   `unused-exports` on `export default <expression>` when the expression has no side effects. A member goes with its
   comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
-  ([ADR 0009](adrs/0009-fixes-edits-and-package-json-formatting.md),
+  ([ADR 0005](adrs/0005-rules-diagnostics-and-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
 - `skif mcp`, a Model Context Protocol server on stdio for AI agents, with the tools `lint`, `explain_usage` and
   `list_rules`, which return the documents of `--format json`
-  ([ADR 0028](adrs/0028-editors-agents-and-git-hooks.md),
+  ([ADR 0013](adrs/0013-editors-agents-and-git-hooks.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `--watch` lints again whenever a file below the root changes, after 100 milliseconds of quiet; it polls, so it
   needs no native file events, and ignores the reports it writes (`--output`, `--format FORMAT=FILE`)
-  ([ADR 0028](adrs/0028-editors-agents-and-git-hooks.md),
+  ([ADR 0013](adrs/0013-editors-agents-and-git-hooks.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
-  ([ADR 0028](adrs/0028-editors-agents-and-git-hooks.md),
+  ([ADR 0013](adrs/0013-editors-agents-and-git-hooks.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `skif lsp` answers `textDocument/codeAction`: each fix of a diagnostic under the cursor is a quick fix (an unsafe
   one is labelled `(unsafe)`), and `source.fixAll.skif` applies every safe fix of the file. The edits come from the
@@ -1734,19 +1727,19 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - `--fix-unsafe` no longer deletes files: the `unused-files` fix is skipped as `removes-files` unless
   `--allow-remove-files` is given. In the library, `FixSelection::remove_files` is off by default and such a fix is
   skipped with `SkipReason::RemovesFiles`
-  ([ADR 0009](adrs/0009-fixes-edits-and-package-json-formatting.md),
+  ([ADR 0005](adrs/0005-rules-diagnostics-and-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
 - Files in `fixtures` and `__fixtures__` directories are no longer reported by `unused-files`, and their exports,
   types and members are no longer reported by `unused-exports`, `unused-types`, the namespace rules and
   `unused-enum-members`. `[js] include-fixtures = true` reports them like any other file
-  ([ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md),
+  ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md),
   [#28](https://github.com/Goldziher/skif/issues/28)).
 - `--fix` aligns versions when the target is explicit (a `pinned` group's version, the version the workspace aligns
   on, an existing catalog entry) and the move stays within what the specifier already promises, in the same shape: an
   exact version or a `^` range within its major (`left-pad` `1.0.0` to `1.3.0`), a `~` range within its minor.
   Moves across a major, downgrades, prereleases and range changes still need `--fix-unsafe`, also when a pin asks
   for them
-  ([ADR 0009](adrs/0009-fixes-edits-and-package-json-formatting.md), [#31](https://github.com/Goldziher/skif/issues/31)).
+  ([ADR 0005](adrs/0005-rules-diagnostics-and-fixes.md), [#31](https://github.com/Goldziher/skif/issues/31)).
 - **Breaking** for consumers of `explain-usage --format json`: the `absence` value `not-analysed` is gone, replaced
   by `package-excluded`, `declaration-file`, `entries-incomplete`, `outside-project`, `ignored` and `not-discovered`
   ([#23](https://github.com/Goldziher/skif/issues/23)).
@@ -1770,15 +1763,15 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - The knip comparison counts knip-only exports, types, namespace exports and types, and enum and namespace members in
   a package skif lists under `incomplete-packages` as `not-judged-by-skif`, as it did for files and dependencies:
   skif does not report them there either
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The knip comparison records the configuration files knip could not load (`ERROR: Error loading`, exit 2) in
   `parity.json`, their number in the baseline and `parity.md`, and counts knip-only findings in their packages as the
   `knip-config-error` deviation instead of as differences; create-t3-turbo and vue-core have such files
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The `fixture-file` deviation of the knip comparison covers only `fixtures` and `__fixtures__`, the directories skif
   does not report; knip-only files below `fixture`, `testdata`, `test_root`, `__testfixtures__` or `*-fixtures`, which
   skif judges, count as differences unless they are test files
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+  ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - The parity baseline is refreshed for create-t3-turbo, vue-core, tanstack-query, jest, babel, cal-com, mastra,
   vscode, npm-cli and rushstack, and the README's agreement with knip is measured on the nine of them compared. The
   old figures counted babel's fixture files, which skif no longer reports, as shared; n8n, angular, opencode,
@@ -1812,7 +1805,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   published output, a plugin without a scope and a computed `import()` in the package keep the whole package
   unjudged. Unused dependencies and exports of such a package are still not judged. `explain-usage` tells the narrowed scope from the package-wide case (the `entry`
   `incomplete-scope`, `incomplete-scope` and `widened-by`), and the human note says the packages were not fully
-  checked ([ADR 0016](adrs/0016-config-evaluation-and-incomplete-entries.md),
+  checked ([ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md),
   [#23](https://github.com/Goldziher/skif/issues/23)).
 
 ### Fixed
@@ -1827,7 +1820,7 @@ runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
   a project that has no `skif.toml` yet is linted with the settings of its sherif configuration. The
   `sherif` key and the flags of a root script that runs sherif (`sherif -i react -r unordered-dependencies`) are
   translated by `skif migrate --from sherif --profile full` into a temporary file passed as `--config`; the
-  skif binary still never reads sherif configuration (ADR 0025). The `skif migrate` note for sherif's `-i name@version` says
+  skif binary still never reads sherif configuration (ADR 0003). The `skif migrate` note for sherif's `-i name@version` says
   that the ignored version still counts when skif picks the version to align on
   ([#45](https://github.com/Goldziher/skif/issues/45)).
 - `unused-namespace-members` counts a member read by its bare name inside the namespace body, as a value or as a
@@ -1968,7 +1961,7 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   in `skif-report` and `skif::render` ([#42](https://github.com/Goldziher/skif/issues/42)).
 - `--format` is repeatable and takes `FORMAT=FILE`, so one run writes several reports, each to its own file, with at
   most one format on stdout. Files are written only after every rendering succeeds, though a write that fails
-  partway can leave earlier files written; `--output` stays the single-format form ([ADR 0022](adrs/0022-reporting-and-output-formats.md),
+  partway can leave earlier files written; `--output` stays the single-format form ([ADR 0012](adrs/0012-cli-contract-and-reporting.md),
   [#42](https://github.com/Goldziher/skif/issues/42)).
 - The `include-tags` option of `unused-exports` reports only exports and members carrying one of its tags, like knip's
   `--tags +name`; `skif migrate` translates `+tag` to it. A tag it names is judged even when it would exempt, so
@@ -2007,7 +2000,7 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   `sort-exports`, `sort-packages`, `format-bugs`, `format-repository` and `indent`. By default only `types` moves first
   and `default` last among `exports` conditions, since the others decide resolution; a longer `sort-exports` gives an
   unsafe fix. Comments, negated globs and non-git repositories are kept. `skif migrate` writes syncpack's format
-  options to it ([ADR 0009](adrs/0009-fixes-edits-and-package-json-formatting.md),
+  options to it ([ADR 0005](adrs/0005-rules-diagnostics-and-fixes.md),
   [#33](https://github.com/Goldziher/skif/issues/33)).
 - `.mdx` files are followed: their top-level `import` and `export` statements are analysed and the components their
   prose names count as uses (code in backticks does not), so the components, packages and `@mdx-js/*` compilers of a
@@ -2050,7 +2043,7 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - The README leads with what skif does and how it compares, and publishes measured speed, seeded-defect accuracy and
   agreement with knip.
 - The comparison with knip counts the same export under another label as agreement, and reports paths knip does not
-  read as a known deviation ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+  read as a known deviation ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)).
 - The oxc crates move from 0.156.0 to 0.157.0, and use caret ranges instead of exact pins.
 
 ### Added
@@ -2059,7 +2052,7 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 
 ### Fixed
 
-False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)):
+False findings on real repositories ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)):
 
 - A symbolic link to a source file is that file: its exports are no longer reported once per link, and its target no
   longer looks unused.
@@ -2075,7 +2068,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
 
 ### Changed
 
-- **Public API hardening** ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)):
+- **Public API hardening** ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)):
   the `explain` result types, `PathKind` and the `skif-migrate` types are `#[non_exhaustive]` (`skif-migrate` gains
   `Input::new`, `RuleInfo::new` and `Options::new` with builders); the facade re-exports `PathKind` and the types of
   `UsageReport`; `skif-js`, `skif-js-plugins`, `skif-js-syntax` and `skif-edit` warn on missing documentation; the
@@ -2092,7 +2085,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `[policy] override-reading = "skif" | "syncpack"`: `syncpack` reads `resolutions`, `overrides` and `pnpm-overrides`
   as syncpack 15 does (the key is the dependency name; nested objects and `pnpm.overrides` of a manifest are not
   read), and migrating syncpack writes it
-  ([ADR 0025](adrs/0025-skif-migrate.md)).
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md)).
 - **Distribution hardening**: `scripts/check-versions.sh` also compares the workspace packages of `Cargo.lock`, and
   `scripts/release-bump.sh` fails when `cargo update --workspace` fails. The glibc floor lives in
   `scripts/lib/libc.sh` (the Homebrew formula takes it from there) and `check-versions.sh` checks the build matrix
@@ -2101,16 +2094,16 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `v0.M` instead of `v0` (`@v0.1` in the examples); `@v0.M` and `@vN` resolve to the newest matching release.
   `cargo binstall` installs the static musl archive on Linux, so it also works below glibc 2.34. Bun is tested on the
   newest 1.x, resolved from the registry. The repository guards and `npm-smoke.sh` have tests, and CI runs the facade
-  unit tests and doctests as two invocations ([ADR 0027](adrs/0027-distribution-and-release.md)).
+  unit tests and doctests as two invocations ([ADR 0015](adrs/0015-distribution-release-and-supported-versions.md)).
 
 ### Added
 
-- **`catalog-version-divergence`** ([ADR 0010](adrs/0010-version-semver-range-and-catalog-policies.md)): a warning
+- **`catalog-version-divergence`** ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md)): a warning
   on `catalog:` references to one dependency that resolve to different versions, which `version-mismatch` cannot see.
   `catalog-mismatch` names the catalog's version in its message.
-- **Reasons on ignores** ([ADR 0010](adrs/0010-version-semver-range-and-catalog-policies.md)): `[[ignore]]` takes
+- **Reasons on ignores** ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md)): `[[ignore]]` takes
   an optional `reason`, and `--require-ignore-reasons` fails a run on an entry of a file without one.
-- **`[js]` configuration parity with knip** ([ADR 0005](adrs/0005-the-js-table-ignore-lists-and-suppression-reasons.md)):
+- **`[js]` configuration parity with knip** ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md)):
   `ignore-dependencies`, `ignore-binaries`, the new `ignore-unresolved` (top level and per workspace, with
   `extend-ignore-unresolved`) and `ignore-members` take regular expressions (`/^@org\/.+$/`, or knip's character
   test) next to globs, and an entry ending in `!` applies in production mode only. `entry` and `project` honour the
@@ -2129,13 +2122,12 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   entries of the new `[[custom-types]]` (`name`, dotted `path`, `strategy` = `version`, `name@version` or
   `versions-by-name`). Their versions are instances like dependency entries, so version and semver groups pin, ban,
   align and range them (`engines.node`, `packageManager`, overrides), with fixes in `package.json` or
-  `pnpm-workspace.yaml`. They are opt-in: the default scope is unchanged (ADR 0010).
+  `pnpm-workspace.yaml`. They are opt-in: the default scope is unchanged (ADR 0006).
 - **Ignored semver groups**: `[[semver-groups]]` takes `ignored = true` instead of `range` (syncpack `isIgnored` and
   `isDisabled`); `SemverGroup::range` is now an `Option` and `SemverGroup::ignored()` builds such a group.
 - **Built-in dependency families from sherif**: `turborepo`, `eslint-stylistic` and `lexical`, the full Storybook list
   and the Prisma adapters.
-- **`[js] discovery`** (`auto`, `git`, `walk`, [ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md),
-  corrected by [ADR 0014](adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)):
+- **`[js] discovery`** (`auto`, `git`, `walk`, [ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)):
   when the analysed root is in a git work tree, source files are listed from `.git/index` (formats 2 to 4, read
   without running git) instead of walking the directories, and plugin config searches use the same listing. `auto`
   (the default) `stat`s each tracked directory and lists from disk any directory modified at or after the index time,
@@ -2155,7 +2147,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   scripts that run each tool. `--from sherif|syncpack|knip|auto`, `--profile exact|full`, `--merge`, `--force`,
   `--dry-run`, `--output`, `--source`, `--strict` and `--format json`; the report lists what was translated, what skif
   covers by default, what needs a human and the checks skif runs that the old tools did not. New crate `skif-migrate`;
-  `skif-js-plugins` makes `load_config` and `scripts::split_commands` public. See ADR 0025 and the migration guide.
+  `skif-js-plugins` makes `load_config` and `scripts::split_commands` public. See ADR 0003 and the migration guide.
   `--merge` edits the existing file in place (comments and order stay, new tables go at the end under a banner), treats
   the `off` values of the `exact` profile as replaceable (`# skif migrate: not checked by <tools>`, plus a
   `# skif migrate: sources = [...]` line), so `--from sherif` then `--from knip --merge` ends with the same checks as
@@ -2165,7 +2157,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   still checks stays on. Per-script flags that disagree are combined with a note, per-workspace knip settings stay in
   their workspace, knip's issue types follow knip 6 (`--dependencies` covers the catalog types, production drops the dev
   and catalog types, `classMembers` is not a type), and scripts behind `npm run -- `, `CI=1`, `cross-env`, `dotenv --`,
-  `turbo run`, `concurrently` and `sh -c` are read. See ADR 0025.
+  `turbo run`, `concurrently` and `sh -c` are read. See ADR 0003.
 - **Config model constructors**: every `skif-config` model struct is `#[non_exhaustive]` and builds from `Default` or a
   constructor plus `with_*` methods (`SemverGroup::new`, `DependencyFamily::new`, `VersionGroup`, `IgnoreEntry`,
   `Catalog`, `PluginOptions`, `Workspace`, `Lint`, `Policy`, `WorkspaceProtocol`, `Js`), so `ConfigBuilder::semver_group`
@@ -2189,7 +2181,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   that is only read through `import * as ns` or `export * as ns` and that no `ns.member` read touches. A namespace used
   as a whole counts as using everything, and `import * as ns; export { ns }` is a namespace re-export that forwards only
   the members read through it. The findings of such modules move from `unused-exports` and `unused-types` to the new
-  rules ([ADR 0018](adrs/0018-export-namespace-and-member-rules.md)).
+  rules ([ADR 0009](adrs/0009-what-counts-as-a-use.md)).
 - **Single-file component templates**: `.vue`, `.svelte` and `.astro` files credit imports used from the markup
   (component tags, `{{ }}`, `{ }`, `:prop`, `@event`, `v-*`, Svelte blocks and directives), analyse every `<script>`
   block together and the Astro frontmatter, and treat `<style>` blocks and `src` attributes as imports.
@@ -2204,16 +2196,16 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `mise run diff:syncpack` compares its policy findings with a pinned syncpack, on the policy fixtures and a pinned
   corpus of 16 public repositories (`skif-bench corpus fetch`, `mise run corpus:fetch`). Counts are committed under
   `tools/bench/baselines`, `--check` fails on drift, and a weekly `corpus` workflow runs it
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
+  ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md)).
 - **Known deviations in the comparison harness**: `mise run parity` and `mise run diff:syncpack` report intended
   differences from knip and syncpack apart from the one-sided counts (a separate column and section with the reason),
   and `--check` ignores them. syncpack runs with `--dependency-types prod,dev,local` and an empty configuration,
   Rush projects are fed to it as sources and `unresolved-catalog-references` is compared; knip runs with an empty
   configuration (`--repo-knip-config` opts out), enum and namespace members are keyed by member name, noisy stdout
   no longer skips a repository, and `corpus.toml` takes `recursive`, `install-command` and `install-timeout-secs` per
-  repository ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)). The namespace rules are
+  repository ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md)). The namespace rules are
   compared with the `exports` and `types` items knip reports with a `namespace`, and with `nsExports` and `nsTypes`
-  ([ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)).
+  ([ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md)).
 - **Benchmark targets are enforced**: `skif-bench run` exits non-zero when an ADR 0001 target fails, measures a
   10,000-file module graph, and `mise run bench:publish` writes `tools/bench/results` and refreshes the numbers table.
 - **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the
@@ -2228,7 +2220,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   member directory does the same for that package; `$ROOT/` anchors a pattern at the root being linted. `skif
   config --show` and `--explain` print the effective configuration with the file and line of every value, and
   `--config` and `--no-config` bypass discovery
-  ([ADR 0004](adrs/0004-configuration-model-and-layering.md)).
+  ([ADR 0003](adrs/0003-configuration-suppressions-baselines-and-migration.md)).
 - **`--no-prompt`**: never ask which alternative fix to apply; a diagnostic with several alternatives stays unfixed
   unless `--select` decides. Both git hooks pass it.
 - **`--color <auto|always|never>`**: overrides the terminal check that decides whether human output is coloured.
@@ -2242,7 +2234,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `pnpmVersion`, `npmVersion` or `yarnVersion` name the package manager.
 - **`[workspace] discover-ignore`**: directories a recursive run does not search for roots. The default is
   `__fixtures__`, `fixtures`, `__mocks__` and `__snapshots__`; setting the key replaces the list
-  ([ADR 0006](adrs/0006-workspace-discovery-roots-and-multi-root-runs.md)).
+  ([ADR 0004](adrs/0004-workspaces-roots-and-package-managers.md)).
 - **Single-package mode**: a package that declares no workspace is linted on its own, with no workspace required.
   `root-package-private-field` and `root-package-dependencies` do not report for it.
 - **`recursive` option** for `lint` and `lintAsync` in the npm addon.
@@ -2283,8 +2275,8 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`,
   `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike` and
   `webdriver-io`.
-  The set is extended in [ADR 0015](adrs/0015-plugin-model-and-plugin-set.md), ADR 0018 and
-  [ADR 0015](adrs/0015-plugin-model-and-plugin-set.md).
+  The set is extended in [ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md), ADR 0009 and
+  [ADR 0008](adrs/0008-plugins-config-evaluation-and-commands.md).
 - **Output formats**: human, JSON, SARIF and GitHub annotations, selected with `--format`.
 - **Atomic fixes**: `--fix` and `--fix-unsafe` plan all edits first, write them atomically and lint again;
   edits keep key order, indentation and newline style. `--fix` runs the package manager's install unless
@@ -2337,7 +2329,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
 - **`skif_workspace::discover_roots` is gone** from the public API (and from `skif`): `discover_targets` is the one
   config-aware pipeline, built on `scan_candidates` and `claim_roots`. A workspace claims a member whose manifest does
   not parse, so that member is no longer linted a second time as a root.
-- **`--ignore-package` help** says that the flag replaces `[workspace] ignore-packages` (ADR 0004).
+- **`--ignore-package` help** says that the flag replaces `[workspace] ignore-packages` (ADR 0003).
 - **`missing_docs`** is a warning in `skif-core`, `skif-specifier` and `skif-workspace` and the whole config model is
   documented (so the JSON Schema gains the descriptions); `skif-specifier` asserts `Send + Sync` for its public types.
 - **Alternative fixes carry a typed preference**: `Fix::with_preference(FixPreference::Highest | Lowest)` marks the
@@ -2349,7 +2341,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   `DependencyTypes`, `Js`, `JsWorkspace`, `Lint`, `PluginConfig`, `PluginOptions`, `Policy`, `RuleOptions`,
   `SemverGroup`, `SemverRange`, `VersionGroup`, `VersionPolicy`, `WorkspaceProtocol` and, as `WorkspaceConfig`, the
   `[workspace]` table. The third-party crates that may appear in the API are listed once in the `skif` crate
-  documentation and checked by a test ([ADR 0003](adrs/0003-library-api-and-embedding.md)).
+  documentation and checked by a test ([ADR 0002](adrs/0002-crates-library-api-and-upstream-code.md)).
 - **A `Linter` shared by concurrent runs keeps one cache for them**: the cache of the built-in JS analysis is emptied
   when the first of a group of overlapping runs starts and when the last one ends, so `skif -r` no longer wipes the
   listings that the roots already running just read, and an idle `Linter` holds nothing.
@@ -2368,7 +2360,7 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
 - **Release pipeline order**: the GitHub release is made public only after crates.io is published and the npm package
   runs; `cargo binstall` is verified after that. The dry run also starts for changes to the release inputs and weekly,
   and the Windows arm64 archive is unpacked with `Expand-Archive`.
-- **CI covers the supported versions of ADR 0030**: the npm addon and published-package checks run on Node 22, 24 and
+- **CI covers the supported versions of ADR 0015**: the npm addon and published-package checks run on Node 22, 24 and
   26 and the latest Bun 1.x; the end-to-end suite runs the latest two majors of npm, pnpm and Yarn 2+ (resolved from
   the registry) and the latest Bun.
 - **Library timings are a hook, not an environment read**: `skif_core::timing` no longer looks at `SKIF_TIMINGS` or
@@ -2411,13 +2403,13 @@ False findings on real repositories ([ADR 0013](adrs/0013-js-analysis-core-oxc-m
   logic is `scripts/release-floating-tag.sh`, tested in `scripts/test-release-scripts.sh`, and the tag trigger only
   matches full `vX.Y.Z` versions.
 - **`skif migrate`**: a trailing `# comment` after a `pnpm-workspace.yaml` package pattern is not part of the pattern.
-- **Monorepo JS corrections** ([ADR 0013](adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)):
+- **Monorepo JS corrections** ([ADR 0007](adrs/0007-js-analysis-core-on-oxc.md)):
   `buffer/` and `events/` name npm packages, not builtins; the vitest plugin adds `index.html` scripts without the vite
   plugin; the `paths` of a `tsconfig` referenced in another package stay with that package when the referencing package lists it as a
   dependency (an unlisted one still resolves through the referenced paths); extglob groups
   (`*.(ts|tsx)`, `@(a|b)`, `+(…)`) work in plugin globs; stylesheet imports through `baseUrl`, `paths` and `resolve.modules` use the
   stylesheet resolver, partials included; bundler `resolve.extensions` apply per package.
-- **Catalog rules respect version groups** ([ADR 0010](adrs/0010-version-semver-range-and-catalog-policies.md)):
+- **Catalog rules respect version groups** ([ADR 0006](adrs/0006-version-policies-lockfiles-toolchains-and-updates.md)):
   an instance a configured `[[version-groups]]` entry matches belongs to that group, whatever its policy
   (`pinned`, `banned`, `ignored`, `snapped-to`, an aligned policy with a selector), as in syncpack's first-match-wins
   order. `catalog-not-used`, `catalog-mismatch`, `catalog-missing-entry` and `unresolved-catalog-references` skip it,

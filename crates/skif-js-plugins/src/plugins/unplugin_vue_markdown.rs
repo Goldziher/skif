@@ -1,7 +1,7 @@
 //! unplugin-vue-markdown: enabled by its package, without entries or configs of its own. knip compiles the Markdown
 //! files it turns into Vue components to find the components their tags use; skif reads no Markdown, so where the
 //! `unplugin-vue-components` options of a bundler config `include` Markdown files, every component the declaration
-//! file registers counts as used (ADR 0020).
+//! file registers counts as used (ADR 0009).
 
 use crate::plugin::{Enabler, PORTED_KNIP_COMMIT, Plugin, PluginSpec};
 

@@ -1,4 +1,4 @@
-//! The programs of a run share the bundled lib files and the declaration files below `node_modules` (ADR 0034): each
+//! The programs of a run share the bundled lib files and the declaration files below `node_modules` (ADR 0010): each
 //! is parsed and bound once for the run, whichever program reads it first, every later program reads that parse,
 //! also after the program that parsed it is freed, and the facts are those of programs that parse every file for
 //! themselves. A project's own files, declaration files included, are parsed by each program that reads them.

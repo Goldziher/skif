@@ -190,7 +190,7 @@ knip --reporter json exited with an error in 5 of 5 runs, as corpus.toml declare
 | corpus: n8n (pnpm) | JS analysis >= 5x faster than knip (measured 3.8x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries) | FAIL |
 | corpus: next-js (pnpm) | JS analysis >= 5x faster than knip (measured 1.5x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries) | FAIL |
 
-## Type awareness (ADR 0029)
+## Type awareness (ADR 0010)
 
 | Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |
 | --- | ---: | ---: | ---: | ---: | ---: |

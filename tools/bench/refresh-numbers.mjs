@@ -293,7 +293,7 @@ export function benchDetail(summary) {
     lines.push("");
   }
   if (summary.type_aware_budget_checks.length > 0) {
-    lines.push("| Type-aware budget (ADR 0029) | Check | Result |", "| --- | --- | --- |");
+    lines.push("| Type-aware budget (ADR 0010) | Check | Result |", "| --- | --- | --- |");
     for (const check of summary.type_aware_budget_checks) {
       lines.push(`| ${check.target} | ${cell(check.description)} | ${CHECK_LABELS[check.status]} |`);
     }

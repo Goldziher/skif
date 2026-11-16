@@ -209,7 +209,7 @@ pub struct SharedFileCounts {
     pub unshared: usize,
 }
 
-/// How the plannings and programs of an analysis got the configs they read (ADR 0034), one count per request: each
+/// How the plannings and programs of an analysis got the configs they read (ADR 0010), one count per request: each
 /// config is read and parsed once for the run, the first time a planning or a program asks for it, and reused by every
 /// later request. A program still parses the config it is built from, with the configs that one extends from the run.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

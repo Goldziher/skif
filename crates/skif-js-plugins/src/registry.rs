@@ -1,4 +1,4 @@
-//! The plugin table of ADR 0015.
+//! The plugin table of ADR 0008.
 
 use std::sync::LazyLock;
 
@@ -244,7 +244,7 @@ static PLUGINS: [&dyn Plugin; 213] = [
     &unplugin_vue_markdown::UnpluginVueMarkdown,
 ];
 
-/// Every plugin, in the order of the table (ADR 0015, ADR 0006, ADR 0018).
+/// Every plugin, in the order of the table (ADR 0008, ADR 0004, ADR 0009).
 #[must_use]
 pub fn plugins() -> &'static [&'static dyn Plugin] {
     &PLUGINS

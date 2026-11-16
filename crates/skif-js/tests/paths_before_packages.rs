@@ -1,4 +1,4 @@
-//! `paths` mappings named like a dependency, as TypeScript resolves them (ADR 0013): the `paths` of a `tsconfig.json`
+//! `paths` mappings named like a dependency, as TypeScript resolves them (ADR 0007): the `paths` of a `tsconfig.json`
 //! and of `[js.workspaces.<dir>.paths]` win over an installed package or a workspace member of the same name, and an
 //! import they lead into the package's own sources uses no listed dependency. A mapping whose targets are missing
 //! falls through to the package. The `paths` of `[js.workspaces.<dir>.paths]` also win over the `paths` of the

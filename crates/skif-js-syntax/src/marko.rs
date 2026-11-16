@@ -1,4 +1,4 @@
-//! The style blocks of a `.marko` file (ADR 0020).
+//! The style blocks of a `.marko` file (ADR 0009).
 //!
 //! Marko templates are no JavaScript a parser accepts, and skif runs no Marko compiler (ADR 0001). As knip's Marko
 //! compiler does, a `.marko` file is read for its imports (see [`crate::tsrx`]) and its styles: the `<style>` blocks of

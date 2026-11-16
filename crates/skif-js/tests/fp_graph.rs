@@ -311,7 +311,7 @@ fn fixture_directories_are_not_held_to_their_imports() {
     );
 }
 
-/// The alias leads into the package's own sources, which is a local import as TypeScript resolves it (ADR 0013).
+/// The alias leads into the package's own sources, which is a local import as TypeScript resolves it (ADR 0007).
 #[test]
 fn a_listed_package_a_path_alias_maps_into_own_sources_is_unused() {
     let diagnostics = lint(&[

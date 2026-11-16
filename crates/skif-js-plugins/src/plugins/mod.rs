@@ -1,4 +1,4 @@
-//! One module per plugin (ADR 0015).
+//! One module per plugin (ADR 0008).
 
 pub mod angular;
 pub mod astro;

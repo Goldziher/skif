@@ -1,5 +1,5 @@
 //! Lit: a class decorated with `@customElement('x-y')` from `lit/decorators.js` (or `@lit/reactive-element` and
-//! `lit-element`) is a registered custom element and so a used export (ADR 0020).
+//! `lit-element`) is a registered custom element and so a used export (ADR 0009).
 
 use crate::plugin::{CustomElements, Enabler, Plugin, PluginSpec};
 

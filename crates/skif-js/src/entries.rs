@@ -39,11 +39,11 @@ pub(crate) struct EntryFiles {
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused, with the
     /// reason: those that publish build output or bin files none of which maps back to a source file
     /// ([`IncompleteCause::UnmappedPublished`]), those a tool configuration gives an entry in build output that maps
-    /// back to no source file ([`IncompleteCause::UnmappedEntry`], ADR 0016), and those with no source file at or below
+    /// back to no source file ([`IncompleteCause::UnmappedEntry`], ADR 0008), and those with no source file at or below
     /// their directory other than a package manager's install hook (`.pnpmfile.cjs`), no other entry and no script,
     /// whose manifest only lists what code elsewhere installs it for ([`IncompleteCause::NoEntries`]). A published path
     /// or a plugin entry that names no file at all ([`names_no_file`]) is no entry and does not make a package's
-    /// entries unknown (ADR 0016).
+    /// entries unknown (ADR 0008).
     pub unknown: Vec<(PackageId, IncompleteEntries)>,
     /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
     /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
@@ -372,8 +372,8 @@ impl EntryContext<'_> {
     /// The plugin entries of the package that name one file in the package that is neither a file nor a directory, as
     /// a bundler's `lib-esm/entry.js` does: the source files behind those that are build output, mapped as a published
     /// path is ([`map_published`]), and, absolute, those that are build output ([`should_have_source`], not
-    /// [`names_no_file`]) with no source behind them, whose entries are unknown (ADR 0016). One that names nothing at
-    /// all stays no entry, as a published path into nothing does (ADR 0016).
+    /// [`names_no_file`]) with no source behind them, whose entries are unknown (ADR 0008). One that names nothing at
+    /// all stays no entry, as a published path into nothing does (ADR 0008).
     fn missing_plugin_entries(&self, package: &Package, package_setup: &PackageSetup) -> (Vec<PathBuf>, Vec<PathBuf>) {
         let dir = &package_setup.dir;
         let mut sources = BTreeSet::new();
@@ -457,10 +457,10 @@ fn below<'a>(candidates: &'a [Candidate], root: &Path, dir: &Path) -> &'a [Candi
     &candidates[start..start + run]
 }
 
-/// The files the narrowed scope of an incomplete package matches (ADR 0016), its own and those of the analysed
+/// The files the narrowed scope of an incomplete package matches (ADR 0008), its own and those of the analysed
 /// workspace packages nested below it, whatever its `project` globs say: each may be an entry its configs hide (a
 /// setup module in `test/`, a nested package's test a root test config runs), so they are entries and what they
-/// import is counted (ADR 0016).
+/// import is counted (ADR 0008).
 fn scope_entries(
     workspace: &Workspace,
     setup: &Setup,
@@ -614,7 +614,7 @@ pub(crate) fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, t
 /// root, or its `info/exclude`) and a path in `bin` a build step of the package may write ([`bin_build`]) are build
 /// output, but a path in `bin` the package's build cannot write ([`BinBuild::CannotWrite`]) is not, gitignored or
 /// not. A path outside the package is never judged. Such a path is no entry, so it neither makes the package's
-/// entries unknown nor uses anything (ADR 0016); `stale-js-config` reports it (`package-entry`).
+/// entries unknown nor uses anything (ADR 0008); `stale-js-config` reports it (`package-entry`).
 pub(crate) fn names_no_file(
     disk: Disk<'_>,
     root: &Path,

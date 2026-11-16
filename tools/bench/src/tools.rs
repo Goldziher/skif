@@ -1,6 +1,6 @@
 //! `skif-bench tools`: keeps the exact comparison tool pins of `corpus.toml` at the latest npm releases.
 //!
-//! The pins stay exact (ADR 0029), so a new release is adopted by `tools update`, which rewrites the `[tools]` table,
+//! The pins stay exact (ADR 0014), so a new release is adopted by `tools update`, which rewrites the `[tools]` table,
 //! the `tools/package.json` that repeats it and the lock; `tools check` fails while a pin is behind.
 
 use std::cmp::Ordering;

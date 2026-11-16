@@ -1,4 +1,4 @@
-//! The owner of one tsrs program, which gives the program's memory back when it is dropped (ADR 0034).
+//! The owner of one tsrs program, which gives the program's memory back when it is dropped (ADR 0010).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -47,7 +47,7 @@ impl ProgramOwner {
 impl Drop for ProgramOwner {
     #[expect(
         unsafe_code,
-        reason = "tsrs leaks each program from a box; only `free_unshared_program` gives its arenas back (ADR 0034)"
+        reason = "tsrs leaks each program from a box; only `free_unshared_program` gives its arenas back (ADR 0010)"
     )]
     fn drop(&mut self) {
         // A program dropped while a panic inside tsrs unwinds may be half updated, and a second panic while freeing

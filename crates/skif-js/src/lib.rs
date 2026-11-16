@@ -86,7 +86,7 @@ pub use rules::{
     rules,
 };
 pub use shared_modules::SharedModules;
-/// The module cache of ADR 0029, re-exported for hosts that keep one.
+/// The module cache of ADR 0007, re-exported for hosts that keep one.
 pub use skif_js_syntax::{CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version};
 pub use trace::{
     DependencyCredit, DependencyExplanation, DependencyImport, DependencyListing, DependencyReference, DependencyTrace,

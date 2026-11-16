@@ -81,7 +81,7 @@ skif's, and the speed targets that [ADR 0001](https://github.com/polylint/skif/b
 sets: manifest and policy rules on 500 packages in under 50 ms, the JS analysis at least 5x faster than knip on the same
 tree, and parsing and building the module graph of 10,000 files in under 2 s. The graph target times a whole `skif`
 run, which also runs every JS rule, so it is an upper bound. The same tables check the type-aware budget of
-[ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md):
+[ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md):
 `--type-aware` at most 3x the default run on the largest repository and 2x in the median, at most 4 GiB of peak memory with types
 on every target, at most 5 s with types on the 10,000-file graph, and at least 5x faster than knip with types. It is
 the bar types must meet to become the default again; until then a broken budget shows in the tables without failing
@@ -262,7 +262,7 @@ knip --reporter json exits with an error after its report here, as corpus.toml d
 | corpus: n8n (pnpm) | JS analysis >= 5x faster than knip (measured 3.8x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries) | FAIL |
 | corpus: next-js (pnpm) | JS analysis >= 5x faster than knip (measured 1.5x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries) | FAIL |
 
-| Type-aware budget (ADR 0029) | Check | Result |
+| Type-aware budget (ADR 0010) | Check | Result |
 | --- | --- | --- |
 | graph: 10000 files in 100 packages | peak RSS with types &lt;= 4096 MiB (measured 99 MiB) | pass |
 | graph: 10000 files in 100 packages | whole run with types &lt; 5000 ms (measured 242.3 ms) | pass |
@@ -350,12 +350,12 @@ Findings knip@6.44.1 and skif share on 18 pinned repositories (angular, babel, c
 
 A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
 skif makes test files entries, does not report files in `fixtures` directories
-([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)), reads a
+([ADR 0007](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md)), reads a
 namespace import differently. Findings in packages skif does not judge, in packages where knip could not load a config,
 inside a file the other tool reports as unused (the file is the one disagreement), and exports used only by such
 files are counted apart too. So are declaration files, which skif never reports as unused, types named in the
 signature of an export skif keeps
-([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)),
+([ADR 0009](https://github.com/polylint/skif/blob/main/adrs/0009-what-counts-as-a-use.md)),
 duplicate exports of entry modules, which skif's rule leaves alone, and dependencies a Bazel `BUILD` file names, which
 knip does not read. It also sets apart what follows from where each tool looks, decided from paths and manifests:
 projects with their own `package.json` that are not knip workspaces, on both sides (knip neither judges their
@@ -366,9 +366,9 @@ the files they import that only knip reports as unused. An import one tool repor
 unresolved counts as agreement. A repository whose knip run is not a valid comparison is named and left out of the
 sums. skif is compared with `--type-aware`, and runs a second time with `--no-type-aware`: a finding
 only one mode reports, where knip does not side with the typed run, is counted apart as `type-resolved`
-([ADR 0021](https://github.com/polylint/skif/blob/main/adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)), and the findings of each
+([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-benchmarks-and-the-comparison-harness.md)), and the findings of each
 mode per rule are recorded in `tools/bench/baselines/type-aware.json`. Reading the disagreements found false findings on both sides
-([ADR 0013](https://github.com/polylint/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+([ADR 0007](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md)).
 The remaining differences, and what each tool reports differently, are in the
 [comparison guide](../comparison/#parity-with-knip).
 
@@ -389,7 +389,7 @@ skif runs as `skif . --format json --no-install`, with `--no-js` for the manifes
 repository sets `bench-knip-config = "parity"`, with a `--config` that adds the entry files the agreement comparison gives both tools,
 while knip gets that comparison's configuration in place of the repository's own; the working directory is the
 target. Each compared row is timed on the scope its comparison tool reads, so none runs with `--recursive`
-([ADR 0037](https://github.com/polylint/skif/blob/main/adrs/0037-time-each-comparison-tool-on-the-scope-it-reads.md)):
+([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-benchmarks-and-the-comparison-harness.md)):
 a recursive run also lints the nested projects that are not workspace members (403 in next-js), which sherif, syncpack
 and knip do not read. Where a repository holds such projects (babel, vscode, next-js), a recursive run is timed as an
 informational row that is part of no ratio, claim or check. Both skif modes then run once more under `/usr/bin/time` for their peak resident set size. Non-zero exits are
@@ -429,7 +429,7 @@ declaration says so (`timed = true`) and the run is published with its time and 
 
 The workflow runs only when dispatched, on a pinned GitHub-hosted runner image (`ubuntu-24.04` or
 `ubuntu-24.04-arm`), and builds skif and the harness with `--locked` and the `rust-version` of their `Cargo.toml`
-([ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)).
+([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-benchmarks-and-the-comparison-harness.md)).
 GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
 two runs of the same image may land on different CPU models (the summary names the one it got). Read the ratios
 against knip, sherif and syncpack, which share the machine and its noise, rather than the absolute times.

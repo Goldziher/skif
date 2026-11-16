@@ -28,7 +28,7 @@ napi = { version = "3", default-features = false, features = ["napi4"] }
 napi-build = "2"
 napi-derive = "3"
 nodejs-semver = "7.0.0"
-# oxc releases break weekly; the oxc crates move in lockstep with poly (ADR 0013).
+# oxc releases break weekly; the oxc crates move in lockstep with poly (ADR 0007).
 oxc_allocator = "0.158.0"
 oxc_ast = "0.158.0"
 oxc_ast_visit = "0.158.0"
@@ -40,7 +40,7 @@ oxc_str = "0.158.0"
 proptest = "1.12.0"
 rayon = "1.12.0"
 regex = "1.13.1"
-# The crypto provider ureq's rustls uses in `skif update` (ADR 0026); ring, not aws-lc, so no C toolchain is needed.
+# The crypto provider ureq's rustls uses in `skif update` (ADR 0006); ring, not aws-lc, so no C toolchain is needed.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.5"
 schemars = { version = "1.2.3", features = ["indexmap2"] }
@@ -49,7 +49,7 @@ serde-saphyr = "2.1.1"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 simdutf8 = "0.1.5"
 similar = "3.2.1"
-# The module cache key (ADR 0029); already in the tree through phf_shared.
+# The module cache key (ADR 0007); already in the tree through phf_shared.
 siphasher = "1.0.4"
 
 skif = { path = "crates/skif", version = "=0.7.0" }
@@ -73,8 +73,8 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 toml = { version = "1.2.1", features = ["preserve_order"] }
 toml_edit = "0.25.19"
-# The TypeScript checker behind type-aware analysis (ADR 0034), only through skif-js-types. Pre-release crates move
-# together and only at an exact version (ADR 0034).
+# The TypeScript checker behind type-aware analysis (ADR 0010), only through skif-js-types. Pre-release crates move
+# together and only at an exact version (ADR 0010).
 tsrs_ast = "=7.1.0-beta.tsrs1"
 tsrs_binder = "=7.1.0-beta.tsrs1"
 tsrs_checker = "=7.1.0-beta.tsrs1"
@@ -86,7 +86,7 @@ tsrs_scanner = "=7.1.0-beta.tsrs1"
 tsrs_tsoptions = "=7.1.0-beta.tsrs1"
 tsrs_vfs = "=7.1.0-beta.tsrs1"
 unicode-width = "0.2.3"
-# `skif update` only (ADR 0026): blocking HTTP with rustls on ring and gzip; roots from the OS store.
+# `skif update` only (ADR 0006): blocking HTTP with rustls on ring and gzip; roots from the OS store.
 ureq = { version = "3.5.2", default-features = false, features = ["rustls-no-provider", "gzip"] }
 which = "8.0.6"
 yaml_serde = "0.10"
@@ -108,7 +108,7 @@ too_many_lines = "allow"
 # Issues are returned boxed as trait objects by design.
 unnecessary_box_returns = "allow"
 
-# Panics unwind so that a failure inside the type checker falls back to the untyped analysis (ADR 0027).
+# Panics unwind so that a failure inside the type checker falls back to the untyped analysis (ADR 0015).
 [profile.release]
 lto = "thin"
 codegen-units = 1

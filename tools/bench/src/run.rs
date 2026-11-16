@@ -27,7 +27,7 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 /// ADR 0001: parse and build the module graph of 10,000 files.
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
-/// The type-aware budget of ADR 0029, each limit on the run with `--type-aware` against the default run of the same
+/// The type-aware budget of ADR 0010, each limit on the run with `--type-aware` against the default run of the same
 /// target, without types.
 struct TypeAwareBudget {
     /// Typed over untyped mean on the largest corpus repository, the one whose untyped run takes longest.
@@ -102,7 +102,7 @@ enum Tool {
     SkifTyped,
     SkifManifest,
     /// The whole run with `--recursive`, timed only where the corpus repository holds nested roots. It lints more
-    /// projects than any comparison tool reads, so it has no ratio and is no part of a check (ADR 0037).
+    /// projects than any comparison tool reads, so it has no ratio and is no part of a check (ADR 0014).
     SkifRecursive,
     Sherif,
     Syncpack,
@@ -670,7 +670,7 @@ fn median_of(mut values: Vec<f64>) -> Option<f64> {
     }
 }
 
-/// The checks of [`TYPE_AWARE_BUDGET`] (ADR 0029): per target, the typed run's peak RSS, its time on the module graph
+/// The checks of [`TYPE_AWARE_BUDGET`] (ADR 0010): per target, the typed run's peak RSS, its time on the module graph
 /// case and its speed against knip; across the corpus, the typed over untyped ratio on the largest repository (the
 /// one whose untyped run takes longest) and the median of that ratio. A check of a row that errored is invalid, and
 /// a peak RSS that was not measured is not measured.
@@ -1004,7 +1004,7 @@ fn type_aware_markdown(summary: &Summary, out: &mut String) {
     if modes.is_empty() && summary.type_aware_budget_checks.is_empty() {
         return;
     }
-    out.push_str("## Type awareness (ADR 0029)\n\n");
+    out.push_str("## Type awareness (ADR 0010)\n\n");
     if !modes.is_empty() {
         out.push_str(
             "| Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |\n",
@@ -1261,7 +1261,7 @@ fn corpus_target_name(repo: &corpus::Repo) -> String {
 /// The skif and knip arguments of a corpus repository's timed runs: knip's `bench-knip-args`, and with
 /// `bench-knip-config = "parity"` the configurations of the knip comparison, written into `scratch`: knip's in place
 /// of the repository's own, and skif's with the `entry` files when there are any. Neither gets `--recursive`: the
-/// compared rows read the scope the comparison tools read (ADR 0037).
+/// compared rows read the scope the comparison tools read (ADR 0014).
 fn corpus_tool_args(repo: &corpus::Repo, scratch: &Path) -> Result<(Vec<String>, Vec<String>)> {
     let mut skif = Vec::new();
     let mut knip = repo.bench_knip_args.clone();
@@ -1539,7 +1539,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
         (
             options.check_budget,
             &summary.type_aware_budget_checks,
-            "type-aware budget (ADR 0029)",
+            "type-aware budget (ADR 0010)",
         ),
     ]
     .into_iter()
@@ -2609,7 +2609,7 @@ mod tests {
             ]
         );
         assert!(checks.iter().all(|check| check.status == CheckStatus::Pass));
-        assert_eq!(failed_checks(&checks, "type-aware budget (ADR 0029)"), None);
+        assert_eq!(failed_checks(&checks, "type-aware budget (ADR 0010)"), None);
     }
 
     #[test]
@@ -2656,8 +2656,8 @@ mod tests {
         broken[2] = budget_target("c", "corpus", (150.0, Some(4097)), 100.0, 3000.0);
         let checks = budget_checks(&broken);
         assert_eq!(
-            failed_checks(&checks, "type-aware budget (ADR 0029)").as_deref(),
-            Some("1 type-aware budget (ADR 0029) check(s) failed")
+            failed_checks(&checks, "type-aware budget (ADR 0010)").as_deref(),
+            Some("1 type-aware budget (ADR 0010) check(s) failed")
         );
     }
 
@@ -2740,7 +2740,7 @@ mod tests {
         let text = markdown(&summary);
         assert!(
             text.contains(
-                "## Type awareness (ADR 0029)\n\n| Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| a | 300 | 200 | 1.5x | 1024 | 512 |\n"
+                "## Type awareness (ADR 0010)\n\n| Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| a | 300 | 200 | 1.5x | 1024 | 512 |\n"
             ),
             "{text}"
         );
