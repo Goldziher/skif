@@ -1285,10 +1285,7 @@ impl Session<'_> {
             }
         }
         // The program's own record: it read the files through the file system of the analysis that built it.
-        let context = QueryContext {
-            candidates: &judged.candidates,
-            boms: resident.boms(),
-        };
+        let context = QueryContext::new(&judged.candidates, resident.boms(), tsrs);
         let slots: Vec<Mutex<Option<(FileFacts, u32)>>> = sources.iter().map(|_| Mutex::new(None)).collect();
         let query_start = Instant::now();
         let pooled = self.shared.on_pool(|| {
