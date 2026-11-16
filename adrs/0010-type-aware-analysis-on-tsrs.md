@@ -90,7 +90,15 @@ analysis and its speed everywhere else, and confines tsrs and its process-level 
   has, and their programs (`TypePrograms`): a program the judged files of several roots go to is built once, kept while
   a root that has not finished holds a file its config includes, and walked by every analysis that plans files into
   it. An analysis that needs a program another is building waits for that build.
-* Workspace sources are still read, parsed and bound once per program, beside oxc's parse.
+* A program's own sources, and the sources of the projects it references, are shared the same way, keyed on the full
+  parse options (so a file two projects parse differently is parsed for each), but held only by the programs that read
+  them and freed with the last of them: keeping them for the run would hold every source of a large repository at
+  once. Programs that are not alive at the same time each parse a file they share.
+* Freed project-source regions are retired, returning their pages at once, only in a process that opts in
+  (`retire_freed_sources`), which the `skif` binary's one-shot lint does, and only while the arena holds less than
+  8 GiB. A retired range, and the rest of every slab it shares, is never reused, so the npm addon, embedders and
+  long-lived hosts free regions normally and leave the address space as they found it.
+* Workspace sources are also parsed by oxc for the untyped analysis; the two parses are not shared.
 
 ### Coverage and credit
 
@@ -156,8 +164,9 @@ analysis and its speed everywhere else, and confines tsrs and its process-level 
 * Good, because hosts that do not want tsrs never build it, the addon cannot abort Node.js through a reservation, and
   upgrades are visible and measured.
 * Good, because declaration files, configs and, across roots, whole programs are built once per run.
-* Bad, because typed runs read and bind the workspace sources of each program a second time beside oxc's parse; the
-  cost is published and budgeted, not avoided, and keeps types off by default.
+* Bad, because typed runs parse and bind the workspace sources a second time beside oxc's parse, once more for each
+  program that reads a file after the last program sharing it was freed; the cost is published and budgeted, not
+  avoided, and keeps types off by default.
 * Bad, because the default run keeps the less accurate member findings, and long-lived hosts never get the precise ones.
 * Bad, because skif takes on a large pre-release dependency with process-level constraints, the CLI binary grows by
   the checker and the embedded lib files, and the boundary copies every fact into owned types.
@@ -172,7 +181,8 @@ analysis and its speed everywhere else, and confines tsrs and its process-level 
 * `crates/skif-js-types/tests/members.rs` and `crates/skif-js-types/tests/enums_and_namespaces.rs` cover typed credit.
 * `crates/skif-js-types/tests/programs.rs`, `early_programs.rs`, `shared_files.rs`, `shared_configs.rs` and
   `shared_programs.rs` cover discovery and what the programs of a run share; `determinism.rs` holds identical facts at
-  one and eight threads, and `arenas.rs` holds that repeated analyses free their arenas.
+  one and eight threads, and `arenas.rs` holds that repeated analyses free their arenas; `retire.rs` holds that only a process that opts
+  in retires freed sources.
 * `scripts/check-pins.sh` fails unless every tsrs crate is pinned with `=` to one version;
   `scripts/check-dependency-tree.sh` fails when a crate other than `skif-js-types` reaches tsrs or `skif` without
   default features does; `scripts/npm-smoke.sh` runs the addon with `typeAware` and with `noTypeAware`.

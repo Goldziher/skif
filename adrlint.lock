@@ -49,7 +49,7 @@ blake3 = "bfd906987b833c5989957a738efe9ff6e4911263f6999a11947f19bd174478e0"
 [adrs."adrs/0010-type-aware-analysis-on-tsrs.md"]
 number = 10
 status = "accepted"
-blake3 = "4a04109af9938cd209bfa1c0cb20847d99e5993ff8da790848899bf022425bbe"
+blake3 = "01268ecc0698b119d2f0e4945ee66fc27df06acd44d2775a5c055e509c56e886"
 
 [adrs."adrs/0011-nx-lerna-and-bazel.md"]
 number = 11
