@@ -36,7 +36,7 @@
 # releases with `skif-bench tools update`, which rewrites this table, tools/package.json and the lock (`tools check`
 # fails while a pin is behind); then re-record the baselines.
 [tools]
-knip = "6.44.1"
+knip = "6.45.1"
 syncpack = "15.3.3"
 sherif = "1.13.0"
 
