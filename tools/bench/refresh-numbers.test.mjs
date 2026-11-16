@@ -18,6 +18,7 @@ import {
   mdxText,
   mebibytes,
   parityAgreement,
+  pinnedTools,
   provenance,
   readmeClaims,
   replaceBlock,
@@ -131,6 +132,32 @@ function summary() {
     type_aware_budget_checks: [{ target: "corpus: babel (yarn)", description: "b", status: "pass" }],
   };
 }
+
+test("pinnedTools reads the [tools] table of corpus.toml and stops at the next table", () => {
+  const toml = '# c\n[tools]\nknip = "6.44.1"\nsyncpack = "15.3.3"\nsherif = "1.13.0"\n\n[repos.a]\nrev = "x"\n';
+  assert.deepEqual(pinnedTools(toml), { knip: "6.44.1", syncpack: "15.3.3", sherif: "1.13.0" });
+  assert.throws(() => pinnedTools("[repos.a]\n"), /no \[tools\] table/);
+  const real = pinnedTools(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "corpus.toml"), "utf8"));
+  assert.deepEqual(Object.keys(real).sort(), ["knip", "sherif", "syncpack"]);
+});
+
+test("a summary measured against the pinned tool versions is accepted, whether or not a version carries its tool name", () => {
+  const pinned = { knip: "6.44.1", syncpack: "15.3.3", sherif: "1.13.0" };
+  assert.deepEqual(summaryProblems(summary(), pinned), []);
+});
+
+test("a summary measured against other tool versions than corpus.toml pins is refused", () => {
+  const pinned = { knip: "6.44.1", syncpack: "15.3.3", sherif: "1.13.0" };
+  const stale = { ...summary(), tool_versions: { knip: "6.40.0", sherif: "sherif 1.12.0", syncpack: "15.3.3" } };
+  assert.deepEqual(summaryProblems(stale, pinned), [
+    "the summary was measured against knip 6.40.0, but corpus.toml pins 6.44.1; measure again with the bench workflow",
+    "the summary was measured against sherif 1.12.0, but corpus.toml pins 1.13.0; measure again with the bench workflow",
+  ]);
+  const missing = { ...summary(), tool_versions: { knip: "6.44.1", sherif: "sherif 1.13.0" } };
+  assert.deepEqual(summaryProblems(missing, pinned), [
+    "the summary records no syncpack version; corpus.toml pins syncpack 15.3.3",
+  ]);
+});
 
 test("a complete summary has no problems and names what was measured, on which runner and in which run", () => {
   assert.deepEqual(summaryProblems(summary()), []);
@@ -699,7 +726,12 @@ const TARGETS = [
 function scriptTree(t) {
   const root = mkdtempSync(join(tmpdir(), "skif-refresh-numbers-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const file of [...TARGETS, "tools/bench/refresh-numbers.mjs", "tools/bench/baselines/parity.json"]) {
+  for (const file of [
+    ...TARGETS,
+    "tools/bench/refresh-numbers.mjs",
+    "tools/bench/baselines/parity.json",
+    "tools/bench/corpus.toml",
+  ]) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     cpSync(join(repo, file), join(root, file));
   }
