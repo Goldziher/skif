@@ -50,7 +50,7 @@ const TYPE_AWARE_BUDGET: TypeAwareBudget = TypeAwareBudget {
     knip_speedup: 5.0,
 };
 /// Version of the `summary.json` layout.
-const SUMMARY_SCHEMA: u32 = 7;
+const SUMMARY_SCHEMA: u32 = 8;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
@@ -101,6 +101,9 @@ enum Tool {
     /// The whole run with `--type-aware`.
     SkifTyped,
     SkifManifest,
+    /// The whole run with `--recursive`, timed only where the corpus repository holds nested roots. It lints more
+    /// projects than any comparison tool reads, so it has no ratio and is no part of a check (ADR 0037).
+    SkifRecursive,
     Sherif,
     Syncpack,
     Knip,
@@ -112,6 +115,7 @@ impl Tool {
             Self::Skif => "skif",
             Self::SkifTyped => type_aware::TYPED_TOOL,
             Self::SkifManifest => "skif --no-js",
+            Self::SkifRecursive => RECURSIVE_TOOL,
             Self::Sherif => "sherif",
             Self::Syncpack => "syncpack lint",
             Self::Knip => "knip --reporter json",
@@ -121,13 +125,16 @@ impl Tool {
     /// The npm package (and its executable) of a comparison tool, or `None` for skif (given by path).
     const fn package(self) -> Option<&'static str> {
         match self {
-            Self::Skif | Self::SkifTyped | Self::SkifManifest => None,
+            Self::Skif | Self::SkifTyped | Self::SkifManifest | Self::SkifRecursive => None,
             Self::Sherif => Some("sherif"),
             Self::Syncpack => Some("syncpack"),
             Self::Knip => Some("knip"),
         }
     }
 }
+
+/// The label of the informational row of a recursive skif run ([`Tool::SkifRecursive`]).
+const RECURSIVE_TOOL: &str = "skif --recursive";
 
 /// The two modes of the whole skif run, timed and measured on every corpus and graph target.
 const SKIF_MODES: [Tool; 2] = [Tool::Skif, Tool::SkifTyped];
@@ -388,11 +395,13 @@ fn quote(argument: &str) -> String {
 }
 
 /// The program and arguments of `tool`, whose executable is `program` (the skif binary for the skif rows); `extra`
-/// holds skif's arguments for the target (the run's `--skif-arg`s, then the target's own, such as `--recursive`).
+/// holds skif's arguments for the target (the run's `--skif-arg`s, then the target's own, such as `--config`).
 fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> Vec<String> {
     let mut argv = vec![program.to_string_lossy().into_owned()];
     let fixed: &[&str] = match tool {
-        Tool::Skif | Tool::SkifTyped | Tool::SkifManifest => &[".", "--format", "json", "--no-install"],
+        Tool::Skif | Tool::SkifTyped | Tool::SkifManifest | Tool::SkifRecursive => {
+            &[".", "--format", "json", "--no-install"]
+        }
         Tool::Sherif => &["."],
         Tool::Syncpack => &["lint"],
         Tool::Knip => &["--reporter", "json"],
@@ -406,6 +415,10 @@ fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String])
         }
         Tool::SkifManifest => {
             argv.push("--no-js".to_owned());
+            argv.extend_from_slice(extra);
+        }
+        Tool::SkifRecursive => {
+            argv.push("--recursive".to_owned());
             argv.extend_from_slice(extra);
         }
         Tool::Knip => argv.extend_from_slice(knip_args),
@@ -475,8 +488,8 @@ struct Target {
     /// knip's arguments on this target ([`corpus_tool_args`]): the corpus repository's `bench-knip-args`, then the
     /// knip comparison's `--config` where it sets `bench-knip-config`.
     knip_args: Vec<String>,
-    /// skif arguments of this target ([`corpus_tool_args`]): `--recursive` where the corpus repository sets
-    /// `recursive`, as in `parity`, and the `--config` with its `entry` files where it sets `bench-knip-config`.
+    /// skif arguments of this target ([`corpus_tool_args`]): the `--config` with the `entry` files of the corpus
+    /// repository where it sets `bench-knip-config`. Never `--recursive`, which only [`Tool::SkifRecursive`] adds.
     skif_args: Vec<String>,
     /// What installed the corpus repository ([`install_label`]); `None` when it was not installed.
     installed_with: Option<String>,
@@ -526,7 +539,9 @@ fn tool_results(results: &[HyperfineResult]) -> Vec<ToolResult> {
     results
         .iter()
         .map(|r| {
-            let reference = if r.command == Tool::Sherif.label() || r.command == Tool::Syncpack.label() {
+            let reference = if r.command == RECURSIVE_TOOL {
+                None
+            } else if r.command == Tool::Sherif.label() || r.command == Tool::Syncpack.label() {
                 manifest_mean.or(full_mean)
             } else {
                 full_mean.or(manifest_mean)
@@ -931,6 +946,12 @@ fn markdown(summary: &Summary) -> String {
             );
         }
         out.push('\n');
+        if target.results.iter().any(|r| r.tool == RECURSIVE_TOOL) {
+            let _ = write!(
+                out,
+                "`{RECURSIVE_TOOL}` also lints the nested roots that are not workspace members. No comparison tool reads them, so the row has no ratio and is part of no check.\n\n"
+            );
+        }
         for r in target.results.iter().filter(|r| r.error_runs > 0) {
             let cause = r
                 .error_output
@@ -1237,21 +1258,12 @@ fn corpus_target_name(repo: &corpus::Repo) -> String {
     format!("corpus: {} ({})", repo.name, repo.package_manager)
 }
 
-/// The skif arguments of a corpus repository: `--recursive` where it sets `recursive`, as `parity` runs it, so the
-/// timed run reads the nested roots knip reads from the root.
-fn corpus_skif_args(repo: &corpus::Repo) -> Vec<String> {
-    if repo.recursive {
-        vec!["--recursive".to_owned()]
-    } else {
-        Vec::new()
-    }
-}
-
-/// The skif and knip arguments of a corpus repository's timed runs: skif's [`corpus_skif_args`] and knip's
-/// `bench-knip-args`, and with `bench-knip-config = "parity"` the configurations of the knip comparison, written into
-/// `scratch`: knip's in place of the repository's own, and skif's with the `entry` files when there are any.
+/// The skif and knip arguments of a corpus repository's timed runs: knip's `bench-knip-args`, and with
+/// `bench-knip-config = "parity"` the configurations of the knip comparison, written into `scratch`: knip's in place
+/// of the repository's own, and skif's with the `entry` files when there are any. Neither gets `--recursive`: the
+/// compared rows read the scope the comparison tools read (ADR 0037).
 fn corpus_tool_args(repo: &corpus::Repo, scratch: &Path) -> Result<(Vec<String>, Vec<String>)> {
-    let mut skif = corpus_skif_args(repo);
+    let mut skif = Vec::new();
     let mut knip = repo.bench_knip_args.clone();
     if repo.bench_knip_config.as_deref() == Some(corpus::PARITY_KNIP_CONFIG) {
         let path = |config: PathBuf| config.to_string_lossy().into_owned();
@@ -1400,6 +1412,9 @@ pub fn run(options: &RunOptions) -> Result<()> {
         for (repo, dir) in &suite.repos {
             let mut tools = SKIF_MODES.to_vec();
             tools.push(Tool::SkifManifest);
+            if repo.recursive {
+                tools.push(Tool::SkifRecursive);
+            }
             tools.extend(comparison.iter().copied());
             let checkout = fs::canonicalize(dir)?;
             let mut installed_with = None;
@@ -2178,23 +2193,58 @@ mod tests {
     }
 
     #[test]
-    fn a_recursive_corpus_repository_is_timed_recursively() {
+    fn a_recursive_corpus_repository_is_compared_without_recursive_and_timed_recursively_beside_them() {
         let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
         let (_, bench) = corpus::select(file, "bench", &[]).unwrap();
-        let babel = bench.iter().find(|repo| repo.name == "babel").unwrap();
-        assert!(babel.recursive);
-        let args = corpus_skif_args(babel);
-        assert_eq!(args, ["--recursive"]);
+        let scratch = std::env::temp_dir().join(format!("skif-bench-recursive-{}", std::process::id()));
+        for name in ["babel", "vscode", "next-js"] {
+            let repo = bench.iter().find(|repo| repo.name == name).unwrap();
+            assert!(repo.recursive, "{name}");
+            let (args, _) = corpus_tool_args(repo, &scratch.join(name)).unwrap();
+            assert!(!args.iter().any(|arg| arg == "--recursive"), "{name}: {args:?}");
+        }
+        fs::remove_dir_all(&scratch).ok();
+        let program = Path::new("/s/skif");
         assert_eq!(
-            tool_command(Tool::Skif, Path::new("/s/skif"), &args, &[]),
+            tool_command(Tool::Skif, program, &[], &[]),
+            "/s/skif . --format json --no-install"
+        );
+        assert_eq!(
+            tool_command(Tool::SkifManifest, program, &[], &[]),
+            "/s/skif . --format json --no-install --no-js"
+        );
+        assert_eq!(
+            tool_command(Tool::SkifRecursive, program, &[], &[]),
             "/s/skif . --format json --no-install --recursive"
         );
-        assert_eq!(
-            tool_command(Tool::SkifManifest, Path::new("/s/skif"), &args, &[]),
-            "/s/skif . --format json --no-install --no-js --recursive"
-        );
+        assert_eq!(Tool::SkifRecursive.label(), "skif --recursive");
+        assert!(!SKIF_MODES.contains(&Tool::SkifRecursive));
         let vue = bench.iter().find(|repo| repo.name == "vue-core").unwrap();
-        assert_eq!(corpus_skif_args(vue), [] as [String; 0]);
+        assert!(!vue.recursive);
+    }
+
+    #[test]
+    fn the_recursive_row_has_no_ratio_and_no_check() {
+        let rows = tool_results(&[
+            result("skif", 0.1),
+            result("skif --no-js", 0.02),
+            result("skif --recursive", 5.0),
+            result("sherif", 0.2),
+            result("knip --reporter json", 1.0),
+        ]);
+        let by = |name: &str| rows.iter().find(|r| r.tool == name).unwrap().relative_to_skif;
+        assert_eq!(by("skif --recursive"), None);
+        assert!((by("sherif").unwrap() - 10.0).abs() < 1e-9);
+        assert!((by("knip --reporter json").unwrap() - 10.0).abs() < 1e-9);
+        let mut target = corpus_target(0, None, None);
+        target.results = rows;
+        let text = markdown(&summary_of(vec![target], Vec::new()));
+        assert!(text.contains("| skif --recursive |"), "{text}");
+        assert!(
+            text.contains("`skif --recursive` also lints the nested roots"),
+            "{text}"
+        );
+        assert!(text.contains("part of no check"), "{text}");
     }
 
     /// A bench repository `r` with these extra `corpus.toml` keys.
@@ -2225,7 +2275,7 @@ mod tests {
         let root = fs::canonicalize(&scratch).unwrap();
         let knip_config = root.join("knip-config.json");
         let skif_config = root.join("skif-entry.toml");
-        assert_eq!(skif, ["--recursive", "--config", skif_config.to_str().unwrap()]);
+        assert_eq!(skif, ["--config", skif_config.to_str().unwrap()]);
         assert_eq!(knip, ["--no-gitignore", "--config", knip_config.to_str().unwrap()]);
         let knip_text = fs::read_to_string(&knip_config).unwrap();
         let skif_text = fs::read_to_string(&skif_config).unwrap();

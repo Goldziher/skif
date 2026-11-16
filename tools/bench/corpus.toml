@@ -11,7 +11,10 @@
 #   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
 #   build-command    optional command (program first) run after the install, building packages the configs load
 #   build-timeout-secs  optional build-command time limit, the install's when unset
-#   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
+#   recursive        true when skif must run with --recursive here (nested roots that are not workspace members).
+#                    `parity` then runs recursively. `skif-bench run` never compares a recursive run (ADR 0037): the
+#                    compared rows read the scope sherif, syncpack and knip read, so it adds an informational
+#                    `skif --recursive` row, with no ratio and in no check
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
@@ -73,7 +76,7 @@ rev = "7750b3d6912344e8a621a99a393cc2f5d3f4d2db"
 package-manager = "yarn"
 suites = ["bench", "parity"]
 recursive = true
-notes = "Large yarn monorepo. scripts/repo-utils (linked from the root as `$repo-utils`) and scripts/integration-tests/fixtures/nextjs-10 are standalone projects outside the workspace patterns (nested roots), so skif runs recursively to read the files knip reads from the root."
+notes = "Large yarn monorepo. scripts/repo-utils (linked from the root as `$repo-utils`) and scripts/integration-tests/fixtures/nextjs-10 are standalone projects outside the workspace patterns (nested roots), so `parity` runs skif recursively to read the files knip reads from the root."
 
 [[repo]]
 name = "npm-cli"
@@ -256,7 +259,7 @@ bench-knip-config = "parity"
 bench-max-runs = 5
 bench-max-warmup = 1
 bench-knip-failure = { matches = "Error loading jest.config.js (Cannot find module './dist/build/jest/jest')", reason = "its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries", timed = true }
-notes = "Largest tree of the corpus. examples/* and many test apps are standalone projects (nested roots), so skif runs recursively to read the files knip reads from the root."
+notes = "Largest tree of the corpus. examples/* and many test apps are standalone projects (nested roots), so `parity` runs skif recursively to read the files knip reads from the root."
 
 [[repo]]
 name = "turborepo-examples"
