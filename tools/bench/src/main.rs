@@ -11,6 +11,7 @@ mod run;
 mod sources;
 mod syncpack;
 mod tools;
+mod tools_install;
 mod type_aware;
 
 use std::fs;
@@ -28,6 +29,7 @@ const DEFAULT_CORPUS_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.t
 const DEFAULT_PARITY_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/parity.json");
 const DEFAULT_TYPE_AWARE_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/type-aware.json");
 const DEFAULT_SYNCPACK_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/syncpack.json");
+const DEFAULT_TOOLS_DIR: &str = "target/bench-generated/tools";
 const DEFAULT_POLICY_FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/policy");
 
 #[derive(Parser)]
@@ -75,12 +77,16 @@ struct DeadcodeArgs {
     /// Where the workspace (`repo/`), `answer-key.json` and the report are written.
     #[arg(long, default_value = "target/bench-deadcode")]
     out: PathBuf,
-    /// Also run the knip version pinned in the corpus manifest (needs npx and the npm registry).
+    /// Also run the knip version pinned in the corpus manifest (installed from the lock with npm, which needs the npm registry).
     #[arg(long)]
     knip: bool,
-    /// Corpus manifest (for the pinned knip version).
+    /// Corpus manifest (for the pinned knip version and its lock).
     #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
     corpus_file: PathBuf,
+    /// Where the locked comparison tools are installed (the directory `run` uses), unless already there from the same
+    /// lock.
+    #[arg(long, default_value = DEFAULT_TOOLS_DIR)]
+    tools_dir: PathBuf,
     /// Print the report as JSON instead of Markdown.
     #[arg(long)]
     json: bool,
@@ -200,6 +206,10 @@ struct ParityArgs {
     /// Corpus cache directory.
     #[arg(long, default_value = "target/bench-corpus")]
     corpus_dir: PathBuf,
+    /// Where the locked comparison tools are installed (the directory `run` uses), unless already there from the same
+    /// lock.
+    #[arg(long, default_value = DEFAULT_TOOLS_DIR)]
+    tools_dir: PathBuf,
     /// Where the full report (with sample findings) is written.
     #[arg(long, default_value = "target/bench-results")]
     out: PathBuf,
@@ -255,6 +265,10 @@ struct SyncpackArgs {
     /// Corpus cache directory.
     #[arg(long, default_value = "target/bench-corpus")]
     corpus_dir: PathBuf,
+    /// Where the locked comparison tools are installed (the directory `run` uses), unless already there from the same
+    /// lock.
+    #[arg(long, default_value = DEFAULT_TOOLS_DIR)]
+    tools_dir: PathBuf,
     /// The policy conformance fixtures.
     #[arg(long, default_value = DEFAULT_POLICY_FIXTURES)]
     fixtures: PathBuf,
@@ -399,6 +413,7 @@ fn main() -> Result<()> {
             skif: args.skif,
             corpus_file: args.corpus_file,
             corpus_dir: args.corpus_dir,
+            tools_dir: args.tools_dir,
             out: args.out,
             only: args.only,
             install: args.install,
@@ -415,6 +430,7 @@ fn main() -> Result<()> {
             skif: args.skif,
             corpus_file: args.corpus_file,
             corpus_dir: args.corpus_dir,
+            tools_dir: args.tools_dir,
             fixtures: args.fixtures,
             out: args.out,
             only: args.only,
@@ -430,6 +446,7 @@ fn main() -> Result<()> {
             out: args.out,
             knip: args.knip,
             corpus_file: args.corpus_file,
+            tools_dir: args.tools_dir,
             json: args.json,
             timeout: Duration::from_secs(args.timeout_secs),
             force: args.force,

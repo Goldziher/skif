@@ -8,9 +8,8 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-/// Tool versions the comparison commands are pinned to: `parity`, `syncpack-diff` and `deadcode` run them through
-/// `npx`, and `run` installs them, with the dependencies the lock of [`tool_lock_dir`] pins, into a scratch prefix and
-/// times their executables.
+/// Tool versions the comparison commands are pinned to: `run`, `parity`, `syncpack-diff` and `deadcode` install them,
+/// with the dependencies the lock of [`tool_lock_dir`] pins, into a scratch prefix and run their executables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tools {
     pub knip: String,
