@@ -111,7 +111,8 @@ git root, so one organisation file applies to every project below it. See the
   read `a.dispose()` then keeps only the `dispose` of `a`'s class out of `unused-class-members`, not every `dispose`
   of the project, and `unused-enum-members` and `unused-namespace-members` also count reads through an alias or
   `this`. It is off by default in the CLI and the npm package, since it costs time and memory: on a 4-vCPU runner a
-  typed run takes up to 15 times as long as the default one, about as long as knip. `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
+  typed run takes several times as long as the default one, roughly as long as knip
+  ([benchmarks](https://polylint.github.io/skif/guides/benchmarks/#speed)). `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
   name-based analysis, and the report names it ([type-aware analysis](https://polylint.github.io/skif/reference/configuration/#js)).
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
   roots, Rush, [Turborepo, Nx and Lerna](https://polylint.github.io/skif/guides/turborepo-nx-lerna/), and
