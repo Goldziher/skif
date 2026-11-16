@@ -81,6 +81,8 @@ fn lint_round(args: &LintArgs, env: Env, clear: bool, dir: &Path, modules: &dyn 
     }
     // The watcher keeps running between rounds, so every round frees what it built.
     lint::run_with_cache(args, env, lint::Teardown::Free, Some(modules));
+    // The watcher only stops when interrupted, so the timings of each round are written as it ends.
+    skif_core::timing::flush_stderr();
     stderr_line(&format!(
         "skif: watching {} for changes; press Ctrl-C to stop",
         roots::display(dir)

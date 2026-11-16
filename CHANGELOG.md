@@ -51,6 +51,8 @@ All notable changes to this project are documented here. The format follows
 - A bundler alias or `paths` target in the build output of a workspace package (`../lib/dist/index.js`) stands for
   the source that output is built from whether or not the output exists, so the verdicts no longer depend on a local
   build ([#251](https://github.com/polylint/skif/issues/251)).
+- With `SKIF_TIMINGS` or `--performance`, `--watch`, `skif lsp` and `skif mcp` write the phase timings after each run
+  or request, instead of holding them until the process exits, which an interrupted watcher never reached.
 
 ## [0.6.0] - 2026-11-16
 

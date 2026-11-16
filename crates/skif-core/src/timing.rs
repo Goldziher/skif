@@ -46,7 +46,8 @@ thread_local! {
 ///
 /// Writing a line to stderr as it arrives serialises every thread on one lock and costs a system call per line, which
 /// distorts the very run being measured, so the lines wait in per-thread buffers instead. The host calls
-/// [`flush_stderr`] when the run ends; lines still buffered at process exit without it are lost.
+/// [`flush_stderr`] when a run ends, and a long-running host (a watcher, a server) after each run or request, which
+/// also bounds the buffers; lines still buffered at process exit without it are lost.
 #[allow(
     clippy::must_use_candidate,
     reason = "installing the sink is the point; the flag is informational"

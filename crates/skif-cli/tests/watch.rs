@@ -115,3 +115,42 @@ fn the_reports_a_run_writes_do_not_start_another_run() {
         "the watcher reacted to the report it wrote"
     );
 }
+
+/// With `SKIF_TIMINGS` set, the timings of a round reach stderr when the round ends, not only when the watcher
+/// exits: the watcher runs until it is interrupted, which loses whatever is still buffered.
+#[test]
+fn the_timings_of_a_round_are_written_before_the_next_round() {
+    let dir = fixture("clean");
+    let child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .args(["--watch", "--format", "json"])
+        .arg(dir.path())
+        .env_remove("CI")
+        .env_remove("GITHUB_ACTIONS")
+        .env("SKIF_TIMINGS", "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut watcher = Watcher(child);
+    let stderr = watcher.0.stderr.take().unwrap();
+    let (send, receive) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            let Ok(line) = line else { return };
+            if send.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let mut timings = 0;
+    loop {
+        let line = receive.recv_timeout(TIMEOUT).expect("the end of the first round");
+        if line.starts_with("skif timing: ") {
+            timings += 1;
+        }
+        if line.starts_with("skif: watching ") {
+            break;
+        }
+    }
+    assert!(timings > 0, "no timing line before the round ended");
+}

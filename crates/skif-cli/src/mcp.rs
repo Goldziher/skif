@@ -80,7 +80,11 @@ fn serve_limited(mut input: impl BufRead, mut output: impl Write, limit: usize) 
             if line.trim().is_empty() {
                 continue;
             }
-            handle_line(&line, &mut caches)
+            let reply = handle_line(&line, &mut caches);
+            // The server runs until its client closes stdin, so the timings of each request are written once it is
+            // answered.
+            skif_core::timing::flush_stderr();
+            reply
         };
         let Some(reply) = reply else {
             continue;

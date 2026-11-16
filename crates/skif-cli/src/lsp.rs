@@ -85,6 +85,7 @@ pub fn serve(mut input: impl BufRead + Send + 'static, mut output: impl Write) -
                     for notification in server.lint_due(Instant::now()) {
                         write_message(&mut output, &notification)?;
                     }
+                    skif_core::timing::flush_stderr();
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => Ok(None),
@@ -108,6 +109,8 @@ pub fn serve(mut input: impl BufRead + Send + 'static, mut output: impl Write) -
         for reply in &replies {
             write_message(&mut output, reply)?;
         }
+        // The server runs until the editor stops it, so the timings of each message are written once it is handled.
+        skif_core::timing::flush_stderr();
     }
 }
 
