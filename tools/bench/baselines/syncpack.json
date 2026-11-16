@@ -38,8 +38,8 @@
         },
         "NonSemverMismatch": {
           "skif_only": 0,
-          "tool_only": 0,
-          "both": 2
+          "tool_only": 2,
+          "both": 0
         }
       },
       "known_deviations": {
@@ -108,13 +108,13 @@
         },
         "DiffersToHighestOrLowestSemver": {
           "skif_only": 0,
-          "tool_only": 2,
-          "both": 30
+          "tool_only": 3,
+          "both": 29
         },
         "DiffersToLocal": {
           "skif_only": 0,
-          "tool_only": 0,
-          "both": 4
+          "tool_only": 1,
+          "both": 3
         },
         "DiffersToPin": {
           "skif_only": 1,
@@ -229,14 +229,16 @@
       },
       "cases": {
         "compared": 143,
-        "identical": 138,
+        "identical": 136,
         "skipped": 50,
         "differing": [
           "catalog/unresolved-reported-with-mode-off",
           "catalog/yarnrc-catalogs",
           "dependency-types/overrides-pinned-by-group",
           "version-mismatch/latest-ranks-as-highest",
-          "version-mismatch/npm-alias-not-aligned-with-plain-dependency"
+          "version-mismatch/link-specifier-wrong-directory",
+          "version-mismatch/npm-alias-not-aligned-with-plain-dependency",
+          "version-mismatch/semver-and-file-specifier-mix"
         ]
       },
       "known_deviations": {
@@ -360,6 +362,10 @@
         }
       }
     },
+    "nx-examples-integrated": {
+      "status": "compared",
+      "categories": {}
+    },
     "opencode": {
       "status": "compared",
       "categories": {
@@ -438,6 +444,16 @@
         "satisfied-local-range": {
           "skif_only": 0,
           "tool_only": 444
+        }
+      }
+    },
+    "turborepo-examples": {
+      "status": "compared",
+      "categories": {},
+      "known_deviations": {
+        "missing-local-version": {
+          "skif_only": 0,
+          "tool_only": 1
         }
       }
     },
