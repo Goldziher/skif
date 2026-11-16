@@ -125,15 +125,14 @@ fn programs_that_reference_one_project_read_its_config_and_the_config_they_exten
     let facts = analyse(&workspace, &[app("a"), app("b")], 1);
     assert_eq!(
         split(facts.timings.shared_configs),
-        (3, 2, 0),
+        (3, 4, 0),
         "the planning reads the configs of `a` and `b` and the library they reference; both programs reuse the \
-         library's"
+         library's and take their own from the planning's"
     );
     assert_eq!(
         split(facts.timings.shared_extended_configs),
-        (1, 4, 0),
-        "the three configs the planning reads and the two configs the programs parse for themselves extend one config, \
-         parsed once"
+        (1, 2, 0),
+        "the three configs the planning reads extend one config, parsed once; the programs parse no config"
     );
     assert_eq!(facts.reads, reads(&["erase", "paint"]));
 }
@@ -183,13 +182,14 @@ fn analyses_that_read_their_configs_together_find_the_facts_of_analyses_that_rea
 
 #[test]
 fn configs_that_extend_different_configs_keep_the_options_of_their_own() {
-    // `c` extends a config of its own; both programs read the library's one parse.
+    // `c` extends a config of its own; both programs read the library's one parse and take their own from the
+    // planning's.
     let workspace = workspace();
     let facts = analyse(&workspace, &[app("a"), app("c")], 1);
-    assert_eq!(split(facts.timings.shared_configs), (3, 2, 0));
+    assert_eq!(split(facts.timings.shared_configs), (3, 4, 0));
     assert_eq!(
         split(facts.timings.shared_extended_configs),
-        (2, 3, 0),
+        (2, 1, 0),
         "each extended config is parsed once, for the configs that extend it"
     );
     assert_eq!(facts.reads, reads(&["paint", "spin"]));
