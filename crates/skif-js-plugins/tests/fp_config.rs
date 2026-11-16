@@ -1406,3 +1406,15 @@ fn bundler_config_with_an_unevaluable_mutation_keeps_the_literal_loaders() {
     assert_deps(out, &["sass-loader"]);
     assert!(out.entries_incomplete);
 }
+
+/// A loader the evaluator cannot name inside a known rule (`MiniCssExtractPlugin.loader`) leaves the package judged:
+/// only a rule that is not known at all makes it incomplete.
+#[test]
+fn bundler_config_with_an_unknown_loader_entry_is_still_judged() {
+    let config = "const MiniCssExtractPlugin = require('mini-css-extract-plugin');\nmodule.exports = {\n  \
+                  module: { rules: [{ test: /\\.css$/, use: [MiniCssExtractPlugin.loader, 'css-loader'] }] },\n};";
+    let results = run(&[("webpack.config.js", config)], &["webpack"], &[]);
+    let out = output(&results, "webpack");
+    assert_deps(out, &["css-loader"]);
+    assert!(!out.entries_incomplete);
+}
