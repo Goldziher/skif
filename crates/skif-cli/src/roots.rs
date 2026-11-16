@@ -251,6 +251,12 @@ pub struct HandedFiles {
     pub build_sources: BTreeSet<PathBuf>,
 }
 
+impl HandedFiles {
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty() && self.build_sources.is_empty()
+    }
+}
+
 /// What the code of other roots of a multi-root run uses of a root, which the root's own lint cannot see.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OtherRootUses {
@@ -440,51 +446,68 @@ fn route(roots: &RootIndex<'_>, from: usize, files: &[PathBuf]) -> Routed {
     (below, outside)
 }
 
+/// The final report of every root, by index, with the files enclosing roots hand it and what other roots use of it.
+type Linted = (Vec<Result<Report, CliError>>, Vec<HandedFiles>, Vec<OtherRootUses>);
+
+/// Lints every root of `roots` through `lint`, which takes the root's index and the files enclosing roots hand it.
+///
+/// A root's report depends on the files the final reports of the roots enclosing it hand it, so a nested root is
+/// judged with them: by nesting depth, each root sees what the roots of lower depths handed it. Few nested roots are
+/// handed anything (an estimate finds 3 of the 402 nested roots of next.js), so every root is first linted at once
+/// with nothing handed, and only those that end up handed files are linted again, by depth (all of one depth in
+/// parallel); the others keep their first report, which is what a lint with nothing handed gives. A run without JS
+/// analysis hands nothing and lints each root once. The handed files of a depth are routed after its roots are
+/// settled, in index order, so the reports, handed files and uses are those of linting the roots in waves by depth.
+fn lint_nested_after_enclosing<F>(roots: &RootIndex<'_>, lint: F) -> Linted
+where
+    F: Fn(usize, &HandedFiles) -> Result<Report, CliError> + Sync,
+{
+    let count = roots.dirs.len();
+    let nothing = HandedFiles::default();
+    let mut reports: Vec<Result<Report, CliError>> =
+        (0..count).into_par_iter().map(|index| lint(index, &nothing)).collect();
+    let depths: Vec<usize> = roots.dirs.iter().map(|root| roots.depth(root)).collect();
+    let mut handed: Vec<HandedFiles> = vec![HandedFiles::default(); count];
+    let mut uses: Vec<OtherRootUses> = vec![OtherRootUses::default(); count];
+    for depth in 0..=depths.iter().copied().max().unwrap_or(0) {
+        let wave: Vec<usize> = (0..count).filter(|index| depths[*index] == depth).collect();
+        let relinted: Vec<(usize, Result<Report, CliError>)> = wave
+            .par_iter()
+            .filter(|index| !handed[**index].is_empty())
+            .map(|&index| (index, lint(index, &handed[index])))
+            .collect();
+        for (index, report) in relinted {
+            reports[index] = report;
+        }
+        for &index in &wave {
+            if let Ok(report) = &reports[index] {
+                route_other_project_paths(roots, (index, report), &mut handed, &mut uses);
+            }
+        }
+    }
+    (reports, handed, uses)
+}
+
 /// Lints every target, in parallel, and keeps the targets' (path) order; the first failure in that order wins, so the
 /// outcome does not depend on scheduling.
 ///
-/// Roots nested in other roots of the run are linted after them, in waves by nesting depth (all roots of one depth in
-/// parallel): a file of a nested root that only an enclosing root imports (`build/lib/x.ts` of a `build` project,
-/// imported from the outer `src`) is then an entry of the nested root instead of an unused file. Each report lists
-/// the files of other projects its code imports or runs, and those its plugins name as build sources (a Bazel `srcs`);
-/// each goes to the innermost root that holds it, as an entry or a build source. A run without
-/// nested roots is a single wave, as before. Each report also lists the files outside its root that its code reaches
-/// and the dependencies its code uses that only a manifest above its root lists; once every root is linted, the root
-/// that owns such a file or manifest no longer reports them unused. The `stale-js-config` findings about a
-/// configuration file several roots read are left to [`settle_shared_config`]: each report holds what its root found.
+/// A file of a nested root that only an enclosing root imports (`build/lib/x.ts` of a `build` project, imported from
+/// the outer `src`) is an entry of the nested root instead of an unused file. Each report lists the files of other
+/// projects its code imports or runs, and those its plugins name as build sources (a Bazel `srcs`); each goes to the
+/// innermost root that holds it, as an entry or a build source (see `lint_nested_after_enclosing`). Each report also
+/// lists the files outside its root that its code reaches and the dependencies its code uses that only a manifest
+/// above its root lists; once every root is linted, the root that owns such a file or manifest no longer reports them
+/// unused. The `stale-js-config` findings about a configuration file several roots read are left to
+/// [`settle_shared_config`]: each report holds what its root found.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
     let roots = RootIndex::of(&targets);
-    let depths: Vec<usize> = targets.iter().map(|target| roots.depth(&target.root)).collect();
-    let mut handed: Vec<HandedFiles> = vec![HandedFiles::default(); targets.len()];
-    let mut other_root_uses: Vec<OtherRootUses> = vec![OtherRootUses::default(); targets.len()];
-    let mut reports: Vec<Option<Result<Report, CliError>>> = (0..targets.len()).map(|_| None).collect();
-    for depth in 0..=depths.iter().copied().max().unwrap_or(0) {
-        let wave: Vec<usize> = (0..targets.len()).filter(|index| depths[*index] == depth).collect();
-        let linted: Vec<(usize, Result<Report, CliError>)> = wave
-            .par_iter()
-            .map(|&index| {
-                let target = &targets[index];
-                let linter = linters.get(linters.of_target[index]);
-                (
-                    index,
-                    lint_loaded(
-                        linter,
-                        &target.workspace,
-                        target.config_path().as_deref(),
-                        &handed[index],
-                    ),
-                )
-            })
-            .collect();
-        for (index, report) in linted {
-            if let Ok(report) = &report {
-                route_other_project_paths(&roots, (index, report), &mut handed, &mut other_root_uses);
-            }
-            reports[index] = Some(report);
-        }
-    }
+    let (reports, handed, mut other_root_uses) = lint_nested_after_enclosing(&roots, |index, handed| {
+        let target = &targets[index];
+        let linter = linters.get(linters.of_target[index]);
+        lint_loaded(linter, &target.workspace, target.config_path().as_deref(), handed)
+    });
     for (index, report) in reports.iter().enumerate() {
-        if let Some(Ok(report)) = report {
+        if let Ok(report) = report {
             route_ancestor_dependency_uses((&targets, &roots), index, report, &mut other_root_uses);
         }
     }
@@ -496,8 +519,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
         .zip(other_root_uses)
         .zip(&linters.of_target)
         .map(|((((target, report), handed), other_root_uses), &linter)| {
-            let report = report.unwrap_or_else(|| Err(CliError::new(Kind::Internal, "a root was not linted")))?;
-            let report = credit_other_root_uses(report, &other_root_uses);
+            let report = credit_other_root_uses(report?, &other_root_uses);
             Ok(RootRun {
                 prefix: prefix_of(base, &target.root),
                 config_path: target.config_path(),
@@ -760,6 +782,113 @@ mod tests {
                 set(&["lib/s.ts"])
             ]
         );
+    }
+
+    /// A lint of the root `dirs[index]` handed `handed`: `/r` imports `/r/a/x.ts`, and `/r/a` imports `/r/a/b/y.ts`
+    /// only from `x.ts`, so only once it is handed `x.ts`; `/s` fails. The package count is the number of handed
+    /// entries, so a report shows what its lint was handed.
+    fn fake_lint(dirs: &[&str], index: usize, handed: &HandedFiles) -> Result<Report, CliError> {
+        let imports = match (dirs[index], handed.entries.contains(Path::new("x.ts"))) {
+            ("/r", _) => vec![PathBuf::from("/r/a/x.ts")],
+            ("/r/a", true) => vec![PathBuf::from("/r/a/b/y.ts")],
+            ("/s", _) => return Err(CliError::new(Kind::Workspace, "broken")),
+            _ => Vec::new(),
+        };
+        Ok(Report::new(Vec::new(), handed.entries.len()).with_other_project_files(imports))
+    }
+
+    /// The roots linted in waves by nesting depth, each wave handed what the waves before it routed: the order the
+    /// one-pass scheduling must reproduce.
+    fn lint_in_waves(roots: &RootIndex<'_>, lint: impl Fn(usize, &HandedFiles) -> Result<Report, CliError>) -> Linted {
+        let count = roots.dirs.len();
+        let depths: Vec<usize> = roots.dirs.iter().map(|root| roots.depth(root)).collect();
+        let mut handed = vec![HandedFiles::default(); count];
+        let mut uses = vec![OtherRootUses::default(); count];
+        let mut reports: Vec<Option<Result<Report, CliError>>> = (0..count).map(|_| None).collect();
+        for depth in 0..=depths.iter().copied().max().unwrap_or(0) {
+            let linted: Vec<(usize, Result<Report, CliError>)> = (0..count)
+                .filter(|index| depths[*index] == depth)
+                .map(|index| (index, lint(index, &handed[index])))
+                .collect();
+            for (index, report) in linted {
+                if let Ok(report) = &report {
+                    route_other_project_paths(roots, (index, report), &mut handed, &mut uses);
+                }
+                reports[index] = Some(report);
+            }
+        }
+        (reports.into_iter().map(Option::unwrap).collect(), handed, uses)
+    }
+
+    /// The outcome of a scheduling, with each failure as its message.
+    type Outcome = (Vec<Result<Report, String>>, Vec<HandedFiles>, Vec<OtherRootUses>);
+
+    fn outcome((reports, handed, uses): Linted) -> Outcome {
+        let reports = reports
+            .into_iter()
+            .map(|report| report.map_err(|error| error.message))
+            .collect();
+        (reports, handed, uses)
+    }
+
+    /// Lints `dirs` both ways and returns the one-pass outcome with the root index and the entries handed to each lint
+    /// of it, in index order.
+    fn schedule(dirs: &[&str]) -> (Outcome, Vec<(usize, Vec<PathBuf>)>) {
+        let roots = RootIndex::new(dirs.iter().copied().map(Path::new));
+        let calls = std::sync::Mutex::new(Vec::new());
+        let linted = outcome(lint_nested_after_enclosing(&roots, |index, handed| {
+            calls
+                .lock()
+                .unwrap()
+                .push((index, handed.entries.iter().cloned().collect()));
+            fake_lint(dirs, index, handed)
+        }));
+        assert_eq!(
+            linted,
+            outcome(lint_in_waves(&roots, |index, handed| fake_lint(dirs, index, handed)))
+        );
+        let mut calls = calls.into_inner().unwrap();
+        calls.sort();
+        (linted, calls)
+    }
+
+    #[test]
+    fn roots_handed_nothing_are_linted_once() {
+        // `/r` imports a file of its own (`/r/a` is no root here), so nothing is handed: one lint per root, as under
+        // `--no-js`, whose reports list no files of other projects.
+        let dirs = ["/r", "/r/c", "/r/c/d", "/t"];
+        let ((reports, handed, _), calls) = schedule(&dirs);
+        let once: Vec<(usize, Vec<PathBuf>)> = (0..dirs.len()).map(|index| (index, Vec::new())).collect();
+        assert_eq!(calls, once);
+        assert!(handed.iter().all(HandedFiles::is_empty));
+        assert!(reports.iter().all(Result::is_ok));
+    }
+
+    #[test]
+    fn a_nested_root_handed_files_is_linted_again_as_in_waves() {
+        // `/r` hands `x.ts` to `/r/a`, whose lint with it hands `y.ts` to `/r/a/b`: both are linted again, in turn.
+        let dirs = ["/r", "/r/a", "/r/a/b", "/r/c", "/s"];
+        let ((reports, handed, _), calls) = schedule(&dirs);
+        let entries = |files: &[&str]| files.iter().map(PathBuf::from).collect::<Vec<_>>();
+        assert_eq!(
+            calls,
+            [
+                (0, Vec::new()),
+                (1, Vec::new()),
+                (1, entries(&["x.ts"])),
+                (2, Vec::new()),
+                (2, entries(&["y.ts"])),
+                (3, Vec::new()),
+                (4, Vec::new()),
+            ]
+        );
+        assert_eq!(handed[1].entries, BTreeSet::from([PathBuf::from("x.ts")]));
+        assert_eq!(handed[2].entries, BTreeSet::from([PathBuf::from("y.ts")]));
+        let packages: Vec<Result<usize, String>> = reports
+            .into_iter()
+            .map(|report| report.map(|report| report.summary.packages))
+            .collect();
+        assert_eq!(packages, [Ok(0), Ok(1), Ok(1), Ok(0), Err("broken".to_owned())]);
     }
 
     #[test]
