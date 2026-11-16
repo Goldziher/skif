@@ -2,7 +2,7 @@
 # Tests the repository guards that decide what ships, each on a synthetic tree, so a pattern that drifts cannot make a
 # guard pass on nothing: every script gets a passing tree and the negative cases that must fail.
 #   check-pins, check-headers, check-rule-ids, check-plugin-list, check-support-matrix, check-dependency-tree,
-#   check-package-contents, check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh, msrv.sh, bench-import.sh
+#   check-package-contents, check-schema, check-oxc-git-patch, check-doc-pins, check-tool-version-docs, npm-smoke.sh, msrv.sh, bench-import.sh
 #
 # Usage: scripts/test-check-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -465,6 +465,40 @@ expect "check-doc-pins rejects a 0.x pin after 1.0.0" 1 run_in "$docpins" check-
 rm "${docpins}/README.md" "${docpins}/website/src/content/docs/guides/hooks.mdx" "${docpins}/website/src/content/docs/guides/poly.md"
 expect "check-doc-pins fails when no pin is found" 1 run_in "$docpins" check-doc-pins.sh
 expect_in_out "check-doc-pins no pins" "no skif version pins found"
+
+# ---------------------------------------------------------------- check-tool-version-docs
+toolver="$(new_tree toolver)"
+mkdir -p "${toolver}/tools/bench" "${toolver}/website/src/content/docs/guides"
+printf '[tools]\nknip = "6.44.1"\nsyncpack = "15.3.3"\nsherif = "1.13.0"\n\n[repos.a]\nknip = "9.9.9"\n' \
+  >"${toolver}/tools/bench/corpus.toml"
+tool_docs_tree() {
+  local guides="${toolver}/website/src/content/docs/guides"
+  {
+    printf 'The tables compare skif with sherif 1.13.0, syncpack 15.3.3 and knip %s.\n' "$1"
+    printf -- '- sherif 1.13.0: [rules](https://github.com/QuiiBz/sherif/tree/v1.13.0/src/rules)\n'
+    printf -- '- syncpack 15.3.3: [README](https://github.com/JamieMason/syncpack/blob/%s/README.md)\n' "$2"
+    printf -- '- knip %s: [flags](https://github.com/webpro-nl/knip/blob/knip%%40%s/a.ts)\n' "$1" "$1"
+    printf 'Added in knip 6.99.0: something historical.\n'
+  } >"${guides}/comparison.mdx"
+  printf 'the sources of the tools (sherif 1.13, syncpack 15.3, knip 6) and behaviours of sherif %s.\n' "$3" \
+    >"${guides}/migrating.mdx"
+}
+tool_docs_tree 6.44.1 15.3.3 1.13.0
+expect "check-tool-version-docs accepts the pinned versions" 0 run_in "$toolver" check-tool-version-docs.sh
+tool_docs_tree 6.45.1 15.3.3 1.13.0
+expect "check-tool-version-docs rejects a newer knip" 1 run_in "$toolver" check-tool-version-docs.sh
+expect_in_out "check-tool-version-docs intro" "comparison.mdx,line=1::the documentation names knip 6.45.1, but tools/bench/corpus.toml pins 6.44.1"
+expect_in_out "check-tool-version-docs link" "comparison.mdx,line=4::"
+tool_docs_tree 6.44.1 15.3.2 1.13.0
+expect "check-tool-version-docs rejects a stale syncpack link" 1 run_in "$toolver" check-tool-version-docs.sh
+expect_in_out "check-tool-version-docs syncpack" "comparison.mdx,line=3::the documentation names syncpack 15.3.2"
+tool_docs_tree 6.44.1 15.3.3 1.12.0
+expect "check-tool-version-docs rejects a stale sherif in the migration guide" 1 run_in "$toolver" check-tool-version-docs.sh
+expect_in_out "check-tool-version-docs migrating" "migrating.mdx,line=1::the documentation names sherif 1.12.0"
+tool_docs_tree 6.44.1 15.3.3 1.13.0
+printf 'nothing is stated here.\n' >"${toolver}/website/src/content/docs/guides/migrating.mdx"
+expect "check-tool-version-docs fails when a page states no version" 1 run_in "$toolver" check-tool-version-docs.sh
+expect_in_out "check-tool-version-docs unmatched" "no sherif version found"
 
 # ---------------------------------------------------------------- npm-smoke
 smoke="$(new_tree smoke)"

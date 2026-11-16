@@ -300,6 +300,8 @@ jobs:
         run: scripts/check-versions.sh
       - name: Check that the documentation examples pin the current release line
         run: scripts/check-doc-pins.sh
+      - name: Check that the compared tool versions in the docs match tools/bench/corpus.toml
+        run: scripts/check-tool-version-docs.sh
       - name: Check that oxc is pinned exactly and dependencies are inherited from the workspace
         run: scripts/check-pins.sh
       - name: Check the syncpack-vendored files' attribution headers and ATTRIBUTIONS.md
