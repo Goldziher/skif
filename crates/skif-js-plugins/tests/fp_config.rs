@@ -1460,3 +1460,23 @@ fn bundler_config_with_a_use_that_is_one_of_several_loaders_credits_each() {
     assert_deps(out, &["style-loader", "css-loader"]);
     assert!(!out.entries_incomplete);
 }
+
+/// A playwright config built in a function that adds a project under a condition (`projects.unshift(...)`) lists
+/// projects that are one of two lists; the test files of the projects in each are entries.
+#[test]
+fn playwright_projects_that_are_one_of_several_lists_credit_each() {
+    let config = "function config() {\n  \
+                  const projects = [{ name: 'e2e', testDir: './e2e' }];\n  \
+                  if (process.env.SMOKE) {\n    projects.unshift({ name: 'smoke', testDir: './smoke' });\n  }\n  \
+                  return { projects };\n}\nmodule.exports = config;\n";
+    let results = run(&[("playwright.config.js", config)], &["@playwright/test"], &[]);
+    let out = output(&results, "playwright");
+    assert_entries(
+        &out.entries,
+        &[
+            "e2e/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "smoke/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        ],
+    );
+    assert!(!out.entries_incomplete);
+}
