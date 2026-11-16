@@ -183,6 +183,7 @@ run = [
   "scripts/check-versions.sh",
   "scripts/check-doc-pins.sh",
   "scripts/check-tool-version-docs.sh",
+  "scripts/check-baseline-tool-versions.sh",
   "scripts/check-pins.sh",
   "scripts/check-headers.sh",
   "scripts/check-rule-ids.sh",

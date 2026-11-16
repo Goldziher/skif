@@ -2,7 +2,7 @@
 # Tests the repository guards that decide what ships, each on a synthetic tree, so a pattern that drifts cannot make a
 # guard pass on nothing: every script gets a passing tree and the negative cases that must fail.
 #   check-pins, check-headers, check-rule-ids, check-plugin-list, check-support-matrix, check-dependency-tree,
-#   check-package-contents, check-schema, check-oxc-git-patch, check-doc-pins, check-tool-version-docs, npm-smoke.sh, msrv.sh, bench-import.sh
+#   check-package-contents, check-schema, check-oxc-git-patch, check-doc-pins, check-tool-version-docs, check-baseline-tool-versions, npm-smoke.sh, msrv.sh, bench-import.sh
 #
 # Usage: scripts/test-check-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -499,6 +499,28 @@ tool_docs_tree 6.44.1 15.3.3 1.13.0
 printf 'nothing is stated here.\n' >"${toolver}/website/src/content/docs/guides/migrating.mdx"
 expect "check-tool-version-docs fails when a page states no version" 1 run_in "$toolver" check-tool-version-docs.sh
 expect_in_out "check-tool-version-docs unmatched" "no sherif version found"
+
+# ---------------------------------------------------------------- check-baseline-tool-versions
+basever="$(new_tree basever)"
+mkdir -p "${basever}/tools/bench/baselines"
+printf '[tools]\nknip = "6.45.1"\nsyncpack = "15.3.3"\nsherif = "1.13.0"\n' >"${basever}/tools/bench/corpus.toml"
+baseline_tree() {
+  printf '{\n  "schema": 1,\n  "tool": "knip@%s",\n  "mode": "type-aware"\n}\n' "$1" \
+    >"${basever}/tools/bench/baselines/parity.json"
+  printf '{\n  "schema": 1,\n  "tool": "syncpack@%s",\n  "installed": false\n}\n' "$2" \
+    >"${basever}/tools/bench/baselines/syncpack.json"
+}
+baseline_tree 6.45.1 15.3.3
+expect "check-baseline-tool-versions accepts matching baselines" 0 run_in "$basever" check-baseline-tool-versions.sh
+baseline_tree 6.44.1 15.3.3
+expect "check-baseline-tool-versions rejects a stale knip baseline" 1 run_in "$basever" check-baseline-tool-versions.sh
+expect_in_out "check-baseline-tool-versions knip" "parity.json::recorded with knip 6.44.1, but tools/bench/corpus.toml pins 6.45.1"
+baseline_tree 6.45.1 15.3.2
+expect "check-baseline-tool-versions rejects a stale syncpack baseline" 1 run_in "$basever" check-baseline-tool-versions.sh
+expect_in_out "check-baseline-tool-versions syncpack" "syncpack.json::recorded with syncpack 15.3.2"
+printf '{\n  "schema": 1\n}\n' >"${basever}/tools/bench/baselines/parity.json"
+expect "check-baseline-tool-versions fails when a baseline records no tool" 1 run_in "$basever" check-baseline-tool-versions.sh
+expect_in_out "check-baseline-tool-versions unmatched" "no \"tool\": \"knip@<version>\" line found"
 
 # ---------------------------------------------------------------- npm-smoke
 smoke="$(new_tree smoke)"
