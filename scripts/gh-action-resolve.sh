@@ -7,7 +7,7 @@ set -euo pipefail
 # shellcheck source=lib/libc.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/libc.sh"
 
-repo="${REPOSITORY:-Goldziher/skif}"
+repo="${REPOSITORY:-polylint/skif}"
 
 # Resolve a floating `latest`, major-only `v3` or minor `v0.2` reference to the newest matching stable release.
 # A floating tag carries no release assets of its own, so the assets always come from the newest full `vX.Y.Z`

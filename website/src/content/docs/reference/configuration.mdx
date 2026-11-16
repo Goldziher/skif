@@ -128,8 +128,8 @@ RUN npm ci
 `# skif-ignore-file <rule> -- <reason>` covers the whole file, and a comment without rule ids covers every toolchain
 rule. `foreign-package-manager-command` does not report read-only commands (`npm view`, `npm whoami`, `yarn info`) or
 a global install of the workspace's own manager (`npm install -g pnpm@9`). See
-[ADR 0011](https://github.com/Goldziher/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md)
-and [ADR 0011](https://github.com/Goldziher/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md).
+[ADR 0011](https://github.com/polylint/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md)
+and [ADR 0011](https://github.com/polylint/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md).
 
 ### `[[ignore]]`
 
@@ -700,7 +700,7 @@ ahead of the aliases tools declare, the `paths` of the workspace's `tsconfig.jso
 as TypeScript tries `compilerOptions.paths`, ahead of `baseUrl`, installed packages and workspace members: `"src/*" = ["./src/*"]` beside a member or an installed package named `src` reaches
 the workspace's own `src/` files. A key whose targets are all missing falls through to the package. knip tries the
 package first and reports the local file as unused
-([ADR 0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
+([ADR 0038](https://github.com/polylint/skif/blob/main/adrs/0038-paths-before-packages.md)).
 
 **`tsconfig`** names the TypeScript configuration of the root package, relative to the workspace root, which is read
 in place of its `tsconfig.json`: its `paths`, `baseUrl` and `rootDirs` resolve the imports of the root package's
@@ -765,9 +765,9 @@ any of them, also through `export default` of an import. A finding names a defau
 shows the typed read that reaches the member and the files that read its name (with types, those the checker did not
 cover or could not settle), or why the member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an
 enum or namespace member the same way
-([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md),
-[ADR 0043](https://github.com/Goldziher/skif/blob/main/adrs/0043-type-only-class-fields-and-constant-element-keys.md),
-[ADR 0046](https://github.com/Goldziher/skif/blob/main/adrs/0046-typed-member-semantics.md)).
+([ADR 0042](https://github.com/polylint/skif/blob/main/adrs/0042-unused-class-members.md),
+[ADR 0043](https://github.com/polylint/skif/blob/main/adrs/0043-type-only-class-fields-and-constant-element-keys.md),
+[ADR 0046](https://github.com/polylint/skif/blob/main/adrs/0046-typed-member-semantics.md)).
 
 With types, `unused-enum-members` and `unused-namespace-members` also count a typed read (an enum read through an
 alias, a namespace member read through `this`) and a typed use of the whole declaration; types only add uses, so these
@@ -975,7 +975,7 @@ installed) keeps the name-based analysis for the files concerned and loses no fi
 reason (see [output formats](../cli/#output-formats)). With it off, the default, skif runs no type checker at all, which is
 faster and less accurate for member findings; `skif --no-type-aware` keeps types off over the file and every
 `[js.workspaces]` table. The language server, `skif mcp` and `--watch` run without types
-([ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
+([ADR 0034](https://github.com/polylint/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 Types cost time and memory: each TypeScript program reads and binds its files a second time, beside the module
 graph. The TypeScript lib files and the declaration files below `node_modules` (`@types` included) are parsed once
@@ -985,7 +985,7 @@ following their project references reads, with the configs it extends. On a 4-vC
 [benchmarks](../../guides/benchmarks/) time every repository with `--type-aware` and without types and publish the
 peak memory of both, and check the budget types must meet to become the default again: at most 3x the untyped
 time on the largest repository and 2x in the median, and at most 4 GiB of peak memory on any target
-([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)). The programs of a run, also of several roots, share one budget of the machine's cores, which
+([ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)). The programs of a run, also of several roots, share one budget of the machine's cores, which
 also bounds how many are in memory at once. A build of the `skif` crate without its `type-aware` feature, or of `skif-cli` with
 `--no-default-features`, has no type checker and reports every package untyped (`not-built`).
 
@@ -1006,7 +1006,7 @@ is listed from the index without an `opendir`. One case is invisible to `git`: a
 last rewrite of the index (a `git add` or `git commit` of another file, or a `git status` that refreshes it) in a
 directory nothing has touched since. That is why `auto` does not use the index: such a file is the entry or the only
 importer of a file that would then be reported as unused. `git` suits a fresh checkout, as in CI, and its
-`unused-files` findings offer no fix that deletes the file ([ADR 0014](https://github.com/Goldziher/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)). `git` falls back to
+`unused-files` findings offer no fix that deletes the file ([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)). `git` falls back to
 the walk when there is no usable index: a repository outside git, a split or sparse index, a SHA-256 repository
 (`extensions.objectformat`), or an index whose SHA-1 checksum does not match (an index written with `index.skipHash`,
 which `feature.manyFiles` sets, is read without the check, so a torn read of an index that is being rewritten is then only
@@ -1015,7 +1015,7 @@ reported. The `.gitignore` rules, hidden directories and `[js] ignore` apply to 
 The rules that list directories for files workspace discovery does not read, the toolchain scan (version files,
 Dockerfiles, shell scripts, workflows and the `files` globs) and the search for the Bazel `BUILD` files of
 `stray-lockfile`, list through the same index listing under `git`, so they share its speed and its blind spot
-([ADR 0014](https://github.com/Goldziher/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)).
+([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)).
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
@@ -1041,7 +1041,7 @@ constant, and that the config cannot decide. A shared Vitest config that spreads
 when `process.env.COVERAGE_ENABLED === 'true'` makes `@vitest/coverage-v8` a use of each package that lists it, and
 unlisted in none. skif reads such a config with every test on the environment taken as true, then as false, and a
 package named in both readings, or under a test that reads something else (`existsSync('.coverage')`), is reported
-as before ([ADR 0036](https://github.com/Goldziher/skif/blob/main/adrs/0036-packages-named-on-an-environment-gated-branch.md)).
+as before ([ADR 0036](https://github.com/polylint/skif/blob/main/adrs/0036-packages-named-on-an-environment-gated-branch.md)).
 A config that imports the package it names is reported once, for the import. What a config takes from a module of
 another workspace package (an imported shared config) is judged against that package, except a bundler alias
 `replacement` naming a package (`{ find: 'stream', replacement: 'stream-browserify' }` of Vite, Vitest, webpack or
@@ -1089,7 +1089,7 @@ Such a local import uses no listed dependency either: with `ui` in `dependencies
 into `./src/ui`, `unused-dependencies` reports `ui`, as the compiler never reaches the package. knip counts the
 dependency as used. An aliased import that reaches no file (a missing target, generated code not there yet, a computed
 alias) still uses the listed package its name starts with ([ADR
-0038](https://github.com/Goldziher/skif/blob/main/adrs/0038-paths-before-packages.md)).
+0038](https://github.com/polylint/skif/blob/main/adrs/0038-paths-before-packages.md)).
 
 A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
 with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or
@@ -1240,7 +1240,7 @@ dependency only an unreached fixture imports stays unused. Other directories of 
 member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used. Using the whole enum there
 (`Object.values(E)`, `E[key]`, a spread, passing it as a value, `typeof E`, `keyof typeof E` or `` `${E}` `` in a
 type) uses every member of it, where knip credits none; a type annotation `x: E` names the enum type and uses no
-member ([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
+member ([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 A namespace used as a whole in its own file credits none of its members. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
 as used, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole, its types included: it runs as a
@@ -1732,7 +1732,7 @@ a configuration error naming the key.
 ## Full example
 
 ```toml
-#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json
+#:schema https://raw.githubusercontent.com/polylint/skif/main/schema/skif.schema.json
 
 [workspace]
 ignore-packages = ["examples/*"]

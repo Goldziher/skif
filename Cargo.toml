@@ -8,8 +8,8 @@ edition = "2024"
 rust-version = "1.100"
 license = "MIT"
 authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
-homepage = "https://goldziher.github.io/skif/"
-repository = "https://github.com/Goldziher/skif"
+homepage = "https://polylint.github.io/skif/"
+repository = "https://github.com/polylint/skif"
 
 [workspace.dependencies]
 ahash = "0.8.12"
@@ -40,13 +40,15 @@ oxc_str = "0.158.0"
 proptest = "1.12.0"
 rayon = "1.12.0"
 regex = "1.13.1"
-rustls-native-certs = "0.8.5"
 # The crypto provider ureq's rustls uses in `skif update` (ADR 0026); ring, not aws-lc, so no C toolchain is needed.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8.5"
 schemars = { version = "1.2.3", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.1.1"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+simdutf8 = "0.1.5"
+similar = "3.2.1"
 # The module cache key (ADR 0029); already in the tree through phf_shared.
 siphasher = "1.0.4"
 
@@ -66,8 +68,6 @@ skif-report = { path = "crates/skif-report", version = "=0.6.0" }
 skif-rules = { path = "crates/skif-rules", version = "=0.6.0" }
 skif-specifier = { path = "crates/skif-specifier", version = "=0.6.0" }
 skif-workspace = { path = "crates/skif-workspace", version = "=0.6.0" }
-simdutf8 = "0.1.5"
-similar = "3.2.1"
 strsim = "0.11.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"

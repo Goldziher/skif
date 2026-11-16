@@ -7,8 +7,8 @@
     "email": "nhirschfeld@gmail.com",
     "url": "https://github.com/Goldziher"
   },
-  "homepage": "https://goldziher.github.io/skif/",
-  "repository": "https://github.com/Goldziher/skif",
+  "homepage": "https://polylint.github.io/skif/",
+  "repository": "https://github.com/polylint/skif",
   "license": "MIT",
   "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"],
   "skills": "./skills/",
@@ -30,7 +30,7 @@
       "Why does skif report this dependency as unused?",
       "Migrate this repository from sherif, syncpack and knip to skif."
     ],
-    "websiteURL": "https://goldziher.github.io/skif/",
+    "websiteURL": "https://polylint.github.io/skif/",
     "brandColor": "#F07A1A",
     "composerIcon": "./.claude-plugin/icon.png",
     "logo": "./.claude-plugin/icon.png"

@@ -1,6 +1,6 @@
 # skif-config
 
-The typed model of `skif.toml` and `.skif.toml`: loading and discovery, defaults, file and CLI-override precedence, per-rule options and the JSON Schema (`schema` feature). It is part of [skif](https://github.com/Goldziher/skif), a dependency and package-manager linter for JavaScript
+The typed model of `skif.toml` and `.skif.toml`: loading and discovery, defaults, file and CLI-override precedence, per-rule options and the JSON Schema (`schema` feature). It is part of [skif](https://github.com/polylint/skif), a dependency and package-manager linter for JavaScript
 and TypeScript with first-class monorepo support.
 
 Config is data in, `Config` out; nothing here reads the environment or prints.

@@ -13,7 +13,7 @@ jobs:
       # The poly version comes from mise.toml, the single source for tool versions.
       - uses: xberg-io/actions/setup-mise@v1
         with:
-          tools: github:Goldziher/poly
+          tools: github:polylint/polylint
       - uses: xberg-io/actions/setup-ai-rulez@v1
       - uses: xberg-io/actions/validate-ai-rulez@v1
         with:

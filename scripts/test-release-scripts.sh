@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests the release scripts against stubs and fixtures, so the first real tag is not their first run:
-#   homebrew-update.sh, scoop-update.sh   formula and manifest output from a checksums.txt (missing asset, bad hash)
+#   publish/*.tmpl, publish/*.json        the Homebrew formula and Scoop manifest templates rendered the way the
+#                                         release renders them (every asset hashed, the glibc floor, valid Ruby/JSON)
 #   publish-crates.sh                     crates.io probe 200 / 404 / 429 and the publish order, with stub cargo and curl
 #   semver-checks.sh                      every crate of the publish list checked, the job summary, with stub cargo and curl
 #   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check and the
@@ -48,45 +49,76 @@ while IFS= read -r asset; do
   printf '%s  %s\n' "$(hex "$n")" "$asset" >>"$sums"
 done < <(bash scripts/release-assets.sh)
 
-# ---------------------------------------------------------------- homebrew
-expect "homebrew formula" 0 bash scripts/homebrew-update.sh 1.2.3 "$sums" Acme/skif
-formula="$(bash scripts/homebrew-update.sh 1.2.3 "$sums" Acme/skif)"
-for want in 'version "1.2.3"' 'https://github.com/Acme/skif/releases/download/v1.2.3/skif-aarch64-apple-darwin.tar.gz' \
+# ---------------------------------------------------------------- homebrew and scoop templates
+# The release renders scripts/publish/*.tmpl with xberg-io/actions/publish-homebrew-source-formulas and
+# publish-scoop-manifests: Python string.Template, ${tag}, ${version} and one variable per asset of the config, bound to
+# that asset's sha256. render_publish <config> <list key> renders every entry the same way from the fixture hashes, so
+# a template variable without an asset, an asset that is not a release archive, or a stray `$` fails here first.
+render_publish() {
+  python3 -I - "$1" "$2" "$sums" "${work}/rendered" <<'PY'
+import json, os, string, sys
+
+config, key, sums, out = sys.argv[1:5]
+hashes = {}
+with open(sums) as fh:
+    for line in fh:
+        digest, name = line.split()
+        hashes[name] = digest
+os.makedirs(out, exist_ok=True)
+for entry in json.load(open(config))[key]:
+    mapping = {"tag": "v1.2.3", "version": "1.2.3"}
+    for var, asset in entry["assets"].items():
+        asset = string.Template(asset).safe_substitute(tag="v1.2.3", version="1.2.3")
+        if asset not in hashes:
+            sys.exit(f"{config}: {asset} is not a release asset")
+        mapping[var] = hashes[asset]
+    text = string.Template(open(entry["template"]).read()).substitute(mapping)
+    ext = ".rb" if key == "formulas" else ".json"
+    open(os.path.join(out, entry["name"] + ext), "w").write(text)
+PY
+}
+
+expect "homebrew formula renders" 0 render_publish scripts/publish/homebrew.json formulas
+formula="${work}/rendered/skif.rb"
+for want in 'version "1.2.3"' 'https://github.com/polylint/skif/releases/download/v1.2.3/skif-aarch64-apple-darwin.tar.gz' \
+  'releases/download/v1.2.3/skif-x86_64-apple-darwin.tar.gz' \
+  'releases/download/v1.2.3/skif-x86_64-unknown-linux-gnu.tar.gz' 'releases/download/v1.2.3/skif-aarch64-unknown-linux-gnu.tar.gz' \
   'releases/download/v1.2.3/skif-x86_64-unknown-linux-musl.tar.gz' 'releases/download/v1.2.3/skif-aarch64-unknown-linux-musl.tar.gz' \
-  'OS::Linux::Glibc.system_version >= Version.new("2.34")' \
   "$(hex 1)" "$(hex 2)" "$(hex 3)" "$(hex 4)" "$(hex 5)" "$(hex 6)"; do
-  grep -qF -- "$want" <<<"$formula" || fail "homebrew formula lacks '${want}'"
+  grep -qF -- "$want" "$formula" || fail "homebrew formula lacks '${want}'"
 done
+# The formula's glibc floor (the archive choice and the bottle guard) is SKIF_GLIBC_FLOOR in scripts/lib/libc.sh.
+# shellcheck source=lib/libc.sh
+source scripts/lib/libc.sh
+floors="$(grep -o 'Version.new("[0-9.]*")' "$formula" | sort -u)"
+[[ "$floors" == "Version.new(\"${SKIF_GLIBC_FLOOR}\")" && "$(grep -c "Version.new(\"${SKIF_GLIBC_FLOOR}\")" "$formula")" -eq 2 ]] ||
+  fail "homebrew formula glibc floor is not SKIF_GLIBC_FLOOR (${SKIF_GLIBC_FLOOR}): ${floors}"
+grep -qF 'pour_bottle? do' "$formula" || fail "homebrew formula does not keep the glibc bottle off older glibc"
 if command -v ruby >/dev/null 2>&1; then
-  printf '%s\n' "$formula" >"${work}/skif.rb"
-  expect "homebrew formula is valid Ruby" 0 ruby -c "${work}/skif.rb"
+  expect "homebrew formula is valid Ruby" 0 ruby -c "$formula"
 fi
 
-grep -v 'skif-x86_64-apple-darwin' "$sums" >"${work}/missing-asset.txt"
-expect "homebrew missing asset" 1 bash scripts/homebrew-update.sh 1.2.3 "${work}/missing-asset.txt"
-expect_in_out "homebrew missing asset" "skif-x86_64-apple-darwin.tar.gz"
-
-sed 's/^[0-9]\{64\}/not-a-hash/' "$sums" >"${work}/bad-hash.txt"
-expect "homebrew bad hash" 1 bash scripts/homebrew-update.sh 1.2.3 "${work}/bad-hash.txt"
-expect_in_out "homebrew bad hash" "not a sha256"
-expect "homebrew no checksums file" 1 bash scripts/homebrew-update.sh 1.2.3 "${work}/nope.txt"
-expect "homebrew usage" 1 bash scripts/homebrew-update.sh
-
-# ---------------------------------------------------------------- scoop
+expect "scoop manifest renders" 0 render_publish scripts/publish/scoop.json manifests
+manifest="${work}/rendered/skif.json"
 if command -v jq >/dev/null 2>&1; then
-  manifest="$(bash scripts/scoop-update.sh 1.2.3 "$sums" Acme/skif)"
-  [[ "$(jq -r '.version' <<<"$manifest")" == 1.2.3 ]] || fail "scoop manifest version"
-  [[ "$(jq -r '.architecture."64bit".url' <<<"$manifest")" == https://github.com/Acme/skif/releases/download/v1.2.3/skif-x86_64-pc-windows-msvc.zip ]] || fail "scoop x64 url"
-  [[ "$(jq -r '.architecture."64bit".hash' <<<"$manifest")" == "$(hex 7)" ]] || fail "scoop x64 hash"
-  [[ "$(jq -r '.architecture.arm64.hash' <<<"$manifest")" == "$(hex 8)" ]] || fail "scoop arm64 hash"
-  [[ "$(jq -r '.autoupdate.hash.url' <<<"$manifest")" == *'/v$version/checksums.txt' ]] || fail "scoop autoupdate hash url"
-
-  grep -v 'windows-msvc.zip' "$sums" >"${work}/no-windows.txt"
-  expect "scoop missing asset" 1 bash scripts/scoop-update.sh 1.2.3 "${work}/no-windows.txt"
-  expect "scoop bad hash" 1 bash scripts/scoop-update.sh 1.2.3 "${work}/bad-hash.txt"
+  [[ "$(jq -r '.version' "$manifest")" == 1.2.3 ]] || fail "scoop manifest version"
+  [[ "$(jq -r '.architecture."64bit".url' "$manifest")" == https://github.com/polylint/skif/releases/download/v1.2.3/skif-x86_64-pc-windows-msvc.zip ]] || fail "scoop x64 url"
+  [[ "$(jq -r '.architecture.arm64.url' "$manifest")" == https://github.com/polylint/skif/releases/download/v1.2.3/skif-aarch64-pc-windows-msvc.zip ]] || fail "scoop arm64 url"
+  [[ "$(jq -r '.architecture."64bit".hash' "$manifest")" == "$(hex 7)" ]] || fail "scoop x64 hash"
+  [[ "$(jq -r '.architecture.arm64.hash' "$manifest")" == "$(hex 8)" ]] || fail "scoop arm64 hash"
+  # Scoop expands $version at update time; the template writes it as $$version so the render keeps it.
+  [[ "$(jq -r '.autoupdate.architecture."64bit".url' "$manifest")" == *'/v$version/skif-x86_64-pc-windows-msvc.zip' ]] || fail "scoop autoupdate x64 url"
+  [[ "$(jq -r '.autoupdate.hash.url' "$manifest")" == *'/v$version/checksums.txt' ]] || fail "scoop autoupdate hash url"
 else
-  echo "skip scoop tests: jq is not installed" >&2
+  echo "skip scoop manifest checks: jq is not installed" >&2
 fi
+
+grep -v 'windows-msvc.zip' "$sums" >"${work}/no-windows.txt"
+cp "$sums" "${work}/checksums.full"
+cp "${work}/no-windows.txt" "$sums"
+expect "scoop missing asset" 1 render_publish scripts/publish/scoop.json manifests
+expect_in_out "scoop missing asset" "skif-x86_64-pc-windows-msvc.zip is not a release asset"
+cp "${work}/checksums.full" "$sums"
 
 # ---------------------------------------------------------------- publish-crates
 stubs="${work}/stubs"
@@ -304,10 +336,10 @@ cat "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
 
 # The documentation pins follow a final release and stay on the previous one through a pre-release.
 integrations="${tree}/website/src/content/docs/guides/integrations.mdx"
-grep -qF 'Goldziher/skif@v9' "${tree}/README.md" || fail "release-bump: README Action pin"
+grep -qF 'polylint/skif@v9' "${tree}/README.md" || fail "release-bump: README Action pin"
 grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: README pre-commit rev"
 grep -qF 'revision = "v9.8.7"' "$integrations" || fail "release-bump: Poly revision"
-grep -qF 'Goldziher/skif@v9' "${tree}/website/src/content/docs/start/quickstart.mdx" || fail "release-bump: quickstart Action pin"
+grep -qF 'polylint/skif@v9' "${tree}/website/src/content/docs/start/quickstart.mdx" || fail "release-bump: quickstart Action pin"
 grep -qF 'rev: v9.8.7' "${tree}/skills/skif/references/ci.md" || fail "release-bump: the agent skill's pre-commit rev"
 grep -qF 'skif/releases/download/v9.8.7/skif-aarch64-apple-darwin.tar.gz' "${tree}/website/src/content/docs/guides/bazel.mdx" ||
   fail "release-bump: Bazel archive URL"
@@ -318,9 +350,9 @@ grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: a pre-release 
 [[ "$(jq -r '.mcpServers.skif.args[1]' "${tree}/.claude-plugin/plugin.json")" == @polylint/skif@9.9.0-rc.1 ]] ||
   fail "release-bump: a pre-release left the MCP server on the previous release"
 expect "release-bump to a 0.x release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 0.7.1
-grep -qF 'Goldziher/skif@v0.7' "${tree}/README.md" || fail "release-bump: a 0.x release floats as v0.M"
+grep -qF 'polylint/skif@v0.7' "${tree}/README.md" || fail "release-bump: a 0.x release floats as v0.M"
 grep -qF 'rev: v0.7.1' "$integrations" || fail "release-bump: 0.x pre-commit rev"
-[[ "$(grep -c 'Goldziher/skif@v' "$integrations")" -eq "$(grep -c 'Goldziher/skif@v0\.7$' "$integrations")" ]] ||
+[[ "$(grep -c 'polylint/skif@v' "$integrations")" -eq "$(grep -c 'polylint/skif@v0\.7$' "$integrations")" ]] ||
   fail "release-bump: an Action pin in integrations.mdx was not rewritten"
 
 # ---------------------------------------------------------------- check-archive

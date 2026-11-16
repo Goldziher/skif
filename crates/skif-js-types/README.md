@@ -1,6 +1,6 @@
 # skif-js-types
 
-The type-checker boundary of [skif](https://github.com/Goldziher/skif): the TypeScript checker of
+The type-checker boundary of [skif](https://github.com/polylint/skif): the TypeScript checker of
 [tsrs](https://github.com/oxc-project/tsrs) answers which members of a project's classes, enums and namespaces are
 read, and skif's analysis on oxc uses the answers where the project has types.
 

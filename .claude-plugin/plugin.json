@@ -7,8 +7,8 @@
     "email": "nhirschfeld@gmail.com",
     "url": "https://github.com/Goldziher"
   },
-  "homepage": "https://goldziher.github.io/skif/",
-  "repository": "https://github.com/Goldziher/skif",
+  "homepage": "https://polylint.github.io/skif/",
+  "repository": "https://github.com/polylint/skif",
   "license": "MIT",
   "icon": "./.claude-plugin/icon.png",
   "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"],

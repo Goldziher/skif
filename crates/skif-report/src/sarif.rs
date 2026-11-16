@@ -23,7 +23,7 @@ use crate::type_aware::{self, TypeAwareView};
 
 const SCHEMA_URI: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const SARIF_VERSION: &str = "2.1.0";
-const INFORMATION_URI: &str = "https://github.com/Goldziher/skif";
+const INFORMATION_URI: &str = "https://github.com/polylint/skif";
 const SRCROOT: &str = "%SRCROOT%";
 
 #[derive(Serialize)]

@@ -15,7 +15,7 @@ skif is one binary that does the jobs of sherif (manifest and workspace rules), 
 policies) and knip (unused dependencies, files and exports). It reads code and configs statically and never runs the
 project's code. A lint or fix run never uses the network; `skif update` is the only command that asks a registry.
 
-Docs: <https://goldziher.github.io/skif/>. Rules: <https://goldziher.github.io/skif/rules/>.
+Docs: <https://polylint.github.io/skif/>. Rules: <https://polylint.github.io/skif/rules/>.
 
 ## Run it
 
@@ -70,7 +70,7 @@ Every flag, with what it does: [references/commands.md](references/commands.md).
 skif reads `skif.toml` (or `.skif.toml`) and layers the files from the project up to the git root; flags override
 files. Keys are kebab-case and match rule IDs; unknown keys are errors naming the file and line. Do not guess a key:
 check the JSON Schema (`skif schema`, or `schema/skif.schema.json` in the skif repository) and the
-[configuration reference](https://goldziher.github.io/skif/reference/configuration/). After editing, run
+[configuration reference](https://polylint.github.io/skif/reference/configuration/). After editing, run
 `skif config --show` to see the merged result. Migrating from sherif, syncpack or knip, and adopting skif on a
 repository with existing findings: [references/migrate.md](references/migrate.md).
 

@@ -1,7 +1,7 @@
 # Triaging skif findings
 
 Work from the JSON report (`skif --format json`). Group the diagnostics by `rule`, read the rule's section at
-`https://github.com/Goldziher/skif/blob/main/docs/rules.md#<rule-id>` when its meaning is not obvious, and handle one
+`https://github.com/polylint/skif/blob/main/docs/rules.md#<rule-id>` when its meaning is not obvious, and handle one
 group at a time.
 For each finding the outcome is one of: fixed, ignored with a written reason, or left for the user with an
 explanation. Never delete code, files or dependencies on a guess.
@@ -19,7 +19,7 @@ These come from the manifests, `pnpm-workspace.yaml` and the version policies (t
 A version finding the user wants to keep is a policy decision, not a suppression: a `[[version-groups]]` entry (pin a
 version, or `policy = "ignored"` for a group) or a `[[semver-groups]]` range policy. Catalog rules
 (`catalog-mismatch`, `catalog-missing-entry`, `catalog-not-used`, `unused-catalog-entries`) follow the `[catalog]`
-section. See the [configuration reference](https://goldziher.github.io/skif/reference/configuration/).
+section. See the [configuration reference](https://polylint.github.io/skif/reference/configuration/).
 
 ## Unused dependencies
 

@@ -529,7 +529,7 @@ mod tests {
             ("RUNNER_ENVIRONMENT", "github-hosted"),
             ("RUNNER_NAME", "GitHub Actions 1000012345"),
             ("GITHUB_SERVER_URL", "https://github.com/"),
-            ("GITHUB_REPOSITORY", "Goldziher/skif"),
+            ("GITHUB_REPOSITORY", "polylint/skif"),
             ("GITHUB_RUN_ID", "19283746"),
             ("GITHUB_RUN_ATTEMPT", "2"),
         ]);
@@ -544,7 +544,7 @@ mod tests {
                 runner_environment: Some("github-hosted".into()),
                 runner_name: Some("GitHub Actions 1000012345".into()),
                 run_attempt: Some(2),
-                run_url: Some("https://github.com/Goldziher/skif/actions/runs/19283746/attempts/2".into()),
+                run_url: Some("https://github.com/polylint/skif/actions/runs/19283746/attempts/2".into()),
             })
         );
         let mut no_attempt = env.clone();
@@ -553,7 +553,7 @@ mod tests {
         assert_eq!(runner.run_attempt, None);
         assert_eq!(
             runner.run_url.as_deref(),
-            Some("https://github.com/Goldziher/skif/actions/runs/19283746")
+            Some("https://github.com/polylint/skif/actions/runs/19283746")
         );
         let mut partial = env.clone();
         partial.remove("GITHUB_RUN_ID");

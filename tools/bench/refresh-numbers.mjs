@@ -383,7 +383,7 @@ const repositories = (n) => `${n} pinned public ${n === 1 ? "repository" : "repo
 const workspaces = (n) => `${n} generated ${n === 1 ? "workspace" : "workspaces"}`;
 
 /** The benchmarks page the README's claims link to. */
-const BENCHMARKS_PAGE = "https://goldziher.github.io/skif/guides/benchmarks/";
+const BENCHMARKS_PAGE = "https://polylint.github.io/skif/guides/benchmarks/";
 
 /** The headline claims of the comparison guide, from the same medians as the compact tables. */
 export function benchClaims(summary) {

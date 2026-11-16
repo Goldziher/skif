@@ -1,6 +1,6 @@
 # skif-rules
 
-The built-in manifest, workspace, policy and catalog rules: sherif-derived manifest checks, syncpack-style version and semver groups, workspace-protocol and catalog rules. It is part of [skif](https://github.com/Goldziher/skif), a dependency and package-manager linter for JavaScript
+The built-in manifest, workspace, policy and catalog rules: sherif-derived manifest checks, syncpack-style version and semver groups, workspace-protocol and catalog rules. It is part of [skif](https://github.com/polylint/skif), a dependency and package-manager linter for JavaScript
 and TypeScript with first-class monorepo support.
 
 `skif_rules::providers()` returns the rule providers, the rules over version files, Dockerfiles, CI workflows and

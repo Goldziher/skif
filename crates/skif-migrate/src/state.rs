@@ -413,7 +413,7 @@ fn banner(tools: &[Tool], profile: Profile) -> String {
         Profile::Full => "full",
     };
     format!(
-        "#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json\n\n\
+        "#:schema https://raw.githubusercontent.com/polylint/skif/main/schema/skif.schema.json\n\n\
          # Migrated from {} by `skif migrate` (profile: {profile}).\n\
          # Review the report the command printed: notes marked H or X were not translated.\n\
          {}\n",

@@ -1,0 +1,38 @@
+---
+title: Ecosystem
+description: skif and its sibling tools in the polylint organization.
+---
+
+skif is part of [polylint](https://github.com/polylint), high-performance Rust linters and formatters built for
+agentic workflows. Each tool is a single binary with its own release, documentation and install channels.
+
+| Tool | What it does |
+| --- | --- |
+| [skif](https://github.com/polylint/skif) | Dependency and package-manager linter for JavaScript and TypeScript, with first-class monorepo support. |
+| [polylint](https://github.com/polylint/polylint) | One linter and formatter for every language in a repository (`poly`). It can run skif as an engine ([library usage](/skif/guides/library/)). |
+| [adrlint](https://github.com/polylint/adrlint) | Linter and formatter for MADR architecture decision records. |
+| [uncomment](https://github.com/polylint/uncomment) | Comment removal and linting. |
+
+The organization lists every tool, including ones added after this page was written.
+
+## Installing
+
+Every tool installs from the organization's Homebrew tap and Scoop bucket:
+
+```sh
+brew tap polylint/tap
+brew install polylint/tap/skif
+```
+
+```powershell
+scoop bucket add polylint https://github.com/polylint/scoop-bucket
+scoop install skif
+```
+
+skif's other channels (npm, crates.io, release archives, the GitHub Action and git hooks) are listed under
+[Installation](/skif/start/installation/).
+
+## Documentation
+
+- skif: [polylint.github.io/skif](https://polylint.github.io/skif/)
+- polylint: [polylint.github.io/polylint](https://polylint.github.io/polylint/)
