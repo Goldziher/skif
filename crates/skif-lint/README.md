@@ -1,6 +1,6 @@
 # skif-lint
 
-The rule engine: the `Rule` and `RuleProvider` traits, the `Registry`, `LintContext`, the diagnostic emitter, central ignores and severity overrides, and a deterministic parallel runner. It is part of [skif](https://github.com/Goldziher/skif), a dependency and package-manager linter for JavaScript
+The rule engine: the `Rule` and `RuleProvider` traits, the `Registry`, `LintContext`, the diagnostic emitter, central ignores and severity overrides, and a deterministic parallel runner. It is part of [skif](https://github.com/polylint/skif), a dependency and package-manager linter for JavaScript
 and TypeScript with first-class monorepo support.
 
 Rules report through one emitter, so configured levels and `[[ignore]]` entries apply the same way to every rule.

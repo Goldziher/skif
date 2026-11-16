@@ -1,8 +1,8 @@
 # skif docs site
 
-The documentation site for [skif](https://github.com/Goldziher/skif), built with
+The documentation site for [skif](https://github.com/polylint/skif), built with
 [Astro Starlight](https://starlight.astro.build) and deployed to GitHub Pages by
-`.github/workflows/docs.yaml` at <https://goldziher.github.io/skif/>.
+`.github/workflows/docs.yaml` at <https://polylint.github.io/skif/>.
 
 ## Develop
 

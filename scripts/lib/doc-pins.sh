@@ -3,11 +3,11 @@
 # check-doc-pins.sh, which fails when they name an older release line than the workspace version.
 #
 # A pin is one of
-#   Goldziher/skif@v0.2 / @v1      the floating tag of a release line (GitHub Action)
-#   Goldziher/skif@v0.2.0          a full release tag (GitHub Action)
+#   polylint/skif@v0.2 / @v1       the floating tag of a release line (GitHub Action)
+#   polylint/skif@v0.2.0           a full release tag (GitHub Action)
 #   rev: v0.2.0                    a pre-commit / prek hook revision, within two lines of the skif repository URL
 #   revision = "v0.2.0"            a Poly hook source revision, within two lines of the skif repository URL
-#   Goldziher/skif/releases/download/v0.2.0/   a release archive URL (Bazel http_archive)
+#   polylint/skif/releases/download/v0.2.0/    a release archive URL (Bazel http_archive)
 #
 # CHANGELOG.md and adrs/ record history and are never scanned.
 
@@ -52,20 +52,20 @@ skif_release_line() {
 skif_doc_pins_awk='
   function replace_action_pins(s,   out, pin, parts) {
     out = ""
-    while (match(s, /Goldziher\/skif@v[0-9]+(\.[0-9]+)*/)) {
-      pin = substr(s, RSTART + 15, RLENGTH - 15)
+    while (match(s, /polylint\/skif@v[0-9]+(\.[0-9]+)*/)) {
+      pin = substr(s, RSTART + 14, RLENGTH - 14)
       if (mode == "list") print FILENAME ":" FNR ":" pin
-      out = out substr(s, 1, RSTART + 14) (split(pin, parts, ".") == 3 ? full : floating)
+      out = out substr(s, 1, RSTART + 13) (split(pin, parts, ".") == 3 ? full : floating)
       s = substr(s, RSTART + RLENGTH)
     }
     return out s
   }
   function replace_download_pins(s,   out, pin) {
     out = ""
-    while (match(s, /Goldziher\/skif\/releases\/download\/v[0-9]+(\.[0-9]+)*\//)) {
-      pin = substr(s, RSTART + 33, RLENGTH - 34)
+    while (match(s, /polylint\/skif\/releases\/download\/v[0-9]+(\.[0-9]+)*\//)) {
+      pin = substr(s, RSTART + 32, RLENGTH - 33)
       if (mode == "list") print FILENAME ":" FNR ":" pin
-      out = out substr(s, 1, RSTART + 32) full "/"
+      out = out substr(s, 1, RSTART + 31) full "/"
       s = substr(s, RSTART + RLENGTH)
     }
     return out s
@@ -79,7 +79,7 @@ skif_doc_pins_awk='
   FNR == 1 { skif_at = -10 }
   {
     line = $0
-    if (line ~ /github\.com\/Goldziher\/skif/) skif_at = FNR
+    if (line ~ /github\.com\/polylint\/skif/) skif_at = FNR
     line = replace_action_pins(line)
     line = replace_download_pins(line)
     if (FNR - skif_at <= 2 && (line ~ /^[[:space:]-]*rev:[[:space:]]*v[0-9]/ || line ~ /^[[:space:]]*revision[[:space:]]*=[[:space:]]*"v[0-9]/)) {

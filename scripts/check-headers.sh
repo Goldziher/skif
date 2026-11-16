@@ -62,8 +62,8 @@ for needle in "2903e168561c7f709cc7825c7ca91705d2e2316d" "Copyright 2026 Max Sch
 done
 
 # The poly version is pinned in mise.toml and named again by the ai-rulez MCP server entry; they must agree.
-mise_poly="$(sed -nE 's/^"github:Goldziher\/poly" = "([^"]+)".*/\1/p' mise.toml)"
-rulez_poly="$(sed -nE 's/^package = "pkg:github\/Goldziher\/poly@v([^"]+)".*/\1/p' .ai-rulez/config.toml)"
+mise_poly="$(sed -nE 's/^"github:polylint\/polylint" = "([^"]+)".*/\1/p' mise.toml)"
+rulez_poly="$(sed -nE 's/^package = "pkg:github\/polylint\/polylint@v([^"]+)".*/\1/p' .ai-rulez/config.toml)"
 if [[ -z "$mise_poly" || "$mise_poly" != "$rulez_poly" ]]; then
   echo "::error file=.ai-rulez/config.toml::poly version '${rulez_poly:-none}' differs from mise.toml '${mise_poly:-none}'"
   failures=$((failures + 1))

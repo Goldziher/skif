@@ -1,6 +1,6 @@
 # skif-specifier
 
-npm dependency specifier parsing, classification, ordering and semver comparison, vendored from syncpack and made thread-safe. It is part of [skif](https://github.com/Goldziher/skif), a dependency and package-manager linter for JavaScript
+npm dependency specifier parsing, classification, ordering and semver comparison, vendored from syncpack and made thread-safe. It is part of [skif](https://github.com/polylint/skif), a dependency and package-manager linter for JavaScript
 and TypeScript with first-class monorepo support.
 
 Every source file carries an attribution header naming its upstream path and commit; see `ATTRIBUTIONS.md`.

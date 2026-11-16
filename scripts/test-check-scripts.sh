@@ -133,7 +133,7 @@ expect "check-headers rejects a tsrs section without the NOTICE" 1 run_in "$head
 expect_in_out "check-headers tsrs notice" "the tsrs section is missing 'NOTICES AND INFORMATION'"
 cp ATTRIBUTIONS.md "${headers}/ATTRIBUTIONS.md"
 
-sed -i.bak 's/^\(package = "pkg:github\/Goldziher\/poly@v\)[^"]*/\10.0.1/' "${headers}/.ai-rulez/config.toml"
+sed -i.bak 's/^\(package = "pkg:github\/polylint\/polylint@v\)[^"]*/\10.0.1/' "${headers}/.ai-rulez/config.toml"
 expect "check-headers rejects a poly version that differs from mise.toml" 1 run_in "$headers" check-headers.sh
 expect_in_out "check-headers poly" "differs from mise.toml"
 
@@ -418,16 +418,16 @@ mkdir -p "${docpins}/website/src/content/docs/guides" "${docpins}/adrs"
 printf '[workspace.package]\nversion = "0.4.2"\n' >"${docpins}/Cargo.toml"
 # doc_pins_tree <action pin> <pre-commit rev> <poly revision>: writes one pin of each kind.
 doc_pins_tree() {
-  printf -- '- uses: Goldziher/skif@%s\n' "$1" >"${docpins}/README.md"
-  printf 'repos:\n  - repo: https://github.com/Goldziher/skif\n    rev: %s # use the latest release tag\n' "$2" \
+  printf -- '- uses: polylint/skif@%s\n' "$1" >"${docpins}/README.md"
+  printf 'repos:\n  - repo: https://github.com/polylint/skif\n    rev: %s # use the latest release tag\n' "$2" \
     >"${docpins}/website/src/content/docs/guides/hooks.mdx"
-  printf '[[hooks.sources]]\ngit = "https://github.com/Goldziher/skif.git"\nrevision = "%s"\n' "$3" \
+  printf '[[hooks.sources]]\ngit = "https://github.com/polylint/skif.git"\nrevision = "%s"\n' "$3" \
     >"${docpins}/website/src/content/docs/guides/poly.md"
 }
 doc_pins_tree v0.4 v0.4.0 v0.4.0
 # History may name any release, and a `rev:` that belongs to another repository is not a skif pin.
-printf -- '- uses: Goldziher/skif@v0.1\n' >"${docpins}/CHANGELOG.md"
-printf -- '- uses: Goldziher/skif@v0.1\n' >"${docpins}/adrs/0001-mission-scope-and-non-goals.md"
+printf -- '- uses: polylint/skif@v0.1\n' >"${docpins}/CHANGELOG.md"
+printf -- '- uses: polylint/skif@v0.1\n' >"${docpins}/adrs/0001-mission-scope-and-non-goals.md"
 printf 'repos:\n  - repo: https://github.com/example/other\n    rev: v0.1.0\n' >"${docpins}/website/src/content/docs/guides/other.mdx"
 expect "check-doc-pins accepts pins on the workspace line" 0 run_in "$docpins" check-doc-pins.sh
 expect_in_out "check-doc-pins accepts" "Every documentation pin names the v0.4 line of 0.4.2"
@@ -451,7 +451,7 @@ expect "check-doc-pins only lists the pins of a pre-release" 0 run_in "$docpins"
 expect_in_out "check-doc-pins pre-release" "website/src/content/docs/guides/poly.md:3:v0.3.0"
 doc_pins_tree v0.4 v0.4.0 v0.4.0
 mkdir -p "${docpins}/skills/skif/references"
-printf -- '- uses: Goldziher/skif@v0.3\n' >"${docpins}/skills/skif/references/ci.md"
+printf -- '- uses: polylint/skif@v0.3\n' >"${docpins}/skills/skif/references/ci.md"
 expect "check-doc-pins rejects a stale pin in an agent skill" 1 run_in "$docpins" check-doc-pins.sh
 expect_in_out "check-doc-pins skill" "file=skills/skif/references/ci.md,line=1::skif pin v0.3"
 rm -r "${docpins}/skills"
@@ -652,11 +652,11 @@ refused_before_download() {
   bench_untouched "$label"
 }
 refused_before_download "bench-import fails when the run cannot be read" \
-  "run 42 of Goldziher/skif: gh run view did not describe the run; not imported" STUB_GH_VIEW_FAIL=1
-grep -qxF 'run view 42 --repo Goldziher/skif --json workflowName,event,conclusion,headSha,headBranch --jq .workflowName, .event, (.conclusion // ""), .headSha, .headBranch' \
+  "run 42 of polylint/skif: gh run view did not describe the run; not imported" STUB_GH_VIEW_FAIL=1
+grep -qxF 'run view 42 --repo polylint/skif --json workflowName,event,conclusion,headSha,headBranch --jq .workflowName, .event, (.conclusion // ""), .headSha, .headBranch' \
   "$STUB_GH_VIEW_LOG" || fail "bench-import gh run view arguments: $(cat "$STUB_GH_VIEW_LOG")"
 refused_before_download "bench-import refuses a run of another workflow" \
-  "run 42 of Goldziher/skif: it is a run of the ci workflow, not of bench; not imported" STUB_GH_WORKFLOW=ci
+  "run 42 of polylint/skif: it is a run of the ci workflow, not of bench; not imported" STUB_GH_WORKFLOW=ci
 refused_before_download "bench-import refuses a run that was not dispatched" \
   "it was triggered by push, not workflow_dispatch; not imported" STUB_GH_EVENT=push
 refused_before_download "bench-import refuses a failed run" "it concluded failure, not success" \
@@ -681,7 +681,7 @@ expect "bench-import refuses a summary without a harness commit" 1 env STUB_GH_H
 expect_in_out "bench-import no harness" "its summary names the harness commit none, not the run's"
 bench_untouched "bench-import no harness"
 expect "bench-import fails on more than one artifact" 1 env STUB_GH_ARTIFACTS=2 bash "${bench}/scripts/bench-import.sh" 42
-expect_in_out "bench-import two artifacts" "run 42 of Goldziher/skif has 2 bench artifacts; expected one"
+expect_in_out "bench-import two artifacts" "run 42 of polylint/skif has 2 bench artifacts; expected one"
 bench_untouched "bench-import two artifacts"
 expect "bench-import fails on an artifact without summary.md" 1 env STUB_GH_NO_MD=1 bash "${bench}/scripts/bench-import.sh" 42
 expect_in_out "bench-import incomplete" "of run 42 has no summary.md"
@@ -694,7 +694,7 @@ bench_untouched "bench-import refused"
 
 expect "bench-import imports the artifact of a run" 0 run_in "$bench" bench-import.sh 42
 expect_in_out "bench-import done" "imported bench-0123456789ab-ubuntu-24.04-1 of run 42 into tools/bench/results"
-grep -qxE 'run download 42 --repo Goldziher/skif --pattern bench-\* --dir /.+/download' "$STUB_GH_LOG" ||
+grep -qxE 'run download 42 --repo polylint/skif --pattern bench-\* --dir /.+/download' "$STUB_GH_LOG" ||
   fail "bench-import gh arguments: $(cat "$STUB_GH_LOG")"
 grep -qxE 'tools/bench/refresh-numbers\.mjs --bench --summary /.+/bench-0123456789ab-ubuntu-24\.04-1/summary\.json' "$STUB_NODE_LOG" ||
   fail "bench-import refresh arguments: $(cat "$STUB_NODE_LOG")"

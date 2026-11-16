@@ -27,7 +27,7 @@ fi
 
 on_registry() {
   local status
-  status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: skif-ci (https://github.com/Goldziher/skif)' \
+  status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: skif-ci (https://github.com/polylint/skif)' \
     "${api}/$1" || true)"
   case "$status" in
   200) return 0 ;;

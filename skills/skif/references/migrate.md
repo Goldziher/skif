@@ -1,6 +1,6 @@
 # Migrating to skif and adopting it on an existing repository
 
-The full guide, with what is translated from each tool, is <https://goldziher.github.io/skif/guides/migrating/>.
+The full guide, with what is translated from each tool, is <https://polylint.github.io/skif/guides/migrating/>.
 
 ## Translate the old configuration
 

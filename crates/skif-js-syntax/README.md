@@ -1,6 +1,6 @@
 # skif-js-syntax
 
-The oxc boundary of [skif](https://github.com/Goldziher/skif): one JavaScript or TypeScript file in, skif-owned facts out.
+The oxc boundary of [skif](https://github.com/polylint/skif): one JavaScript or TypeScript file in, skif-owned facts out.
 
 - `parse_module` returns a `ModuleInfo`: imports (static, dynamic, `require`, `import.meta.glob`, re-exports, with the
   members accessed through each binding), exports (kind, JSDoc tags, enum and namespace members, removal ranges,

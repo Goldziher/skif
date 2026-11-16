@@ -11,7 +11,7 @@
 # not timed, no GitHub-hosted runner).
 #
 # Usage: scripts/bench-import.sh <run-id>   (needs gh, git, jq and Node)
-#   SKIF_BENCH_REPO  the repository the run belongs to (default Goldziher/skif)
+#   SKIF_BENCH_REPO  the repository the run belongs to (default polylint/skif)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -21,7 +21,7 @@ if [[ $# -ne 1 || ! "$1" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 run_id="$1"
-repo="${SKIF_BENCH_REPO:-Goldziher/skif}"
+repo="${SKIF_BENCH_REPO:-polylint/skif}"
 results="tools/bench/results"
 
 refuse() {

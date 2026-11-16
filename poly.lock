@@ -3,9 +3,9 @@ version = 1
 
 [[hook_sources]]
 id = "adrlint"
-source = "https://github.com/Goldziher/adrlint.git"
+source = "https://github.com/polylint/adrlint.git"
 revision = "a4fc1b972267792a7ee8fb2d84ea55d2e9c17c7b"
-path = "cache://hook-sources/87f17bc04cb735c06ccfa44452e81ef2/a4fc1b972267792a7ee8fb2d84ea55d2e9c17c7b"
+path = "cache://hook-sources/ed8d68311953469e7f5992490d7d854d/a4fc1b972267792a7ee8fb2d84ea55d2e9c17c7b"
 
 [[hook_sources]]
 id = "ai-rulez"

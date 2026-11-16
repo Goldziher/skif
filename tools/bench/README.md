@@ -735,7 +735,7 @@ runs both checks and writes the parity table and any drift to the job summary. T
 
 ## Measured numbers
 
-The published numbers are on the [benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/), with the
+The published numbers are on the [benchmarks page](https://polylint.github.io/skif/guides/benchmarks/), with the
 methodology; the README and the comparison guide carry headline claims generated from the same run. They come from the
 `bench` workflow (`.github/workflows/bench.yml`), which runs only when dispatched, on a pinned GitHub-hosted runner
 image ([ADR 0029](../../adrs/0029-performance-caching-benchmarks-and-budgets.md)):

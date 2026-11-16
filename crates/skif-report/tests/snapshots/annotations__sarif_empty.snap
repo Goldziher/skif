@@ -11,7 +11,7 @@ expression: "run(&Report::new(Vec::new(), 2), Format::Sarif, &options())"
         "driver": {
           "name": "skif",
           "version": "0.1.0",
-          "informationUri": "https://github.com/Goldziher/skif",
+          "informationUri": "https://github.com/polylint/skif",
           "rules": [
             {
               "id": "version-mismatch",

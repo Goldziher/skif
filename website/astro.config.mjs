@@ -5,7 +5,7 @@ import starlightLinksValidator from "starlight-links-validator";
 import starlightLlmsTxt from "starlight-llms-txt";
 
 export default defineConfig({
-  site: "https://goldziher.github.io",
+  site: "https://polylint.github.io",
   base: "/skif",
   integrations: [
     starlight({
@@ -22,9 +22,12 @@ export default defineConfig({
       },
       favicon: "/favicon.svg",
       customCss: ["./src/styles/custom.css"],
-      social: [{ icon: "github", label: "GitHub", href: "https://github.com/Goldziher/skif" }],
+      social: [
+        { icon: "github", label: "GitHub", href: "https://github.com/polylint/skif" },
+        { icon: "puzzle", label: "polylint organization", href: "https://github.com/polylint" },
+      ],
       editLink: {
-        baseUrl: "https://github.com/Goldziher/skif/edit/main/website/",
+        baseUrl: "https://github.com/polylint/skif/edit/main/website/",
       },
       head: [
         {
@@ -37,7 +40,7 @@ export default defineConfig({
         },
         {
           tag: "meta",
-          attrs: { property: "og:image", content: "https://goldziher.github.io/skif/og.png" },
+          attrs: { property: "og:image", content: "https://polylint.github.io/skif/og.png" },
         },
         {
           tag: "meta",
@@ -45,7 +48,7 @@ export default defineConfig({
         },
         {
           tag: "meta",
-          attrs: { name: "twitter:image", content: "https://goldziher.github.io/skif/og.png" },
+          attrs: { name: "twitter:image", content: "https://polylint.github.io/skif/og.png" },
         },
       ],
       plugins: [
@@ -57,7 +60,7 @@ export default defineConfig({
           details:
             "skif lints package.json manifests, workspaces, version and catalog policies, and unused " +
             "dependencies in JavaScript and TypeScript monorepos, standalone packages, and several projects in one run (-r). Configuration is TOML only " +
-            "(skif.toml or .skif.toml). Project source: https://github.com/Goldziher/skif",
+            "(skif.toml or .skif.toml). Project source: https://github.com/polylint/skif",
         }),
       ],
       sidebar: [
@@ -102,6 +105,7 @@ export default defineConfig({
             { label: "Configuration", slug: "reference/configuration" },
             { label: "Architecture", slug: "reference/architecture" },
             { label: "Attributions", slug: "reference/attributions" },
+            { label: "Ecosystem", slug: "reference/ecosystem" },
           ],
         },
       ],

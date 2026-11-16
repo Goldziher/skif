@@ -2,7 +2,7 @@ name: skif dependency linter
 description: >-
   Lint the dependencies of a JavaScript or TypeScript monorepo: workspace rules and version and catalog
   policies.
-author: Goldziher
+author: polylint
 branding:
   icon: package
   color: orange
@@ -64,7 +64,7 @@ inputs:
   repository:
     description: "Advanced: override the owner/repo release assets are downloaded from."
     required: false
-    default: "Goldziher/skif"
+    default: "polylint/skif"
 
 outputs:
   version:

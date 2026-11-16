@@ -19,7 +19,7 @@ const CLEAN: u8 = 0;
 const COULD_NOT_RUN: u8 = 2;
 
 const STARTER_CONFIG: &str = "\
-#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json
+#:schema https://raw.githubusercontent.com/polylint/skif/main/schema/skif.schema.json
 
 # skif configuration. Every key is optional; the values below are the defaults.
 

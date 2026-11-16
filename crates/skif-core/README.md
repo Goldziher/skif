@@ -1,6 +1,6 @@
 # skif-core
 
-Core diagnostic, fix and report types for [skif](https://github.com/Goldziher/skif), a dependency and package-manager linter
+Core diagnostic, fix and report types for [skif](https://github.com/polylint/skif), a dependency and package-manager linter
 for JavaScript and TypeScript, with first-class monorepo support.
 
 The crate is pure data: it performs no IO, every type is plain `serde` data, and spans are byte offsets with

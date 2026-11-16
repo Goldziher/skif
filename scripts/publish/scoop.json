@@ -1,0 +1,12 @@
+{
+  "manifests": [
+    {
+      "name": "skif",
+      "template": "scripts/publish/skif.json.tmpl",
+      "assets": {
+        "win_x64_sha": "skif-x86_64-pc-windows-msvc.zip",
+        "win_arm64_sha": "skif-aarch64-pc-windows-msvc.zip"
+      }
+    }
+  ]
+}
