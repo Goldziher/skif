@@ -143,9 +143,15 @@ impl ConfigReader {
         self.cached(&self.name(file_name))
     }
 
-    /// Parses the config at `file_name` into the current region, with the configs it extends from the cache; `None`
-    /// when it cannot be read or parsed. A program parses its own config so.
+    /// A command line of the config at `file_name` that the caller owns and may change; `None` when it cannot be read
+    /// or parsed. A program takes its own config so: a copy of the run's parse (the parsed options, which it replaces
+    /// in part, and the file names, with the lazily computed tables left empty to be filled for the copy), and only
+    /// where the run's cache cannot give the parse, the config is parsed into the current region.
     pub(crate) fn parse_own(&self, file_name: &str) -> Option<ParsedCommandLine> {
+        if let Some(parsed) = self.cached(&self.name(file_name)) {
+            let config = parsed.usable()?;
+            return Some(config.with_file_names(config.file_names().to_vec()));
+        }
         let (config, diagnostics) = self.parse(file_name);
         if problem(file_name, config.as_ref(), &diagnostics).is_some() {
             return None;
@@ -338,6 +344,7 @@ const _: () = {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use skif_core::MemoryFs;
+    use tsrs_core::CompilerOptions;
 
     use super::*;
     use crate::vfs;
@@ -428,14 +435,35 @@ mod tests {
         let reader = reader(&memory, &configs);
         let shared = reader.config(A).usable().unwrap();
         let own = reader.parse_own(A).expect("the config parses");
-        assert!(
-            shared.config_file != own.config_file,
-            "the program's own config is a parse of its own"
-        );
         assert!(own.compiler_options().unwrap().strict.is_true());
         assert_eq!(own.file_names(), shared.file_names());
-        assert_eq!(configs.counts(), (counts(1, 0, 0), counts(1, 1, 0)));
+        assert!(
+            own.file_names_by_path.get().is_none(),
+            "the copy computes its own lazy tables"
+        );
+        assert_eq!(configs.counts(), (counts(1, 1, 0), counts(1, 0, 0)));
         assert!(reader.parse_own("/ws/broken/tsconfig.json").is_none());
+    }
+
+    #[test]
+    fn programs_that_share_a_config_parse_it_once_and_change_only_their_copy() {
+        let memory = workspace();
+        let configs = Arc::new(SharedConfigs::default());
+        let (first, second) = (reader(&memory, &configs), reader(&memory, &configs));
+        let mut one = first.parse_own(A).expect("the config parses");
+        let two = second.parse_own(A).expect("the config parses");
+        assert_eq!(
+            configs.counts(),
+            (counts(1, 1, 0), counts(1, 0, 0)),
+            "parsed once for the run"
+        );
+        one.parsed_config.compiler_options = Some(P::new(CompilerOptions::default()));
+        assert!(!one.compiler_options().unwrap().strict.is_true());
+        assert!(
+            two.compiler_options().unwrap().strict.is_true(),
+            "the other program's copy is unchanged"
+        );
+        assert!(strict(first.config(A).usable().unwrap()), "so is the shared parse");
     }
 
     #[test]
