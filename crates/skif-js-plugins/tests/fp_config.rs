@@ -1418,3 +1418,45 @@ fn bundler_config_with_an_unknown_loader_entry_is_still_judged() {
     assert_deps(out, &["css-loader"]);
     assert!(!out.entries_incomplete);
 }
+
+/// A rule whose whole `use` or `loader` comes from a helper the evaluator cannot follow (`use: cssLoaders()`) may
+/// name any loader, so the package is not judged, unlike one unknown element of a known `use` list.
+#[test]
+fn bundler_config_with_an_unknown_use_or_loader_value_is_incomplete() {
+    for key in ["use", "loader"] {
+        let config = format!(
+            "const {{ cssLoaders }} = require('./build/utils');\nmodule.exports = {{\n  \
+             module: {{ rules: [{{ test: /\\.css$/, {key}: cssLoaders() }}, {{ test: /\\.js$/, loader: 'babel-loader' }}] }},\n}};"
+        );
+        let results = run(&[("webpack.config.js", &config)], &["webpack"], &[]);
+        let out = output(&results, "webpack");
+        assert_deps(out, &["babel-loader"]);
+        assert!(out.entries_incomplete, "{key}");
+    }
+}
+
+/// A `module` the evaluator cannot read, or one that spreads an unknown value and sets no `rules`, may hold rules
+/// naming any loader, so the package is not judged.
+#[test]
+fn bundler_config_with_an_unknown_module_is_incomplete() {
+    for module in ["moduleOptions()", "{ ...moduleOptions(), noParse: /jquery/ }"] {
+        let config = format!(
+            "const {{ moduleOptions }} = require('./build/utils');\nmodule.exports = {{ entry: './src/index.js', module: {module} }};"
+        );
+        let results = run(&[("webpack.config.js", &config)], &["webpack"], &[]);
+        let out = output(&results, "webpack");
+        assert!(out.entries_incomplete, "{module}");
+    }
+}
+
+/// A `use` that is one of several known loaders (`isDev ? 'style-loader' : 'css-loader'`) credits each and keeps the
+/// package judged.
+#[test]
+fn bundler_config_with_a_use_that_is_one_of_several_loaders_credits_each() {
+    let config = "module.exports = {\n  entry: './src/index.js',\n  \
+                  module: { rules: [{ test: /\\.css$/, use: process.env.DEV ? 'style-loader' : ['css-loader'] }] },\n};";
+    let results = run(&[("webpack.config.js", config)], &["webpack"], &[]);
+    let out = output(&results, "webpack");
+    assert_deps(out, &["style-loader", "css-loader"]);
+    assert!(!out.entries_incomplete);
+}

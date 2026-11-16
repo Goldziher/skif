@@ -53,6 +53,9 @@ All notable changes to this project are documented here. The format follows
   build ([#251](https://github.com/polylint/skif/issues/251)).
 - With `SKIF_TIMINGS` or `--performance`, `--watch`, `skif lsp` and `skif mcp` write the phase timings after each run
   or request, instead of holding them until the process exits, which an interrupted watcher never reached.
+- A webpack or rspack rule whose whole `use` or `loader` is computed (`use: cssLoaders()`), or a `module` the
+  evaluator cannot read, leaves the package unjudged instead of judged without the loaders it may name. A `use` that
+  is one of several known loaders credits each.
 
 ## [0.6.0] - 2026-11-16
 

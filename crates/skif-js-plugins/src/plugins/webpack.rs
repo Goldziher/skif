@@ -7,8 +7,8 @@ use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, Plug
 use crate::plugins::babel;
 use crate::plugins::swc::plugin_packages;
 use crate::support::{
-    alias_inputs, config_unknown, extension_inputs, files_key_unknown, get_in, html_script_sources, local_script_path,
-    looks_like_file, module_input, objects, strings,
+    Entry, Spreads, alias_inputs, config_unknown, extension_inputs, files_key_unknown, get_in, html_script_sources,
+    last_entry, local_script_path, looks_like_file, module_input, objects, strings,
 };
 
 /// The `webpack` plugin.
@@ -47,6 +47,9 @@ pub(crate) fn bundler_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> 
             entries(entry, config, &mut out);
         }
         if files_key_unknown(object, "entry") {
+            out.push(PluginInput::EntriesIncomplete);
+        }
+        if module_unknown(object) {
             out.push(PluginInput::EntriesIncomplete);
         }
         if let Some(rules) = object.get("module").and_then(|m| m.get("rules")) {
@@ -129,10 +132,23 @@ fn rule_loaders(rules: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugi
     }
 }
 
-/// Whether `rules` may hold a rule that is not known at all: an unknown element, or a rule object that spreads an
-/// unknown value. A rule the config adds by a change the evaluator does not follow is one of these, so the package is
-/// not judged without the loaders it names. An unknown `use` or `loader` entry inside a known rule
-/// (`MiniCssExtractPlugin.loader`) is not: its package is reached through the import that names it.
+/// Whether the `module` of a config object may hold rules that are not known: it is unknown, or an object whose
+/// `rules` an unknown spread may provide or replace. A `module` that is one of several objects counts as unknown, as
+/// [`bundler_inputs`] reads the `rules` of a known object only.
+fn module_unknown(object: &ConfigValue) -> bool {
+    match last_entry(object, "module", Spreads::Any) {
+        Some(Entry::Value(module)) => {
+            module.is_unknown() || matches!(last_entry(module, "rules", Spreads::Any), Some(Entry::Spread))
+        }
+        Some(Entry::Spread) | None => false,
+    }
+}
+
+/// Whether `rules` may hold a rule that is not known at all: an unknown element, a rule object that spreads an
+/// unknown value, or a rule whose whole `use` or `loader` is unknown (`use: cssLoaders()`). A rule the config adds by
+/// a change the evaluator does not follow is one of these, so the package is not judged without the loaders it names.
+/// An unknown entry of a known `use` list (`MiniCssExtractPlugin.loader`) is not: its package is reached through the
+/// import that names it. A `use` that is one of several known values is read as each ([`items`]).
 fn rules_unknown(rules: &ConfigValue, depth: u8) -> bool {
     if depth > 6 {
         return true;
@@ -141,6 +157,9 @@ fn rules_unknown(rules: &ConfigValue, depth: u8) -> bool {
         ConfigValue::Array(items) | ConfigValue::OneOf(items) => items.iter().any(|item| rules_unknown(item, depth)),
         ConfigValue::Object(_) => {
             rules.get("...").is_some()
+                || ["use", "loader"]
+                    .iter()
+                    .any(|key| matches!(rules.get(key), Some(ConfigValue::Unknown)))
                 || ["oneOf", "rules"]
                     .iter()
                     .any(|key| rules.get(key).is_some_and(|nested| rules_unknown(nested, depth + 1)))
@@ -185,9 +204,12 @@ fn loader_input(config: &ConfigAst<'_>, name: &str) -> Option<PluginInput> {
     module_input(config.base, name.split('?').next().unwrap_or_default(), false)
 }
 
+/// The loaders of a `use` or `loader` value: a list, a single loader, or each alternative of a value that is one of
+/// several.
 fn items(value: &ConfigValue) -> Vec<&ConfigValue> {
     match value {
         ConfigValue::Array(items) => items.iter().collect(),
+        ConfigValue::OneOf(alternatives) => alternatives.iter().flat_map(items).collect(),
         other => vec![other],
     }
 }
