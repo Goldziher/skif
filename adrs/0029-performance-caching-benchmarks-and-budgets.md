@@ -238,7 +238,8 @@ through the coalescer, which is what makes it deadlock-free.
   RSS"; and the `bench-import` cases of `scripts/test-check-scripts.sh`.
 * `crates/skif-js-types/src/session.rs`: `a_program_gets_no_more_checkers_than_judged_files`;
   `crates/skif-js-types/tests/determinism.rs`: `every_program_reports_its_size_checkers_and_times`.
-* `.github/workflows/bench.yml` passes `--check-budget`, so a dispatched run that breaks the budget fails.
+* `.github/workflows/bench.yml` passes `--check-budget` once types are on by default, so a dispatched run that breaks
+  the budget fails then; while types are opt-in it does not.
 
 ## Pros and Cons of the Options
 
