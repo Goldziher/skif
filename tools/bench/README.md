@@ -23,8 +23,11 @@ npm registry (`npm view <tool> version`), rewrites `[tools]` and `tools/package.
 runs `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` in `tools/`, printing `old -> new` per
 tool; `skif-bench tools check` exits non-zero and lists each tool that is `pinned X, latest Y` (a registry failure is an
 error, not a pass). `run` copies the two files into `target/bench-generated/tools`,
-installs them there once with `npm ci --ignore-scripts` and times the executables in its `node_modules/.bin` directly,
-so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be installed (no `npm`, a failed
+installs them there once with `npm ci --ignore-scripts` (skipped when that directory already holds the byte-identical
+lock and every executable) and times the executables in its `node_modules/.bin` directly, so no `npx` resolution is
+timed and nothing on `PATH` is used. `parity`, `syncpack-diff` and `deadcode --knip` install and run the same locked
+tools from `--tools-dir` (default `target/bench-generated/tools`, the directory `run` uses), so every command compares
+against the same dependency versions; they fail when the tools cannot be installed. A tool that cannot be installed (no `npm`, a failed
 install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
 `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks),
 `summary.json` (schema 7: skif version, the commit of the skif source it was built from with a `-dirty` flag
@@ -152,7 +155,8 @@ Profile with `cargo build --profile profiling` (release plus debug symbols, no s
 ## Parity with knip
 
 `skif-bench parity` runs, for each repository of the `parity` suite in `corpus.toml`, `skif . --format json` and
-`npx knip@<version pinned in corpus.toml> --reporter json` in the checkout, and reduces both reports to finding keys
+the locked knip (`<tools-dir>/node_modules/.bin/knip --reporter json`, at the version pinned in `corpus.toml`) in the
+checkout, and reduces both reports to finding keys
 `<file>|<name>` within a knip issue type:
 
 | knip issue type | skif rule |
@@ -652,7 +656,7 @@ keys name the member, not the export an import reads.
 
 `skif-bench syncpack-diff` compares skif's policy rules (`version-mismatch`, `semver-range-mismatch`,
 `banned-dependency`, `invalid-local-version`, `policy-conflict`, `unresolved-catalog-references` and the catalog rules)
-with `syncpack@<pinned> json`. syncpack has no JSON lint reporter, but `json` prints every dependency instance with its
+with the locked syncpack (`<tools-dir>/node_modules/.bin/syncpack json`). syncpack has no JSON lint reporter, but `json` prints every dependency instance with its
 status code, and skif's diagnostic `detail` carries the same status code names (`DiffersToHighestOrLowestSemver`,
 `IsBanned`, ...). A finding is keyed by status code, `package.json` path and dependency. Two targets:
 
@@ -791,7 +795,7 @@ deadcode` measures both tools against a right answer instead. It generates a pnp
 (default 5) with seeded dead code, deterministic for `--seed`, writes it to `<out>/repo` and the answer key, every
 expected finding as a knip issue type and a parity key, to `<out>/answer-key.json`. It then runs
 `skif . --format json --no-install` and, with `--knip`, the knip pinned in `corpus.toml` with an empty configuration (as
-`parity` does; needs `npx` and the npm registry). Both reports are reduced to the parity keys, and each tool gets
+`parity` does; the locked knip is installed with npm, which needs the npm registry). Both reports are reduced to the parity keys, and each tool gets
 precision (seeded findings among those reported) and recall (reported findings among those seeded) per issue type.
 `nsExports` and `nsTypes` count as `exports` and `types`. A finding in a type the key does not seed (`unlisted`,
 `unresolved`, `binaries`, ...) is false by construction. The report goes to stdout (`--json` for JSON) and to

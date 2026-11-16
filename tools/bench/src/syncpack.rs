@@ -13,15 +13,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::{Map, Value, json};
 
-use crate::corpus::{self, Tools};
+use crate::corpus;
 use crate::diff::{self, BASELINE_SCHEMA, Baseline, CaseSummary, Counts, Entry, Gate, Keys, Known, Samples};
 use crate::evidence::{Evidence, SYNCPACK_DEVIATIONS};
 use crate::parity::normalize;
-use crate::proc::{capture, find_on_path};
+use crate::proc::capture;
 use crate::run::table_cell;
+use crate::tools_install;
 
 /// The skif rules that report syncpack's findings.
 const POLICY_RULES: [&str; 9] = [
@@ -47,6 +48,8 @@ pub struct Options {
     pub skif: PathBuf,
     pub corpus_file: PathBuf,
     pub corpus_dir: PathBuf,
+    /// Where the locked comparison tools are installed ([`tools_install::install`]).
+    pub tools_dir: PathBuf,
     pub fixtures: PathBuf,
     pub out: PathBuf,
     pub only: Vec<String>,
@@ -358,7 +361,6 @@ struct Pair {
 fn run_pair(
     options: &Options,
     skif: &Path,
-    tools: &Tools,
     workspace: &Path,
     skif_config: Option<&Path>,
     syncpack_args: &[String],
@@ -385,10 +387,9 @@ fn run_pair(
         return Ok(Err(format!("skif failed: {message}")));
     }
 
-    let spec = format!("syncpack@{}", tools.syncpack);
     let syncpack_run = capture(
-        Command::new("npx")
-            .args(["--yes", spec.as_str(), "json", "--no-ansi"])
+        Command::new(tools_install::program(&options.tools_dir, "syncpack")?)
+            .args(["json", "--no-ansi"])
             .args(syncpack_args)
             .current_dir(workspace)
             .env("CI", "1"),
@@ -489,7 +490,7 @@ fn sorted_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry, Value)> {
+fn run_fixtures(options: &Options, skif: &Path) -> Result<(Entry, Value)> {
     let fixtures = fs::canonicalize(&options.fixtures)
         .with_context(|| format!("fixtures not found at {}", options.fixtures.display()))?;
     let mut totals = BTreeMap::new();
@@ -527,7 +528,7 @@ fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry,
         let config_file = case.join("skif.toml");
         let skif_config = config_file.is_file().then_some(config_file.as_path());
         let workspace = fs::canonicalize(case.join("workspace"))?;
-        match run_pair(options, skif, tools, &workspace, skif_config, &syncpack_args, &scratch)? {
+        match run_pair(options, skif, &workspace, skif_config, &syncpack_args, &scratch)? {
             Err(reason) => {
                 summary.skipped += 1;
                 skipped.insert(name, reason);
@@ -586,7 +587,7 @@ fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry,
     Ok((entry, detail))
 }
 
-fn run_repo(options: &Options, skif: &Path, tools: &Tools, name: &str, dir: &Path) -> Result<(Entry, Value)> {
+fn run_repo(options: &Options, skif: &Path, name: &str, dir: &Path) -> Result<(Entry, Value)> {
     let root = fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     let scratch = options.out.join("scratch").join(name);
     let mut syncpack_args = vec![
@@ -604,29 +605,27 @@ fn run_repo(options: &Options, skif: &Path, tools: &Tools, name: &str, dir: &Pat
             ));
         }
     }
-    Ok(
-        match run_pair(options, skif, tools, &root, None, &syncpack_args, &scratch)? {
-            Err(reason) => (
-                Entry::skipped(reason.clone()),
-                json!({ "status": diff::SKIPPED, "reason": reason }),
-            ),
-            Ok(found) => {
-                let Comparison {
-                    counts,
-                    known,
-                    known_samples,
-                    ..
-                } = compare_known(&root, found);
-                let detail = json!({
-                    "status": diff::COMPARED,
-                    "categories": counts,
-                    "known_deviations": known,
-                    "known_samples": known_samples,
-                });
-                (Entry::compared(counts).with_known(known), detail)
-            }
-        },
-    )
+    Ok(match run_pair(options, skif, &root, None, &syncpack_args, &scratch)? {
+        Err(reason) => (
+            Entry::skipped(reason.clone()),
+            json!({ "status": diff::SKIPPED, "reason": reason }),
+        ),
+        Ok(found) => {
+            let Comparison {
+                counts,
+                known,
+                known_samples,
+                ..
+            } = compare_known(&root, found);
+            let detail = json!({
+                "status": diff::COMPARED,
+                "categories": counts,
+                "known_deviations": known,
+                "known_samples": known_samples,
+            });
+            (Entry::compared(counts).with_known(known), detail)
+        }
+    })
 }
 
 fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
@@ -664,12 +663,9 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
 /// Runs the diff on the policy fixtures and the corpus and applies the baseline gate.
 ///
 /// # Errors
-/// Fails when npx or skif is missing, the corpus cannot be fetched, a command cannot start, the report cannot be
-/// written, or the gate finds drift.
+/// Fails when the locked syncpack cannot be installed or skif is missing, the corpus cannot be fetched, a command
+/// cannot start, the report cannot be written, or the gate finds drift.
 pub fn run(options: &Options) -> Result<()> {
-    if find_on_path("npx").is_none() {
-        bail!("npx is required to run the pinned syncpack: install Node.js");
-    }
     let skif = fs::canonicalize(&options.skif).with_context(|| {
         format!(
             "skif binary not found at {} (build it or pass --skif)",
@@ -677,13 +673,13 @@ pub fn run(options: &Options) -> Result<()> {
         )
     })?;
     let manifest = corpus::load_manifest(&options.corpus_file)?;
-    let tools = manifest.tools;
-    let tool = format!("syncpack@{}", tools.syncpack);
+    let tool = format!("syncpack@{}", manifest.tools.syncpack);
+    tools_install::require(&options.corpus_file, &options.tools_dir, "syncpack")?;
     let mut entries = BTreeMap::new();
     let mut details = Map::new();
     if !options.no_fixtures {
         eprintln!("diff:syncpack: {FIXTURES_ENTRY}");
-        let (entry, detail) = run_fixtures(options, &skif, &tools)?;
+        let (entry, detail) = run_fixtures(options, &skif)?;
         details.insert(FIXTURES_ENTRY.to_owned(), detail);
         entries.insert(FIXTURES_ENTRY.to_owned(), entry);
     }
@@ -691,7 +687,7 @@ pub fn run(options: &Options) -> Result<()> {
         let suite = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
         for (repo, dir) in &suite.repos {
             eprintln!("diff:syncpack: {}", repo.name);
-            let (entry, detail) = run_repo(options, &skif, &tools, &repo.name, dir)?;
+            let (entry, detail) = run_repo(options, &skif, &repo.name, dir)?;
             details.insert(repo.name.clone(), detail);
             entries.insert(repo.name.clone(), entry);
         }

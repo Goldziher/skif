@@ -14,7 +14,8 @@ use skif_bench::generate;
 
 use crate::corpus;
 use crate::parity::{empty_knip_config, knip_keys, parse_knip_report, skif_keys};
-use crate::proc::{capture, find_on_path};
+use crate::proc::capture;
+use crate::tools_install;
 
 pub struct Options {
     pub skif: PathBuf,
@@ -23,6 +24,8 @@ pub struct Options {
     pub out: PathBuf,
     pub knip: bool,
     pub corpus_file: PathBuf,
+    /// Where the locked comparison tools are installed ([`tools_install::install`]).
+    pub tools_dir: PathBuf,
     pub json: bool,
     pub timeout: Duration,
     /// Replace `out/repo` even when `out` holds no `answer-key.json` from an earlier run.
@@ -74,15 +77,11 @@ fn run_skif(skif: &Path, root: &Path, scratch: &Path, timeout: Duration) -> Resu
     Ok(document)
 }
 
-fn run_knip(version: &str, root: &Path, scratch: &Path, timeout: Duration) -> Result<Value> {
-    if find_on_path("npx").is_none() {
-        bail!("npx is required to run the pinned knip: install Node.js");
-    }
+fn run_knip(program: &Path, root: &Path, scratch: &Path, timeout: Duration) -> Result<Value> {
     let config = empty_knip_config(scratch)?;
-    let spec = format!("knip@{version}");
     let run = capture(
-        Command::new("npx")
-            .args(["--yes", spec.as_str(), "--reporter", "json", "--config"])
+        Command::new(program)
+            .args(["--reporter", "json", "--config"])
             .arg(config)
             .current_dir(root)
             .env("CI", "1")
@@ -213,7 +212,8 @@ pub fn run(options: &Options) -> Result<()> {
     scores.push(("skif".to_owned(), deadcode::score(&generated.answer_key, &skif_found)));
     if options.knip {
         let manifest = corpus::load_manifest(&options.corpus_file)?;
-        let knip_doc = run_knip(&manifest.tools.knip, &root, &scratch, options.timeout)?;
+        let knip = tools_install::require(&options.corpus_file, &options.tools_dir, "knip")?;
+        let knip_doc = run_knip(&knip, &root, &scratch, options.timeout)?;
         let knip_found = knip_keys(&knip_doc, &root);
         scores.push((
             format!("knip@{}", manifest.tools.knip),

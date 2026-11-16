@@ -34,13 +34,14 @@ use skif_js_syntax::{
 };
 use skif_workspace::{FileSystem, OsFs, declared_member_dirs};
 
-use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, SCRATCH_ROOT_MARK, Tools, is_scratch_root};
+use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, SCRATCH_ROOT_MARK, is_scratch_root};
 use crate::diff::{
     self, BASELINE_SCHEMA, Baseline, COMPARED, CategorySet, Counts, Deviation, Entry, Gate, Keys, Samples, Side,
 };
 use crate::proc::{Captured, capture, find_on_path};
 use crate::provenance;
 use crate::run::table_cell;
+use crate::tools_install;
 use crate::type_aware;
 
 /// skif rule to knip issue type.
@@ -611,6 +612,8 @@ pub struct Options {
     pub skif: PathBuf,
     pub corpus_file: PathBuf,
     pub corpus_dir: PathBuf,
+    /// Where the locked comparison tools are installed ([`tools_install::install`]).
+    pub tools_dir: PathBuf,
     pub out: PathBuf,
     pub only: Vec<String>,
     pub install: bool,
@@ -6220,23 +6223,16 @@ struct KnipRun {
     rush_root: bool,
 }
 
-/// Runs the pinned knip on a checkout, with the scratch root manifest (`knip_root`) there only while it runs;
-/// `Ok(Err(reason))` when the repository is skipped.
-fn run_knip(
-    options: &Options,
-    tools: &Tools,
-    repo: &Repo,
-    root: &Path,
-    scratch: &Path,
-) -> Result<Result<KnipRun, String>> {
+/// Runs the knip of the locked tools installed in `options.tools_dir` on a checkout, with the scratch root manifest
+/// (`knip_root`) there only while it runs; `Ok(Err(reason))` when the repository is skipped.
+fn run_knip(options: &Options, repo: &Repo, root: &Path, scratch: &Path) -> Result<Result<KnipRun, String>> {
     let scratch_root = match knip_root(repo, root) {
         Ok(manifest) => manifest,
         Err(reason) => return Ok(Err(format!("knip root: {reason}"))),
     };
-    let spec = format!("knip@{}", tools.knip);
-    let mut command = Command::new("npx");
+    let mut command = Command::new(tools_install::program(&options.tools_dir, "knip")?);
     command
-        .args(["--yes", spec.as_str(), "--reporter", "json"])
+        .args(["--reporter", "json"])
         .current_dir(root)
         .env("CI", "1")
         .env("DOTENV_CONFIG_QUIET", "true");
@@ -6705,14 +6701,7 @@ fn narrowed_packages(not_judged: &BTreeMap<String, NotJudgedScope>) -> serde_jso
         .collect()
 }
 
-fn parity_repo(
-    options: &Options,
-    skif: &Path,
-    tools: &Tools,
-    repo: &Repo,
-    dir: &Path,
-    skif_rev: &str,
-) -> Result<Outcome> {
+fn parity_repo(options: &Options, skif: &Path, repo: &Repo, dir: &Path, skif_rev: &str) -> Result<Outcome> {
     let root = fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     let scratch = options.out.join("scratch").join(&repo.name);
     let skif_run = match install_and_run_skif(options, skif, repo, &root, &scratch)? {
@@ -6735,7 +6724,7 @@ fn parity_repo(
     } else {
         None
     };
-    let knip_run = match run_knip(options, tools, repo, &root, &scratch)? {
+    let knip_run = match run_knip(options, repo, &root, &scratch)? {
         Ok(run) => run,
         Err(reason) => return Ok(skipped(reason, pass.map(|pass| pass.entry))),
     };
@@ -7108,8 +7097,8 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
 /// pass, to the typed and untyped counts.
 ///
 /// # Errors
-/// Fails when npx or skif is missing, the corpus cannot be fetched, a command cannot start, the report cannot be
-/// written, or a gate finds drift.
+/// Fails when the locked knip cannot be installed or skif is missing, the corpus cannot be fetched, a command cannot
+/// start, the report cannot be written, or a gate finds drift.
 pub fn run(options: &Options) -> Result<()> {
     if (options.repo_knip_config || options.include_test_files) && (options.gate.write || options.gate.check) {
         bail!(
@@ -7121,9 +7110,6 @@ pub fn run(options: &Options) -> Result<()> {
             "--no-untyped-pass leaves the type-resolved findings in the compared counts: the baselines are recorded with the untyped pass"
         );
     }
-    if find_on_path("npx").is_none() {
-        bail!("npx is required to run the pinned knip: install Node.js");
-    }
     let skif = fs::canonicalize(&options.skif).with_context(|| {
         format!(
             "skif binary not found at {} (build it or pass --skif)",
@@ -7132,6 +7118,7 @@ pub fn run(options: &Options) -> Result<()> {
     })?;
     let suite = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
     let tools = &suite.tools;
+    tools_install::require(&options.corpus_file, &options.tools_dir, "knip")?;
     let tool = format!("knip@{}", tools.knip);
     let skif_rev = provenance::source_rev();
     let mut entries = BTreeMap::new();
@@ -7139,7 +7126,7 @@ pub fn run(options: &Options) -> Result<()> {
     let mut details = serde_json::Map::new();
     for (repo, dir) in &suite.repos {
         eprintln!("parity: {}", repo.name);
-        let outcome = parity_repo(options, &skif, tools, repo, dir, &skif_rev)?;
+        let outcome = parity_repo(options, &skif, repo, dir, &skif_rev)?;
         if let Some(reason) = &outcome.entry.reason {
             eprintln!("parity: {} skipped: {reason}", repo.name);
         }
