@@ -27,11 +27,11 @@ and `skif migrate` translates an existing sherif, syncpack and knip setup in one
 ## Performance
 
 <!-- bench:claims:start -->
-- [**6.0–9.0x faster than knip**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 7.7x) for dead-code analysis, on 3 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core.
-- [**1.2–8.3x faster than sherif**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 4.4x) for manifest and workspace checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
-- [**6.3–20.0x faster than syncpack**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 10.2x) for version-policy checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+- [**1.5–8.3x faster than knip**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 3.8x) for dead-code analysis, on 7 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core (on n8n and next-js it exits with an error after its report).
+- [**up to 7.2x faster than sherif**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 2.8x), and slower on 3 of 12 targets for manifest and workspace checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
+- [**1.3–14.2x faster than syncpack**](https://goldziher.github.io/skif/guides/benchmarks/#speed) (median 7.7x) for version-policy checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
 
-skif 0.5.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted runner, measured on 2026-11-14.
+skif 0.6.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs (5 on angular, vscode, n8n and next-js) on a GitHub-hosted runner, measured on 2026-11-16.
 <!-- bench:claims:end -->
 
 The knip numbers time a whole skif run as it runs by default; the sherif and syncpack numbers time `skif --no-js`,
@@ -112,9 +112,8 @@ git root, so one organisation file applies to every project below it. See the
   resolves each member read to the declaration it reaches, also through a base class or an implemented interface. A
   read `a.dispose()` then keeps only the `dispose` of `a`'s class out of `unused-class-members`, not every `dispose`
   of the project, and `unused-enum-members` and `unused-namespace-members` also count reads through an alias or
-  `this`. It is off by default in the CLI and the npm package, since it costs time and memory: before TypeScript
-  programs shared their lib and `node_modules` declaration files, a typed run on a 4-vCPU runner took 3 to 25 times
-  as long as the default one. `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
+  `this`. It is off by default in the CLI and the npm package, since it costs time and memory: on a 4-vCPU runner a
+  typed run takes up to 15 times as long as the default one, about as long as knip. `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
   name-based analysis, and the report names it ([type-aware analysis](https://goldziher.github.io/skif/reference/configuration/#js)).
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
   roots, Rush, [Turborepo, Nx and Lerna](https://goldziher.github.io/skif/guides/turborepo-nx-lerna/), and

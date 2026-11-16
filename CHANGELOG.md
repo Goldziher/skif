@@ -14,21 +14,21 @@ All notable changes to this project are documented here. The format follows
 skif 0.6.0 adds opt-in type-aware analysis. With `--type-aware` or `[js] type-aware = true`, where a package has a
 `tsconfig.json` or `jsconfig.json`, the TypeScript checker of tsrs resolves each member read to the declaration it
 reaches, so `unused-class-members`, `unused-enum-members` and `unused-namespace-members` judge a read by what it
-reaches instead of by its name. It is off by default because every TypeScript program parses the lib and `@types`
-files again: on a 4-vCPU GitHub runner a typed run takes 3 to 25 times as long as an untyped one, longer than knip on
-some repositories. Types are to become the default again once programs share those files
-([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
+reaches instead of by its name. It is off by default because a typed run reads and binds the project's own files
+again for each TypeScript program. The programs of a run now share their lib, `@types` and other `node_modules`
+declaration files and their configs, but on a 4-vCPU GitHub runner a typed run still takes up to 15 times as long as an
+untyped one and about as long as knip, and twice as long on babel. Types are to become the default again once typed
+runs meet the budget ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ### Breaking changes
 
 - **Type-aware analysis is opt-in**: `--type-aware` (the lint run, `skif baseline write` and `prune` and
   `skif explain-usage`), `[js] type-aware = true` (also per workspace) or the npm option `typeAware` turns it on. With
   it on, member findings in typed files come from the TypeScript checker, so a read on an unrelated object
-  (`a.dispose()`) no longer keeps every member of that name in use. A typed run is slower and uses more memory, since
-  every TypeScript program parses the lib and `@types` files again: on the 0.6.0 benchmark, on a 4-vCPU GitHub runner,
-  babel takes 18.2 s typed against 1.0 s untyped and 5.3 s for knip, tanstack-query 10.0 s against 0.41 s and 3.4 s,
-  n8n 32.2 s against 6.1 s, and vscode 14.7 s against 4.3 s and 14.2 s
-  ([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)). `--no-type-aware` and the npm option
+  (`a.dispose()`) no longer keeps every member of that name in use. A typed run is slower and uses more memory: on the 0.6.0 benchmark, on a 4-vCPU GitHub runner, tanstack-query takes
+3.1 s typed against 0.36 s untyped and 3.0 s for knip, babel 8.9 s against 0.88 s and 4.3 s, angular 3.5 s against
+0.97 s and 3.4 s, vscode 11.7 s against 4.0 s and 12.8 s, and n8n 20.6 s against 5.4 s and 20.8 s
+([ADR 0029](adrs/0029-performance-caching-benchmarks-and-budgets.md)). `--no-type-aware` and the npm option
   `noTypeAware` keep types off over a configuration that turns them on
   ([ADR 0034](adrs/0034-type-aware-analysis-on-tsrs.md)).
 - **New findings**:

@@ -52,13 +52,13 @@ package where types are missing", because it gives the accurate answer wherever 
 keeps the untyped analysis everywhere else, lets a user trade speed for accuracy in one switch, and confines tsrs and
 its process-level choices to one crate.
 
-It is opt-in because of what a typed run costs today. Every TypeScript program parses the lib and `@types` files
-again, and on a 4-vCPU GitHub runner the benchmark of
-[ADR 0029](0029-performance-caching-benchmarks-and-budgets.md) measured typed runs at 3 to 25 times the untyped time,
-and slower than knip: babel 18.2 s typed against 1.0 s untyped and 5.3 s for knip, tanstack-query 10.0 s against
-0.41 s and 3.4 s, n8n 32.2 s against 6.1 s, vscode 14.7 s against 4.3 s and 14.2 s. That breaks the budget of
-ADR 0029 and the speed skif is chosen for. Types become the default again once the programs of a run share their
-parsed lib and `@types` files, which a new ADR records.
+It is opt-in because of what a typed run costs today. The programs of a run share their declaration files and
+configs, but each program still reads and binds the project's own files, beside oxc's parse. On a 4-vCPU GitHub
+runner the benchmark of [ADR 0029](0029-performance-caching-benchmarks-and-budgets.md) measured typed runs at up to 15
+times the untyped time and about knip's time: tanstack-query 3.1 s typed against 0.36 s untyped and 3.0 s for knip,
+babel 8.9 s against 0.88 s and 4.3 s, angular 3.5 s against 0.97 s and 3.4 s, vscode 11.7 s against 4.0 s and
+12.8 s, n8n 20.6 s against 5.4 s and 20.8 s. That breaks the budget of ADR 0029 and the speed skif is chosen for.
+Types become the default again once typed runs meet that budget, which a new ADR records.
 
 ### The engine and its switches
 
@@ -228,8 +228,8 @@ parsed lib and `@types` files, which a new ADR records.
 ### tsrs alongside oxc behind the same boundary, on by default and switchable off
 
 * Good, because the accurate answer is the default where it is available.
-* Bad, because the default run takes 3 to 25 times the untyped time while every program parses the lib and `@types`
-  files again, slower than knip on babel and tanstack-query.
+* Bad, because the default run takes up to 15 times the untyped time while every program reads and binds the
+  project's own files again, slower than knip on babel.
 
 ### Type information from `tsc` or `tsserver` run as a child process
 
