@@ -11,12 +11,16 @@ mod common;
 use std::num::NonZeroUsize;
 
 use common::{Options, generated, try_run};
-use skif_js_types::{arena_bytes_in_use, retire_freed_sources};
+use skif_js_types::{arena_bytes_in_use, arena_peak_bytes, retire_freed_sources};
 
 const RUNS: usize = 3;
 
 #[test]
 fn freed_project_files_are_retired_only_once_the_process_opts_in() {
+    if arena_peak_bytes().is_none() {
+        eprintln!("skipped: `plain-ptrs` counts only the calling thread's arena; run `cargo test -p skif-js-types`");
+        return;
+    }
     let generated = generated(4);
     let run = || {
         let options = Options {

@@ -146,7 +146,11 @@ run = "scripts/render-assets.sh"
 
 [tasks.test]
 description = "Run all tests"
-run = "cargo test --workspace --locked --no-fail-fast"
+# The arena tests skip under the workspace's unified `plain-ptrs`; built alone, skif-js-types counts every arena.
+run = [
+  "cargo test --workspace --locked --no-fail-fast",
+  "cargo test -p skif-js-types --locked --test arenas --test retire",
+]
 
 [tasks."test:verbose"]
 description = "Run all tests with output shown"
