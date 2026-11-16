@@ -129,9 +129,10 @@ fn rule_loaders(rules: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugi
     }
 }
 
-/// Whether `rules` may hold a rule, or a loader of one, that is not known: an unknown rule, an object that may have
-/// other keys, or an unknown `use` or `loader`. A rule the config adds by a change the evaluator does not follow is
-/// one of these, so the package is not judged without the loaders it names.
+/// Whether `rules` may hold a rule that is not known at all: an unknown element, or a rule object that spreads an
+/// unknown value. A rule the config adds by a change the evaluator does not follow is one of these, so the package is
+/// not judged without the loaders it names. An unknown `use` or `loader` entry inside a known rule
+/// (`MiniCssExtractPlugin.loader`) is not: its package is reached through the import that names it.
 fn rules_unknown(rules: &ConfigValue, depth: u8) -> bool {
     if depth > 6 {
         return true;
@@ -140,9 +141,6 @@ fn rules_unknown(rules: &ConfigValue, depth: u8) -> bool {
         ConfigValue::Array(items) | ConfigValue::OneOf(items) => items.iter().any(|item| rules_unknown(item, depth)),
         ConfigValue::Object(_) => {
             rules.get("...").is_some()
-                || ["use", "loader"]
-                    .iter()
-                    .any(|key| rules.get(key).is_some_and(ConfigValue::has_unknown))
                 || ["oneOf", "rules"]
                     .iter()
                     .any(|key| rules.get(key).is_some_and(|nested| rules_unknown(nested, depth + 1)))
