@@ -19,13 +19,12 @@ Docs: <https://goldziher.github.io/skif/>. Rules: <https://goldziher.github.io/s
 
 ## Run it
 
-Use `skif` when it is on `PATH` (`skif --version`). Otherwise run the npm package, `skif-cli`, whose command is
-`skif`: `npx skif-cli`, `pnpm dlx skif-cli`, `yarn dlx skif-cli` or `bunx -p skif-cli skif`. The npm package has no
-Windows addon, so on Windows use a release binary (archive, `cargo binstall skif-cli` or Scoop). If the repository
-pins skif (a `skif-cli` dev dependency, the GitHub Action, a pre-commit hook), use that version. Other install
+Use `skif` when it is on `PATH` (`skif --version`). Otherwise run the npm package, `@polylint/skif`, whose command is
+`skif`: `npx @polylint/skif`, `pnpm dlx @polylint/skif`, `yarn dlx @polylint/skif` or `bunx @polylint/skif`. If the repository
+pins skif (a `@polylint/skif` dev dependency, the GitHub Action, a pre-commit hook), use that version. Other install
 channels are in [references/commands.md](references/commands.md#install).
 
-The skif plugin also registers skif's MCP server, `skif`, which runs `npx -y skif-cli@<release> mcp`. When its
+The skif plugin also registers skif's MCP server, `skif`, which runs `npx -y @polylint/skif@<release> mcp`. When its
 tools `lint`, `explain_usage` and `list_rules` are available, use them to lint, explain and list rules: they return
 the documents the matching commands print with `--format json` (see
 [references/json-output.md](references/json-output.md)). The server never writes files: run `skif --fix` to fix.

@@ -16,7 +16,7 @@ the lint, triage and fix loop, reading the JSON report, configuring `skif.toml`,
 knip, and CI. It lives in
 [`skills/skif`](https://github.com/Goldziher/skif/tree/main/skills/skif) and is installed straight from GitHub. The
 skill runs the `skif` command, so [install skif](../../start/installation/) as well (or let the agent use
-`npx skif-cli`).
+`npx @polylint/skif`).
 
 Any agent that reads Agent Skills, with the [`skills`](https://www.npmjs.com/package/skills) installer:
 
@@ -55,7 +55,7 @@ copilot plugin install skif@skif
 ```
 
 The plugin holds the skill and registers the [MCP server](#mcp-server-for-agents) as `skif`, started with
-`npx -y skif-cli@<version> mcp`, where `<version>` is the release the plugin documents. The server needs Node.js 22
+`npx -y @polylint/skif@<version> mcp`, where `<version>` is the release the plugin documents. The server needs Node.js 22
 or later with npm on `PATH`, not an install of skif; its first start downloads the npm package. Without npm the
 server fails to start and the skill still works. The plugin's version is the skif release it documents, so a plugin
 manager that updates on a version change picks up each release, and its server with it. The design is recorded in
@@ -98,9 +98,8 @@ Clients configured with an `mcpServers` object, such as Cursor's `.cursor/mcp.js
 }
 ```
 
-With the npm package and no global install, use `"command": "npx", "args": ["-y", "skif-cli", "mcp"]`; the
-[plugin](#agent-skill) registers this form, pinned to its release. Windows has no npm package, so on Windows
-install the `skif` binary from the release archives, cargo-binstall or Scoop and use the `skif mcp` form above. The server speaks the protocol
+With the npm package and no global install, use `"command": "npx", "args": ["-y", "@polylint/skif", "mcp"]`; the
+[plugin](#agent-skill) registers this form, pinned to its release. The server speaks the protocol
 revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`.
 
 ## Watch mode

@@ -73,7 +73,7 @@ request widget and diff:
 skif:
   image: node:lts
   script:
-    - npx skif-cli --format codeclimate --output gl-code-quality.json
+    - npx @polylint/skif --format codeclimate --output gl-code-quality.json
   artifacts:
     when: always
     reports:
@@ -90,7 +90,7 @@ Quality report for the merge request:
 skif:
   image: node:lts
   script:
-    - npx skif-cli --format human --format json=skif.json --format codeclimate=gl-code-quality.json
+    - npx @polylint/skif --format human --format json=skif.json --format codeclimate=gl-code-quality.json
   artifacts:
     when: always
     paths:
@@ -141,7 +141,7 @@ hooks = ["skif"]
 ```
 
 `poly-hooks.toml` also provides `skif-fix`. Each hook has a `system` channel (`skif` on `PATH`) and an `npm`
-channel pinned to the release version (`pnpm dlx skif-cli@<version>`). Then:
+channel pinned to the release version (`pnpm dlx @polylint/skif@<version>`). Then:
 
 ```bash
 poly hooks update
@@ -176,15 +176,12 @@ Run skif once at the workspace root, as a root script or a root task, not as a t
 
 ## npm and Bun
 
-The `skif-cli` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
+The `@polylint/skif` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
 and downloads nothing at install time: one platform package per target is an optional dependency, so your package
-manager installs only the one that matches the machine: macOS and Linux (glibc and musl), each on x64 and arm64.
-Windows has no npm package
-([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-distribution-and-release.md)); on Windows,
-use the release archives, cargo-binstall or Scoop.
+manager installs only the one that matches the machine: macOS, Linux (glibc and musl) and Windows, each on x64 and arm64.
 
 ```js
-import { lint, lintAsync, run } from "skif-cli";
+import { lint, lintAsync, run } from "@polylint/skif";
 
 const report = JSON.parse(lint("./my-monorepo", { production: true }));
 console.log(report.summary);

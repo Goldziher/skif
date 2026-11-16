@@ -7,12 +7,12 @@ The full reference, with every edge case, is <https://goldziher.github.io/skif/r
 
 | Channel | Command |
 | --- | --- |
-| npm, pnpm, yarn, bun | `pnpm add -D skif-cli` (or `npm install -D`, `yarn add -D`, `bun add -D`); run once with `npx skif-cli`, `pnpm dlx skif-cli`, `yarn dlx skif-cli` or `bunx -p skif-cli skif` |
+| npm, pnpm, yarn, bun | `pnpm add -D @polylint/skif` (or `npm install -D`, `yarn add -D`, `bun add -D`); run once with `npx @polylint/skif`, `pnpm dlx @polylint/skif`, `yarn dlx @polylint/skif` or `bunx @polylint/skif` |
 | Homebrew | `brew install goldziher/tap/skif` |
 | Scoop | `scoop bucket add goldziher https://github.com/Goldziher/scoop-bucket`, then `scoop install skif` |
 | Cargo | `cargo install skif-cli` or `cargo binstall skif-cli` (the `skif` crate is the library and has no binary) |
 
-The npm package is named `skif-cli`; `npx skif` is a different package.
+The npm package is `@polylint/skif`: run it as `npx @polylint/skif`; `npx skif` is a different package.
 
 ## Which project is linted
 

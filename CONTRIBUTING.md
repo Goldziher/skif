@@ -125,13 +125,12 @@ publishing; the steps around it are by hand.
 1. **Registry state.** npm and crates.io trusted publishing can only be configured on a package that exists, so a
    package the release publishes for the first time needs a placeholder publish by hand and then the trusted
    publisher (this repository, workflow `publish.yaml`):
-   - npm: `skif-cli` and the platform package of every `napi.targets` entry in `npm-package/package.json`
-     (`skif-darwin-arm64`, `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
-     `skif-linux-x64-musl`). A real run stops before it creates the release when one is missing
-     (`scripts/check-npm-packages-exist.sh`), so check with `bash scripts/check-npm-packages-exist.sh` before tagging.
-     Windows is not on npm: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc` do not exist yet, and their
-     targets return to `napi.targets` once both names exist and have the trusted publisher
-     ([ADR 0027](adrs/0027-distribution-and-release.md)).
+   - npm: `@polylint/skif` and the platform package of every `napi.targets` entry in `npm-package/package.json`
+     (`@polylint/skif-darwin-arm64`, `@polylint/skif-darwin-x64`, `@polylint/skif-linux-arm64-gnu`,
+     `@polylint/skif-linux-arm64-musl`, `@polylint/skif-linux-x64-gnu`, `@polylint/skif-linux-x64-musl`,
+     `@polylint/skif-win32-x64-msvc`, `@polylint/skif-win32-arm64-msvc`). A real run stops before it creates
+     the release when one is missing (`scripts/check-npm-packages-exist.sh`), so check with
+     `bash scripts/check-npm-packages-exist.sh` before tagging.
    - crates.io: every crate in `scripts/publish-crates.sh`. `skif-node` and `skif-bench` are `publish = false`.
    - `Goldziher/homebrew-tap` needs a `Formula/` directory and `Goldziher/scoop-bucket` a `bucket/` directory; the
      `HOMEBREW_TOKEN` secret must be able to push to both, and needs the `workflows` permission on this repository to
