@@ -14,7 +14,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use serde_json::{Map, Value};
+use serde::Deserialize;
+use serde::de::{self, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, HashMap, LineIndex, Span};
 
 use crate::error::WorkspaceError;
@@ -191,12 +193,12 @@ impl PnpmLockfile {
                 max_total_scalar_bytes: size.max(64 * 1024 * 1024),
             },
         };
-        let mut documents = serde_saphyr::from_str_multiple_with_options::<Value, Vec<Value>>(text, options)
+        let mut documents = serde_saphyr::from_str_multiple_with_options::<Document, Vec<Document>>(text, options)
             .map_err(|error| invalid(error.to_string()))?
             .into_iter()
             .map(|document| match document {
-                Value::Object(document) => Ok(document),
-                _ => Err(invalid("the lockfile is not a mapping".to_owned())),
+                Document::Mapping(document) => Ok(*document),
+                Document::Other => Err(invalid("the lockfile is not a mapping".to_owned())),
             })
             .collect::<Result<Vec<_>, _>>()?;
         for document in &documents {
@@ -211,47 +213,37 @@ impl PnpmLockfile {
         } else {
             0..source.len()
         };
-        let mut document = documents.swap_remove(project);
-        let version = document.remove("lockfileVersion").map_or_default(into_scalar);
-        // Each section is taken out of the document, so its keys and strings move into the model instead of being
-        // copied.
-        let mut mapping = |key: &str| -> Result<Map<String, Value>, WorkspaceError> {
-            match document.remove(key) {
-                None | Some(Value::Null) => Ok(Map::new()),
-                Some(Value::Object(map)) => Ok(map),
-                Some(_) => Err(invalid(format!("`{key}` must be a mapping"))),
-            }
-        };
+        let document = documents.swap_remove(project);
+        let version = into_scalar(document.version);
         let mut importers = BTreeMap::new();
-        for (dir, importer) in mapping("importers")? {
+        for (dir, importer) in document.importers.entries("importers").map_err(invalid)? {
             let dependencies =
                 locked_dependencies(importer).map_err(|message| invalid(format!("importer `{dir}`: {message}")))?;
             importers.insert(dir, dependencies);
         }
-        let packages = mapping("packages")?.into_iter().map(|(key, _)| key).collect();
+        let packages = document
+            .packages
+            .entries("packages")
+            .map_err(invalid)?
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
         let mut snapshots = BTreeMap::new();
-        for (key, entry) in mapping("snapshots")? {
+        for (key, dependencies) in document.snapshots.entries("snapshots").map_err(invalid)? {
             let (name, version, suffix) =
                 split_key(&key).ok_or_else(|| invalid(format!("snapshots: `{key}` is not `name@version`")))?;
-            let mut dependencies = Vec::new();
-            for section in ["dependencies", "optionalDependencies"] {
-                if let Some(Value::Object(edges)) = entry.get(section) {
-                    dependencies.extend(
-                        edges
-                            .iter()
-                            .filter_map(|(name, version)| snapshot_key(name, &scalar(version))),
-                    );
-                }
-            }
             let snapshot = Snapshot {
                 name: name.to_owned(),
                 version: version.to_owned(),
                 patch_hash: patch_hash(suffix).map(str::to_owned),
-                dependencies,
+                dependencies: dependencies.0,
             };
             snapshots.insert(key, snapshot);
         }
-        let patched_dependencies = mapping("patchedDependencies")?
+        let patched_dependencies = document
+            .patched_dependencies
+            .entries("patchedDependencies")
+            .map_err(invalid)?
             .into_iter()
             .map(|(key, entry)| {
                 let locked = match entry {
@@ -269,7 +261,10 @@ impl PnpmLockfile {
                 (key, locked)
             })
             .collect();
-        let overrides = mapping("overrides")?
+        let overrides = document
+            .overrides
+            .entries("overrides")
+            .map_err(invalid)?
             .into_iter()
             .map(|(selector, replacement)| (selector, into_scalar(replacement)))
             .collect();
@@ -364,9 +359,317 @@ pub(crate) fn reach(
     Resolutions { parents }
 }
 
+/// One YAML document of the lockfile as the parts the model reads. Everything else, and the values of `packages:`,
+/// are skipped by the parser without being built, and the snapshots are reduced to their dependency keys while they are
+/// read: a lockfile of a large workspace is mostly these two sections.
+struct RawDocument {
+    version: Value,
+    importers: Section<Value>,
+    packages: Section<IgnoredAny>,
+    snapshots: Section<SnapshotDependencies>,
+    patched_dependencies: Section<Value>,
+    overrides: Section<Value>,
+}
+
+/// A document that is a mapping, or anything else.
+enum Document {
+    Mapping(Box<RawDocument>),
+    Other,
+}
+
+/// A top-level section: absent or null, a mapping, or a value of another kind, which is an error only for the
+/// document that is read.
+enum Section<V> {
+    Mapping(Vec<(String, V)>),
+    Invalid,
+}
+
+impl<V> Section<V> {
+    /// The entries in file order; an error naming `key` when the section is not a mapping.
+    fn entries(self, key: &str) -> Result<Vec<(String, V)>, String> {
+        match self {
+            Self::Mapping(entries) => Ok(entries),
+            Self::Invalid => Err(format!("`{key}` must be a mapping")),
+        }
+    }
+}
+
+impl<V> Default for Section<V> {
+    fn default() -> Self {
+        Self::Mapping(Vec::new())
+    }
+}
+
+impl<'de, V: Deserialize<'de>> Deserialize<'de> for Section<V> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SectionVisitor<V>(std::marker::PhantomData<V>);
+        impl<'de, V: Deserialize<'de>> Visitor<'de> for SectionVisitor<V> {
+            type Value = Section<V>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a mapping")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+                while let Some(entry) = map.next_entry::<String, V>()? {
+                    entries.push(entry);
+                }
+                Ok(Section::Mapping(entries))
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(Section::default())
+            }
+
+            fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(Section::default())
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(Section::Invalid)
+            }
+
+            fn visit_bool<E: de::Error>(self, _: bool) -> Result<Self::Value, E> {
+                Ok(Section::Invalid)
+            }
+
+            fn visit_i64<E: de::Error>(self, _: i64) -> Result<Self::Value, E> {
+                Ok(Section::Invalid)
+            }
+
+            fn visit_u64<E: de::Error>(self, _: u64) -> Result<Self::Value, E> {
+                Ok(Section::Invalid)
+            }
+
+            fn visit_f64<E: de::Error>(self, _: f64) -> Result<Self::Value, E> {
+                Ok(Section::Invalid)
+            }
+
+            fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
+                Ok(Section::Invalid)
+            }
+        }
+        deserializer.deserialize_any(SectionVisitor(std::marker::PhantomData))
+    }
+}
+
+impl<'de> Deserialize<'de> for Document {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct DocumentVisitor;
+        impl<'de> Visitor<'de> for DocumentVisitor {
+            type Value = Document;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a mapping")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut document = RawDocument {
+                    version: Value::Null,
+                    importers: Section::default(),
+                    packages: Section::default(),
+                    snapshots: Section::default(),
+                    patched_dependencies: Section::default(),
+                    overrides: Section::default(),
+                };
+                while let Some(key) = map.next_key::<TopLevelKey>()? {
+                    match key {
+                        TopLevelKey::Version => document.version = map.next_value()?,
+                        TopLevelKey::Importers => document.importers = map.next_value()?,
+                        TopLevelKey::Packages => document.packages = map.next_value()?,
+                        TopLevelKey::Snapshots => document.snapshots = map.next_value()?,
+                        TopLevelKey::PatchedDependencies => document.patched_dependencies = map.next_value()?,
+                        TopLevelKey::Overrides => document.overrides = map.next_value()?,
+                        TopLevelKey::Other => {
+                            map.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(Document::Mapping(Box::new(document)))
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(Document::Other)
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(Document::Other)
+            }
+
+            fn visit_bool<E: de::Error>(self, _: bool) -> Result<Self::Value, E> {
+                Ok(Document::Other)
+            }
+
+            fn visit_i64<E: de::Error>(self, _: i64) -> Result<Self::Value, E> {
+                Ok(Document::Other)
+            }
+
+            fn visit_u64<E: de::Error>(self, _: u64) -> Result<Self::Value, E> {
+                Ok(Document::Other)
+            }
+
+            fn visit_f64<E: de::Error>(self, _: f64) -> Result<Self::Value, E> {
+                Ok(Document::Other)
+            }
+
+            fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
+                Ok(Document::Other)
+            }
+        }
+        deserializer.deserialize_any(DocumentVisitor)
+    }
+}
+
+/// A key of the top level of a document: the sections the model reads, or any other.
+enum TopLevelKey {
+    Version,
+    Importers,
+    Packages,
+    Snapshots,
+    PatchedDependencies,
+    Overrides,
+    Other,
+}
+
+impl<'de> Deserialize<'de> for TopLevelKey {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct KeyVisitor;
+        impl Visitor<'_> for KeyVisitor {
+            type Value = TopLevelKey;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a key")
+            }
+
+            fn visit_str<E: de::Error>(self, key: &str) -> Result<Self::Value, E> {
+                Ok(match key {
+                    "lockfileVersion" => TopLevelKey::Version,
+                    "importers" => TopLevelKey::Importers,
+                    "packages" => TopLevelKey::Packages,
+                    "snapshots" => TopLevelKey::Snapshots,
+                    "patchedDependencies" => TopLevelKey::PatchedDependencies,
+                    "overrides" => TopLevelKey::Overrides,
+                    _ => TopLevelKey::Other,
+                })
+            }
+        }
+        deserializer.deserialize_str(KeyVisitor)
+    }
+}
+
+/// The snapshot keys a `snapshots:` entry depends on through `dependencies` and then `optionalDependencies`, in file
+/// order; an entry that is not a mapping, or a section of it that is not, has none.
+struct SnapshotDependencies(Vec<String>);
+
+impl<'de> Deserialize<'de> for SnapshotDependencies {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct EntryVisitor;
+        impl<'de> Visitor<'de> for EntryVisitor {
+            type Value = SnapshotDependencies;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a snapshot")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let (mut required, mut optional) = (Vec::new(), Vec::new());
+                while let Some(key) = map.next_key::<EntryKey>()? {
+                    match key {
+                        EntryKey::Dependencies => required = map.next_value::<Edges>()?.0,
+                        EntryKey::OptionalDependencies => optional = map.next_value::<Edges>()?.0,
+                        EntryKey::Other => {
+                            map.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                }
+                required.extend(optional);
+                Ok(SnapshotDependencies(required))
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(SnapshotDependencies(Vec::new()))
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(SnapshotDependencies(Vec::new()))
+            }
+
+            fn visit_bool<E: de::Error>(self, _: bool) -> Result<Self::Value, E> {
+                Ok(SnapshotDependencies(Vec::new()))
+            }
+
+            fn visit_i64<E: de::Error>(self, _: i64) -> Result<Self::Value, E> {
+                Ok(SnapshotDependencies(Vec::new()))
+            }
+
+            fn visit_u64<E: de::Error>(self, _: u64) -> Result<Self::Value, E> {
+                Ok(SnapshotDependencies(Vec::new()))
+            }
+
+            fn visit_f64<E: de::Error>(self, _: f64) -> Result<Self::Value, E> {
+                Ok(SnapshotDependencies(Vec::new()))
+            }
+
+            fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
+                Ok(SnapshotDependencies(Vec::new()))
+            }
+        }
+        deserializer.deserialize_any(EntryVisitor)
+    }
+}
+
+enum EntryKey {
+    Dependencies,
+    OptionalDependencies,
+    Other,
+}
+
+impl<'de> Deserialize<'de> for EntryKey {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct KeyVisitor;
+        impl Visitor<'_> for KeyVisitor {
+            type Value = EntryKey;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a key")
+            }
+
+            fn visit_str<E: de::Error>(self, key: &str) -> Result<Self::Value, E> {
+                Ok(match key {
+                    "dependencies" => EntryKey::Dependencies,
+                    "optionalDependencies" => EntryKey::OptionalDependencies,
+                    _ => EntryKey::Other,
+                })
+            }
+        }
+        deserializer.deserialize_str(KeyVisitor)
+    }
+}
+
+/// The snapshot keys of one `dependencies:` mapping of a snapshot; none when it is not a mapping.
+struct Edges(Vec<String>);
+
+impl<'de> Deserialize<'de> for Edges {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let Section::Mapping(edges) = Section::<Value>::deserialize(deserializer)? else {
+            return Ok(Self(Vec::new()));
+        };
+        Ok(Self(
+            edges
+                .iter()
+                .filter_map(|(name, version)| snapshot_key(name, &scalar(version)))
+                .collect(),
+        ))
+    }
+}
+
 /// Checks that `document` is lockfile format 9.
-fn format_9(document: &Map<String, Value>) -> Result<(), String> {
-    let version = document.get("lockfileVersion").map_or_default(scalar);
+fn format_9(document: &RawDocument) -> Result<(), String> {
+    let version = scalar(&document.version);
     if version.split('.').next() == Some("9") {
         return Ok(());
     }
@@ -378,12 +681,12 @@ fn format_9(document: &Map<String, Value>) -> Result<(), String> {
 
 /// Whether `document` is the document of the package manager's environment that pnpm 11 and later write ahead of the
 /// project's: it has importers, and each holds `configDependencies` or `packageManagerDependencies` and nothing else.
-fn is_environment(document: &Map<String, Value>) -> bool {
-    let Some(Value::Object(importers)) = document.get("importers") else {
+fn is_environment(document: &RawDocument) -> bool {
+    let Section::Mapping(importers) = &document.importers else {
         return false;
     };
     !importers.is_empty()
-        && importers.values().all(|importer| {
+        && importers.iter().all(|(_, importer)| {
             matches!(importer, Value::Object(fields) if !fields.is_empty()
                 && fields.keys().all(|field| ENVIRONMENT_FIELDS.contains(&field.as_str())))
         })
@@ -391,7 +694,7 @@ fn is_environment(document: &Map<String, Value>) -> bool {
 
 /// The index of the project's document among the documents of the lockfile: the only one, or the one that is not the
 /// package manager's environment.
-fn project_document(documents: &[Map<String, Value>]) -> Result<usize, String> {
+fn project_document(documents: &[RawDocument]) -> Result<usize, String> {
     match documents {
         [] => Err("the lockfile is not a mapping".to_owned()),
         [_] => Ok(0),
@@ -953,17 +1256,217 @@ snapshots:
         ];
         for (importers, environment) in cases {
             let text = format!("lockfileVersion: '9.0'\nimporters:\n  {importers}packages: {{}}\n");
-            let document = serde_saphyr::from_str::<Value>(&text)
-                .unwrap()
-                .as_object()
-                .cloned()
-                .unwrap();
+            let Document::Mapping(document) = serde_saphyr::from_str::<Document>(&text).unwrap() else {
+                panic!("not a mapping: {text}");
+            };
             assert_eq!(is_environment(&document), environment, "parsed: {text}");
             assert_eq!(is_environment_text(&text), environment, "lines: {text}");
         }
         let no_importers = "lockfileVersion: '9.0'\npackages: {}\n";
         assert!(!is_environment_text(no_importers));
-        assert!(!is_environment(&Map::new()));
+        let Document::Mapping(empty) = serde_saphyr::from_str::<Document>("a: 1\n").unwrap() else {
+            panic!("not a mapping");
+        };
+        assert!(!is_environment(&empty));
+    }
+
+    /// The model the parser built before it skipped what no rule reads: the whole document through `serde_json::Value`.
+    fn reference(text: &str) -> (String, BTreeSet<String>, BTreeMap<String, Snapshot>) {
+        let mut documents = serde_saphyr::from_str_multiple::<Value, Vec<Value>>(text).unwrap();
+        let Value::Object(mut document) = documents.swap_remove(0) else {
+            panic!("not a mapping");
+        };
+        let version = document.remove("lockfileVersion").map_or_default(into_scalar);
+        let Some(Value::Object(packages)) = document.remove("packages") else {
+            panic!("no packages");
+        };
+        let Some(Value::Object(snapshots)) = document.remove("snapshots") else {
+            panic!("no snapshots");
+        };
+        let snapshots = snapshots
+            .into_iter()
+            .map(|(key, entry)| {
+                let (name, version, suffix) = split_key(&key).unwrap();
+                let dependencies = ["dependencies", "optionalDependencies"]
+                    .into_iter()
+                    .filter_map(|section| entry.get(section)?.as_object())
+                    .flatten()
+                    .filter_map(|(name, version)| snapshot_key(name, &scalar(version)))
+                    .collect();
+                let snapshot = Snapshot {
+                    name: name.to_owned(),
+                    version: version.to_owned(),
+                    patch_hash: patch_hash(suffix).map(str::to_owned),
+                    dependencies,
+                };
+                (key, snapshot)
+            })
+            .collect();
+        (version, packages.into_iter().map(|(key, _)| key).collect(), snapshots)
+    }
+
+    /// Lockfiles of pnpm 9, 10 and 12 as each writes them: pnpm 9 records the patch path, pnpm 10 the hash alone,
+    /// pnpm 12 adds the environment document; keys are quoted when they start with `@`, values are flow mappings,
+    /// aliases and links, and `packages:` holds the entries the parser skips.
+    const SHAPES: [&str; 3] = [
+        "lockfileVersion: '9.0'
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+importers:
+  .:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.14.2
+packages:
+  '@types/node@20.14.2':
+    resolution: {integrity: sha512-aaa}
+    engines: {node: '>=14'}
+  undici-types@5.26.5:
+    resolution: {integrity: \"sha512-bbb\"}
+snapshots:
+  '@types/node@20.14.2':
+    dependencies:
+      undici-types: 5.26.5
+  undici-types@5.26.5: {}
+",
+        "lockfileVersion: '9.0'
+packages:
+  a@1.0.0:
+    resolution: {integrity: sha512-a}
+    peerDependencies:
+      b: ^1
+    peerDependenciesMeta:
+      b: {optional: true}
+  b@1.0.0:
+    resolution: {integrity: sha512-b}
+snapshots:
+  a@1.0.0(b@1.0.0):
+    dependencies:
+      b: 1.0.0
+      alias: b@1.0.0
+    optionalDependencies:
+      c: 2
+      d: 1.5
+    transitivePeerDependencies:
+      - x
+  b@1.0.0:
+    dependencies: {}
+",
+        "---
+lockfileVersion: '9.0'
+importers:
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.9.1
+        version: 12.9.1
+packages:
+  pnpm@12.9.1:
+    resolution: {integrity: sha512-p}
+snapshots:
+  pnpm@12.9.1: {}
+---
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      a:
+        specifier: ^1
+        version: 1.0.0
+packages:
+  a@1.0.0:
+    resolution: {integrity: sha512-a, tarball: 'https://x/a: b.tgz'}
+    cpu: [x64, arm64]
+snapshots:
+  a@1.0.0:
+    dependencies:
+      'quoted-name': '1.0.0'
+",
+    ];
+
+    #[test]
+    fn the_sections_the_model_reads_equal_those_of_a_whole_document_read() {
+        for (shape, text) in SHAPES.iter().enumerate() {
+            // The project's document alone is what the reference reads; the last document of a stream is it here.
+            let project = pnpm_project_document(text);
+            let lock = parse(project).unwrap();
+            let (version, packages, snapshots) = reference(project);
+            assert_eq!(lock.version, version, "shape {shape}");
+            assert_eq!(lock.packages, packages, "shape {shape}");
+            assert!(!lock.packages.is_empty(), "shape {shape} must have packages");
+            assert_eq!(lock.snapshots, snapshots, "shape {shape}");
+            assert!(!lock.snapshots.is_empty(), "shape {shape} must have snapshots");
+            assert_same_model(&parse(text).unwrap(), &lock);
+        }
+    }
+
+    #[test]
+    fn the_checked_in_lockfiles_parse_to_the_same_model_as_a_whole_document_read() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut compared = 0;
+        for dir in ["website", "npm-package"] {
+            let Ok(text) = std::fs::read_to_string(root.join(dir).join(PNPM_LOCKFILE)) else {
+                continue;
+            };
+            let lock = parse(&text).unwrap();
+            let (version, packages, snapshots) = reference(pnpm_project_document(&text));
+            assert_eq!(lock.version, version, "{dir}");
+            assert_eq!(lock.packages, packages, "{dir}");
+            assert_eq!(lock.snapshots, snapshots, "{dir}");
+            assert!(!lock.snapshots.is_empty(), "{dir}");
+            compared += 1;
+        }
+        assert!(compared > 0, "no lockfile of the repository was compared");
+    }
+
+    #[test]
+    fn a_section_that_is_not_a_mapping_is_an_error_only_for_the_project_document() {
+        for section in ["packages", "snapshots", "patchedDependencies", "overrides"] {
+            for value in ["[a]", "text", "7", "true"] {
+                let text = format!("lockfileVersion: '9.0'\n{section}: {value}\n");
+                let error = parse(&text).unwrap_err();
+                assert!(
+                    error.contains(&format!("`{section}` must be a mapping")),
+                    "{text}: {error}"
+                );
+            }
+            assert!(
+                parse(&format!("lockfileVersion: '9.0'\n{section}:\n")).is_ok(),
+                "{section} null"
+            );
+            // The environment document is never read, so a section of it that pnpm would never write is no error.
+            let text = format!("---\n{ENVIRONMENT}{section}: [a]\n---\n{LOCK}");
+            assert!(
+                parse(&text.replace(&format!("\n{section}:\n"), "\nunused:\n")).is_ok(),
+                "{section}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_snapshot_entry_that_is_not_a_mapping_or_holds_odd_sections_has_no_dependencies() {
+        let text = "lockfileVersion: '9.0'
+snapshots:
+  a@1.0.0: ~
+  b@1.0.0: [x]
+  c@1.0.0:
+    dependencies: [x]
+    optionalDependencies: text
+  d@1.0.0:
+    dependencies:
+      a: 1.0.0
+      link: link:../x
+      empty: ''
+      float: 1.5
+";
+        let lock = parse(text).unwrap();
+        assert_eq!(lock.snapshots["a@1.0.0"].dependencies, Vec::<String>::new());
+        assert_eq!(lock.snapshots["b@1.0.0"].dependencies, Vec::<String>::new());
+        assert_eq!(lock.snapshots["c@1.0.0"].dependencies, Vec::<String>::new());
+        assert_eq!(lock.snapshots["d@1.0.0"].dependencies, ["a@1.0.0", "float@1.5"]);
     }
 
     #[test]
