@@ -464,7 +464,11 @@ pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBu
     let (patterns, package_manager) = declared_patterns(fs, root);
     let literals_kept = package_manager == Some(PackageManager::Bun);
     pattern::selected_with_manifest(
-        &Expander { fs, root },
+        &Expander {
+            fs,
+            root,
+            sequential: true,
+        },
         patterns.iter().map(String::as_str),
         literals_kept,
     )

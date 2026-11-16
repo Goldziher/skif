@@ -468,7 +468,7 @@ impl Workspace {
         config: &Config,
         fs: &dyn FileSystem,
     ) -> Result<BTreeSet<PathBuf>, WorkspaceError> {
-        let selection = Self::select(root, config, fs)?;
+        let selection = Self::select(root, config, fs, false)?;
         Ok(selection
             .dirs
             .iter()
@@ -478,7 +478,12 @@ impl Workspace {
     }
 
     /// Reads the root's files and expands the workspace patterns into the selected member directories.
-    fn select(root: &Path, config: &Config, fs: &dyn FileSystem) -> Result<Selection, WorkspaceError> {
+    fn select(
+        root: &Path,
+        config: &Config,
+        fs: &dyn FileSystem,
+        sequential: bool,
+    ) -> Result<Selection, WorkspaceError> {
         let root = root.to_path_buf();
         if !fs.is_dir(&root) {
             return Err(WorkspaceError::NotADirectory(root));
@@ -655,7 +660,11 @@ impl Workspace {
         ));
         catalogs.merge(yarn_catalogs);
 
-        let expander = Expander { fs, root: &root };
+        let expander = Expander {
+            fs,
+            root: &root,
+            sequential,
+        };
         let mut facts = Vec::new();
         let mut candidates = BTreeSet::new();
         let mut negations = Vec::new();
@@ -766,8 +775,12 @@ impl Workspace {
             has_root_manifest,
             outside_root_members,
             dirs: selected,
-        } = Self::select(root, config, fs)?;
-        let expander = Expander { fs, root: &root };
+        } = Self::select(root, config, fs, sequential)?;
+        let expander = Expander {
+            fs,
+            root: &root,
+            sequential,
+        };
         let dirs: Vec<&str> = selected.iter().map(String::as_str).collect();
         let is_bun = package_manager == Some(PackageManager::Bun);
         let manager_files = ManagerFiles {
