@@ -169,4 +169,4 @@ blake3 = "938b925db25579b7fafee97cfdecfbb930816ddf27ac814f3da363a658c01142"
 [adrs."adrs/0034-type-aware-analysis-on-tsrs.md"]
 number = 34
 status = "accepted"
-blake3 = "17558ad77eb714ff56671aeef78fa4128c015487c6bd612c9ba48fad541b0cb8"
+blake3 = "09fdc21a5cf859f6a1ceb3bf64b5a63704d22c7900f207eebcac7b7df3a5d340"

@@ -9,25 +9,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- **Type-aware programs share their declaration files**: the TypeScript programs of a run (one per `tsconfig.json`,
-  across every root of `skif -r`) parse and bind each bundled lib file and each declaration file below
-  `node_modules` once for the run instead of once per program, and read it from there. A project's own files are
-  still parsed by each program that includes them, and the findings do not change. `SKIF_TIMINGS=1` reports, per root
-  and for the run, how many of those files were parsed and how many were reused; library hosts read the same counts
-  from `TypeTimings::shared_files` and `TypePrograms::shared_files`
-  ([#247](https://github.com/Goldziher/skif/issues/247)).
-- **Type-aware planning and programs read each `tsconfig.json` once**: the configs the planning searches, those the
-  project references of every program reach, and the configs they extend are read and parsed once per run instead of
-  once per planning and again by each program that references them, the planning reads them on every core, and it
-  searches the configs above a file once per starting config instead of once per file, so a workspace of many
-  packages whose test files no config includes no longer spends seconds placing those files. The findings do not
-  change. `SKIF_TIMINGS=1` reports how the configs were read; library hosts read the counts from
-  `TypeTimings::shared_configs`, `TypeTimings::shared_extended_configs` and `TypePrograms::shared_configs`
-  ([#247](https://github.com/Goldziher/skif/issues/247)).
-
-## [0.6.0] - 2026-11-15
+## [0.6.0] - 2026-11-16
 
 skif 0.6.0 adds opt-in type-aware analysis. With `--type-aware` or `[js] type-aware = true`, where a package has a
 `tsconfig.json` or `jsconfig.json`, the TypeScript checker of tsrs resolves each member read to the declaration it
@@ -193,6 +175,21 @@ some repositories. Types are to become the default again once programs share tho
 
 ### Changed
 
+- **Type-aware programs share their declaration files**: the TypeScript programs of a run (one per `tsconfig.json`,
+  across every root of `skif -r`) parse and bind each bundled lib file and each declaration file below
+  `node_modules` once for the run instead of once per program, and read it from there. A project's own files are
+  still parsed by each program that includes them, and the findings do not change. `SKIF_TIMINGS=1` reports, per root
+  and for the run, how many of those files were parsed and how many were reused; library hosts read the same counts
+  from `TypeTimings::shared_files` and `TypePrograms::shared_files`
+  ([#247](https://github.com/Goldziher/skif/issues/247)).
+- **Type-aware planning and programs read each `tsconfig.json` once**: the configs the planning searches, those the
+  project references of every program reach, and the configs they extend are read and parsed once per run instead of
+  once per planning and again by each program that references them, the planning reads them on every core, and it
+  searches the configs above a file once per starting config instead of once per file, so a workspace of many
+  packages whose test files no config includes no longer spends seconds placing those files. The findings do not
+  change. `SKIF_TIMINGS=1` reports how the configs were read; library hosts read the counts from
+  `TypeTimings::shared_configs`, `TypeTimings::shared_extended_configs` and `TypePrograms::shared_configs`
+  ([#247](https://github.com/Goldziher/skif/issues/247)).
 - **Resolve calls**: `require.resolve(x)`, `createRequire(…).resolve(x)` and `import.meta.resolve(x)` of a module
   use its value exports, as a `require(x)` that binds nothing does: code resolves the path to hand it to what loads
   the module by it, a worker pool (`new Worker(require.resolve('./worker'))`), a bundler loader or a plugin host.
