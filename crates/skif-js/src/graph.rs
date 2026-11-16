@@ -3,10 +3,10 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-use skif_core::HashMap;
+use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use globset::{GlobBuilder, GlobSetBuilder};
@@ -826,6 +826,15 @@ impl<'a> Builder<'a> {
         scans(module.owner) || scans(self.located_owner(&module.abs))
     }
 
+    /// Whether the graph may keep the text of the file `abs`, a path the links already resolve, before it is known
+    /// which package owns it: [`Self::keeps_text`] for the package of its location, or for any package when another
+    /// may adopt it ([`Self::adopter`]).
+    fn may_keep_text(&self, abs: &Path) -> bool {
+        let setup = self.inputs.setup;
+        let scans = |id: PackageId| setup.package(id).is_some_and(|package| package.scans_reached_sources);
+        scans(self.located_owner(abs)) || (self.adoptable(abs) && setup.scans_reached_sources())
+    }
+
     /// The id of `abs`, creating an unparsed module on first sight. The flag is true for a new module.
     fn intern(&mut self, abs: &Path) -> (ModuleId, bool) {
         self.intern_owned(abs, None)
@@ -997,9 +1006,11 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// Builds the graph by following imports from `entries` and `build_sources` in rounds. Each round parses and resolves
-/// its files in parallel and merges the results in order, so ids and edges do not depend on scheduling. Entries are
-/// interned first, so a build source that is also an entry stays an entry, whose exports are public.
+/// Builds the graph by following imports from `entries` and `build_sources` in rounds. Each round merges what parsing
+/// and resolving its files gave in order, so ids and edges do not depend on scheduling. Unless `sequential`, the
+/// files the entries reach are parsed and resolved ahead of the rounds ([`prefetch`]), each as soon as a file
+/// importing it is, so a long chain of imports does not wait for the widest round before it. Entries are interned
+/// first, so a build source that is also an entry stays an entry, whose exports are public.
 ///
 /// `declarations` are declaration files that are entries only when they apply without being imported
 /// ([`ModuleInfo::declares_without_import`]), or when they cannot be read or parsed. They are parsed first; one that
@@ -1037,6 +1048,15 @@ pub(crate) fn build(
             frontier.push(id);
         }
     }
+    let mut prefetched = if inputs.sequential {
+        HashMap::default()
+    } else {
+        let start = frontier
+            .iter()
+            .map(|id| builder.modules[id.index()].abs.clone())
+            .collect();
+        prefetch(&builder, start, &ahead)
+    };
     let mut texts = Vec::new();
     let mut scans = HashMap::default();
     while !frontier.is_empty() {
@@ -1050,12 +1070,19 @@ pub(crate) fn build(
         let known: Vec<Option<Parsed>> = files
             .iter()
             .map(|&(path, keep_text)| {
-                ahead.remove(path).map(|mut parsed| {
-                    if !keep_text {
-                        parsed.text = None;
-                    }
-                    parsed
-                })
+                ahead
+                    .remove(path)
+                    .or_else(|| {
+                        prefetched
+                            .remove(path)
+                            .filter(|parsed| !keep_text || parsed.text.is_some())
+                    })
+                    .map(|mut parsed| {
+                        if !keep_text {
+                            parsed.text = None;
+                        }
+                        parsed
+                    })
             })
             .collect();
         let unknown: Vec<(&Path, bool)> = files
@@ -1126,6 +1153,80 @@ pub(crate) fn build(
 fn parse_ahead(inputs: &Inputs<'_>, declarations: &[PathBuf]) -> HashMap<PathBuf, Parsed> {
     let parsed = map_ordered(declarations, inputs.sequential, |path| process(path, true, inputs));
     declarations.iter().cloned().zip(parsed).collect()
+}
+
+/// What the graph learns about each file that `start` reaches, by path, with its text where the graph may keep it
+/// ([`Builder::may_keep_text`]): the files are worked on, on the current rayon pool, as soon as a file importing them
+/// is, and each once. The files in `ahead` are not worked on again, but what they import is followed. An import that
+/// registers a component is not followed, as the graph may link the component by tag instead; the files the graph
+/// reaches that way, or by any path not found here, are parsed by [`build`] when it reaches them.
+fn prefetch(builder: &Builder<'_>, start: Vec<PathBuf>, ahead: &HashMap<PathBuf, Parsed>) -> HashMap<PathBuf, Parsed> {
+    let work = Prefetch {
+        builder,
+        ahead,
+        claimed: Mutex::new(start.iter().cloned().collect()),
+        done: Mutex::default(),
+    };
+    rayon::scope(|scope| {
+        for path in start {
+            let work = &work;
+            scope.spawn(move |scope| work.visit(scope, path));
+        }
+    });
+    work.done.into_inner().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The shared state of a [`prefetch`].
+struct Prefetch<'p, 'a> {
+    builder: &'p Builder<'a>,
+    ahead: &'p HashMap<PathBuf, Parsed>,
+    /// The files found so far, each worked on by the task that found it first.
+    claimed: Mutex<HashSet<PathBuf>>,
+    done: Mutex<HashMap<PathBuf, Parsed>>,
+}
+
+impl Prefetch<'_, '_> {
+    fn visit<'s>(&'s self, scope: &rayon::Scope<'s>, path: PathBuf) {
+        let inputs = self.builder.inputs;
+        let fresh = if self.ahead.contains_key(&path) {
+            None
+        } else {
+            Some(process(&path, self.builder.may_keep_text(&path), inputs))
+        };
+        let Some(parsed) = fresh.as_ref().or_else(|| self.ahead.get(&path)) else {
+            return;
+        };
+        let mut found = Vec::new();
+        for (position, raw) in parsed.imports.iter().enumerate() {
+            if parsed.registrations.contains(&position) {
+                continue;
+            }
+            let targets: &[PathBuf] = match &raw.target {
+                RawTarget::File(file) => std::slice::from_ref(file),
+                RawTarget::Files(files) => files,
+                _ => &[],
+            };
+            found.extend(
+                targets
+                    .iter()
+                    .map(|target| inputs.links.get(target).unwrap_or(target).clone()),
+            );
+        }
+        {
+            let mut claimed = lock(&self.claimed);
+            found.retain(|target| claimed.insert(target.clone()));
+        }
+        for target in found {
+            scope.spawn(move |scope| self.visit(scope, target));
+        }
+        if let Some(parsed) = fresh {
+            lock(&self.done).insert(path, parsed);
+        }
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Whether a declaration file parsed ahead is an entry: it applies without being imported, or what it holds is not
@@ -1235,6 +1336,19 @@ mod tests {
 
         /// The graph from `entries` (relative to the root), with a resolver of its own as a rebuild has.
         fn graph(&self, entries: &[&str], sequential: bool, earlier: &Scans, keep_scans: bool) -> ModuleGraph {
+            let entries: Vec<PathBuf> = entries.iter().map(|entry| self.workspace.root.join(entry)).collect();
+            self.with_inputs(sequential, earlier, keep_scans, |inputs| {
+                build(inputs, &entries, &[], &[])
+            })
+        }
+
+        fn with_inputs<T>(
+            &self,
+            sequential: bool,
+            earlier: &Scans,
+            keep_scans: bool,
+            then: impl FnOnce(&Inputs<'_>) -> T,
+        ) -> T {
             let fs: Arc<dyn FileSystem> = Arc::clone(&self.fs) as Arc<dyn FileSystem>;
             let resolver = ModuleResolver::new(Arc::clone(&fs), &self.workspace, &self.setup);
             let links = HashMap::default();
@@ -1250,8 +1364,7 @@ mod tests {
                 earlier,
                 keep_scans,
             };
-            let entries: Vec<PathBuf> = entries.iter().map(|entry| self.workspace.root.join(entry)).collect();
-            build(&inputs, &entries, &[], &[])
+            then(&inputs)
         }
     }
 
@@ -1396,5 +1509,56 @@ mod tests {
             importers(&modules),
             vec![vec![id(1), id(2), id(3)], vec![id(2)], vec![id(2)], vec![id(0)]]
         );
+    }
+
+    /// A chain of `depth` files, `src/c0.ts` importing `src/c1.ts` and so on; every tenth also imports a side file,
+    /// which imports the file five links further down the chain, reached again later.
+    fn chain(depth: usize) -> Vec<(String, String)> {
+        let mut files = owned(&[("package.json", r#"{"name":"root","private":true}"#)]);
+        for index in 0..depth {
+            let mut text = String::new();
+            if index + 1 < depth {
+                text.push_str(&format!("import {{ v{next} }} from './c{next}';\n", next = index + 1));
+            }
+            if index % 10 == 0 {
+                text.push_str(&format!("import './side{index}';\n"));
+                let further = (index + 5).min(depth - 1);
+                files.push((format!("src/side{index}.ts"), format!("import './c{further}';\n")));
+            }
+            text.push_str(&format!("export const v{index} = 1;\n"));
+            files.push((format!("src/c{index}.ts"), text));
+        }
+        files
+    }
+
+    #[test]
+    fn a_deep_chain_of_imports_parsed_ahead_gets_the_ids_and_edges_of_a_round_by_round_build() {
+        const DEPTH: usize = 300;
+        let fixture = Fixture::new(&chain(DEPTH));
+        let sequential = fixture.graph(&["src/c0.ts"], true, &Scans::default(), false);
+        assert_eq!(fixture.reads(), DEPTH + DEPTH / 10);
+        assert_eq!(
+            &paths(&sequential)[..5],
+            ["src/c0.ts", "src/c1.ts", "src/side0.ts", "src/c2.ts", "src/c5.ts"]
+        );
+
+        let parallel = fixture.graph(&["src/c0.ts"], false, &Scans::default(), false);
+        assert_eq!(shape(&parallel), shape(&sequential));
+        // Each file is read once, also the files two importers reach at once.
+        assert_eq!(fixture.reads(), 2 * (DEPTH + DEPTH / 10));
+    }
+
+    #[test]
+    fn prefetching_reaches_the_end_of_a_deep_chain_and_reads_each_file_once() {
+        const DEPTH: usize = 300;
+        let fixture = Fixture::new(&chain(DEPTH));
+        let found = fixture.with_inputs(false, &Scans::default(), false, |inputs| {
+            let builder = Builder::new(inputs);
+            prefetch(&builder, vec![PathBuf::from("/ws/src/c0.ts")], &HashMap::default())
+        });
+        assert_eq!(found.len(), DEPTH + DEPTH / 10);
+        assert_eq!(fixture.reads(), DEPTH + DEPTH / 10);
+        let last = Path::new("/ws/src").join(format!("c{}.ts", DEPTH - 1));
+        assert!(found.get(&last).is_some_and(|parsed| parsed.error.is_none()));
     }
 }
