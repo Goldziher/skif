@@ -5,52 +5,52 @@ description: Teach AI agents skif with its agent skill, use skif from agents thr
 
 skif runs as a server for the tools you write code with. The servers and watch mode are part of the `skif` binary;
 nothing else to install. The design is recorded in
-[ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md). The servers and
+[ADR 0028](https://github.com/polylint/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md). The servers and
 watch mode analyse without the TypeScript type checker, as `--no-type-aware` does, so their member findings are the
-name-based ones ([ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
+name-based ones ([ADR 0034](https://github.com/polylint/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ## Agent skill
 
 The repository ships an [agent skill](https://agentskills.io) that teaches a coding agent when and how to run skif:
 the lint, triage and fix loop, reading the JSON report, configuring `skif.toml`, migrating from sherif, syncpack and
 knip, and CI. It lives in
-[`skills/skif`](https://github.com/Goldziher/skif/tree/main/skills/skif) and is installed straight from GitHub. The
+[`skills/skif`](https://github.com/polylint/skif/tree/main/skills/skif) and is installed straight from GitHub. The
 skill runs the `skif` command, so [install skif](../../start/installation/) as well (or let the agent use
 `npx @polylint/skif`).
 
 Any agent that reads Agent Skills, with the [`skills`](https://www.npmjs.com/package/skills) installer:
 
 ```sh
-npx skills add Goldziher/skif
+npx skills add polylint/skif
 ```
 
 As a plugin, in Claude Code (in the session, not the shell):
 
 ```text
-/plugin marketplace add Goldziher/skif
+/plugin marketplace add polylint/skif
 /plugin install skif@skif
 ```
 
-or, from Claude Code 2.1.275 on, `/plugin install skif --marketplace Goldziher/skif` in one step.
+or, from Claude Code 2.1.275 on, `/plugin install skif --marketplace polylint/skif` in one step.
 
 Codex:
 
 ```sh
-codex plugin marketplace add Goldziher/skif
+codex plugin marketplace add polylint/skif
 codex plugin add skif@skif
 ```
 
 Factory Droid:
 
 ```sh
-droid plugin marketplace add https://github.com/Goldziher/skif
+droid plugin marketplace add https://github.com/polylint/skif
 droid plugin install skif@skif
 ```
 
 GitHub Copilot CLI:
 
 ```sh
-copilot plugin marketplace add Goldziher/skif
+copilot plugin marketplace add polylint/skif
 copilot plugin install skif@skif
 ```
 
@@ -59,7 +59,7 @@ The plugin holds the skill and registers the [MCP server](#mcp-server-for-agents
 or later with npm on `PATH`, not an install of skif; its first start downloads the npm package. Without npm the
 server fails to start and the skill still works. The plugin's version is the skif release it documents, so a plugin
 manager that updates on a version change picks up each release, and its server with it. The design is recorded in
-[ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md).
+[ADR 0028](https://github.com/polylint/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md).
 
 ## MCP server for agents
 
@@ -123,9 +123,9 @@ Parsing source files is the largest part of a JavaScript analysis. skif keeps th
 a key of its file name, its text and the parser's version, so an unchanged file is not parsed again and a changed
 file always is: the cache never changes a report. Everything else (configuration, manifests, the module graph, the
 rules) is computed on every run. The design is recorded in
-[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)
+[ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)
 and, for multi-root runs,
-[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md).
+[ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md).
 
 - **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
   root (or below the invocation directory of a multi-root run, and in `$TEST_TMPDIR/skif/` under `bazel test`);
@@ -185,7 +185,7 @@ A message larger than 64 MiB, or one whose header the server cannot read, ends t
 to stderr and exits with code 1, and the editor can restart it.
 
 There is no skif editor extension
-([ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md)). Any editor that can start
+([ADR 0028](https://github.com/polylint/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md)). Any editor that can start
 a language server for JSON files can run it; VS Code needs a generic language-server client extension for that. For
 example Neovim:
 

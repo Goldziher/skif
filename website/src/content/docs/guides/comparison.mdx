@@ -108,7 +108,7 @@ under [Parity with knip](#parity-with-knip).
 3. Built-in import extraction for `.astro`, `.vue`, `.svelte`, `.mdx`, `.marko`, `.tsrx`, `.css` (Tailwind), `.less`,
    `.sass`, `.scss`, `.styl`, `.stylus`, `.prisma` and `.md` (unplugin-vue-markdown); a custom compiler can replace any
    of them.
-4. Tool configurations are read statically ([ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md));
+4. Tool configurations are read statically ([ADR 0001](https://github.com/polylint/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md));
    a package whose configuration skif cannot read is listed under `incomplete-packages` in the JSON report. After
    writing, `--fix` and `skif update` run the package manager's install, which runs the project's install scripts;
    `--no-install` skips it.
@@ -124,8 +124,8 @@ under [Parity with knip](#parity-with-knip).
    checker cannot settle, a read of a property of the member's name on any object counts. It leaves alone the members
    of decorated classes, of classes that extend an unknown class and of interfaces declared elsewhere, where knip
    judged them by their references
-   ([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md),
-   [ADR 0034](https://github.com/Goldziher/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
+   ([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md),
+   [ADR 0034](https://github.com/polylint/skif/blob/main/adrs/0034-type-aware-analysis-on-tsrs.md)).
 
 ### Fixing, adoption and configuration
 
@@ -171,7 +171,7 @@ under [Parity with knip](#parity-with-knip).
 | Editor extension | No | No | No | Yes: `webpro.vscode-knip` on the VS Code Marketplace and Open VSX |
 | MCP server | Yes: `skif mcp` | No | No | Yes: `@knip/mcp` (2) |
 | Agent skill | Yes: `skills/skif` | No | No | No |
-| GitHub Action | Yes: `Goldziher/skif` | Yes: `QuiiBz/sherif` | No (3) | No |
+| GitHub Action | Yes: `polylint/skif` | Yes: `QuiiBz/sherif` | No (3) | No |
 | Git hooks shipped | Yes: pre-commit, prek, Poly | No | No | No |
 | Library API | Yes: the `skif` crate; `lint`, `lintAsync`, `run` in the npm package | No | No | Partial (4) |
 
@@ -198,9 +198,9 @@ under [Parity with knip](#parity-with-knip).
 
 The skif versions and operating systems per package manager are under
 [Supported versions](../../start/installation/#supported-versions)
-([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)),
+([ADR 0030](https://github.com/polylint/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)),
 and the end-to-end matrix is the `e2e` job of `.github/workflows/ci.yml`
-([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).
+([ADR 0030](https://github.com/polylint/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).
 `scripts/check-support-matrix.sh` fails when the skif rows above, the README or the supported versions table differ
 from the `e2e` and `npm-addon` matrices and the linkers of `scripts/e2e/lib.sh`. Lefthook needs no hook from skif: it
 is configured in the consuming repository ([Lefthook](../integrations/#lefthook)).
@@ -270,7 +270,7 @@ package's own `dependencies` and `devDependencies`. The `types` that a `tsconfig
 Heft rig profile) finds in its own `typeRoots` come with that config's package, so they do not make the extending
 package use its optional peer `@types/node`. knip credits `webpack-cli` for every webpack config, and `webpack` as its
 peer; skif judges both by the scripts, commands and imports that run them
-([ADR 0019](https://github.com/Goldziher/skif/blob/main/adrs/0019-dependency-unlisted-and-unresolved-findings.md)).
+([ADR 0019](https://github.com/polylint/skif/blob/main/adrs/0019-dependency-unlisted-and-unresolved-findings.md)).
 
 A package with a reached `.svelte` file uses `svelte`, the compiler of its components; knip credits `svelte` only
 where a file or a configuration names it. skif reads the exports of a component's module script
@@ -280,11 +280,11 @@ exports.
 
 The remaining differences each have an open issue, and their size is in the
 [agreement table](../benchmarks/#agreement-with-knip):
-`unlisted-dependencies` ([#96](https://github.com/Goldziher/skif/issues/96)), `unlisted-binaries`
-([#97](https://github.com/Goldziher/skif/issues/97)), `unused-dependencies`
-([#98](https://github.com/Goldziher/skif/issues/98)), `unresolved-imports`
-([#99](https://github.com/Goldziher/skif/issues/99)) and `unused-files`
-([#100](https://github.com/Goldziher/skif/issues/100)).
+`unlisted-dependencies` ([#96](https://github.com/polylint/skif/issues/96)), `unlisted-binaries`
+([#97](https://github.com/polylint/skif/issues/97)), `unused-dependencies`
+([#98](https://github.com/polylint/skif/issues/98)), `unresolved-imports`
+([#99](https://github.com/polylint/skif/issues/99)) and `unused-files`
+([#100](https://github.com/polylint/skif/issues/100)).
 
 Two differences are knip's and stay counted, as the comparison cannot tell them apart from its data: knip reports the
 members of an enum used as a whole value (passed or returned, `@IsEnum(E)`, `Object.values(E)`, `keyof typeof E`,
@@ -300,7 +300,7 @@ is not an `unresolved-imports` finding, so unresolved imports compare with knip'
 the module by it: a worker pool (`new Worker(require.resolve("./worker"))`), a bundler loader, a plugin host. In skif
 the call keeps the file it names in use, a package it names is a used dependency, and the value exports of the module
 are used, as for a `require()` that binds nothing; `unused-types` reports its types that nothing else imports
-([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
+([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 knip makes such a file an entry, so it reports neither.
 
 skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file; knip reports one that nothing
@@ -311,7 +311,7 @@ namespace`) or another module (`declare module "x"`), or that exports nothing an
 publishes it (`types`, `typings`, the `types` condition of `exports`), a `tsconfig.json` lists it in `files` or an
 `entry` glob names it. Otherwise it is judged like a TypeScript module once a module imports it, so `unused-types`
 and `unused-exports` report what no importer uses
-([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+([ADR 0013](https://github.com/polylint/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 knip makes every declaration file that the `tsconfig.json` of a workspace compiles (its `include` and `files`) an
 entry, so it reports no export or type of one and reads its imports even when nothing imports it: in a workspace
 whose `tsconfig.json` includes `src/**/*`, knip judges none of the `.d.ts` files there that skif judges.
@@ -319,7 +319,7 @@ whose `tsconfig.json` includes `src/**/*`, knip judges none of the `.d.ts` files
 A namespace passed as an argument is a use of the whole module in both tools, with one exception in skif: a
 test-runner spy with a literal member name (`vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")`, Jasmine's `spyOn(ns, "a")`)
 reads member `a` only, as `ns.a` does
-([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
+([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 knip counts such a spy as a use of every export, so skif reports the exports that nothing else reads and knip does
 not.
 
@@ -328,7 +328,7 @@ A lazy-component loader that returns an `import()` (`lazy(() => import("./Page")
 both tools, and `.then((m) => m.Page)` inside it uses `Page`. A function returning an `import()` passed to any other
 call (`wrapLazy(() => import("./Page"))`) keeps the whole module used in skif, since that call may read any export,
 and `skif explain-usage` names the call; knip counts it as a use of `default` and reports the named exports
-([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
+([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 
 A use of a module object as a whole (a namespace passed around, spread, indexed with a computed key or named in
 `typeof ns`, and `require("./m")` or `import("./m")`) reaches the values of the module only. In skif it uses every value
@@ -336,7 +336,7 @@ export and none of the module's interfaces and type aliases: those stay used whe
 when the importer exports the namespace itself (`export default ns`, `export = ns`), and are reported by
 `unused-types` otherwise. A file loaded with `new URL("./x", import.meta.url)` is no module object but a program of its
 own, so it keeps every export used, as an entry does
-([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
+([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 knip reports such types only under `nsTypes`, which is off by default, and not at all for a spread or an `import()`.
 
 knip merges the tsconfig `paths` of every workspace, so an import that only another package's `paths` map resolves
@@ -354,7 +354,7 @@ installed packages and workspace members, also for the `paths` of `[js.workspace
 leads into the package's own sources uses no listed dependency. With the `paths` of `knip.json`, knip tries the
 package first and reports the local file by `unused-files`; with tsconfig `paths` it reaches the local file but
 counts the listed dependency as used. skif reports that dependency by `unused-dependencies` instead
-([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+([ADR 0013](https://github.com/polylint/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 
 Both tools report a package that a tool config names and no manifest lists (a `tsconfig` `extends`, an Oxlint or
 ESLint plugin, a Prisma generator) at the config. knip reads some of them as files to resolve, so one with an unscoped

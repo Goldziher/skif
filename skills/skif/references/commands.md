@@ -1,6 +1,6 @@
 # skif commands and flags
 
-The full reference, with every edge case, is <https://goldziher.github.io/skif/reference/cli/>. `skif <command>
+The full reference, with every edge case, is <https://polylint.github.io/skif/reference/cli/>. `skif <command>
 --help` prints the flags of the installed version.
 
 ## Install
@@ -8,8 +8,8 @@ The full reference, with every edge case, is <https://goldziher.github.io/skif/r
 | Channel | Command |
 | --- | --- |
 | npm, pnpm, yarn, bun | `pnpm add -D @polylint/skif` (or `npm install -D`, `yarn add -D`, `bun add -D`); run once with `npx @polylint/skif`, `pnpm dlx @polylint/skif`, `yarn dlx @polylint/skif` or `bunx @polylint/skif` |
-| Homebrew | `brew install goldziher/tap/skif` |
-| Scoop | `scoop bucket add goldziher https://github.com/Goldziher/scoop-bucket`, then `scoop install skif` |
+| Homebrew | `brew install polylint/tap/skif` |
+| Scoop | `scoop bucket add polylint https://github.com/polylint/scoop-bucket`, then `scoop install skif` |
 | Cargo | `cargo install skif-cli` or `cargo binstall skif-cli` (the `skif` crate is the library and has no binary) |
 
 The npm package is `@polylint/skif`: run it as `npx @polylint/skif`; `npx skif` is a different package.

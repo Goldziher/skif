@@ -27,12 +27,12 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
   </TabItem>
   <TabItem label="Homebrew">
     ```bash
-    brew install goldziher/tap/skif
+    brew install polylint/tap/skif
     ```
   </TabItem>
   <TabItem label="Scoop">
     ```bash
-    scoop bucket add goldziher https://github.com/Goldziher/scoop-bucket
+    scoop bucket add polylint https://github.com/polylint/scoop-bucket
     scoop install skif
     ```
   </TabItem>
@@ -70,7 +70,7 @@ sha256sum --check --ignore-missing checksums.txt
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0.6
+- uses: polylint/skif@v0.6
   with:
     fail-on-warnings: true
 ```
@@ -80,7 +80,7 @@ See [integrations](../../guides/integrations/#github-action) for the inputs.
 ## Build from source
 
 ```bash
-git clone https://github.com/Goldziher/skif
+git clone https://github.com/polylint/skif
 cd skif
 cargo build --release
 ```
@@ -110,8 +110,8 @@ ships, on Linux, and the latest majors also on macOS and Windows.
 The scenarios cover a clean workspace, a set of fixable manifest and workspace issues fixed with `--fix`, catalogs (pnpm, Bun
 and Yarn 4.10 and later), `-r` over nested workspaces and a standalone package, JS analysis against the installed
 layout, `skif baseline`, `skif migrate` and toolchain pins
-([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).
+([ADR 0030](https://github.com/polylint/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).
 
 Older versions may work, but there is no guarantee: they are not tested, not blocked (`engines` is advisory), and
 bugs reproducible only on them are not fixed. A version is dropped in the first release after it reaches
-end-of-life ([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).
+end-of-life ([ADR 0030](https://github.com/polylint/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).

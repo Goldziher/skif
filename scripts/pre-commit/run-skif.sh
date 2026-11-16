@@ -12,17 +12,20 @@
 #
 # On Linux the glibc archive is used only on glibc 2.34 or newer; older glibc, musl and an unidentifiable libc get the
 # musl archive. SKIF_VERIFY_ATTESTATION=0 skips the build-attestation check, which also needs an authenticated gh.
+# A release up to v0.6.0 may also be attested by Goldziher/skif, the repository before the transfer (lib/attestation.sh).
 set -euo pipefail
 
 # shellcheck source=../lib/libc.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/libc.sh"
+# shellcheck source=../lib/attestation.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/attestation.sh"
 
 SKIF_VERSION="${SKIF_VERSION:-v0.6.0}"
 SKIF_BINARY="${SKIF_BINARY:-}"
 SKIF_RESOLVE_ONLY="${SKIF_RESOLVE_ONLY:-0}"
 
 tag="v${SKIF_VERSION#v}"
-SKIF_RELEASE_URL="${SKIF_RELEASE_URL:-https://github.com/Goldziher/skif/releases/download/${tag}}"
+SKIF_RELEASE_URL="${SKIF_RELEASE_URL:-https://github.com/polylint/skif/releases/download/${tag}}"
 
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -46,8 +49,8 @@ verify_attestation() {
     echo "skif: build attestation not verified (needs an authenticated gh with 'attestation'); checksum verified" >&2
     return 0
   fi
-  local repo="${SKIF_REPOSITORY:-Goldziher/skif}"
-  if ! gh attestation verify "$archive" --repo "$repo" --signer-workflow "${repo}/.github/workflows/publish.yaml" >&2; then
+  local repo="${SKIF_REPOSITORY:-$SKIF_ATTESTATION_REPOSITORY}"
+  if ! skif_verify_attestation "$archive" "$repo" "$tag" >/dev/null; then
     echo "skif: attestation verification failed for $(basename "$archive"), refusing to install it" >&2
     return 1
   fi

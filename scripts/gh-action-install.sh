@@ -6,7 +6,12 @@
 # release's checksums.txt is fetched again, the cached archive is checked against it and the binary is unpacked from
 # that archive again. A fresh download is additionally checked against its build attestation
 # (`gh attestation verify`) unless VERIFY_ATTESTATION is "false"; an installed `gh` without the command only warns.
+# A polylint/skif release up to v0.6.0 may also be attested by Goldziher/skif, the repository before the transfer
+# (lib/attestation.sh).
 set -euo pipefail
+
+# shellcheck source=lib/attestation.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/attestation.sh"
 
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -62,8 +67,11 @@ fi
     if [ "${VERIFY_ATTESTATION:-true}" = "false" ]; then
       echo "::notice::attestation verification is disabled"
     elif gh attestation verify --help >/dev/null 2>&1; then
-      gh attestation verify "$ASSET" --repo "$REPO" --signer-workflow "${REPO}/.github/workflows/publish.yaml"
-      echo "Attestation OK: ${ASSET} was built by ${REPO}'s release workflow"
+      if ! attested_by="$(skif_verify_attestation "$ASSET" "$REPO" "$TAG")"; then
+        echo "::error::${ASSET} has no build attestation from the release workflow of $(skif_attestation_repos "$REPO" "$TAG" | paste -sd, -)"
+        exit 1
+      fi
+      echo "Attestation OK: ${ASSET} was built by ${attested_by}'s release workflow"
     else
       echo "::warning::this gh CLI has no 'attestation' command; ${ASSET} is verified by checksum only"
     fi

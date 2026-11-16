@@ -1673,7 +1673,7 @@ mod tests {
         );
         assert!(
             with_skip.contains(
-                "Runner: github-hosted `GitHub Actions 1000012345`, image `ubuntu24` `20261102.1.0`, Linux X64; [workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/19283746/attempts/1)."
+                "Runner: github-hosted `GitHub Actions 1000012345`, image `ubuntu24` `20261102.1.0`, Linux X64; [workflow run, attempt 1](https://github.com/polylint/skif/actions/runs/19283746/attempts/1)."
             ),
             "{with_skip}"
         );
@@ -1727,7 +1727,7 @@ mod tests {
                 runner_environment: Some("github-hosted".into()),
                 runner_name: Some("GitHub Actions 1000012345".into()),
                 run_attempt: Some(1),
-                run_url: Some("https://github.com/Goldziher/skif/actions/runs/19283746/attempts/1".into()),
+                run_url: Some("https://github.com/polylint/skif/actions/runs/19283746/attempts/1".into()),
             }),
         }
     }

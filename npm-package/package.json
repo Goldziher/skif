@@ -14,15 +14,15 @@
     "catalog",
     "audit"
   ],
-  "homepage": "https://github.com/Goldziher/skif#readme",
+  "homepage": "https://github.com/polylint/skif#readme",
   "bugs": {
-    "url": "https://github.com/Goldziher/skif/issues"
+    "url": "https://github.com/polylint/skif/issues"
   },
   "license": "MIT",
   "author": "Na'aman Hirschfeld <nhirschfeld@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Goldziher/skif.git",
+    "url": "git+https://github.com/polylint/skif.git",
     "directory": "npm-package"
   },
   "type": "module",

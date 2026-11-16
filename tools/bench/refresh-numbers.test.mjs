@@ -68,7 +68,7 @@ function machine() {
       runner_environment: "github-hosted",
       runner_name: "GitHub Actions 1000012345",
       run_attempt: 2,
-      run_url: "https://github.com/Goldziher/skif/actions/runs/19283746/attempts/2",
+      run_url: "https://github.com/polylint/skif/actions/runs/19283746/attempts/2",
     },
   };
 }
@@ -173,7 +173,7 @@ test("a complete summary has no problems and names what was measured, on which r
       "2026-11-10 on a GitHub-hosted runner, image ubuntu24 20261102.1.0, Ubuntu 24.04.3 LTS, " +
       "Linux 6.11.0-1018-azure, x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), " +
       "15.6 GiB memory, hypervisor Microsoft, load average 1.50 / 1.25 / 1.00 before and 2.00 / 1.50 / 1.25 after " +
-      "the run ([workflow run, attempt 2](https://github.com/Goldziher/skif/actions/runs/19283746/attempts/2)).",
+      "the run ([workflow run, attempt 2](https://github.com/polylint/skif/actions/runs/19283746/attempts/2)).",
   );
 });
 
@@ -608,7 +608,7 @@ test("the claims leave knip out when it fails on every repository", () => {
 test("the README claims are the comparison guide's, each linking to the speed tables of the benchmarks page", () => {
   const claims = benchClaims(summary()).split("\n");
   const readme = readmeClaims(summary()).split("\n");
-  const page = "https://goldziher.github.io/skif/guides/benchmarks/#speed";
+  const page = "https://polylint.github.io/skif/guides/benchmarks/#speed";
   assert.deepEqual(readme.slice(0, 3), [
     `- [**8.1x faster than knip**](${page}) for dead-code analysis, on 1 pinned public repository.`,
     `- [**2.1–3.9x faster than sherif**](${page}) for manifest and workspace checks (\`skif --no-js\`), on 1 pinned ` +
@@ -809,6 +809,6 @@ test("a summary with a matched knip failure is written into every speed block", 
   assert.ok(comparison.includes(`{/* bench:claims:start */}${claim}`), comparison);
   assert.ok(comparison.includes("it fails on create-t3-turbo.\n"), comparison);
   const linked =
-    "\n- [**8.1x faster than knip**](https://goldziher.github.io/skif/guides/benchmarks/#speed) for dead-code";
+    "\n- [**8.1x faster than knip**](https://polylint.github.io/skif/guides/benchmarks/#speed) for dead-code";
   assert.ok(readme.includes(`<!-- bench:claims:start -->${linked}`), readme);
 });

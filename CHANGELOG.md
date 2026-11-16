@@ -14,6 +14,17 @@ All notable changes to this project are documented here. The format follows
 - **The npm package is `@polylint/skif`**: its platform packages are `@polylint/skif-<platform>`, and `skif-cli` and
   `skif-<platform>` on npm are deprecated and receive no new versions. The command stays `skif`, and Windows x64 and
   arm64 now install from npm ([ADR 0035](adrs/0035-publish-the-npm-packages-under-the-polylint-scope.md)).
+- **skif moved to the polylint organization** ([ADR 0036](adrs/0036-move-to-the-polylint-organization.md)): the
+  repository is `polylint/skif`, the documentation is at <https://polylint.github.io/skif/>, the Action is
+  `polylint/skif@v0.M`, Homebrew is `brew install polylint/tap/skif` and Scoop is
+  `scoop bucket add polylint https://github.com/polylint/scoop-bucket`. `skif init` and `skif migrate` write the
+  `#:schema` URL of `polylint/skif`, and SARIF output names it as the tool's information URI.
+
+### Changed
+
+- The Homebrew formula is bottled for macOS arm64 and Linux x86_64 and arm64.
+- The GitHub Action and the pre-commit launcher verify build attestations against `polylint/skif`, and still accept a
+  release up to v0.6.0 attested by `Goldziher/skif`, the repository before the move.
 
 ## [0.6.0] - 2026-11-16
 

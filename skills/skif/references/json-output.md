@@ -77,7 +77,7 @@ When skif cannot run (exit `2`), the document is:
 - `skif --trace-dependency <NAME> --format json`: a `traces` array, one entry per root.
 - `skif config`, `skif migrate`, `skif baseline` and `skif update` with `--format json` print one document each,
   with the same `version` and `skif` members; their fields are listed in the
-  [CLI reference](https://goldziher.github.io/skif/reference/cli/).
+  [CLI reference](https://polylint.github.io/skif/reference/cli/).
 - `skif json` prints NDJSON: one object per dependency instance, one per line.
 
 The MCP server (`skif mcp`) returns these same documents from its `lint`, `explain_usage` and `list_rules` tools.

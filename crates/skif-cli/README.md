@@ -12,7 +12,7 @@ cargo binstall skif-cli
 
 The binary is named `skif`. The `skif` crate is the embeddable library and has no binary, so `cargo install skif` fails. Other
 channels (npm, Homebrew, Scoop, GitHub release archives and the GitHub Action) are listed in the
-[repository README](https://github.com/Goldziher/skif#installation).
+[repository README](https://github.com/polylint/skif#installation).
 
 ## Usage
 
@@ -27,6 +27,6 @@ skif init            # write a starter skif.toml
 ```
 
 Exit codes: `0` clean, `1` problems remain, `2` skif could not run. The full flag and exit-code contract is in
-the repository's [ADR 0024](https://github.com/Goldziher/skif/blob/main/adrs/0024-cli-contract.md).
+the repository's [ADR 0024](https://github.com/polylint/skif/blob/main/adrs/0024-cli-contract.md).
 
 Licensed under MIT.

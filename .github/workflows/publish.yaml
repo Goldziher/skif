@@ -1063,83 +1063,270 @@ jobs:
           echo "::error::@polylint/skif@${VERSION} did not print the released version under ${RUNTIME}"
           exit 1
 
+  # The formula and the manifest are rendered from scripts/publish/ by the shared xberg-io actions, which hash the
+  # release's own archives, and pushed to the organization's tap and bucket by the org GitHub App (ADR 0036). They
+  # serve the public release, so they wait for it the way the floating tag does.
   publish_homebrew:
     name: Update Homebrew formula
     needs: [meta, verify_binstall, verify_npm]
     if: needs.meta.outputs.prerelease != 'true' && needs.verify_binstall.result == 'success' && needs.verify_npm.result == 'success'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
+    steps:
+      - name: Mint a token for the tap
+        uses: actions/create-github-app-token@v3
+        id: tap-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: polylint
+          repositories: homebrew-tap
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Checkout the tap
+        uses: actions/checkout@v7
+        with:
+          repository: polylint/homebrew-tap
+          token: ${{ steps.tap-token.outputs.token }}
+          path: homebrew-tap
+          persist-credentials: true
+
+      - name: Render the formula
+        uses: xberg-io/actions/publish-homebrew-source-formulas@v1
+        with:
+          tap-dir: ${{ github.workspace }}/homebrew-tap
+          config-file: scripts/publish/homebrew.json
+          tag: ${{ needs.meta.outputs.tag }}
+          version: ${{ needs.meta.outputs.version }}
+          github-repo: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and push to the tap
+        working-directory: homebrew-tap
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "polylint-release-helper[bot]"
+          git config user.email "357288453+polylint-release-helper[bot]@users.noreply.github.com"
+          if git diff --quiet Formula/skif.rb; then
+            echo "Formula already up to date."
+            exit 0
+          fi
+          git add Formula/skif.rb
+          git commit -m "skif ${VERSION}"
+          # Every polylint release pushes to this one tap and touches only its own formula, so a concurrent push is
+          # resolved by rebasing onto the new tip; a real conflict is never forced.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD; then
+              exit 0
+            fi
+            echo "push rejected (attempt ${attempt}); rebasing onto the current tap tip"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              git rebase --abort || true
+              echo "::error::tap rebase hit a real conflict; refusing to force the push"
+              exit 1
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push to the tap after 5 attempts"
+          exit 1
+
+  # A bottle repackages the formula's release archive for brew. Each is uploaded to this release, and the merge job
+  # below writes the `bottle do` block; a platform without a bottle still installs the archive.
+  homebrew_bottles:
+    name: Build Homebrew bottle (${{ matrix.bottle_tag }})
+    needs: [meta, publish_homebrew]
+    if: needs.publish_homebrew.result == 'success'
+    permissions:
+      # `gh release upload` of the bottle to this repository's release.
+      contents: write
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-26, bottle_tag: arm64_tahoe, install_brew: false }
+          - { os: ubuntu-latest, bottle_tag: x86_64_linux, install_brew: true }
+          - { os: ubuntu-24.04-arm, bottle_tag: arm64_linux, install_brew: true }
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
 
-      - name: Update tap formula
+      - name: Install Homebrew (Linux)
+        if: matrix.install_brew
+        uses: xberg-io/actions/install-homebrew-linux@v1
+
+      - name: Build the bottle
+        uses: xberg-io/actions/homebrew-build-bottles@v1
+        with:
+          tag: ${{ needs.meta.outputs.tag }}
+          version: ${{ needs.meta.outputs.version }}
+          tap: polylint/tap
+          formulas: skif
+          out-dir: ${{ github.workspace }}/bottle-json
+          github-repo: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save the bottle manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: homebrew-bottle-json-${{ matrix.bottle_tag }}
+          path: ${{ github.workspace }}/bottle-json/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish_homebrew_bottles:
+    name: Merge Homebrew bottle DSL
+    needs: [meta, publish_homebrew, homebrew_bottles]
+    # Only a complete bottle set is merged: a partial `bottle do` block would point the missing platforms at nothing.
+    if: needs.publish_homebrew.result == 'success' && needs.homebrew_bottles.result == 'success'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint a token for the tap
+        uses: actions/create-github-app-token@v3
+        id: tap-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: polylint
+          repositories: homebrew-tap
+
+      - name: Checkout the tap
+        uses: actions/checkout@v7
+        with:
+          repository: polylint/homebrew-tap
+          token: ${{ steps.tap-token.outputs.token }}
+          path: homebrew-tap
+          persist-credentials: true
+
+      - name: Download the bottle manifests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ github.workspace }}/bottle-json
+          pattern: homebrew-bottle-json-*
+          merge-multiple: true
+
+      - name: Merge the bottle DSL
+        uses: xberg-io/actions/homebrew-merge-bottles@v1
+        with:
+          tag: ${{ needs.meta.outputs.tag }}
+          version: ${{ needs.meta.outputs.version }}
+          tap-dir: ${{ github.workspace }}/homebrew-tap
+          json-dir: ${{ github.workspace }}/bottle-json
+          formulas: skif
+          github-repo: ${{ github.repository }}
+
+      - name: Commit and push the bottle DSL
+        working-directory: homebrew-tap
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
           VERSION: ${{ needs.meta.outputs.version }}
-          TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -euo pipefail
-          if [ -z "${HOMEBREW_TOKEN:-}" ]; then
-            echo "::error::HOMEBREW_TOKEN is not set, so the Homebrew tap cannot be updated"
-            exit 1
+          git config user.name "polylint-release-helper[bot]"
+          git config user.email "357288453+polylint-release-helper[bot]@users.noreply.github.com"
+          if git diff --quiet Formula/skif.rb; then
+            echo "Bottle DSL already up to date."
+            exit 0
           fi
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir sums --clobber
-          scripts/homebrew-update.sh "$VERSION" sums/checksums.txt "$GITHUB_REPOSITORY" >skif.rb
-
-          git clone --depth 1 "https://x-access-token:${HOMEBREW_TOKEN}@github.com/Goldziher/homebrew-tap.git" tap
-          cp skif.rb tap/Formula/skif.rb
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/skif.rb
-          if git diff --cached --quiet; then
-            echo "Formula already up to date."
-          else
-            git commit -m "skif ${VERSION}"
-            git push
-          fi
+          git commit -m "skif ${VERSION}: add bottle DSL"
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD; then
+              exit 0
+            fi
+            echo "push rejected (attempt ${attempt}); rebasing onto the current tap tip"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              git rebase --abort || true
+              echo "::error::tap rebase hit a real conflict; refusing to force the push"
+              exit 1
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push to the tap after 5 attempts"
+          exit 1
 
   publish_scoop:
     name: Update Scoop bucket
     needs: [meta, verify_binstall, verify_npm]
     if: needs.meta.outputs.prerelease != 'true' && needs.verify_binstall.result == 'success' && needs.verify_npm.result == 'success'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
+      - name: Mint a token for the bucket
+        uses: actions/create-github-app-token@v3
+        id: bucket-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: polylint
+          repositories: scoop-bucket
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
 
-      - name: Update bucket manifest
+      - name: Checkout the bucket
+        uses: actions/checkout@v7
+        with:
+          repository: polylint/scoop-bucket
+          token: ${{ steps.bucket-token.outputs.token }}
+          path: scoop-bucket
+          persist-credentials: true
+
+      - name: Render the manifest
+        uses: xberg-io/actions/publish-scoop-manifests@v1
+        with:
+          bucket-dir: ${{ github.workspace }}/scoop-bucket
+          config-file: scripts/publish/scoop.json
+          tag: ${{ needs.meta.outputs.tag }}
+          version: ${{ needs.meta.outputs.version }}
+          github-repo: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and push to the bucket
+        working-directory: scoop-bucket
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
           VERSION: ${{ needs.meta.outputs.version }}
-          TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -euo pipefail
-          if [ -z "${HOMEBREW_TOKEN:-}" ]; then
-            echo "::error::HOMEBREW_TOKEN is not set, so Goldziher/scoop-bucket cannot be updated"
-            exit 1
-          fi
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir sums --clobber
-          scripts/scoop-update.sh "$VERSION" sums/checksums.txt "$GITHUB_REPOSITORY" >skif.json
-
-          git clone --depth 1 "https://x-access-token:${HOMEBREW_TOKEN}@github.com/Goldziher/scoop-bucket.git" bucket
-          cp skif.json bucket/bucket/skif.json
-          cd bucket
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bucket/skif.json
-          if git diff --cached --quiet; then
+          git config user.name "polylint-release-helper[bot]"
+          git config user.email "357288453+polylint-release-helper[bot]@users.noreply.github.com"
+          if git diff --quiet bucket/skif.json; then
             echo "Manifest already up to date."
-          else
-            git commit -m "skif ${VERSION}"
-            git push
+            exit 0
           fi
+          git add bucket/skif.json
+          git commit -m "skif ${VERSION}"
+          # Every polylint release pushes to this one bucket and touches only its own manifest; see the tap push above.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD; then
+              exit 0
+            fi
+            echo "push rejected (attempt ${attempt}); rebasing onto the current bucket tip"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              git rebase --abort || true
+              echo "::error::bucket rebase hit a real conflict; refusing to force the push"
+              exit 1
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push to the bucket after 5 attempts"
+          exit 1
 
   update_major_tag:
     name: Move the floating version tag
@@ -1149,13 +1336,25 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
+      # GITHUB_TOKEN cannot create or move a tag onto a commit that changes a workflow; the push needs `workflows`,
+      # which the org GitHub App grants for this repository.
+      - name: Mint a token that may push workflow changes
+        uses: actions/create-github-app-token@v3
+        id: tag-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: polylint
+          repositories: skif
+          permission-contents: write
+          permission-workflows: write
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.meta.outputs.tag }}
-          # GITHUB_TOKEN cannot create or move a tag onto a commit that changes a workflow; the push needs `workflows`.
-          token: ${{ secrets.HOMEBREW_TOKEN }}
+          token: ${{ steps.tag-token.outputs.token }}
 
       - name: Move the floating tag to this release
         env:

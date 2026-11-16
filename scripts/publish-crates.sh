@@ -41,7 +41,7 @@ crates=(
 
 published() {
   local status
-  status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: skif-release (https://github.com/Goldziher/skif)' "${api}/$1/${version}" || true)"
+  status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: skif-release (https://github.com/polylint/skif)' "${api}/$1/${version}" || true)"
   [ "$status" = "200" ]
 }
 

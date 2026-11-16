@@ -4,17 +4,17 @@ description: How fast skif is against knip, sherif and syncpack, how accurate it
 ---
 
 Every speed number on this page comes from one run of the
-[`bench` workflow](https://github.com/Goldziher/skif/blob/main/.github/workflows/bench.yml) on a GitHub-hosted
+[`bench` workflow](https://github.com/polylint/skif/blob/main/.github/workflows/bench.yml) on a GitHub-hosted
 runner, and the agreement table from the committed parity baseline. Both are generated: the first line of each block
 names the skif commit, the tool versions, the runner image and the machine, and the speed block links the
-[workflow run](https://github.com/Goldziher/skif/actions/workflows/bench.yml) the numbers came from. How they are
+[workflow run](https://github.com/polylint/skif/actions/workflows/bench.yml) the numbers came from. How they are
 measured is under [Methodology](#methodology).
 
 ## Speed
 
 Full skif runs are timed against knip, as skif runs by default, without type-aware analysis ("types off"), and
 again with `--type-aware` ("types on"), each with its peak memory. `skif --no-js`, which skips the JS analysis, is timed
-against sherif and syncpack. All of them run on the [pinned public repositories](https://github.com/Goldziher/skif/blob/main/tools/bench/corpus.toml) with their
+against sherif and syncpack. All of them run on the [pinned public repositories](https://github.com/polylint/skif/blob/main/tools/bench/corpus.toml) with their
 dependencies installed and on generated workspaces. Absolute times depend on the machine; the ratios are the result.
 On npm-cli knip runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it. On the
 large repositories (angular, vscode, n8n and next-js) both tools run with the configuration of the
@@ -23,7 +23,7 @@ n8n's own knip configuration checks dependencies only, and vscode's workbench is
 bundler script names.
 
 {/* bench:summary:start */}
-Medians of 15 runs after 3 warmup runs (5 runs after 1 warmup run on angular, vscode, n8n and next-js) (hyperfine 1.20.0), skif 0.6.0 at `5bd5c5cc37dd` built with rustc 1.100.0 (0ef1bc386 2026-11-09) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-16 on a GitHub-hosted runner, image ubuntu24 20261111.127.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1014-aws, x86_64, Intel(R) Xeon(R) 6975P-C, 4 logical CPUs (2 physical cores), 15.3 GiB memory, hypervisor KVM, load average 7.07 / 4.00 / 1.82 before and 4.12 / 3.48 / 2.75 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43801031855/attempts/1)).
+Medians of 15 runs after 3 warmup runs (5 runs after 1 warmup run on angular, vscode, n8n and next-js) (hyperfine 1.20.0), skif 0.6.0 at `5bd5c5cc37dd` built with rustc 1.100.0 (0ef1bc386 2026-11-09) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-16 on a GitHub-hosted runner, image ubuntu24 20261111.127.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1014-aws, x86_64, Intel(R) Xeon(R) 6975P-C, 4 logical CPUs (2 physical cores), 15.3 GiB memory, hypervisor KVM, load average 7.07 / 4.00 / 1.82 before and 4.12 / 3.48 / 2.75 after the run ([workflow run, attempt 1](https://github.com/polylint/skif/actions/runs/43801031855/attempts/1)).
 
 **Dead-code analysis against knip** (full skif run)
 
@@ -77,11 +77,11 @@ knip exits with an error after its report on n8n (two Vite configs do not load o
 ### All measurements
 
 Mean and median of every timed command on every target of the same run, with the ratio of each tool's median to
-skif's, and the speed targets that [ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md)
+skif's, and the speed targets that [ADR 0001](https://github.com/polylint/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md)
 sets: manifest and policy rules on 500 packages in under 50 ms, the JS analysis at least 5x faster than knip on the same
 tree, and parsing and building the module graph of 10,000 files in under 2 s. The graph target times a whole `skif`
 run, which also runs every JS rule, so it is an upper bound. The same tables check the type-aware budget of
-[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md):
+[ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md):
 `--type-aware` at most 3x the default run on the largest repository and 2x in the median, at most 4 GiB of peak memory with types
 on every target, at most 5 s with types on the 10,000-file graph, and at least 5x faster than knip with types. It is
 the bar types must meet to become the default again; until then a broken budget shows in the tables without failing
@@ -292,7 +292,7 @@ knip --reporter json exits with an error after its report here, as corpus.toml d
 
 A generated 500-package workspace with defects injected on purpose. `Actual` is counted from the files, so the right
 answer is known. Counted by hand on 2026-11-06 with skif 0.1.0 and not re-counted since; the method is in the
-[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md#seeded-defects):
+[benchmark harness](https://github.com/polylint/skif/blob/main/tools/bench/README.md#seeded-defects):
 
 | Defect | Actual | skif | sherif | syncpack |
 | --- | ---: | ---: | ---: | ---: |
@@ -319,7 +319,7 @@ reproduce with `mise run bench:deadcode -- --knip`:
 
 skif reports no false finding; knip reports exports read only through `typeof import("./m")["name"]` and files in
 `fixtures` directories. Per issue type and pattern: the
-[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md#dead-code-precision-and-recall).
+[benchmark harness](https://github.com/polylint/skif/blob/main/tools/bench/README.md#dead-code-precision-and-recall).
 
 ## Agreement with knip
 
@@ -350,12 +350,12 @@ Findings knip@6.44.1 and skif share on 18 pinned repositories (angular, babel, c
 
 A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
 skif makes test files entries, does not report files in `fixtures` directories
-([ADR 0014](https://github.com/Goldziher/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)), reads a
+([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)), reads a
 namespace import differently. Findings in packages skif does not judge, in packages where knip could not load a config,
 inside a file the other tool reports as unused (the file is the one disagreement), and exports used only by such
 files are counted apart too. So are declaration files, which skif never reports as unused, types named in the
 signature of an export skif keeps
-([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)),
+([ADR 0018](https://github.com/polylint/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)),
 duplicate exports of entry modules, which skif's rule leaves alone, and dependencies a Bazel `BUILD` file names, which
 knip does not read. It also sets apart what follows from where each tool looks, decided from paths and manifests:
 projects with their own `package.json` that are not knip workspaces, on both sides (knip neither judges their
@@ -366,9 +366,9 @@ the files they import that only knip reports as unused. An import one tool repor
 unresolved counts as agreement. A repository whose knip run is not a valid comparison is named and left out of the
 sums. skif is compared with `--type-aware`, and runs a second time with `--no-type-aware`: a finding
 only one mode reports, where knip does not side with the typed run, is counted apart as `type-resolved`
-([ADR 0021](https://github.com/Goldziher/skif/blob/main/adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)), and the findings of each
+([ADR 0021](https://github.com/polylint/skif/blob/main/adrs/0021-knip-and-syncpack-comparison-harness-and-its-known-deviations.md)), and the findings of each
 mode per rule are recorded in `tools/bench/baselines/type-aware.json`. Reading the disagreements found false findings on both sides
-([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
+([ADR 0013](https://github.com/polylint/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 The remaining differences, and what each tool reports differently, are in the
 [comparison guide](../comparison/#parity-with-knip).
 
@@ -376,7 +376,7 @@ The remaining differences, and what each tool reports differently, are in the
 
 ### What is measured
 
-[`skif-bench run`](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md#what-it-measures) times whole
+[`skif-bench run`](https://github.com/polylint/skif/blob/main/tools/bench/README.md#what-it-measures) times whole
 command-line invocations, process start-up included, on three kinds of targets:
 
 | Target | Contents | Tools timed |
@@ -404,7 +404,7 @@ start.
 
 ### Pinned corpus and tools
 
-[`tools/bench/corpus.toml`](https://github.com/Goldziher/skif/blob/main/tools/bench/corpus.toml) pins every repository
+[`tools/bench/corpus.toml`](https://github.com/polylint/skif/blob/main/tools/bench/corpus.toml) pins every repository
 to a full commit SHA and declares the sherif, syncpack and knip versions under `[tools]`. The harness installs those
 versions with `npm ci --ignore-scripts` from `tools/bench/tools/package-lock.json`, refuses to run when the lock and
 `[tools]` differ, and times the executables in `node_modules/.bin` directly, so no `npx` resolution is timed and
@@ -426,7 +426,7 @@ declaration says so (`timed = true`) and the run is published with its time and 
 
 The workflow runs only when dispatched, on a pinned GitHub-hosted runner image (`ubuntu-24.04` or
 `ubuntu-24.04-arm`), and builds skif and the harness with `--locked` and the `rust-version` of their `Cargo.toml`
-([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)).
+([ADR 0029](https://github.com/polylint/skif/blob/main/adrs/0029-performance-caching-benchmarks-and-budgets.md)).
 GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
 two runs of the same image may land on different CPU models (the summary names the one it got). Read the ratios
 against knip, sherif and syncpack, which share the machine and its noise, rather than the absolute times.
@@ -435,7 +435,7 @@ against knip, sherif and syncpack, which share the machine and its noise, rather
 
 `mise run bench:import -- <run-id>` imports only a successful, dispatched run of `bench` whose commit is on `main`,
 puts its summary and raw hyperfine exports into
-[`tools/bench/results`](https://github.com/Goldziher/skif/tree/main/tools/bench/results), and regenerates the blocks of
+[`tools/bench/results`](https://github.com/polylint/skif/tree/main/tools/bench/results), and regenerates the blocks of
 this page and the headline claims of the README and the [comparison guide](../comparison/#performance). It writes
 nothing when a comparison tool was not timed, the run was narrowed to some repositories, a tool exited with an error
 that is not a declared knip failure, an ADR 0001 check is invalid, or the run did not come from clean checkouts on a
@@ -454,5 +454,5 @@ On your own machine, `mise run bench` builds skif in release mode and times it t
 npm); add `--install` to `skif-bench run` to install the corpus first, as the workflow does. Local numbers are not
 published. `mise run bench:deadcode -- --knip` reproduces the precision table, and
 `mise run parity -- --install --write-baseline` followed by `mise run parity:publish` the agreement table. The
-[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md) documents every command and
+[benchmark harness](https://github.com/polylint/skif/blob/main/tools/bench/README.md) documents every command and
 option.

@@ -10,5 +10,5 @@ One-shot translation of sherif, syncpack and knip configuration into a `skif.tom
 - Every construct that was not copied one to one is a `Note` (`Exact`, `Approximate`, `Default`, `Human`, `Unsupported`) with the file and the
   key path it came from.
 
-See the [migration guide](https://github.com/Goldziher/skif/blob/main/website/src/content/docs/guides/migrating.mdx) and
-[ADR 0025](https://github.com/Goldziher/skif/blob/main/adrs/0025-skif-migrate.md).
+See the [migration guide](https://github.com/polylint/skif/blob/main/website/src/content/docs/guides/migrating.mdx) and
+[ADR 0025](https://github.com/polylint/skif/blob/main/adrs/0025-skif-migrate.md).

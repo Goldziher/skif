@@ -175,3 +175,8 @@ blake3 = "a35f79de39e590d2ddc2e7ddaaf0a9e6a97a0c6c131d3c7847687cf96c899d8a"
 number = 35
 status = "accepted"
 blake3 = "b27011e69aee2d0cb075c13b4dc328b57b57e6e0a36e133b9b1d52fa47fa7281"
+
+[adrs."adrs/0036-move-to-the-polylint-organization.md"]
+number = 36
+status = "accepted"
+blake3 = "a4c794068e5615c567717cdd0d0c29fdfe2b7ff370d3c6a6323d98592120d66a"

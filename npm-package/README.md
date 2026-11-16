@@ -1,6 +1,6 @@
 # skif
 
-[skif](https://github.com/Goldziher/skif) is a dependency and package-manager linter, auditor and enforcer for
+[skif](https://github.com/polylint/skif) is a dependency and package-manager linter, auditor and enforcer for
 JavaScript and TypeScript, with first-class monorepo support: workspace rules and version and catalog policies,
 for npm, pnpm, Yarn and Bun. It also finds unused, unlisted and unresolved dependencies, unused files and
 exports.
@@ -85,8 +85,16 @@ covered by the registry's integrity hashes.
 If no platform package is installed (for example because optional dependencies were disabled), importing
 `@polylint/skif` fails with an error naming the missing package.
 
+## polylint organization
+
+skif is part of [polylint](https://github.com/polylint), high-performance Rust linters and formatters built for agentic
+workflows. Sibling tools: [polylint](https://github.com/polylint/polylint) (one linter and formatter for every
+language; it can run skif as an engine), [adrlint](https://github.com/polylint/adrlint) (MADR decision records),
+[uncomment](https://github.com/polylint/uncomment) (comment removal and linting). Install any of them from the Homebrew
+tap (`brew tap polylint/tap`) or the Scoop bucket.
+
 ## Links
 
-- [Documentation](https://github.com/Goldziher/skif#readme)
-- [Changelog](https://github.com/Goldziher/skif/blob/main/CHANGELOG.md)
-- [Issues](https://github.com/Goldziher/skif/issues)
+- [Documentation](https://github.com/polylint/skif#readme)
+- [Changelog](https://github.com/polylint/skif/blob/main/CHANGELOG.md)
+- [Issues](https://github.com/polylint/skif/issues)

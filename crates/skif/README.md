@@ -1,6 +1,6 @@
 # skif
 
-Embeddable facade of [skif](https://github.com/Goldziher/skif), a dependency and package-manager linter for
+Embeddable facade of [skif](https://github.com/polylint/skif), a dependency and package-manager linter for
 JavaScript and TypeScript monorepos (npm, pnpm, yarn and bun).
 
 The crate discovers a workspace, runs the rules and plans fixes. It never prints, prompts, exits, reads the
@@ -42,6 +42,6 @@ assert_eq!(report.summary.packages, 2);
 | `plain-ptrs` | Plain pointers in tsrs instead of its fixed address-space reservation, for hosts such as Node.js. Only has an effect with `type-aware`. |
 
 The command-line tool is the [`skif-cli`](https://crates.io/crates/skif-cli) crate. See the
-[repository](https://github.com/Goldziher/skif) for the rule reference and the architecture decisions.
+[repository](https://github.com/polylint/skif) for the rule reference and the architecture decisions.
 
 Licensed under MIT.

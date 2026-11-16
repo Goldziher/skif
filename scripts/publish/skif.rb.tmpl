@@ -1,0 +1,62 @@
+# typed: false
+# frozen_string_literal: true
+
+# Rendered from scripts/publish/skif.rb.tmpl in polylint/skif by its release workflow; do not edit by hand.
+class Skif < Formula
+  desc "Fast dependency linter for JavaScript and TypeScript monorepos"
+  homepage "https://github.com/polylint/skif"
+  version "${version}"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/polylint/skif/releases/download/${tag}/skif-aarch64-apple-darwin.tar.gz"
+      sha256 "${macos_arm_sha}"
+    end
+
+    on_intel do
+      url "https://github.com/polylint/skif/releases/download/${tag}/skif-x86_64-apple-darwin.tar.gz"
+      sha256 "${macos_intel_sha}"
+    end
+  end
+
+  on_linux do
+    # The glibc archives need glibc 2.34 (SKIF_GLIBC_FLOOR in scripts/lib/libc.sh); older systems get the static
+    # musl archives. Homebrew can evaluate Linux formulae while running on macOS.
+    glibc_ok = OS.linux? && OS::Linux::Glibc.system_version >= Version.new("2.34")
+    on_arm do
+      if glibc_ok
+        url "https://github.com/polylint/skif/releases/download/${tag}/skif-aarch64-unknown-linux-gnu.tar.gz"
+        sha256 "${linux_arm_sha}"
+      else
+        url "https://github.com/polylint/skif/releases/download/${tag}/skif-aarch64-unknown-linux-musl.tar.gz"
+        sha256 "${linux_arm_musl_sha}"
+      end
+    end
+
+    on_intel do
+      if glibc_ok
+        url "https://github.com/polylint/skif/releases/download/${tag}/skif-x86_64-unknown-linux-gnu.tar.gz"
+        sha256 "${linux_intel_sha}"
+      else
+        url "https://github.com/polylint/skif/releases/download/${tag}/skif-x86_64-unknown-linux-musl.tar.gz"
+        sha256 "${linux_intel_musl_sha}"
+      end
+    end
+  end
+
+  # The Linux bottles are built on runners with a recent glibc, so they carry the glibc archive. Below the floor the
+  # bottle is skipped and the formula installs the musl archive selected above.
+  pour_bottle? do
+    reason "The Linux bottle carries the glibc build of skif, which needs glibc 2.34 or newer."
+    satisfy { !OS.linux? || OS::Linux::Glibc.system_version >= Version.new("2.34") }
+  end
+
+  def install
+    bin.install "skif"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/skif --version")
+  end
+end
