@@ -44,3 +44,4 @@ old one.
 | 0034 | [Type-Aware Analysis on tsrs](0034-type-aware-analysis-on-tsrs.md) | accepted |
 | 0035 | [Publish the npm Packages Under the polylint Scope](0035-publish-the-npm-packages-under-the-polylint-scope.md) | accepted |
 | 0036 | [Move to the polylint Organization: Repository, Tap, Bucket and Release Credentials](0036-move-to-the-polylint-organization.md) | accepted |
+| 0037 | [Time Each Comparison Tool on the Scope It Reads](0037-time-each-comparison-tool-on-the-scope-it-reads.md) | accepted |
