@@ -77,7 +77,9 @@ impl EscapeNames {
         collector.names.insert(tsrs_ast::INTERNAL_SYMBOL_NAME_DEFAULT);
         for &file in files {
             collector.tables.extend(file.locals());
-            collector.tables.extend(file.symbol().and_then(|symbol| symbol.exports()));
+            collector
+                .tables
+                .extend(file.symbol().and_then(|symbol| symbol.exports()));
             collector.tables.extend(file.global_exports());
         }
         collector.walk();
