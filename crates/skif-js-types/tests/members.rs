@@ -651,3 +651,38 @@ fn an_anonymous_default_class_is_keyed_past_its_closing_brace() {
         );
     }
 }
+
+/// `Square` declares no heritage clause itself; the interface merged into it extends `Shape`, so a read through `Shape`
+/// still credits `Square`'s member. `Table` has neither and stays uncredited.
+#[test]
+fn a_read_through_an_interface_extended_by_an_interface_merged_into_a_class_credits_the_class() {
+    let workspace = Workspace::new(&[
+        ("tsconfig.json", TSCONFIG),
+        (
+            "src/areas.ts",
+            "export interface Shape {\n  area(): number;\n}\n\nexport interface Square extends Shape {}\n\nexport class Square {\n  area(): number {\n    return 4;\n  }\n}\n\nexport class Table {\n  area(): number {\n    return 3;\n  }\n}\n",
+        ),
+        (
+            "src/main.ts",
+            "import type { Shape } from './areas';\n\nexport function total(shape: Shape): number {\n  return shape.area();\n}\n",
+        ),
+    ]);
+    let query = query(vec![
+        workspace.decl("src/areas.ts", DeclKind::Class, "Square", &["area"]),
+        workspace.decl("src/areas.ts", DeclKind::Class, "Table", &["area"]),
+    ]);
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/areas.ts", "src/main.ts"])],
+        &query,
+    );
+    assert_facts(
+        &facts,
+        &Expected {
+            reads: vec![(0, vec!["area"])],
+            covered: vec!["src/areas.ts", "src/main.ts"],
+            coverage: vec![typed("", "app")],
+            ..Expected::default()
+        },
+    );
+}

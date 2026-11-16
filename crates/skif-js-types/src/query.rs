@@ -381,10 +381,21 @@ impl Walker<'_, '_> {
     /// from a base class further up. Every class counts, asked or not: one that declares no judged member still
     /// hands a read through its interface to the member it inherits. Instance members pair with the instance side of
     /// the class, static members of a base class with its static side.
+    ///
+    /// A class none of whose declarations (its own and the interfaces merged into it) has an `extends` or
+    /// `implements` clause has no ancestors: the checker takes base types only from those clauses, so it is not asked
+    /// for them.
     fn class(&mut self, node: P<Node>) {
         let Some(class) = self.checker.get_symbol_of_declaration_exported(node) else {
             return;
         };
+        if !class
+            .declarations()
+            .iter()
+            .any(|&declaration| has_heritage(declaration))
+        {
+            return;
+        }
         let ancestors = self.ancestors(class);
         if ancestors.is_empty() {
             return;
@@ -516,6 +527,12 @@ fn declaration_name(declaration: P<Node>) -> Option<P<Node>> {
         .parent()
         .filter(|parent| parent.kind() == Kind::VariableDeclaration)
         .and_then(|parent| parent.name())
+}
+
+/// Whether the class or interface `declaration` extends or implements anything.
+fn has_heritage(declaration: P<Node>) -> bool {
+    tsrs_ast::get_heritage_clause(declaration, Kind::ExtendsKeyword).is_some()
+        || tsrs_ast::get_heritage_clause(declaration, Kind::ImplementsKeyword).is_some()
 }
 
 /// Whether the variable `symbol` may hold a class, enum or namespace itself: it is initialized from a name or
