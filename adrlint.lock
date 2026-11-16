@@ -180,3 +180,8 @@ blake3 = "b27011e69aee2d0cb075c13b4dc328b57b57e6e0a36e133b9b1d52fa47fa7281"
 number = 36
 status = "accepted"
 blake3 = "a4c794068e5615c567717cdd0d0c29fdfe2b7ff370d3c6a6323d98592120d66a"
+
+[adrs."adrs/0037-time-each-comparison-tool-on-the-scope-it-reads.md"]
+number = 37
+status = "accepted"
+blake3 = "0453b54ccfcb8f6809bb62efb28cae64d41a081087b200f357dc4065ac1350c5"
