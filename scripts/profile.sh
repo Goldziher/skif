@@ -24,7 +24,7 @@ timings="$root/reports/timings-$name-$stamp.txt"
 cargo build --profile profiling --locked -p skif-cli --manifest-path "$root/Cargo.toml"
 
 # skif exits non-zero when it finds problems; the profile is still wanted.
-SKIF_TIMINGS=1 samply record --save-only -o "$profile" \
+SKIF_TIMINGS=1 samply record --save-only --unstable-presymbolicate -o "$profile" \
   "$root/target/profiling/skif" "$target_dir" --format json --no-install "$@" \
   >/dev/null 2>"$timings" || true
 
