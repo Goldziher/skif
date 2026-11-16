@@ -1,32 +1,32 @@
 {
-  "schema": 5,
-  "skif": "skif 0.5.0",
-  "source_rev": "e46391c1ab1c",
-  "harness_rev": "e46391c1ab1c",
-  "measured_at": 1794660382,
+  "schema": 7,
+  "skif": "skif 0.6.0",
+  "source_rev": "5bd5c5cc37dd",
+  "harness_rev": "5bd5c5cc37dd",
+  "measured_at": 1794803014,
   "machine": {
     "os": "Ubuntu 24.04.5 LTS",
-    "kernel": "Linux 7.0.0-1017-azure",
+    "kernel": "Linux 7.0.0-1014-aws",
     "arch": "x86_64",
-    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "cpu": "Intel(R) Xeon(R) 6975P-C",
     "logical_cpus": 4,
     "available_cpus": 4,
     "physical_cores": 2,
-    "memory_bytes": 16760344576,
+    "memory_bytes": 16464306176,
     "cgroup_cpu_limit": null,
-    "virtualization": "Microsoft",
+    "virtualization": "KVM",
     "github": {
       "image_os": "ubuntu24",
-      "image_version": "20261111.370.1",
+      "image_version": "20261111.127.1",
       "runner_os": "Linux",
       "runner_arch": "X64",
       "runner_environment": "github-hosted",
-      "runner_name": "GitHub Actions 1000198101",
+      "runner_name": "GitHub Actions 1000201211",
       "run_attempt": 1,
-      "run_url": "https://github.com/Goldziher/skif/actions/runs/43595557667/attempts/1"
+      "run_url": "https://github.com/Goldziher/skif/actions/runs/43801031855/attempts/1"
     }
   },
-  "machine_text": "Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, AMD EPYC 9V74 80-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft",
+  "machine_text": "Ubuntu 24.04.5 LTS, Linux 7.0.0-1014-aws, x86_64, Intel(R) Xeon(R) 6975P-C, 4 logical CPUs (2 physical cores), 15.3 GiB memory, hypervisor KVM",
   "toolchain": {
     "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
     "node": "v26.13.0",
@@ -36,14 +36,14 @@
     "bun": null
   },
   "load_before": [
-    4.79,
-    3.53,
-    1.67
+    7.07,
+    4.0,
+    1.82
   ],
   "load_after": [
-    1.52,
-    2.46,
-    1.71
+    4.12,
+    3.48,
+    2.75
   ],
   "hyperfine": "hyperfine 1.20.0",
   "tool_versions": {
@@ -63,42 +63,47 @@
       "files": null,
       "installed_with": null,
       "declared_knip_failure": null,
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 4.214996999999999,
-          "stddev_ms": 0.08000410958105311,
-          "median_ms": 4.221615000000001,
-          "min_ms": 4.106411,
-          "max_ms": 4.3416060000000005,
+          "mean_ms": 4.3512205999999995,
+          "stddev_ms": 0.32503131973941046,
+          "median_ms": 4.269005,
+          "min_ms": 3.968185,
+          "max_ms": 5.076339,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 29.5168186,
-          "stddev_ms": 1.1428784333048099,
-          "median_ms": 29.284852,
-          "min_ms": 28.030291,
-          "max_ms": 32.388341000000004,
-          "relative_to_skif": 7.002808922521179,
+          "mean_ms": 25.047797199999998,
+          "stddev_ms": 1.1720879280669665,
+          "median_ms": 24.923287,
+          "min_ms": 23.091826,
+          "max_ms": 27.036935000000003,
+          "relative_to_skif": 5.7564990384537165,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 55.26349793333333,
-          "stddev_ms": 36.320827660640944,
-          "median_ms": 40.882929000000004,
-          "min_ms": 38.150639,
-          "max_ms": 172.28668400000004,
-          "relative_to_skif": 13.111159493905532,
+          "mean_ms": 30.68979386666667,
+          "stddev_ms": 1.0461683602533216,
+          "median_ms": 30.557555000000004,
+          "min_ms": 28.770034000000003,
+          "max_ms": 32.67183300000001,
+          "relative_to_skif": 7.053145930286015,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         }
       ]
     },
@@ -109,42 +114,47 @@
       "files": null,
       "installed_with": null,
       "declared_knip_failure": null,
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 23.650026266666664,
-          "stddev_ms": 0.5196412602251214,
-          "median_ms": 23.737389,
-          "min_ms": 22.764953000000002,
-          "max_ms": 24.545587,
+          "mean_ms": 19.4218614,
+          "stddev_ms": 0.6182679826939126,
+          "median_ms": 19.448875,
+          "min_ms": 18.431641,
+          "max_ms": 20.879289,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 51.98719700000001,
-          "stddev_ms": 1.0125478470245948,
-          "median_ms": 52.179269,
-          "min_ms": 50.46741900000001,
-          "max_ms": 53.924941999999994,
-          "relative_to_skif": 2.1981877065934987,
+          "mean_ms": 39.199524999999994,
+          "stddev_ms": 1.3469795364277077,
+          "median_ms": 39.409021,
+          "min_ms": 36.880437,
+          "max_ms": 42.003278,
+          "relative_to_skif": 2.018319675579602,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 151.3957324666667,
-          "stddev_ms": 1.3319957570834358,
-          "median_ms": 151.414836,
-          "min_ms": 148.224786,
-          "max_ms": 153.965822,
-          "relative_to_skif": 6.401503776765362,
+          "mean_ms": 116.01418246666668,
+          "stddev_ms": 1.501064312254183,
+          "median_ms": 115.947484,
+          "min_ms": 113.644234,
+          "max_ms": 118.76361200000001,
+          "relative_to_skif": 5.973381236603134,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         }
       ]
     },
@@ -155,42 +165,47 @@
       "files": null,
       "installed_with": null,
       "declared_knip_failure": null,
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 104.3400006,
-          "stddev_ms": 3.56020389780593,
-          "median_ms": 103.52476300000001,
-          "min_ms": 97.92606099999999,
-          "max_ms": 110.374916,
+          "mean_ms": 87.21662766666668,
+          "stddev_ms": 7.923298465739224,
+          "median_ms": 84.030904,
+          "min_ms": 80.99817800000001,
+          "max_ms": 108.661576,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 126.43187453333334,
-          "stddev_ms": 2.201010684851649,
-          "median_ms": 125.96863499999999,
-          "min_ms": 123.225971,
-          "max_ms": 130.58708800000002,
-          "relative_to_skif": 1.2117296703689433,
+          "mean_ms": 98.40284633333331,
+          "stddev_ms": 2.124076780390101,
+          "median_ms": 98.55305,
+          "min_ms": 94.78853,
+          "max_ms": 102.645443,
+          "relative_to_skif": 1.1282578674036705,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 680.1999924666667,
-          "stddev_ms": 12.550496440256222,
-          "median_ms": 676.238707,
-          "min_ms": 669.0605240000001,
-          "max_ms": 712.261598,
-          "relative_to_skif": 6.51907215406578,
+          "mean_ms": 515.9790302666667,
+          "stddev_ms": 5.410569529463879,
+          "median_ms": 515.688033,
+          "min_ms": 510.067913,
+          "max_ms": 531.9580520000001,
+          "relative_to_skif": 5.916062614100231,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         }
       ]
     },
@@ -201,18 +216,34 @@
       "files": 10000,
       "installed_with": null,
       "declared_knip_failure": null,
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 216.07829100000004,
-          "stddev_ms": 3.747727734895831,
-          "median_ms": 215.902474,
-          "min_ms": 210.194919,
-          "max_ms": 226.583767,
+          "mean_ms": 184.93161266666672,
+          "stddev_ms": 3.868359276579682,
+          "median_ms": 185.82817300000002,
+          "min_ms": 177.91805000000002,
+          "max_ms": 190.27922999999998,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": 94773248
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 242.3142976,
+          "stddev_ms": 5.883632160825934,
+          "median_ms": 241.493945,
+          "min_ms": 231.743112,
+          "max_ms": 255.375562,
+          "relative_to_skif": 1.3102913780174714,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 104321024
         }
       ]
     },
@@ -224,71 +255,93 @@
       "installed_with": "pnpm 10.19.0",
       "declared_knip_failure": {
         "matches": "Cannot find module 'metro-cache'",
-        "reason": "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide"
+        "reason": "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide",
+        "timed": false
       },
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 31.5298486,
-          "stddev_ms": 0.8013854260741917,
-          "median_ms": 31.31937,
-          "min_ms": 29.88068,
-          "max_ms": 32.680171,
+          "mean_ms": 31.343614133333336,
+          "stddev_ms": 2.568573232125038,
+          "median_ms": 31.327045000000005,
+          "min_ms": 27.925645999999997,
+          "max_ms": 36.148539,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": 28962816
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 455.68315133333334,
+          "stddev_ms": 9.120191309363252,
+          "median_ms": 454.772939,
+          "min_ms": 440.903774,
+          "max_ms": 477.33991199999997,
+          "relative_to_skif": 14.538309123985895,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 262856704
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 3.3330055333333335,
-          "stddev_ms": 0.03510576766789735,
-          "median_ms": 3.344082,
-          "min_ms": 3.234757,
-          "max_ms": 3.377953,
-          "relative_to_skif": 0.10570953180324924,
+          "mean_ms": 3.1608810000000003,
+          "stddev_ms": 0.10087923031172329,
+          "median_ms": 3.1451029999999998,
+          "min_ms": 3.046538,
+          "max_ms": 3.457742,
+          "relative_to_skif": 0.10084609217539033,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 28.990658333333343,
-          "stddev_ms": 3.2812862053719267,
-          "median_ms": 28.012303999999997,
-          "min_ms": 26.038919,
-          "max_ms": 36.637228,
-          "relative_to_skif": 8.698052866518895,
+          "mean_ms": 23.235642533333333,
+          "stddev_ms": 1.4444722609425251,
+          "median_ms": 22.776951,
+          "min_ms": 21.155831,
+          "max_ms": 26.488860000000003,
+          "relative_to_skif": 7.351001993853401,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 35.491288533333346,
-          "stddev_ms": 3.291791143813303,
-          "median_ms": 34.534798,
-          "min_ms": 32.822556000000006,
-          "max_ms": 46.161237,
-          "relative_to_skif": 10.648433726972714,
+          "mean_ms": 26.76893926666667,
+          "stddev_ms": 0.886709259709055,
+          "median_ms": 26.689653,
+          "min_ms": 25.390276000000004,
+          "max_ms": 29.295137999999998,
+          "relative_to_skif": 8.468822226039723,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 1540.8329774000003,
-          "stddev_ms": 25.02117387562188,
-          "median_ms": 1532.259681,
-          "min_ms": 1518.562588,
-          "max_ms": 1619.5081149999999,
+          "mean_ms": 1257.386013,
+          "stddev_ms": 16.975706686216988,
+          "median_ms": 1263.08726,
+          "min_ms": 1228.648904,
+          "max_ms": 1279.131557,
           "relative_to_skif": null,
           "error_runs": 15,
           "error_output": "ERROR: Error loading apps/expo/metro.config.js (Cannot find module 'metro-cache')",
           "failure": {
             "reason": "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide",
-            "error": "ERROR: Error loading apps/expo/metro.config.js (Cannot find module 'metro-cache')"
-          }
+            "error": "ERROR: Error loading apps/expo/metro.config.js (Cannot find module 'metro-cache')",
+            "timed": false
+          },
+          "peak_rss_bytes": null
         }
       ]
     },
@@ -300,71 +353,93 @@
       "installed_with": "pnpm 12.11.2",
       "declared_knip_failure": {
         "matches": "sfc-playground/vite.config.ts (__DEV__ is not defined)",
-        "reason": "its SFC playground Vite config reads a build-time global that only the repository's own build defines"
+        "reason": "its SFC playground Vite config reads a build-time global that only the repository's own build defines",
+        "timed": false
       },
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 60.734195666666665,
-          "stddev_ms": 0.8078554920266793,
-          "median_ms": 60.471512000000004,
-          "min_ms": 59.974353,
-          "max_ms": 62.805542,
+          "mean_ms": 63.807835133333334,
+          "stddev_ms": 0.48134087398757663,
+          "median_ms": 63.70671600000001,
+          "min_ms": 62.996062,
+          "max_ms": 64.76989200000001,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": 36167680
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 378.034888,
+          "stddev_ms": 19.07333109778326,
+          "median_ms": 374.869214,
+          "min_ms": 361.481137,
+          "max_ms": 442.807796,
+          "relative_to_skif": 5.924584139393782,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 174911488
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 3.5268502666666666,
-          "stddev_ms": 0.059896796628470715,
-          "median_ms": 3.52203,
-          "min_ms": 3.463362,
-          "max_ms": 3.6706339999999997,
-          "relative_to_skif": 0.05807025561058581,
+          "mean_ms": 3.3326858666666666,
+          "stddev_ms": 0.10803197143297548,
+          "median_ms": 3.3240450000000004,
+          "min_ms": 3.1091130000000002,
+          "max_ms": 3.5340140000000004,
+          "relative_to_skif": 0.052230041337441725,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 28.96199386666666,
-          "stddev_ms": 1.0479936180956764,
-          "median_ms": 28.73908,
-          "min_ms": 27.673894,
-          "max_ms": 32.057122,
-          "relative_to_skif": 8.21185808209531,
+          "mean_ms": 23.8628892,
+          "stddev_ms": 1.8555123332309904,
+          "median_ms": 23.564169000000003,
+          "min_ms": 21.388192,
+          "max_ms": 27.675235999999998,
+          "relative_to_skif": 7.160257568430092,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 36.39948773333333,
-          "stddev_ms": 0.8875619790538152,
-          "median_ms": 36.04475,
-          "min_ms": 35.185344,
-          "max_ms": 38.367767,
-          "relative_to_skif": 10.320678503807194,
+          "mean_ms": 27.721852733333336,
+          "stddev_ms": 1.2168895455383353,
+          "median_ms": 27.853412000000002,
+          "min_ms": 26.032369000000003,
+          "max_ms": 30.576934000000005,
+          "relative_to_skif": 8.318171541640249,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 1262.6346191333332,
-          "stddev_ms": 20.70858783564198,
-          "median_ms": 1259.204324,
-          "min_ms": 1229.46551,
-          "max_ms": 1312.154698,
+          "mean_ms": 1077.9689592,
+          "stddev_ms": 8.610680621887209,
+          "median_ms": 1076.358082,
+          "min_ms": 1065.492238,
+          "max_ms": 1099.532304,
           "relative_to_skif": null,
           "error_runs": 15,
           "error_output": "ERROR: Error loading packages-private/sfc-playground/vite.config.ts (__DEV__ is not defined)",
           "failure": {
             "reason": "its SFC playground Vite config reads a build-time global that only the repository's own build defines",
-            "error": "ERROR: Error loading packages-private/sfc-playground/vite.config.ts (__DEV__ is not defined)"
-          }
+            "error": "ERROR: Error loading packages-private/sfc-playground/vite.config.ts (__DEV__ is not defined)",
+            "timed": false
+          },
+          "peak_rss_bytes": null
         }
       ]
     },
@@ -375,66 +450,86 @@
       "files": null,
       "installed_with": "pnpm 12.4.2",
       "declared_knip_failure": null,
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 374.5409314666666,
-          "stddev_ms": 2.56846113614444,
-          "median_ms": 374.647528,
-          "min_ms": 369.58347700000013,
-          "max_ms": 379.856131,
+          "mean_ms": 359.3558656000001,
+          "stddev_ms": 4.126041809629118,
+          "median_ms": 358.638717,
+          "min_ms": 352.273977,
+          "max_ms": 366.294636,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": 114348032
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 3126.827042133333,
+          "stddev_ms": 41.3413208386287,
+          "median_ms": 3118.2532850000002,
+          "min_ms": 3074.174089,
+          "max_ms": 3188.107903,
+          "relative_to_skif": 8.701199399966974,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 449626112
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 9.409001266666666,
-          "stddev_ms": 0.3009503119926865,
-          "median_ms": 9.286702,
-          "min_ms": 9.136194999999999,
-          "max_ms": 10.268402,
-          "relative_to_skif": 0.025121423257591403,
+          "mean_ms": 8.478601333333334,
+          "stddev_ms": 0.13399606661266836,
+          "median_ms": 8.455275,
+          "min_ms": 8.287702000000001,
+          "max_ms": 8.836306,
+          "relative_to_skif": 0.02359388601930012,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 34.39188906666667,
-          "stddev_ms": 0.8281678249302118,
-          "median_ms": 34.284511,
-          "min_ms": 33.250632,
-          "max_ms": 36.324576,
-          "relative_to_skif": 3.655211439763225,
+          "mean_ms": 30.73162526666667,
+          "stddev_ms": 1.0106606311748667,
+          "median_ms": 31.152045000000005,
+          "min_ms": 28.884964000000004,
+          "max_ms": 32.237385,
+          "relative_to_skif": 3.6246102462497354,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 101.49286573333335,
-          "stddev_ms": 1.077121557605763,
-          "median_ms": 101.689558,
-          "min_ms": 99.37522799999999,
-          "max_ms": 103.054285,
-          "relative_to_skif": 10.78678415028945,
+          "mean_ms": 79.63088986666668,
+          "stddev_ms": 1.2324707230146554,
+          "median_ms": 79.43565400000001,
+          "min_ms": 77.88790900000001,
+          "max_ms": 81.977292,
+          "relative_to_skif": 9.391984212490394,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 3370.6769109333336,
-          "stddev_ms": 24.809839453667966,
-          "median_ms": 3384.330336,
-          "min_ms": 3325.1785160000004,
-          "max_ms": 3403.2771390000003,
-          "relative_to_skif": 8.999488781463976,
+          "mean_ms": 2986.536903333333,
+          "stddev_ms": 19.454387959786903,
+          "median_ms": 2989.857739,
+          "min_ms": 2941.351417,
+          "max_ms": 3013.995951,
+          "relative_to_skif": 8.310806053901052,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         }
       ]
     },
@@ -445,66 +540,86 @@
       "files": null,
       "installed_with": "yarn 4.17.0",
       "declared_knip_failure": null,
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 837.3853376000001,
-          "stddev_ms": 13.044359300501519,
-          "median_ms": 835.1140610000001,
-          "min_ms": 816.525071,
-          "max_ms": 861.070319,
+          "mean_ms": 880.7098776666666,
+          "stddev_ms": 5.612047628321477,
+          "median_ms": 880.411452,
+          "min_ms": 871.9574240000001,
+          "max_ms": 890.2157090000001,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": 168341504
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 8887.016321066665,
+          "stddev_ms": 86.7346582670839,
+          "median_ms": 8887.303743,
+          "min_ms": 8767.316681,
+          "max_ms": 9026.283026,
+          "relative_to_skif": 10.090742191528193,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 522969088
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 14.8421686,
-          "stddev_ms": 0.3973861995615493,
-          "median_ms": 14.916250000000002,
-          "min_ms": 14.152769000000001,
-          "max_ms": 15.692851000000001,
-          "relative_to_skif": 0.017724419014236152,
+          "mean_ms": 13.114573,
+          "stddev_ms": 0.4447252719565835,
+          "median_ms": 13.116311,
+          "min_ms": 12.390945,
+          "max_ms": 13.710825,
+          "relative_to_skif": 0.014890911675415135,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 30.66634806666667,
-          "stddev_ms": 0.6361751231256405,
-          "median_ms": 30.420206,
-          "min_ms": 29.972812,
-          "max_ms": 32.416537000000005,
-          "relative_to_skif": 2.0661635703738517,
+          "mean_ms": 25.81370406666667,
+          "stddev_ms": 1.7747011312810421,
+          "median_ms": 25.349898999999997,
+          "min_ms": 23.635181000000003,
+          "max_ms": 29.450391000000003,
+          "relative_to_skif": 1.9683221151513413,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 298.99832340000006,
-          "stddev_ms": 1.5402993404524512,
-          "median_ms": 299.17171600000006,
-          "min_ms": 296.722082,
-          "max_ms": 302.285607,
-          "relative_to_skif": 20.145191141407736,
+          "mean_ms": 187.03997253333335,
+          "stddev_ms": 1.1904141593556494,
+          "median_ms": 187.28621900000002,
+          "min_ms": 184.804667,
+          "max_ms": 188.99675399999998,
+          "relative_to_skif": 14.261994845987997,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 5043.667665066666,
-          "stddev_ms": 68.85790381330432,
-          "median_ms": 5038.238168000001,
-          "min_ms": 4935.046638,
-          "max_ms": 5191.185224,
-          "relative_to_skif": 6.023114375900275,
+          "mean_ms": 4346.245478266666,
+          "stddev_ms": 41.55288927949972,
+          "median_ms": 4334.4205950000005,
+          "min_ms": 4275.3737550000005,
+          "max_ms": 4403.094806,
+          "relative_to_skif": 4.934934407436776,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         }
       ]
     },
@@ -515,66 +630,462 @@
       "files": null,
       "installed_with": "npx --yes npm@11.6.2 ci --ignore-scripts",
       "declared_knip_failure": null,
+      "warmup": 3,
+      "runs": 15,
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 87.23421753333335,
-          "stddev_ms": 4.607377166939511,
-          "median_ms": 86.18062800000001,
-          "min_ms": 80.988369,
-          "max_ms": 96.035096,
+          "mean_ms": 89.918374,
+          "stddev_ms": 3.0967950525586923,
+          "median_ms": 91.019139,
+          "min_ms": 83.59386400000001,
+          "max_ms": 93.576571,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": 46411776
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 113.73830506666668,
+          "stddev_ms": 4.636492487745598,
+          "median_ms": 112.875281,
+          "min_ms": 106.22513000000001,
+          "max_ms": 121.53997299999999,
+          "relative_to_skif": 1.2649061588532138,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 54575104
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 5.363503199999999,
-          "stddev_ms": 0.0893870479713284,
-          "median_ms": 5.3743430000000005,
-          "min_ms": 5.222294000000001,
-          "max_ms": 5.523628,
-          "relative_to_skif": 0.06148393774438951,
+          "mean_ms": 5.064558933333333,
+          "stddev_ms": 0.11560647219243812,
+          "median_ms": 5.027318,
+          "min_ms": 4.893049,
+          "max_ms": 5.3028200000000005,
+          "relative_to_skif": 0.0563239603658017,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "sherif",
-          "mean_ms": 28.482565133333335,
-          "stddev_ms": 1.089845689235464,
-          "median_ms": 27.978294,
-          "min_ms": 26.838385000000002,
-          "max_ms": 30.783742999999998,
-          "relative_to_skif": 5.310440596611062,
+          "mean_ms": 24.100295800000005,
+          "stddev_ms": 1.2354730613237181,
+          "median_ms": 24.329317000000003,
+          "min_ms": 21.968473,
+          "max_ms": 25.907100999999997,
+          "relative_to_skif": 4.7586169135834195,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 69.25970453333333,
-          "stddev_ms": 1.4221010697010397,
-          "median_ms": 68.963499,
-          "min_ms": 67.545621,
-          "max_ms": 72.18087000000001,
-          "relative_to_skif": 12.913146865155845,
+          "mean_ms": 51.14331346666667,
+          "stddev_ms": 1.680889769689251,
+          "median_ms": 50.697028,
+          "min_ms": 49.305525,
+          "max_ms": 55.247147000000005,
+          "relative_to_skif": 10.098275909093973,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 669.6707897333333,
-          "stddev_ms": 5.840057921252882,
-          "median_ms": 668.241081,
-          "min_ms": 662.0416560000001,
-          "max_ms": 679.918257,
-          "relative_to_skif": 7.676698532630767,
+          "mean_ms": 579.9330551333334,
+          "stddev_ms": 6.197789503366113,
+          "median_ms": 579.516244,
+          "min_ms": 569.758542,
+          "max_ms": 593.38733,
+          "relative_to_skif": 6.44955006785747,
           "error_runs": 0,
           "error_output": null,
-          "failure": null
+          "failure": null,
+          "peak_rss_bytes": null
+        }
+      ]
+    },
+    {
+      "target": "corpus: angular (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "pnpm 12.16.1",
+      "declared_knip_failure": null,
+      "warmup": 1,
+      "runs": 5,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 968.3070127999999,
+          "stddev_ms": 3.929620802307497,
+          "median_ms": 968.7264399999999,
+          "min_ms": 962.983246,
+          "max_ms": 973.374733,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 190291968
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 3479.0779248,
+          "stddev_ms": 33.49282150262346,
+          "median_ms": 3487.363679,
+          "min_ms": 3434.323589,
+          "max_ms": 3511.363859,
+          "relative_to_skif": 3.5929492183886413,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 674361344
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 5.1738932,
+          "stddev_ms": 0.10769823313406779,
+          "median_ms": 5.185449,
+          "min_ms": 5.059266000000001,
+          "max_ms": 5.316235000000001,
+          "relative_to_skif": 0.005343236320306034,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 24.1896896,
+          "stddev_ms": 1.8285905829018425,
+          "median_ms": 23.726224000000002,
+          "min_ms": 22.565294,
+          "max_ms": 27.322905000000002,
+          "relative_to_skif": 4.675336089272195,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 62.603910600000006,
+          "stddev_ms": 1.1163207170601979,
+          "median_ms": 62.913008000000005,
+          "min_ms": 60.980132000000005,
+          "max_ms": 63.75412,
+          "relative_to_skif": 12.099961901030351,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 3444.9893865999998,
+          "stddev_ms": 55.48250947341502,
+          "median_ms": 3447.361254,
+          "min_ms": 3377.596948,
+          "max_ms": 3507.8343360000003,
+          "relative_to_skif": 3.5577449518188593,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        }
+      ]
+    },
+    {
+      "target": "corpus: vscode (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "pnpm 12.16.0",
+      "declared_knip_failure": null,
+      "warmup": 1,
+      "runs": 5,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 3972.8908343999997,
+          "stddev_ms": 18.281092062484397,
+          "median_ms": 3978.696639,
+          "min_ms": 3948.337742,
+          "max_ms": 3990.907838,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 457555968
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 11718.378975200001,
+          "stddev_ms": 74.07542699666253,
+          "median_ms": 11695.656775,
+          "min_ms": 11633.455486,
+          "max_ms": 11811.471851,
+          "relative_to_skif": 2.949584940450485,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 3080196096
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 64.70919220000002,
+          "stddev_ms": 0.7682532288758681,
+          "median_ms": 64.972905,
+          "min_ms": 63.58846600000001,
+          "max_ms": 65.383296,
+          "relative_to_skif": 0.016287684433638015,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 26.511812199999998,
+          "stddev_ms": 2.4867400823652033,
+          "median_ms": 25.361908999999997,
+          "min_ms": 24.801938999999997,
+          "max_ms": 30.745292,
+          "relative_to_skif": 0.4097070493177937,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 98.1467006,
+          "stddev_ms": 0.9783133394712072,
+          "median_ms": 97.662792,
+          "min_ms": 97.322749,
+          "max_ms": 99.321951,
+          "relative_to_skif": 1.516735061328736,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 12800.3930164,
+          "stddev_ms": 122.61192706752263,
+          "median_ms": 12848.574838999999,
+          "min_ms": 12585.144417,
+          "max_ms": 12890.58259,
+          "relative_to_skif": 3.221934241325098,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        }
+      ]
+    },
+    {
+      "target": "corpus: n8n (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "pnpm 12.4.2",
+      "declared_knip_failure": {
+        "matches": "Error loading packages/@n8n/mcp-apps/vite.config.mts",
+        "reason": "two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries",
+        "timed": true
+      },
+      "warmup": 1,
+      "runs": 5,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 5414.5291025999995,
+          "stddev_ms": 55.86835721576688,
+          "median_ms": 5411.496304,
+          "min_ms": 5355.8789879999995,
+          "max_ms": 5501.777103,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 937230336
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 20604.883200799995,
+          "stddev_ms": 94.40601241037356,
+          "median_ms": 20619.465475999998,
+          "min_ms": 20448.391056999997,
+          "max_ms": 20693.040575000003,
+          "relative_to_skif": 3.8054801831069205,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 3943796736
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 98.3840328,
+          "stddev_ms": 1.4979146506445908,
+          "median_ms": 98.342957,
+          "min_ms": 96.56057999999999,
+          "max_ms": 100.369804,
+          "relative_to_skif": 0.018170376580441135,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 26.333074800000002,
+          "stddev_ms": 1.5368615370713137,
+          "median_ms": 26.552941,
+          "min_ms": 24.425064,
+          "max_ms": 28.578993,
+          "relative_to_skif": 0.2676559808595283,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 129.39242979999997,
+          "stddev_ms": 0.8688408549678048,
+          "median_ms": 129.44723500000003,
+          "min_ms": 128.07453,
+          "max_ms": 130.477608,
+          "relative_to_skif": 1.3151771290269776,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 20828.155536199996,
+          "stddev_ms": 170.8745286861473,
+          "median_ms": 20753.37359,
+          "min_ms": 20632.086436,
+          "max_ms": 21037.975061,
+          "relative_to_skif": 3.846715963942005,
+          "error_runs": 5,
+          "error_output": "ERROR: Error loading packages/@n8n/nodes-langchain/vite.config.ts (Cannot find module 'packages/@n8n/nodes-langchain/node_modules/n8n-workflow/dist/cjs/index.js",
+          "failure": {
+            "reason": "two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries",
+            "error": "ERROR: Error loading packages/@n8n/nodes-langchain/vite.config.ts (Cannot find module 'packages/@n8n/nodes-langchain/node_modules/n8n-workflow/dist/cjs/index.js",
+            "timed": true
+          },
+          "peak_rss_bytes": null
+        }
+      ]
+    },
+    {
+      "target": "corpus: next-js (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "pnpm 12.9.1",
+      "declared_knip_failure": {
+        "matches": "Error loading jest.config.js (Cannot find module './dist/build/jest/jest')",
+        "reason": "its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries",
+        "timed": true
+      },
+      "warmup": 1,
+      "runs": 5,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 3062.4111444,
+          "stddev_ms": 8.305528085462731,
+          "median_ms": 3059.229255,
+          "min_ms": 3052.636428,
+          "max_ms": 3071.9426080000003,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 269819904
+        },
+        {
+          "tool": "skif --type-aware",
+          "mean_ms": 5949.139786000001,
+          "stddev_ms": 53.06113348477919,
+          "median_ms": 5940.7848730000005,
+          "min_ms": 5896.8793479999995,
+          "max_ms": 6038.308905,
+          "relative_to_skif": 1.9426326203386322,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": 865140736
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 162.23833140000002,
+          "stddev_ms": 1.768864427213212,
+          "median_ms": 161.601193,
+          "min_ms": 160.317689,
+          "max_ms": 164.74021400000004,
+          "relative_to_skif": 0.05297731876945165,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 24.7189008,
+          "stddev_ms": 1.031050241642327,
+          "median_ms": 25.406981,
+          "min_ms": 23.514652,
+          "max_ms": 25.558314,
+          "relative_to_skif": 0.152361655760964,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 233.2004572,
+          "stddev_ms": 1.0601683158389068,
+          "median_ms": 232.689708,
+          "min_ms": 232.044547,
+          "max_ms": 234.344843,
+          "relative_to_skif": 1.4373943271460443,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null,
+          "peak_rss_bytes": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 4706.1940636,
+          "stddev_ms": 68.90916459239195,
+          "median_ms": 4678.119180000001,
+          "min_ms": 4662.2258759999995,
+          "max_ms": 4827.065111,
+          "relative_to_skif": 1.5367610166276535,
+          "error_runs": 5,
+          "error_output": "ERROR: Error loading jest.config.js (Cannot find module './dist/build/jest/jest')",
+          "failure": {
+            "reason": "its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries",
+            "error": "ERROR: Error loading jest.config.js (Cannot find module './dist/build/jest/jest')",
+            "timed": true
+          },
+          "peak_rss_bytes": null
         }
       ]
     }
@@ -582,12 +1093,12 @@
   "adr_0001_checks": [
     {
       "target": "generated: 500 packages (pnpm)",
-      "description": "manifest and policy rules < 50 ms (measured 23.7 ms)",
+      "description": "manifest and policy rules < 50 ms (measured 19.4 ms)",
       "status": "pass"
     },
     {
       "target": "graph: 10000 files in 100 packages",
-      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 216.1 ms)",
+      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 184.9 ms)",
       "status": "pass"
     },
     {
@@ -602,18 +1113,150 @@
     },
     {
       "target": "corpus: tanstack-query (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 9.0x)",
+      "description": "JS analysis >= 5x faster than knip (measured 8.3x)",
       "status": "pass"
     },
     {
       "target": "corpus: babel (yarn)",
-      "description": "JS analysis >= 5x faster than knip (measured 6.0x)",
+      "description": "JS analysis >= 5x faster than knip (measured 4.9x)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: npm-cli (npm)",
+      "description": "JS analysis >= 5x faster than knip (measured 6.4x)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: angular (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 3.6x)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: vscode (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 3.2x)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: n8n (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 3.8x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: next-js (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 1.5x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries)",
+      "status": "fail"
+    }
+  ],
+  "type_aware_budget_checks": [
+    {
+      "target": "graph: 10000 files in 100 packages",
+      "description": "peak RSS with types <= 4096 MiB (measured 99 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "graph: 10000 files in 100 packages",
+      "description": "whole run with types < 5000 ms (measured 242.3 ms)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: create-t3-turbo (pnpm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 251 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: create-t3-turbo (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide)",
+      "status": "not-measured"
+    },
+    {
+      "target": "corpus: vue-core (pnpm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 167 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: vue-core (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines)",
+      "status": "not-measured"
+    },
+    {
+      "target": "corpus: tanstack-query (pnpm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 429 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: tanstack-query (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 1.0x)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: babel (yarn)",
+      "description": "peak RSS with types <= 4096 MiB (measured 499 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: babel (yarn)",
+      "description": "JS analysis >= 5x faster than knip (measured 0.5x)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: npm-cli (npm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 52 MiB)",
       "status": "pass"
     },
     {
       "target": "corpus: npm-cli (npm)",
-      "description": "JS analysis >= 5x faster than knip (measured 7.7x)",
+      "description": "JS analysis >= 5x faster than knip (measured 5.1x)",
       "status": "pass"
+    },
+    {
+      "target": "corpus: angular (pnpm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 643 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: angular (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 1.0x)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: vscode (pnpm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 2938 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: vscode (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 1.1x)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: n8n (pnpm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 3761 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: n8n (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 1.0x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: next-js (pnpm)",
+      "description": "peak RSS with types <= 4096 MiB (measured 825 MiB)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: next-js (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 0.8x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus: n8n (pnpm)",
+      "description": "types on <= 3x types off on the largest repository, the one whose untyped run takes longest (measured 3.8x: 20605 ms against 5415 ms)",
+      "status": "fail"
+    },
+    {
+      "target": "corpus",
+      "description": "median types on / types off across 9 repositories <= 2x (measured 3.8x)",
+      "status": "fail"
     }
   ]
 }
