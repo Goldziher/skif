@@ -1630,7 +1630,7 @@ mod tests {
             load_before: Some([1.5, 1.25, 1.0]),
             load_after: None,
             hyperfine: "hyperfine 1.20.0".into(),
-            tool_versions: BTreeMap::from([("knip".to_owned(), "6.44.1".to_owned())]),
+            tool_versions: BTreeMap::from([("knip".to_owned(), "1.2.3".to_owned())]),
             warmup: 1,
             runs: 2,
             corpus_only: vec!["babel".into(), "vue-core".into()],
@@ -1719,7 +1719,7 @@ mod tests {
             with_skip.contains("Toolchain: rustc `rustc 1.99.0 (0123abcd 2026-10-01)`, node `v26.13.0`, npm `11.6.2`."),
             "{with_skip}"
         );
-        assert!(with_skip.contains("Comparison tools: knip `6.44.1`."), "{with_skip}");
+        assert!(with_skip.contains("Comparison tools: knip `1.2.3`."), "{with_skip}");
         assert!(
             with_skip.contains("## t\n\nInstalled with `pnpm 9.15.0`.\n\n| Tool |"),
             "{with_skip}"

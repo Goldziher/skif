@@ -25,6 +25,11 @@ import {
   summaryProblems,
 } from "./refresh-numbers.mjs";
 
+// Synthetic tool versions: these tests exercise the rendering, not the versions shipped in corpus.toml.
+const KNIP = "1.2.3";
+const SHERIF = "4.5.6";
+const SYNCPACK = "7.8.9";
+
 const row = (tool, median_ms, extra = {}) => ({
   tool,
   mean_ms: median_ms,
@@ -89,7 +94,7 @@ function summary() {
     load_before: [1.5, 1.25, 1],
     load_after: [2, 1.5, 1.25],
     hyperfine: "hyperfine 1.20.0",
-    tool_versions: { knip: "6.44.1", sherif: "sherif 1.13.0", syncpack: "15.3.3" },
+    tool_versions: { knip: KNIP, sherif: `sherif ${SHERIF}`, syncpack: SYNCPACK },
     warmup: 3,
     runs: 15,
     corpus_only: [],
@@ -132,7 +137,13 @@ test("a complete summary has no problems and names what was measured, on which r
   assert.equal(
     provenance(summary()),
     "Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `0123456789ab` built with " +
-      "rustc 1.99.0 (0123abcd 2026-10-01) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on " +
+      "rustc 1.99.0 (0123abcd 2026-10-01) against knip " +
+      KNIP +
+      ", sherif " +
+      SHERIF +
+      ", syncpack " +
+      SYNCPACK +
+      ", measured on " +
       "2026-11-10 on a GitHub-hosted runner, image ubuntu24 20261102.1.0, Ubuntu 24.04.3 LTS, " +
       "Linux 6.11.0-1018-azure, x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), " +
       "15.6 GiB memory, hypervisor Microsoft, load average 1.50 / 1.25 / 1.00 before and 2.00 / 1.50 / 1.25 after " +
@@ -398,7 +409,9 @@ test("the provenance sentence names the harness commit when it is not the measur
   assert.ok(
     provenance(older).startsWith(
       "Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `fedcba987654` built with " +
-        "rustc 1.99.0 (0123abcd 2026-10-01) (measured by the harness at `0123456789ab`) against knip 6.44.1, ",
+        "rustc 1.99.0 (0123abcd 2026-10-01) (measured by the harness at `0123456789ab`) against knip " +
+        KNIP +
+        ", ",
     ),
     provenance(older),
   );
@@ -523,7 +536,13 @@ test("the claims give each tool's ratio range over the targets it was timed on, 
       "- **5.7–29.7x faster than syncpack** for version-policy checks (`skif --no-js`), on 1 pinned public " +
         "repository and 1 generated workspace of 500 packages.",
       "",
-      "skif 0.3.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted " +
+      "skif 0.3.0 against knip " +
+        KNIP +
+        ", sherif " +
+        SHERIF +
+        ", syncpack " +
+        SYNCPACK +
+        ": medians of 15 runs on a GitHub-hosted " +
         "runner, measured on 2026-11-10.",
     ].join("\n"),
   );
@@ -613,7 +632,7 @@ function baseline() {
   const counts = (skif_only, tool_only, both) => ({ skif_only, tool_only, both });
   return {
     schema: 1,
-    tool: "knip@6.44.1",
+    tool: `knip@${KNIP}`,
     installed: false,
     category_set: { compared: ["exports", "files"], known_deviations: ["test-file"] },
     entries: {
