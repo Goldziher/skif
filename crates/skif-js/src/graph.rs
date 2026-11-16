@@ -154,6 +154,9 @@ pub struct ModuleGraph {
     imported_by: Vec<Vec<ModuleId>>,
     /// The texts of the modules whose package scans the sources the graph reaches, as read while building it.
     texts: Vec<(ModuleId, Arc<str>)>,
+    /// What reading and parsing each module gave, when the graph keeps it for one built after it
+    /// ([`Inputs::keep_scans`]).
+    scans: Scans,
 }
 
 impl ModuleGraph {
@@ -192,11 +195,48 @@ impl ModuleGraph {
         &self.texts
     }
 
-    /// Lets go of the [`kept_texts`](Self::kept_texts) once they have been searched.
+    /// Lets go of the [`kept_texts`](Self::kept_texts) once they have been searched, and of the scans kept for a graph
+    /// built after this one.
     pub(crate) fn release_texts(&mut self) {
         self.texts = Vec::new();
+        self.scans = Scans::default();
+    }
+
+    /// What reading and parsing each module gave, for a graph built again in the same analysis ([`Inputs::earlier`]);
+    /// empty unless the graph kept it ([`Inputs::keep_scans`]).
+    pub(crate) fn into_scans(self) -> Scans {
+        self.scans
     }
 }
+
+/// What reading and parsing a file gives, before its imports are resolved. It depends on the file and on
+/// `[js.compilers]` alone, which the graphs of one analysis share, so a graph built again once the reached sources were
+/// searched takes it from the graph before instead of reading and parsing the file again. Resolution is redone: the
+/// setup of the new graph can change the aliases, paths and extensions the resolver follows.
+#[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_excessive_bools, reason = "independent facts about one file")]
+pub(crate) struct Scan {
+    info: ModuleInfo,
+    error: Option<String>,
+    /// The file's text, when it was kept.
+    text: Option<Arc<str>>,
+    /// The file was read: one that is gone or could not be read has no text to keep.
+    read: bool,
+    /// The file was parsed, so its imports are resolved.
+    parsed: bool,
+    /// How many of the imports of `info` the parser found; a text scan added the others.
+    parsed_imports: usize,
+    /// The file is read as a stylesheet.
+    style: bool,
+    /// The file is read as a single-file component (Vue, Svelte, Astro).
+    component: bool,
+    /// The components the file registers, when it is a generated `components.d.ts`.
+    registers: Vec<RegisteredComponent>,
+}
+
+/// The [`Scan`]s of the modules of a graph, by absolute path.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Scans(HashMap<PathBuf, Arc<Scan>>);
 
 /// What the parallel step learns about one file.
 #[derive(Default)]
@@ -210,6 +250,8 @@ struct Parsed {
     components: Vec<(String, Registered)>,
     /// The positions in `imports` of the `import()` types that register them.
     registrations: Vec<usize>,
+    /// What reading and parsing the file gave, when the graph keeps it ([`Inputs::keep_scans`]).
+    scan: Option<Arc<Scan>>,
 }
 
 struct RawImport {
@@ -254,9 +296,12 @@ pub(crate) struct Inputs<'a> {
     pub sequential: bool,
     /// How this run parses through the cache of parse results, when there is one.
     pub modules: Option<&'a ModuleParser<'a>>,
-    /// Texts an earlier graph of the run kept ([`ModuleGraph::kept_texts`]), by absolute path: a file among them is
-    /// not read again.
-    pub known_texts: &'a HashMap<PathBuf, Arc<str>>,
+    /// What reading and parsing gave for the modules of a graph built before this one in the same analysis
+    /// ([`ModuleGraph::into_scans`]): a file among them is not read or parsed again, unless its text is wanted and was
+    /// not kept.
+    pub earlier: &'a Scans,
+    /// The graph keeps what reading and parsing gave for each module, for a graph built after it.
+    pub keep_scans: bool,
 }
 
 fn normalize(path: &str) -> String {
@@ -395,17 +440,41 @@ fn parse_source(modules: Option<&ModuleParser<'_>>, path: &Path, source: &str) -
     parsed
 }
 
-/// What the graph learns about the file `path`, with its text when `keep_text`.
+/// What the graph learns about the file `path`, with its text when `keep_text`. What reading and parsing it gives is
+/// taken from [`Inputs::earlier`] when it is there (with the text, when that is wanted).
 fn process(path: &Path, keep_text: bool, inputs: &Inputs<'_>) -> Parsed {
-    let known = inputs.known_texts.get(path).cloned();
-    let source = match known.map_or_else(|| READ_TIME.time(|| inputs.fs.read_to_string(path)), Ok) {
+    let earlier = inputs
+        .earlier
+        .0
+        .get(path)
+        .filter(|scan| !keep_text || scan.text.is_some() || !scan.read);
+    let (scan, kept) = if let Some(earlier) = earlier {
+        let mut scan = Scan::clone(earlier);
+        if !keep_text {
+            scan.text = None;
+        }
+        (scan, inputs.keep_scans.then(|| Arc::clone(earlier)))
+    } else {
+        let scan = read_and_parse(path, keep_text, inputs);
+        let kept = inputs.keep_scans.then(|| Arc::new(scan.clone()));
+        (scan, kept)
+    };
+    Parsed {
+        scan: kept,
+        ..resolve_imports(path, scan, inputs)
+    }
+}
+
+/// Reads and parses the file `path`, keeping its text when `keep_text`.
+fn read_and_parse(path: &Path, keep_text: bool, inputs: &Inputs<'_>) -> Scan {
+    let source = match READ_TIME.time(|| inputs.fs.read_to_string(path)) {
         Ok(source) => source,
         // A file the git index still lists but that was deleted from disk is no module, not a read error.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Parsed::default(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Scan::default(),
         Err(error) => {
-            return Parsed {
+            return Scan {
                 error: Some(error.to_string()),
-                ..Parsed::default()
+                ..Scan::default()
             };
         }
     };
@@ -429,10 +498,11 @@ fn process(path: &Path, keep_text: bool, inputs: &Inputs<'_>) -> Parsed {
     let mut info = match parsed {
         Ok(info) => info,
         Err(error) => {
-            return Parsed {
+            return Scan {
                 error: Some(error.to_string()),
                 text,
-                ..Parsed::default()
+                read: true,
+                ..Scan::default()
             };
         }
     };
@@ -448,6 +518,45 @@ fn process(path: &Path, keep_text: bool, inputs: &Inputs<'_>) -> Parsed {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("mdx"));
     if !style && !document && !matches!(compiler, Some(Compiler::Patterns(_))) {
         add_textual_imports(&mut info, &source);
+    }
+    let registers = if components::is_generated(path, &source) {
+        registered_components(&source)
+    } else {
+        Vec::new()
+    };
+    Scan {
+        info,
+        error,
+        text,
+        read: true,
+        parsed: true,
+        parsed_imports,
+        style,
+        component,
+        registers,
+    }
+}
+
+/// What the graph learns about the file `path` from what reading and parsing it gave: its imports, resolved.
+fn resolve_imports(path: &Path, scan: Scan, inputs: &Inputs<'_>) -> Parsed {
+    let Scan {
+        info,
+        error,
+        text,
+        parsed,
+        parsed_imports,
+        style,
+        component,
+        registers,
+        ..
+    } = scan;
+    if !parsed {
+        return Parsed {
+            info,
+            error,
+            text,
+            ..Parsed::default()
+        };
     }
     let imports: Vec<RawImport> = info
         .imports
@@ -524,10 +633,10 @@ fn process(path: &Path, keep_text: bool, inputs: &Inputs<'_>) -> Parsed {
             }
         })
         .collect();
-    let (components, registrations) = if components::is_generated(path, &source) {
-        registered(&info, &imports, &registered_components(&source))
-    } else {
+    let (components, registrations) = if registers.is_empty() {
         (Vec::new(), Vec::new())
+    } else {
+        registered(&info, &imports, &registers)
     };
     Parsed {
         info,
@@ -536,6 +645,7 @@ fn process(path: &Path, keep_text: bool, inputs: &Inputs<'_>) -> Parsed {
         imports,
         components,
         registrations,
+        scan: None,
     }
 }
 
@@ -928,6 +1038,7 @@ pub(crate) fn build(
         }
     }
     let mut texts = Vec::new();
+    let mut scans = HashMap::default();
     while !frontier.is_empty() {
         let files: Vec<(&Path, bool)> = frontier
             .iter()
@@ -963,6 +1074,9 @@ pub(crate) fn build(
             .collect();
         let mut next = Vec::new();
         for (id, mut parsed) in frontier.iter().zip(parsed) {
+            if let Some(scan) = parsed.scan.take() {
+                scans.insert(builder.modules[id.index()].abs.clone(), scan);
+            }
             if !parsed.components.is_empty() && builder.links_by_tag(*id) {
                 for position in &parsed.registrations {
                     parsed.imports[*position].target = RawTarget::Ignored;
@@ -1004,6 +1118,7 @@ pub(crate) fn build(
         modules: builder.modules,
         index: builder.index,
         texts,
+        scans: Scans(scans),
     }
 }
 
@@ -1042,8 +1157,177 @@ fn importers(modules: &[Module]) -> Vec<Vec<ModuleId>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use skif_config::Config;
+    use skif_core::MemoryFs;
+    use skif_workspace::Workspace;
+
     use super::*;
+    use crate::discover::discover;
+    use crate::input::InputSource;
+
+    /// A [`MemoryFs`] that counts the reads of TypeScript files.
+    struct SourceReads {
+        inner: MemoryFs,
+        reads: AtomicUsize,
+    }
+
+    impl FileSystem for SourceReads {
+        fn read_to_string(&self, path: &Path) -> std::io::Result<Arc<str>> {
+            if path.extension().is_some_and(|extension| extension == "ts") {
+                self.reads.fetch_add(1, Ordering::SeqCst);
+            }
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> std::io::Result<Vec<skif_core::DirEntry>> {
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path)
+        }
+    }
+
+    /// A workspace at `/ws` holding `files`, with what building its graph needs.
+    struct Fixture {
+        fs: Arc<SourceReads>,
+        workspace: Workspace,
+        setup: Setup,
+        candidates: Vec<Candidate>,
+    }
+
+    impl Fixture {
+        fn new(files: &[(String, String)]) -> Self {
+            let root = Path::new("/ws");
+            let memory = files
+                .iter()
+                .fold(MemoryFs::new(), |fs, (path, text)| fs.with_file(root.join(path), text));
+            let config = Config::from_toml_str("").unwrap();
+            let workspace = Workspace::discover_with_fs(root, &config, &memory).unwrap();
+            let candidates = discover(&memory, &workspace, true);
+            let fs = Arc::new(SourceReads {
+                inner: memory,
+                reads: AtomicUsize::new(0),
+            });
+            let shared: Arc<dyn FileSystem> = Arc::clone(&fs) as Arc<dyn FileSystem>;
+            let sources: Vec<Arc<dyn InputSource>> = Vec::new();
+            let setup = Setup::new(&workspace, &config, &shared, &sources, true);
+            fs.reads.store(0, Ordering::SeqCst);
+            Self {
+                fs,
+                workspace,
+                setup,
+                candidates,
+            }
+        }
+
+        fn reads(&self) -> usize {
+            self.fs.reads.load(Ordering::SeqCst)
+        }
+
+        /// The graph from `entries` (relative to the root), with a resolver of its own as a rebuild has.
+        fn graph(&self, entries: &[&str], sequential: bool, earlier: &Scans, keep_scans: bool) -> ModuleGraph {
+            let fs: Arc<dyn FileSystem> = Arc::clone(&self.fs) as Arc<dyn FileSystem>;
+            let resolver = ModuleResolver::new(Arc::clone(&fs), &self.workspace, &self.setup);
+            let links = HashMap::default();
+            let inputs = Inputs {
+                fs: fs.as_ref(),
+                resolver: &resolver,
+                root: &self.workspace.root,
+                candidates: &self.candidates,
+                links: &links,
+                setup: &self.setup,
+                sequential,
+                modules: None,
+                earlier,
+                keep_scans,
+            };
+            let entries: Vec<PathBuf> = entries.iter().map(|entry| self.workspace.root.join(entry)).collect();
+            build(&inputs, &entries, &[], &[])
+        }
+    }
+
+    fn owned(files: &[(&str, &str)]) -> Vec<(String, String)> {
+        files
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+            .collect()
+    }
+
+    /// Everything a graph holds about its modules, for comparing two graphs.
+    fn shape(graph: &ModuleGraph) -> String {
+        let importers: Vec<&[ModuleId]> = graph
+            .modules()
+            .iter()
+            .map(|module| graph.imported_by(module.id))
+            .collect();
+        format!("{:#?}\n{importers:?}", graph.modules())
+    }
+
+    fn paths(graph: &ModuleGraph) -> Vec<String> {
+        graph
+            .modules()
+            .iter()
+            .map(|module| module.path.to_string_lossy().replace('\\', "/"))
+            .collect()
+    }
+
+    #[test]
+    fn a_graph_built_again_reuses_what_reading_and_parsing_gave_and_resolves_the_same() {
+        let fixture = Fixture::new(&owned(&[
+            ("package.json", r#"{"name":"root","private":true}"#),
+            (
+                "src/a.ts",
+                "import { b } from './b';\nimport { c } from './c';\nexport const a = b + c;\n",
+            ),
+            ("src/b.ts", "export const b = 1;\n"),
+            ("src/c.ts", "import { d } from './d';\nexport const c = d;\n"),
+            ("src/d.ts", "export const d = 2;\n"),
+            ("src/unused.ts", "export const u = 3;\n"),
+        ]));
+        let first = fixture.graph(&["src/a.ts"], true, &Scans::default(), true);
+        assert_eq!(paths(&first), ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"]);
+        assert_eq!(fixture.reads(), 4);
+
+        let again = fixture.graph(&["src/a.ts"], true, &first.clone().into_scans(), true);
+        assert_eq!(fixture.reads(), 4, "the graph built again read a file");
+        assert_eq!(shape(&again), shape(&first));
+
+        // A graph that keeps no scans gives none to the next, which reads every file again.
+        let unkept = fixture.graph(&["src/a.ts"], true, &Scans::default(), false);
+        assert_eq!(fixture.reads(), 8);
+        let fresh = fixture.graph(&["src/a.ts"], true, &unkept.into_scans(), false);
+        assert_eq!(fixture.reads(), 12);
+        assert_eq!(shape(&fresh), shape(&first));
+    }
+
+    #[test]
+    fn a_graph_built_again_from_more_entries_reads_only_the_new_files() {
+        let fixture = Fixture::new(&owned(&[
+            ("package.json", r#"{"name":"root","private":true}"#),
+            ("src/a.ts", "import { b } from './b';\nexport const a = b;\n"),
+            ("src/b.ts", "export const b = 1;\n"),
+            (
+                "scripts/run.ts",
+                "import { b } from '../src/b';\nimport { e } from './e';\nconsole.log(b, e);\n",
+            ),
+            ("scripts/e.ts", "export const e = 2;\n"),
+        ]));
+        let first = fixture.graph(&["src/a.ts"], true, &Scans::default(), true);
+        assert_eq!(fixture.reads(), 2);
+        let wider = fixture.graph(&["scripts/run.ts", "src/a.ts"], true, &first.into_scans(), true);
+        assert_eq!(fixture.reads(), 4, "only scripts/run.ts and scripts/e.ts are new");
+        let cold = fixture.graph(&["scripts/run.ts", "src/a.ts"], true, &Scans::default(), false);
+        assert_eq!(shape(&wider), shape(&cold));
+    }
 
     #[test]
     fn the_directories_between_a_file_and_its_package_may_be_projects_unless_installed() {
