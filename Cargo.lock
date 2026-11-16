@@ -2497,6 +2497,7 @@ dependencies = [
  "indexmap",
  "insta",
  "oxc_resolver",
+ "rayon",
  "regex",
  "serde",
  "serde_json",
