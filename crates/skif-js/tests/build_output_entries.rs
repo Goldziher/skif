@@ -366,3 +366,38 @@ fn an_alias_into_a_members_build_output_follows_its_source_whether_or_not_it_was
         "{unbuilt:#?}"
     );
 }
+
+/// An alias into a committed directory named like build output (`lib/`) reaches the file there, not a `src` file of
+/// the same name: only ignored or declared output stands for its source.
+#[test]
+fn an_alias_into_a_committed_lib_directory_follows_the_file_there() {
+    let diagnostics = lint_files(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"packageManager":"pnpm@9.0.0",
+            "dependencies":{"left-pad":"1.3.0"},"devDependencies":{"@rspack/core":"1.0.0"}}"#,
+        ),
+        (
+            "rspack.config.js",
+            "const path = require('path');\n\
+             module.exports = { entry: { main: './src/main.js' }, \
+             resolve: { alias: { '@lib': path.resolve(__dirname, 'lib') } } };\n",
+        ),
+        ("src/main.js", "import { pad } from '@lib/pad';\nconsole.log(pad);\n"),
+        (
+            "lib/pad.js",
+            "import leftPad from 'left-pad';\nexport const pad = leftPad('a', 2);\n",
+        ),
+        ("src/pad.js", "export const pad = 'a';\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/pad.js: src/pad.js"],
+        "{diagnostics:#?}"
+    );
+}

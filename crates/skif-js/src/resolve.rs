@@ -1698,10 +1698,17 @@ impl ModuleResolver {
     /// An alias or `paths` target in the build output of a package (`../lib/dist/index.js`): the source that output
     /// maps back to ([`Self::map_member_target`], also as a directory's `index`), whether or not the output was built,
     /// so the verdicts do not depend on a local build (issue #251). An ignored output file is never the answer; when
-    /// nothing else maps, an ignored target is generated code. `None` when `path` is not in build output, or when its
-    /// committed output has no source to map to, which then resolves as it is.
+    /// nothing else maps, an ignored target is generated code. Only an `outDir` the package declares or an ignored
+    /// target counts as output: a committed directory named like output (`lib/`) holds sources and resolves as it is,
+    /// as does committed output with no source to map to (`None`).
     fn through_aliased_build_output(&self, path: &Path) -> Option<Resolved> {
         self.in_build_output(path, |member, output| {
+            let declared = member.build_dirs.iter().any(|(out_dir, _)| out_dir == output);
+            // A directory target is ignored when what it holds is (`dist/` matches directories only).
+            let ignored = self.is_generated(path) || self.is_generated(&path.join("index.js"));
+            if !declared && !ignored {
+                return None;
+            }
             let rest = slash(path.strip_prefix(&member.dir).ok()?);
             let index = format!("{rest}/index");
             let source = [rest.as_str(), index.as_str()]
@@ -1710,7 +1717,7 @@ impl ModuleResolver {
                 .find(|found| !(found.starts_with(output) && self.is_generated(found)));
             match source {
                 Some(found) => Some(self.classify(found)),
-                None => self.is_generated(path).then_some(Resolved::Ignored),
+                None => ignored.then_some(Resolved::Ignored),
             }
         })
     }
