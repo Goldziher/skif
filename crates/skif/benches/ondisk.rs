@@ -143,6 +143,7 @@ fn bench_recursive(c: &mut Criterion) {
         b.iter(|| lint_recursive(&root, &no_js, true));
     });
     group.finish();
+    skif_core::timing::flush_stderr();
 }
 
 criterion_group!(benches, bench_recursive, bench_shared_closure);

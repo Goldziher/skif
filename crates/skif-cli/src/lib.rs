@@ -114,7 +114,9 @@ pub fn configure_global_pool() {
 fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce() -> u8) -> u8 {
     record_panics();
     LAST_PANIC.with(|last| last.set(None));
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|payload| {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
+    skif_core::timing::flush_stderr();
+    outcome.unwrap_or_else(|payload| {
         let recorded = LAST_PANIC.with(Cell::take);
         if wants_json(raw) {
             let text = payload
