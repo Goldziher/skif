@@ -67,6 +67,8 @@ case "$1 $2" in
   [[ -z "${STUB_ATTEST_FAIL:-}" ]] || { echo "no attestation found" >&2; exit 1; }
   [[ -z "${STUB_ATTEST_FAIL_REPO:-}" || " $* " != *" --repo ${STUB_ATTEST_FAIL_REPO} "* ]] ||
     { echo "no attestation found for ${STUB_ATTEST_FAIL_REPO}" >&2; exit 1; }
+  # Like GitHub after the transfer: Goldziher/skif's attestations are found by owner, not by repository.
+  [[ " $* " != *" --repo Goldziher/skif "* ]] || { echo "no attestation found for Goldziher/skif" >&2; exit 1; }
   ;;
 esac
 STUB
@@ -171,7 +173,7 @@ if [[ -n "$target" && "$target" != *windows* ]]; then
   expect "launcher: a pre-transfer release falls back to Goldziher/skif" 0 env PATH="$basic_path" STUB_GH_AUTH=1 \
     STUB_ATTEST_FAIL_REPO=polylint/skif STUB_GH_LOG="${work}/gh-legacy.log" SKIF_CACHE_DIR="${work}/cache-attest-legacy" \
     SKIF_RELEASE_URL="file://${release}" SKIF_VERSION=0.6.0 bash "$launcher" --version
-  grep -qF -- "--repo Goldziher/skif --signer-workflow Goldziher/skif/.github/workflows/publish.yaml" "${work}/gh-legacy.log" ||
+  grep -qF -- "--owner Goldziher --signer-workflow Goldziher/skif/.github/workflows/publish.yaml" "${work}/gh-legacy.log" ||
     fail "launcher: a pre-transfer release was not checked against Goldziher/skif"
   expect "launcher: a post-transfer release has no fallback" 1 env PATH="$basic_path" STUB_GH_AUTH=1 \
     STUB_ATTEST_FAIL_REPO=polylint/skif SKIF_CACHE_DIR="${work}/cache-attest-new" \
@@ -295,6 +297,8 @@ case "$1 $2" in
   [[ -z "${STUB_ATTEST_FAIL:-}" ]] || { echo "no attestation found" >&2; exit 1; }
   [[ -z "${STUB_ATTEST_FAIL_REPO:-}" || " $* " != *" --repo ${STUB_ATTEST_FAIL_REPO} "* ]] ||
     { echo "no attestation found for ${STUB_ATTEST_FAIL_REPO}" >&2; exit 1; }
+  # Like GitHub after the transfer: Goldziher/skif's attestations are found by owner, not by repository.
+  [[ " $* " != *" --repo Goldziher/skif "* ]] || { echo "no attestation found for Goldziher/skif" >&2; exit 1; }
   ;;
 esac
 STUB
@@ -415,15 +419,15 @@ expect_in_out "install: failed attestation" "no attestation found"
 [[ ! -e "$archive_asset" ]] || fail "install: an unattested archive was cached"
 install_case "a pre-transfer release attested by Goldziher/skif" 0 "$action_release" REPO=polylint/skif TAG=v0.6.0 \
   STUB_ATTEST_FAIL_REPO=polylint/skif
-grep -qF -- "--repo Goldziher/skif --signer-workflow Goldziher/skif/.github/workflows/publish.yaml" "${work}/attest.log" ||
+grep -qF -- "--owner Goldziher --signer-workflow Goldziher/skif/.github/workflows/publish.yaml" "${work}/attest.log" ||
   fail "install: a pre-transfer release was not checked against Goldziher/skif: $(cat "${work}/attest.log")"
 expect_in_out "install: pre-transfer release" "built by Goldziher/skif's release workflow"
 install_case "a post-transfer release has no fallback" 1 "$action_release" REPO=polylint/skif TAG=v0.7.0 \
   STUB_ATTEST_FAIL_REPO=polylint/skif
 expect_in_out "install: post-transfer release" "no build attestation from the release workflow of polylint/skif"
-grep -qF -- "--repo Goldziher/skif" "${work}/attest.log" && fail "install: a post-transfer release fell back to Goldziher/skif"
+grep -qF -- "Goldziher" "${work}/attest.log" && fail "install: a post-transfer release fell back to Goldziher/skif"
 install_case "a mirror has no fallback" 1 "$action_release" TAG=v0.6.0 STUB_ATTEST_FAIL_REPO=Acme/skif
-grep -qF -- "--repo Goldziher/skif" "${work}/attest.log" && fail "install: a mirror fell back to Goldziher/skif"
+grep -qF -- "Goldziher" "${work}/attest.log" && fail "install: a mirror fell back to Goldziher/skif"
 install_case "attestation switched off" 0 "$action_release" STUB_ATTEST_FAIL=1 VERIFY_ATTESTATION=false
 [[ ! -s "${work}/attest.log" ]] || fail "install: attestation was checked although it is switched off"
 install_case "a gh without the attestation command" 0 "$action_release" STUB_NO_ATTEST=1

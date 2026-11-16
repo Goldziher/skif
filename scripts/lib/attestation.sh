@@ -36,7 +36,12 @@ skif_verify_attestation() {
   local archive="$1" release_repo="$2" tag="$3" candidate candidates
   candidates="$(skif_attestation_repos "$release_repo" "$tag")"
   while IFS= read -r candidate; do
-    if gh attestation verify "$archive" --repo "$candidate" \
+    # GitHub keeps an attestation with the account that owned the repository when it was made, and the transfer left
+    # Goldziher/skif's with the Goldziher account, where a lookup by repository no longer finds them; they are looked
+    # up by owner instead, still pinned to that repository's release workflow.
+    local scope=(--repo "$candidate")
+    [[ "$candidate" == "$SKIF_PRE_TRANSFER_REPOSITORY" ]] && scope=(--owner "${candidate%%/*}")
+    if gh attestation verify "$archive" "${scope[@]}" \
       --signer-workflow "${candidate}/.github/workflows/publish.yaml" >&2; then
       printf '%s\n' "$candidate"
       return 0
