@@ -556,6 +556,9 @@ mod tests {
             fs::write(file, content).unwrap();
         }
         git(&root, &["init", "--quiet"]);
+        // The restore runs `git checkout` without the flags of `git`, so the repository itself must keep the bytes
+        // as committed: Git for Windows converts line endings on checkout by default.
+        git(&root, &["config", "core.autocrlf", "false"]);
         git(&root, &["add", "."]);
         git(&root, &["commit", "--quiet", "-m", "t"]);
         (cache, root)
