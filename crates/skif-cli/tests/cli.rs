@@ -256,6 +256,30 @@ fn the_removed_type_aware_flags_say_they_were_removed() {
             .current_dir(dir.path()));
         assert_eq!(explain.code, 2, "{flag}");
         assert!(explain.stderr.contains("is no longer a flag"), "{}", explain.stderr);
+
+        for action in ["write", "prune"] {
+            let baseline = run(skif().args(["baseline", action, flag]).current_dir(dir.path()));
+            assert_eq!(baseline.code, 2, "baseline {action} {flag}");
+            assert_eq!(baseline.stdout, "", "baseline {action} {flag}");
+            assert!(
+                baseline
+                    .stderr
+                    .starts_with(&format!("error: `{flag}` is no longer a flag")),
+                "baseline {action} {flag}: {}",
+                baseline.stderr
+            );
+            assert!(
+                baseline
+                    .stderr
+                    .contains("type-aware analysis was removed in skif 0.9.0"),
+                "baseline {action} {flag}: {}",
+                baseline.stderr
+            );
+            assert!(
+                !dir.path().join("skif.baseline.toml").exists(),
+                "baseline {action} {flag} wrote a baseline"
+            );
+        }
     }
 }
 
