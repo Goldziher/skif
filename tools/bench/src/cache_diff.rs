@@ -2,7 +2,9 @@
 //! skif's JSON report from a run without the cache against runs with a cold store, a
 //! warm store and, after each of K seeded source edits, the store the earlier runs left. A cache that changes a report
 //! is a correctness defect, so any difference fails. So does a binary that shows no sign of using its cache: identical
-//! reports from four uncached runs prove nothing.
+//! reports from four uncached runs prove nothing. The sign is the counter line skif prints on stderr under `--debug`
+//! (`skif debug: cache <namespace>: H hits, M misses, B bytes written`); the report itself carries no counters, and
+//! only stdout and the exit code are compared.
 //!
 //! The runs also give a first, informational answer to what a warm cache saves: the wall time of single uncached,
 //! cold, warm and one-edit runs and the size of the store. They are single runs, not a benchmark.
@@ -26,7 +28,7 @@ use crate::report_diff::{Diff, Report, diff_documents, read_report, render_diff}
 /// The suite whose repositories are compared.
 const SUITE: &str = "bench";
 /// Top-level keys that are not output of the analysis: the version stamp of the binary, and the cache counters and
-/// timing a cached run may report.
+/// timing a report may come to carry.
 const IGNORED_SECTIONS: &[&str] = &["skif", "cache", "timing"];
 /// The flag that turns a default-on cache off.
 const NO_CACHE_FLAG: &str = "--no-cache";
@@ -34,9 +36,10 @@ const NO_CACHE_FLAG: &str = "--no-cache";
 const ENV_ENABLED: &str = "SKIF_CACHE";
 const ENV_LOCATION: &str = "SKIF_CACHE_DIR";
 const ENV_MAX_SIZE: &str = "SKIF_CACHE_MAX_SIZE";
-/// The section of a report that holds the cache counters, and the counter of entries read from the store.
-const CACHE_SECTION: &str = "cache";
-const HITS: &str = "hits";
+/// The flag every run passes, so that a run with a store prints its counters on stderr; stdout is the same with it.
+const DEBUG_FLAG: &str = "--debug";
+/// What a counter line of `--debug` starts with; the namespace follows.
+const COUNTER_PREFIX: &str = "skif debug: cache ";
 
 /// The command line of `skif-bench cache-diff`.
 pub struct Options {
@@ -168,54 +171,62 @@ fn probe(skif: &Path) -> Result<CacheCli> {
     Ok(CacheCli::from_help(&help))
 }
 
-/// The cache hits a report counts: the sum of every `hits` number below its `cache` section, whatever the nesting
-/// (the counters are per namespace); `None` when the report has no such section or the section counts no hits.
-pub fn cache_hits(document: &Value) -> Option<u64> {
-    fn sum(value: &Value, found: &mut Option<u64>) {
-        match value {
-            Value::Object(object) => {
-                for (key, value) in object {
-                    match value.as_u64() {
-                        Some(hits) if key == HITS => *found = Some(found.unwrap_or(0) + hits),
-                        _ => sum(value, found),
-                    }
-                }
-            }
-            Value::Array(items) => items.iter().for_each(|item| sum(item, found)),
-            _ => {}
-        }
+/// The hits of one counter line of `--debug`, `skif debug: cache <namespace>: H hits, M misses, B bytes written`;
+/// `None` for any other line, such as the one that names the store.
+fn counter_line_hits(line: &str) -> Option<u64> {
+    let (namespace, counters) = line.trim_end().strip_prefix(COUNTER_PREFIX)?.split_once(": ")?;
+    if namespace.is_empty() || namespace.contains(char::is_whitespace) {
+        return None;
     }
-    let mut found = None;
-    sum(document.get(CACHE_SECTION)?, &mut found);
-    found
+    let (hits, rest) = counters.split_once(" hits, ")?;
+    let (misses, rest) = rest.split_once(" misses, ")?;
+    let written = rest.strip_suffix(" bytes written")?;
+    misses.parse::<u64>().ok()?;
+    written.parse::<u64>().ok()?;
+    hits.parse().ok()
+}
+
+/// The cache hits a run counts: the sum over the counter lines of its `--debug` output on stderr, one per namespace
+/// (and per root of a `--recursive` run that prints them so); `None` when stderr holds no counter line, which is what
+/// a run without a store prints.
+pub fn cache_hits(stderr: &str) -> Option<u64> {
+    stderr
+        .lines()
+        .filter_map(counter_line_hits)
+        .fold(None, |sum, hits| Some(sum.unwrap_or(0) + hits))
 }
 
 /// Why the run without the cache is not one: it counts cache hits.
-fn uncached_used_the_cache(uncached: &Report) -> Option<String> {
-    let hits = cache_hits(&uncached.as_ref().ok()?.0).filter(|hits| *hits > 0)?;
+fn uncached_used_the_cache(hits: Option<u64>) -> Option<String> {
+    let hits = hits.filter(|hits| *hits > 0)?;
     Some(format!(
         "the run without the cache reports {hits} cache hit(s), so the cache was not off"
     ))
 }
 
-/// The evidence that the warm run read the cache: the note of its row, or why there is none. A report that counts
-/// hits must count at least one. A report without counters is taken on the store the cold run wrote only from an
-/// opt-in binary, which has no counters, and never with `require_counters`.
+/// The evidence that the warm run read the cache: the note of its row, or why there is none. A run that counts hits
+/// (`hits`, from [`cache_hits`]) must count at least one. A run without counters is taken on the store the cold run
+/// wrote only from an opt-in binary, which prints no counters, and never with `require_counters`.
 ///
 /// # Errors
 /// Fails with the reason when nothing shows the warm run used a cache.
-pub fn warm_evidence(cli: CacheCli, require_counters: bool, warm: &Value, store_bytes: u64) -> Result<String, String> {
-    match cache_hits(warm) {
+pub fn warm_evidence(
+    cli: CacheCli,
+    require_counters: bool,
+    hits: Option<u64>,
+    store_bytes: u64,
+) -> Result<String, String> {
+    match hits {
         Some(0) => Err("the warm run reports zero cache hits, so no cached result was compared".to_owned()),
         Some(hits) => Ok(format!("{hits} cache hit(s)")),
         None if store_bytes == 0 => {
             Err("the warm run reports no cache hits and the store is empty, so nothing shows a cache in use".to_owned())
         }
-        None if require_counters || cli == CacheCli::DefaultOn => {
-            Err("the warm run's report has no cache hit counter, so nothing shows it read the cache".to_owned())
-        }
+        None if require_counters || cli == CacheCli::DefaultOn => Err(format!(
+            "the warm run printed no cache counter under {DEBUG_FLAG}, so nothing shows it read the cache"
+        )),
         None => Ok(format!(
-            "no hit counter in this binary's report; the cold run wrote {store_bytes} byte(s)"
+            "no hit counter from this binary; the cold run wrote {store_bytes} byte(s)"
         )),
     }
 }
@@ -376,6 +387,8 @@ fn dir_size(dir: &Path) -> Result<u64> {
 /// A finished skif run.
 struct Run {
     report: Report,
+    /// The cache hits its `--debug` output counts ([`cache_hits`]).
+    hits: Option<u64>,
     elapsed: Duration,
 }
 
@@ -392,11 +405,11 @@ struct Pass<'a> {
 }
 
 impl Pass<'_> {
-    /// Runs skif on the checkout, uncached or with `store`.
-    fn run(&self, store: Option<&Path>, label: &str) -> Result<Run> {
+    /// skif on the checkout, uncached or with `store`, with `--debug` so that its stderr counts what the cache did.
+    fn command(&self, store: Option<&Path>) -> Command {
         let mut command = Command::new(self.skif);
         command
-            .args([".", "--format", "json", "--no-install"])
+            .args([".", "--format", "json", "--no-install", DEBUG_FLAG])
             .current_dir(self.root);
         if self.repo.recursive {
             command.arg("--recursive");
@@ -409,10 +422,16 @@ impl Pass<'_> {
                 None => command.env_remove(name),
             };
         }
+        command
+    }
+
+    /// Runs skif on the checkout, uncached or with `store`.
+    fn run(&self, store: Option<&Path>, label: &str) -> Result<Run> {
         let label = format!("{}-{label}", self.repo.name);
-        let run = capture(&mut command, self.scratch, &label, self.timeout)?;
+        let run = capture(&mut self.command(store), self.scratch, &label, self.timeout)?;
         Ok(Run {
             report: read_report(&run),
+            hits: cache_hits(&run.stderr),
             elapsed: run.elapsed,
         })
     }
@@ -428,10 +447,10 @@ impl Pass<'_> {
     }
 
     /// The warm run's comparison: identical reports count only with evidence that the run read the cache.
-    fn warm_row(&self, base: &Report, warm: &Report, store_bytes: u64) -> Row {
-        let mut row = self.row("base", "warm", compare(base, warm));
-        if let (Outcome::Identical, Ok((document, _))) = (&row.outcome, warm) {
-            match warm_evidence(self.cli, self.require_counters, document, store_bytes) {
+    fn warm_row(&self, base: &Report, warm: &Run, store_bytes: u64) -> Row {
+        let mut row = self.row("base", "warm", compare(base, &warm.report));
+        if matches!(row.outcome, Outcome::Identical) {
+            match warm_evidence(self.cli, self.require_counters, warm.hits, store_bytes) {
                 Ok(evidence) => row.note = Some(evidence),
                 Err(reason) => row.outcome = Outcome::Failed(reason),
             }
@@ -454,7 +473,7 @@ impl Pass<'_> {
 
         let uncached = self.run(None, "base-uncached")?;
         timing.uncached = Some(uncached.elapsed);
-        let base = match uncached_used_the_cache(&uncached.report) {
+        let base = match uncached_used_the_cache(uncached.hits) {
             Some(reason) => Err(reason),
             None => uncached.report,
         };
@@ -471,7 +490,7 @@ impl Pass<'_> {
         rows.push(self.row("base", "cold", cold_outcome));
         let warm = self.run(Some(&store), "base-warm")?;
         timing.warm = Some(warm.elapsed);
-        rows.push(self.warm_row(&base, &warm.report, store_bytes));
+        rows.push(self.warm_row(&base, &warm, store_bytes));
 
         for (index, planned) in plan.iter().enumerate() {
             let number = index + 1;
@@ -670,51 +689,127 @@ mod tests {
     }
 
     #[test]
-    fn hits_are_summed_over_the_namespaces_of_the_cache_section() {
-        assert_eq!(cache_hits(&json!({"diagnostics": []})), None);
-        assert_eq!(cache_hits(&json!({"cache": {"location": "/s"}})), None);
-        assert_eq!(cache_hits(&json!({"cache": {"hits": 0, "misses": 4}})), Some(0));
-        let per_namespace = json!({"cache": {
-            "modules": {"hits": 7, "misses": 1, "bytes_written": 10},
-            "manifests": {"hits": 2, "misses": 0, "bytes_written": 0},
-        }});
-        assert_eq!(cache_hits(&per_namespace), Some(9));
-        let listed = json!({"cache": {"namespaces": [{"name": "modules", "hits": 3}]}});
-        assert_eq!(cache_hits(&listed), Some(3));
+    fn hits_are_summed_over_the_counter_lines_of_the_debug_output() {
+        assert_eq!(cache_hits(""), None);
+        let uncached = "skif debug: root .\nskif debug:   package manager: pnpm\nskif debug: phase parse 3 ms\n";
+        assert_eq!(cache_hits(uncached), None);
+        let store = "skif debug: cache store /s/0123abcd\n";
+        assert_eq!(cache_hits(store), None, "the store line is no counter");
         assert_eq!(
-            cache_hits(&json!({"summary": {"hits": 5}})),
-            None,
-            "outside the section"
+            cache_hits("skif debug: cache in memory for this run: no cache location\n"),
+            None
         );
+        let cold = format!("{store}skif debug: cache modules: 0 hits, 4 misses, 912 bytes written\n");
+        assert_eq!(cache_hits(&cold), Some(0));
+        let warm = format!(
+            "{store}skif debug: root .\nskif debug: cache modules: 7 hits, 1 misses, 10 bytes written\r\nskif debug: \
+             cache manifests: 2 hits, 0 misses, 0 bytes written\n"
+        );
+        assert_eq!(cache_hits(&warm), Some(9));
+        for not_a_counter in [
+            "skif debug: cache modules: 7 hits",
+            "skif debug: cache modules: many hits, 1 misses, 10 bytes written",
+            "skif debug: cache modules: 7 hits, 1 misses, 10 bytes read",
+            "skif debug: cache : 7 hits, 1 misses, 10 bytes written",
+            "skif debug: cache store /a b: 7 hits, 1 misses, 10 bytes written",
+            "warning: cache modules: 7 hits, 1 misses, 10 bytes written",
+            "  skif debug: cache modules: 7 hits, 1 misses, 10 bytes written",
+        ] {
+            assert_eq!(cache_hits(not_a_counter), None, "{not_a_counter}");
+        }
+    }
+
+    #[test]
+    fn a_report_that_names_cache_hits_is_no_evidence() {
+        // The counters are read from stderr only: a `cache` section in the report, should one appear, proves nothing.
+        let stdout = json!({"cache": {"modules": {"hits": 4}}}).to_string();
+        assert_eq!(cache_hits(&stdout), None);
     }
 
     #[test]
     fn a_warm_run_without_evidence_of_a_cache_fails() {
-        let hits = |hits: u64| json!({"cache": {"modules": {"hits": hits, "misses": 3}}});
-        let silent = json!({"diagnostics": []});
         for cli in [CacheCli::OptIn, CacheCli::DefaultOn] {
-            assert_eq!(warm_evidence(cli, false, &hits(4), 100).unwrap(), "4 cache hit(s)");
-            let zero = warm_evidence(cli, false, &hits(0), 100).unwrap_err();
+            assert_eq!(warm_evidence(cli, false, Some(4), 100).unwrap(), "4 cache hit(s)");
+            let zero = warm_evidence(cli, false, Some(0), 100).unwrap_err();
             assert!(zero.contains("zero cache hits"), "{zero}");
-            let empty = warm_evidence(cli, false, &silent, 0).unwrap_err();
+            let empty = warm_evidence(cli, false, None, 0).unwrap_err();
             assert!(empty.contains("store is empty"), "{empty}");
         }
-        let unreported = warm_evidence(CacheCli::DefaultOn, false, &silent, 100).unwrap_err();
-        assert!(unreported.contains("no cache hit counter"), "{unreported}");
-        assert!(warm_evidence(CacheCli::OptIn, true, &silent, 100).is_err());
-        let written = warm_evidence(CacheCli::OptIn, false, &silent, 100).unwrap();
+        let unreported = warm_evidence(CacheCli::DefaultOn, false, None, 100).unwrap_err();
+        assert!(unreported.contains("no cache counter under --debug"), "{unreported}");
+        assert!(warm_evidence(CacheCli::OptIn, true, None, 100).is_err());
+        let written = warm_evidence(CacheCli::OptIn, false, None, 100).unwrap();
         assert!(written.contains("wrote 100 byte(s)"), "{written}");
     }
 
     #[test]
     fn an_uncached_run_that_counts_hits_is_not_uncached() {
-        let mut uncached = report(&[], 0);
-        assert_eq!(uncached_used_the_cache(&uncached), None);
-        uncached.as_mut().unwrap().0["cache"] = json!({"hits": 0, "misses": 0});
-        assert_eq!(uncached_used_the_cache(&uncached), None);
-        uncached.as_mut().unwrap().0["cache"] = json!({"hits": 2});
-        assert!(uncached_used_the_cache(&uncached).unwrap().contains("2 cache hit(s)"));
-        assert_eq!(uncached_used_the_cache(&Err("timed out".to_owned())), None);
+        assert_eq!(uncached_used_the_cache(None), None);
+        assert_eq!(uncached_used_the_cache(Some(0)), None);
+        assert!(uncached_used_the_cache(Some(2)).unwrap().contains("2 cache hit(s)"));
+    }
+
+    fn pass(repo: &Repo, control: Control) -> Pass<'_> {
+        Pass {
+            skif: Path::new("/s/skif"),
+            cli: CacheCli::DefaultOn,
+            control,
+            require_counters: true,
+            repo,
+            root: Path::new("/r"),
+            scratch: Path::new("/t"),
+            timeout: Duration::from_secs(1),
+        }
+    }
+
+    fn arguments(command: &Command) -> Vec<String> {
+        command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// What `command` does with the variable `name`: its value, `<removed>` or `<inherited>`.
+    fn variable(command: &Command, name: &str) -> String {
+        command.get_envs().find(|(key, _)| *key == name).map_or_else(
+            || "<inherited>".to_owned(),
+            |(_, value)| value.map_or_else(|| "<removed>".to_owned(), |value| value.to_string_lossy().into_owned()),
+        )
+    }
+
+    #[test]
+    fn every_run_asks_for_the_counters_and_controls_the_cache() {
+        let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
+        let (_, bench) = corpus::select(file, SUITE, &[]).unwrap();
+        let plain = bench.iter().find(|repo| !repo.recursive).unwrap();
+        let nested = bench.iter().find(|repo| repo.recursive).unwrap();
+        let store = Path::new("/t/store");
+        let base = [".", "--format", "json", "--no-install", "--debug"];
+
+        let flags = pass(plain, Control::Flags);
+        let uncached = flags.command(None);
+        assert_eq!(arguments(&uncached), [&base[..], &["--no-cache"]].concat());
+        let cached = flags.command(Some(store));
+        assert_eq!(
+            arguments(&cached),
+            [&base[..], &["--cache-location", "/t/store"]].concat()
+        );
+        for command in [&uncached, &cached] {
+            for name in [ENV_ENABLED, ENV_LOCATION, ENV_MAX_SIZE] {
+                assert_eq!(variable(command, name), "<removed>", "{name}");
+            }
+        }
+
+        let env = pass(nested, Control::Env);
+        let uncached = env.command(None);
+        assert_eq!(arguments(&uncached), [&base[..], &["--recursive"]].concat());
+        assert_eq!(variable(&uncached, ENV_ENABLED), "0");
+        assert_eq!(variable(&uncached, ENV_LOCATION), "<removed>");
+        let cached = env.command(Some(store));
+        assert_eq!(arguments(&cached), [&base[..], &["--recursive"]].concat());
+        assert_eq!(variable(&cached, ENV_ENABLED), "1");
+        assert_eq!(variable(&cached, ENV_LOCATION), "/t/store");
+        assert_eq!(variable(&cached, ENV_MAX_SIZE), "<removed>");
     }
 
     #[test]

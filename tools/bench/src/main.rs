@@ -85,7 +85,7 @@ struct CacheDiffArgs {
     /// What turns the cache on and off: the binary's flags, or `SKIF_CACHE` and `SKIF_CACHE_DIR` with no cache flag.
     #[arg(long, value_enum, default_value_t = cache_diff::Control::Flags)]
     control: cache_diff::Control,
-    /// Fail when the warm run's report counts no cache hits, also for a binary whose cache is opt-in.
+    /// Fail when the warm run's `--debug` output counts no cache hits, also for a binary whose cache is opt-in.
     #[arg(long)]
     require_counters: bool,
     /// Corpus manifest.

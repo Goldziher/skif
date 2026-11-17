@@ -649,26 +649,30 @@ keys name the member, not the export an import reads.
 
 `skif-bench cache-diff` is the correctness gate of skif's cache ([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md),
 "Cache rows and the cache-diff gate"). For every repository of the `bench` suite it
-runs the binary under test with `. --format json --no-install` (plus `--recursive` where the repository sets it):
+runs the binary under test with `. --format json --no-install --debug` (plus `--recursive` where the repository sets
+it):
 
 1. without the cache, then with an empty store (cold, writes it), then again on that store (warm);
 2. for each of `--edits` seeded source edits, applied one at a time: once without the cache and once with the store the
    earlier runs left, on the same edited tree;
 3. once more with the store after the last edit is restored.
 
-Each cached run is compared with the uncached run of the same tree: the whole JSON documents and exit codes, except the
-`skif` version stamp and the `cache` and `timing` sections (counters a cached run may add). Each comparison prints
+Each cached run is compared with the uncached run of the same tree: the whole JSON documents on stdout and the exit
+codes, except the `skif` version stamp and a `cache` or `timing` section, should a report carry one. stderr is never
+compared. Each comparison prints
 `identical`, `DIFFERENT` with the sections that differ and the findings only one side reports (`+` the cached run, `-`
 the uncached one), or `FAILED: <reason>` (a run timed out or printed no report, the cold
 run wrote no store, the warm run shows no use of the cache, the uncached run counts cache hits, or no file accepts an
 edit kind). Each edit line also says whether the edit changed the uncached report. The exit code is non-zero when any
 comparison is not identical or none was made.
 
-Identical reports prove nothing when no run used a cache, so the warm run must show that it did. The gate sums every
-`hits` counter below the report's `cache` section (the counters are per namespace) and fails the warm comparison on a
-sum of zero. A report without the counter fails too when the binary's cache is on by default; from a binary with the
-opt-in cache, which reports no counters, the gate accepts the store the cold run wrote and says so on the warm line.
-`--require-counters` fails that case as well.
+Identical reports prove nothing when no run used a cache, so the warm run must show that it did. The JSON report
+carries no cache counters; skif prints them on stderr under `--debug`, one line per namespace:
+`skif debug: cache modules: H hits, M misses, B bytes written`. The gate runs every invocation with `--debug`, sums
+the hits of those lines and fails the warm comparison on a sum of zero. A run that prints no such line fails too when
+the binary's cache is on by default; from a binary with the opt-in cache, which prints no counters, the gate accepts
+the store the cold run wrote and says so on the warm line. `--require-counters` fails that case as well. An uncached
+run that counts a hit fails every comparison of the repository, since the cache was not off.
 
 ```sh
 mise run cache:diff [--only babel] [--edits 5] [--control env] [--require-counters]
@@ -848,7 +852,7 @@ Agreement with knip on the corpus is not precision: either tool can be wrong whe
 deadcode` measures both tools against a right answer instead. It generates a pnpm workspace of `--packages` packages
 (default 5) with seeded dead code, deterministic for `--seed`, writes it to `<out>/repo` and the answer key, every
 expected finding as a knip issue type and a parity key, to `<out>/answer-key.json`. It then runs
-`skif . --format json --no-install` and, with `--knip`, the knip
+`skif . --format json --no-install --no-cache` and, with `--knip`, the knip
 pinned in `corpus.toml` with an empty configuration (as `parity` does; the locked knip is installed with npm, which
 needs the npm registry). The reports are reduced to the parity keys, plus skif's `unused-class-members` findings as
 `classMembers` keys `<file>|<Class>.<member>` (knip 6 has no class-member check), and each run gets precision (seeded
@@ -979,8 +983,11 @@ in-process part.
   whole report first, with its time and the reason.
 - hyperfine runs with `--ignore-failure`, since linters exit 1 when they find something; an exit above 1 is still
   flagged as an error, as "What it measures" describes.
-- The skif command line is `skif . --format json --no-install [--no-js] [--config <entry files>]`, plus `--recursive`
-  on the informational `skif --recursive` row alone (ADR 0014); the working directory is the target.
+- The skif command line is `skif . --format json --no-install --no-cache [--no-js] [--config <entry files>]`, plus
+  `--recursive` on the informational `skif --recursive` row alone (ADR 0014); the working directory is the target.
+  skif's cache is on by default, so every skif run that `run`, `parity`, `syncpack-diff` and `deadcode` time or
+  compare passes `--no-cache`: no number or finding comes from a store an earlier run left. Only `cache-diff` runs
+  with the cache.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
   mean over many `--runs`.
 - The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each

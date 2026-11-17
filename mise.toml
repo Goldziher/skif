@@ -53,7 +53,7 @@ usage = '''
 flag "--only <names>" help="Comma-separated bench repositories"
 flag "--edits <count>" help="Seeded source edits per repository (default 5)"
 flag "--control <how>" help="flags (default) or env: turn the cache on and off with SKIF_CACHE and SKIF_CACHE_DIR"
-flag "--require-counters" help="Fail when the warm run's report counts no cache hits"
+flag "--require-counters" help="Fail when the warm run's --debug output counts no cache hits"
 '''
 run = [
   "cargo build --release --locked -p skif-cli",
