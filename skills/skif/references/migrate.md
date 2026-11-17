@@ -21,6 +21,9 @@ skif migrate --merge                   # add the translation to an existing skif
   migrated. `--profile full` keeps skif's defaults for the rest.
 - Without `--merge` or `--force`, an existing `skif.toml` is not overwritten.
 - `--strict` exits `1` when any construct needs a human.
+- `--output <FILE>` writes elsewhere (`-` prints to stdout); `--source <FILE>` reads that file instead of discovering
+  one and needs exactly one tool in `--from`; `--strict-hints` maps knip's `treatConfigHintsAsErrors` to
+  `stale-js-config = "error"` instead of `warn`.
 
 Read the report before committing. Each note has the file, the key path and a letter: `M` translated one to one,
 `A` translated with a behaviour difference the note explains, `D` covered by skif's defaults, `H` not translated
@@ -52,5 +55,5 @@ skif baseline check --base origin/main   # in CI: exit 1 when the baseline gaine
 - Edit a `reason` to say why an entry stays; `write` and `prune` keep edited reasons. Do not add entries by hand to
   hide a new finding: fix it or write a targeted `[[ignore]]` with a reason in `skif.toml`.
 - `check --base` reads the old file with `git show`; a shallow CI checkout needs `git fetch origin main` first.
-- `info` findings, and findings with neither a package nor a dependency, are not recorded; `write` lists them on
-  stderr.
+- `info` findings are not recorded. Nor are findings with no package, dependency or file (the entry would turn the
+  rule off everywhere) or about a root package without a `name`; `write` lists those on stderr (`unrecorded` in JSON).

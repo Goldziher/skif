@@ -29,7 +29,7 @@ Output:
 | --- | --- |
 | `--format <FORMAT[=FILE]>` | `human`, `json`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure`, `codeowners`. Repeatable; at most one goes to stdout, the others to `FILE`. |
 | `--output <FILE>` | Write the single `--format` to a file. |
-| `--max-show-issues <N>` | Show at most `N` findings per rule (human and json only); the summary counts all. |
+| `--max-show-issues <N>` | Show at most `N` findings per rule (human and json only, not with a fix flag); the summary counts all. |
 | `--max-warnings <N>`, `--fail-on-warnings` | Exit `1` above `N` warnings / on any warning. |
 | `--max-issues <N>` | Exit `1` only above `N` errors. |
 | `--no-exit-code` | Exit `0` when problems remain (`2` is kept). |
@@ -63,7 +63,7 @@ Configuration from the command line (the top layer, above the files):
 | `--ignore-package <NAME>` | Ignore a package in every rule (replaces the file's list). |
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. |
-| `--require-ignore-reasons` | Exit `2` when an ignore entry of a configuration file has no `reason`. |
+| `--require-ignore-reasons` | Exit `2` when an `[[ignore]]`, `[js]` ignore-list or rule `allow` entry of a configuration file has no `reason`. |
 | `--config <FILE>`, `--no-config` | Use this file instead of discovery / read no file. |
 
 Fixing:
@@ -93,11 +93,12 @@ report), `--color <auto|always|never>`.
 | `skif init [PATH]` | Write a starter `skif.toml` with a `#:schema` directive; refuses to overwrite. |
 | `skif config [PATH] [-r] --show` | The files that apply, in order, then the merged configuration. |
 | `skif config [PATH] --explain <KEY> [--package <NAME>]` | Every assignment of a key (`rules.unused-exports.level`, `js.ignore-dependencies`, `version-groups[0]`) and its final value. |
-| `skif explain-usage <FILE[#EXPORT]> [PATH] [--production]` | Why a file or export is used: entry rule, importers, the import chain from an entry, a verdict for an export. |
-| `skif migrate [PATH] [--from sherif,syncpack,knip\|auto] [--profile exact\|full] [--merge\|--force] [--dry-run] [--strict]` | See [migrate.md](migrate.md). |
+| `skif explain-usage <FILE[#EXPORT]> [PATH] [--production] [--type-aware]` | Why a file or export is used: entry rule, importers, the import chain from an entry, a verdict for an export. |
+| `skif explain-usage --dependency <NAME> [PATH] [--package <NAME\|DIR>]` | Per package, whether a dependency is used and the files, scripts, plugins and configs that use it, or the imports that count for nothing. |
+| `skif migrate [PATH] [--from sherif,syncpack,knip\|auto] [--profile exact\|full] [--merge\|--force] [--output <FILE>] [--dry-run] [--strict]` | See [migrate.md](migrate.md). |
 | `skif baseline write\|prune [PATH] [-r\|--file <FILE>] [LINT FLAGS] [--reason <TEXT>]` | Record / prune findings as `[[ignore]]` entries in `skif.baseline.toml`. |
 | `skif baseline check [PATH] (--base <REF>\|--base-file <FILE>)` | Exit `1` when the baseline gained entries. |
-| `skif update [PATH] [--check\|--interactive] [--target latest\|minor\|patch] [--dependencies <NAME>]` | Newer published versions from the npm registry; the only command that uses the network. |
+| `skif update [PATH] [--check\|--interactive] [--target latest\|minor\|patch] [--dependencies <NAME>] [--no-install]` | Write newer published versions from the npm registry and install (`--check` writes nothing, exit `1` when an update exists); the only command that uses the network. |
 | `skif list [PATH] [-r] [--show ...]`, `skif json [PATH] [-r]` | The dependencies the version groups govern, as text / NDJSON. |
 | `skif format [PATH] [-r] [--check\|--unsafe]` | Format every `package.json` as `[format]` describes. |
 | `skif mcp` | MCP server on stdio with the tools `lint`, `explain_usage`, `list_rules`; it never writes files. |
@@ -110,5 +111,5 @@ report), `--color <auto|always|never>`.
 | Code | Meaning |
 | --- | --- |
 | `0` | Clean (warnings within `--max-warnings` allowed; `info` never counts). |
-| `1` | Problems remain; for `baseline check`, the baseline gained entries. |
+| `1` | Problems remain; `baseline check`: the baseline gained entries; `update --check`: an update exists; `format --check`: a manifest is not formatted; `migrate --strict`: a construct needs a human. |
 | `2` | skif could not run: invalid configuration, no `package.json` at or below `PATH`, bad flags, a refused fix, a failed install step. |

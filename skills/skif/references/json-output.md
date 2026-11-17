@@ -36,8 +36,9 @@ printed there; notes and timings go to stderr.
 - `fixes` lists the fixes `--fix` could apply: `safety` is `safe` (applied by `--fix`) or `unsafe` (needs
   `--fix-unsafe`). Several entries are alternatives; `--select` or `[policy] prefer` decides between version
   alignments, and an interactive run asks. An empty list means the finding has no automatic fix.
-- A multi-root run (`-r`) adds `roots`, one object per root with its `path`, `packages` and `summary`, and `errors`
-  for roots that could not be loaded (the run then exits `2`, the other roots are still reported).
+- A multi-root run (`-r`, or no `package.json` at or above the path) adds `roots`, one object per root with its
+  `path`, `packages` and `summary`, and `errors` for roots that could not be loaded (the run then exits `2`, the other
+  roots are still reported).
 - `incomplete-packages` (omitted when empty) lists the packages whose entry files skif could not fully determine,
   for example because a tool config is computed at run time. In those packages unused dependencies are not reported
   and unused files only outside `scope`. Each entry has `name`, `dir`, `reasons` (each a `cause` with `plugin` and
@@ -45,14 +46,15 @@ printed there; notes and timings go to stderr.
   `{"within": [globs]}` for the only files left unjudged. A clean report with incomplete packages is not proof that
   nothing is unused there.
 - `type-aware` (present when the JS analysis ran) says whether types were asked for (`enabled`), the checker that
-  ran (`engine`) and, per package, its `state` (`typed`, `partial` or `untyped`), the `reason` when it is not typed
-  (such as `no-tsconfig` or `unresolved-modules: N`) and `untyped-files`. Member reads in untyped files are credited
-  by name, so missing types never add a finding.
+  ran (`engine`, only when enabled) and, per package, its `state` (`typed`, `partial` or `untyped`), the `reason` when
+  it is not typed (such as `disabled`, `no-tsconfig` or `unresolved-modules: N`) and `untyped-files`. Member reads in
+  untyped files are credited by name, so missing types never add a finding.
 
 With `--fix`, the document adds a `fix` object: `applied` (`rule`, `message`, `title`), `skipped` (`rule`, `message`, a
-`reason` such as `safety` or `removes-files`, and a `detail`), `changed` (the files written) and `install` (`status`
-and `reason`). With `--fix --dry-run` it holds `"dry-run": true` and `changes` (`path`, `kind` `modify`, `create` or
-`delete`, and a unified `diff`) instead of writing. The `diagnostics` of a fix run come from the lint after the fixes.
+`reason` such as `safety`, `needs-choice` or `removes-files`, and a `detail`), `changed` (the files written) and
+`install` (`status` `ran` with `command`, `skipped` with `reason`, or `failed` with `command` and `message`). With
+`--fix --dry-run` it holds `"dry-run": true` and `changes` (`path`, `kind` `modify`, `create` or `delete`, and a
+unified `diff`) instead of writing. The `diagnostics` of a fix run come from the lint after the fixes.
 
 ## The error document
 
@@ -68,13 +70,16 @@ When skif cannot run (exit `2`), the document is:
 ## Other JSON outputs
 
 - `skif rules --format json`: `{"version", "skif", "rules": [{"id", "category", "default", "fixable", "summary"}]}`;
-  `default` is `null` for a rule that is off by default.
+  `default` is `null` for a rule that is off by default; `fixable` is `safe`, `unsafe`, `sometimes` or `none`.
 - `skif explain-usage <FILE[#EXPORT]> --format json`: a `report` with `file`, `in-graph`, `entry` (why the file is an
-  entry, or `unknown`), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with
-  `#EXPORT`, `export` with a `verdict` of `public`, `used`, `unused` or `not-judged`. A file outside the module graph
-  exits `2` with an `error` document whose `report.absence` says why (`unused-file`, `ignored`, `not-discovered`,
-  `entries-incomplete`, ...).
-- `skif --trace-dependency <NAME> --format json`: a `traces` array, one entry per root.
+  entry, `null` when it is not one), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry`
+  and, with `#EXPORT`, `export` with a `verdict` of `public`, `used`, `unused` or `not-judged`. A file outside the
+  module graph exits `2` with an `error` document whose `report.absence` says why (`unused-file`, `ignored`,
+  `not-discovered`, `entries-incomplete`, ...).
+- `skif explain-usage --dependency <NAME> --format json`: a `report` with `dependency` and `packages`, each with
+  `listed`, a `verdict`, the `uses` that credit it and the imports `not-counted`.
+- `skif --trace-dependency <NAME> --format json`: a `traces` array, one entry per root, each with `listed-in` and
+  `imported-by`.
 - `skif config`, `skif migrate`, `skif baseline` and `skif update` with `--format json` print one document each,
   with the same `version` and `skif` members; their fields are listed in the
   [CLI reference](https://polylint.github.io/skif/reference/cli/).

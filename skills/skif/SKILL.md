@@ -53,13 +53,13 @@ the documents the matching commands print with `--format json` (see
 | --- | --- |
 | `skif [PATH]` | Lint the project containing `PATH` (default `.`). |
 | `skif rules --format json` | List every rule ID with its category, default level and fixability. |
-| `skif explain-usage <FILE[#EXPORT]>` | Learn why a file or export counts as used before deleting anything. |
+| `skif explain-usage <FILE[#EXPORT]>` / `--dependency <NAME>` | Learn why a file, export or dependency counts as used before deleting anything. |
 | `skif --trace-dependency <NAME>` | See where a dependency is listed, imported and counted as used. |
 | `skif config --show` / `--explain <KEY>` | See which `skif.toml` files apply and where a value was set. |
 | `skif migrate --dry-run` | Translate sherif, syncpack and knip configuration into a `skif.toml`. |
 | `skif baseline write\|prune\|check` | Record current findings so CI only accepts fewer. |
 | `skif init` / `skif schema` | Write a starter `skif.toml` / print its JSON Schema. |
-| `skif update --check` | List newer published versions (network). |
+| `skif update --check` | List newer published versions (network); without `--check` it writes them. |
 | `skif format --check` | Check `package.json` layout. |
 | `skif mcp` / `skif lsp` | Run the MCP server for agents / the language server for editors. |
 

@@ -26,8 +26,9 @@ section. See the [configuration reference](https://polylint.github.io/skif/refer
 `unused-dependencies`, `unused-dev-dependencies` and `unused-optional-peer-dependencies` mean no import, script,
 binary use or tool configuration that skif reads uses the package.
 
-- Confirm with `skif --trace-dependency <name> --format json`: where it is listed, every import, and which packages
-  count it as used.
+- Confirm with `skif explain-usage --dependency <name> [--package <pkg>]`: per package, the verdict, the uses that
+  credit it and the imports that count for nothing. `skif --trace-dependency <name>` lists every listing and import
+  across the roots of the run.
 - A package used only by a tool whose config skif cannot read statically, or loaded by a string at run time, is a
   false positive: add it to `ignore-dependencies` of the package's `[js.workspaces."<dir>"]` table with a reason.
 - In a repository with several roots (nested workspaces or standalone packages), lint with `-r` before removing:
