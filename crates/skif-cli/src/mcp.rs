@@ -114,45 +114,18 @@ const fn param(name: &'static str, shape: Shape, description: &'static str) -> P
 /// One tool: the command it runs and the flags its arguments stand for.
 struct Tool {
     name: &'static str,
+    /// The human-readable name `tools/list` gives (MCP 2025-06-18).
+    title: &'static str,
     description: &'static str,
     /// The command whose flags the arguments are parsed as.
     command: fn() -> clap::Command,
     /// The flags every call passes: JSON output, and what a long-lived host fixes (no types, ADR 0013).
     fixed: &'static [&'static str],
     params: &'static [Param],
-    required: &'static [&'static str],
-    /// The flags the given arguments imply on top of [`Tool::fixed`].
-    implied: fn(&Map<String, Value>) -> &'static [&'static str],
-}
-
-/// Whether `arguments` set the boolean `key`.
-fn given(arguments: &Map<String, Value>, key: &str) -> bool {
-    arguments
-        .get(key)
-        .is_some_and(|value| value.as_bool().unwrap_or(!value.is_null()))
-}
-
-/// No implied flag.
-const fn nothing(_: &Map<String, Value>) -> &'static [&'static str] {
-    &[]
-}
-
-/// A fixing lint only plans: the tool never writes.
-fn dry_run(arguments: &Map<String, Value>) -> &'static [&'static str] {
-    if given(arguments, "fix") || given(arguments, "fix_unsafe") {
-        &["--dry-run"]
-    } else {
-        &[]
-    }
-}
-
-/// `skif config` shows the configuration when no key is to be explained.
-fn show(arguments: &Map<String, Value>) -> &'static [&'static str] {
-    if arguments.get("explain").is_some_and(|key| !key.is_null()) {
-        &[]
-    } else {
-        &["--show"]
-    }
+    /// The flags the tool sets itself, depending on the call: `lint` sets `--dry-run` once the parsed flags fix
+    /// ([`LintArgs::fixing`]), and `config` passes `--show` unless `explain` is given, since its command line needs
+    /// one of the two before it parses.
+    implied: &'static [&'static str],
 }
 
 const PATH: Param = param("path", Shape::Text, "A directory or file in the project; default `.`.");
@@ -178,6 +151,7 @@ const NO_JS: Param = param("no_js", Shape::Flag, "Skip the JavaScript analysis."
 const TOOLS: &[Tool] = &[
     Tool {
         name: "lint",
+        title: "Lint a monorepo",
         description: "`skif --format json`: the lint report. Findings are not an error.",
         command: LintCommand::command,
         fixed: &["--format", "json", "--no-type-aware"],
@@ -211,11 +185,11 @@ const TOOLS: &[Tool] = &[
             param("select", Shape::Text, "The version alignment fixes target."),
             param("allow_remove_files", Shape::Flag, "Plan file deletions."),
         ],
-        required: &[],
-        implied: dry_run,
+        implied: &["--dry-run"],
     },
     Tool {
         name: "explain_usage",
+        title: "Explain why a file, export or dependency is used",
         description: "`skif explain-usage --format json`: why a file, export or dependency counts as used.",
         command: ExplainCommand::command,
         fixed: &["--format", "json", "--no-type-aware"],
@@ -243,11 +217,11 @@ const TOOLS: &[Tool] = &[
             CONFIG,
             NO_CONFIG,
         ],
-        required: &[],
-        implied: nothing,
+        implied: &[],
     },
     Tool {
         name: "config",
+        title: "Show the effective configuration",
         description: "`skif config --format json`: the config files of each root and the merged config.",
         command: ConfigCommand::command,
         fixed: &["--format", "json"],
@@ -263,17 +237,16 @@ const TOOLS: &[Tool] = &[
             CONFIG,
             NO_CONFIG,
         ],
-        required: &[],
-        implied: show,
+        implied: &["--show"],
     },
     Tool {
         name: "list_rules",
+        title: "List skif's rules",
         description: "`skif rules --format json`: every rule with its ID, default level and fixability.",
         command: RulesCommand::command,
         fixed: &["--format", "json"],
         params: &[],
-        required: &[],
-        implied: nothing,
+        implied: &[],
     },
 ];
 
@@ -468,14 +441,11 @@ fn tools() -> Value {
                     .iter()
                     .map(|param| (param.name.to_owned(), param_schema(&command, param)))
                     .collect();
-                let mut schema = json!({ "type": "object", "properties": properties, "additionalProperties": false });
-                if !tool.required.is_empty() {
-                    schema["required"] = json!(tool.required);
-                }
                 json!({
                     "name": tool.name,
+                    "title": tool.title,
                     "description": tool.description,
-                    "inputSchema": schema,
+                    "inputSchema": { "type": "object", "properties": properties, "additionalProperties": false },
                     "annotations": read_only,
                 })
             })
@@ -537,19 +507,14 @@ fn call(params: &Value, caches: &mut Caches) -> Result<Value, RpcError> {
     Ok(tool_result(outcome))
 }
 
-/// The command line `arguments` stand for: the tool's fixed flags, then one flag per argument given, then the
-/// positional arguments after `--`, in their order. Values are attached with `=`, so one that starts with `-` is not
-/// read as a flag.
-fn command_line(tool: &Tool, arguments: &Map<String, Value>) -> Result<Vec<String>, Failure> {
+/// The command line `arguments` stand for: the tool's fixed flags and `extra`, then one flag per argument given, then
+/// the positional arguments after `--`, in their order. Values are attached with `=`, so one that starts with `-` is
+/// not read as a flag.
+fn command_line(tool: &Tool, arguments: &Map<String, Value>, extra: &[&str]) -> Result<Vec<String>, Failure> {
     let mut command = (tool.command)();
     // Building numbers the positional arguments.
     command.build();
-    let mut argv: Vec<String> = tool
-        .fixed
-        .iter()
-        .chain((tool.implied)(arguments))
-        .map(|flag| (*flag).to_owned())
-        .collect();
+    let mut argv: Vec<String> = tool.fixed.iter().chain(extra).map(|flag| (*flag).to_owned()).collect();
     let mut positionals: Vec<(usize, String)> = Vec::new();
     for param in tool.params {
         let Some(id) = param.id else {
@@ -613,10 +578,10 @@ fn folded(arguments: &Map<String, Value>) -> Result<Map<String, Value>, Failure>
     Ok(arguments)
 }
 
-/// The arguments of `tool` parsed as its command's flags: a flag the command line rejects is a usage error with
-/// clap's message.
-fn parse<C: Parser>(tool: &Tool, arguments: &Map<String, Value>) -> Result<C, Failure> {
-    let argv = command_line(tool, &folded(arguments)?)?;
+/// The arguments of `tool` parsed as its command's flags, with `extra` flags: a flag the command line rejects is a
+/// usage error with clap's message.
+fn parse<C: Parser>(tool: &Tool, arguments: &Map<String, Value>, extra: &[&str]) -> Result<C, Failure> {
+    let argv = command_line(tool, &folded(arguments)?, extra)?;
     let mut command = (tool.command)();
     command
         .try_get_matches_from_mut(argv)
@@ -665,9 +630,26 @@ fn tool_result(outcome: Result<Answer, Failure>) -> Value {
     })
 }
 
+/// The flags of a `lint` call. The tool never writes: a fix is only planned (`--dry-run`).
+fn lint_args(tool: &Tool, arguments: &Map<String, Value>) -> Result<LintArgs, Failure> {
+    let mut args = parse::<LintCommand>(tool, arguments, &[])?.args;
+    args.dry_run = args.fixing();
+    Ok(args)
+}
+
+/// The flags of a `config` call: `skif config` shows the configuration (`--show`) when no key is to be explained.
+fn config_args(tool: &Tool, arguments: &Map<String, Value>) -> Result<ConfigArgs, Failure> {
+    let show = if arguments.get("explain").is_none_or(Value::is_null) {
+        tool.implied
+    } else {
+        &[]
+    };
+    Ok(parse::<ConfigCommand>(tool, arguments, show)?.args)
+}
+
 /// `lint`: `skif` with the tool's flags.
 fn lint(tool: &Tool, arguments: &Map<String, Value>, caches: &mut Caches) -> Result<Answer, Failure> {
-    let args = parse::<LintCommand>(tool, arguments)?.args;
+    let args = lint_args(tool, arguments)?;
     // A path that does not resolve gets no cache; the lint reports why it cannot run.
     let cache = canonical(&args.path)
         .ok()
@@ -677,7 +659,7 @@ fn lint(tool: &Tool, arguments: &Map<String, Value>, caches: &mut Caches) -> Res
 }
 
 fn explain_usage(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure> {
-    let args = parse::<ExplainCommand>(tool, arguments)?.args;
+    let args = parse::<ExplainCommand>(tool, arguments, &[])?.args;
     let cwd = std::env::current_dir().map_err(|error| {
         plain(CliError::new(
             Kind::Io,
@@ -689,13 +671,13 @@ fn explain_usage(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, 
 }
 
 fn config(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure> {
-    let args = parse::<ConfigCommand>(tool, arguments)?.args;
+    let args = config_args(tool, arguments)?;
     let (text, failures) = crate::config::render(&args).map_err(plain)?;
     Ok((parsed(text.as_bytes())?, !failures.is_empty()))
 }
 
 fn list_rules(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure> {
-    let args = parse::<RulesCommand>(tool, arguments)?.args;
+    let args = parse::<RulesCommand>(tool, arguments, &[])?.args;
     let text = crate::commands::render(&args).map_err(plain)?;
     Ok((parsed(text.as_bytes())?, false))
 }

@@ -4,7 +4,7 @@
 
 use serde_json::{Map, Value, json};
 
-use super::{ConfigCommand, ExplainCommand, LintCommand, Param, RulesCommand, Shape, TOOLS, Tool, parse, tools};
+use super::{ExplainCommand, Param, RulesCommand, Shape, TOOLS, Tool, config_args, lint_args, parse, tools};
 
 /// What happens to each command of the command line in the server: the tool that runs it, or why none does.
 /// `""` is the bare `skif`, the lint.
@@ -37,8 +37,8 @@ const COMMANDS: &[(&str, Result<&str, &str>)] = &[
     ("lsp", Err("an editor server")),
 ];
 
-/// The flags of each tool's command that no argument stands for, and why. With [`Tool::fixed`], the implied
-/// flags and the arguments, they cover every flag of the command exactly once.
+/// The flags of each tool's command that no argument stands for, and why. With [`Tool::fixed`], [`Tool::implied`]
+/// and the arguments, they cover every flag of the command exactly once.
 const NOT_EXPOSED: &[(&str, &[(&str, &str)])] = &[
     (
         "lint",
@@ -180,14 +180,8 @@ fn every_flag_of_a_tool_command_has_an_argument_or_a_reason() {
         for flag in tool.fixed.iter().filter(|flag| flag.starts_with("--")) {
             covered.push((id_of(&command, flag), "fixed"));
         }
-        let implied = ["fix", "explain"]
-            .iter()
-            .map(|key| (*key).to_owned())
-            .map(|key| Map::from_iter([(key, Value::Bool(true))]));
-        for arguments in std::iter::once(Map::new()).chain(implied) {
-            for flag in (tool.implied)(&arguments) {
-                covered.push((id_of(&command, flag), "implied"));
-            }
+        for flag in tool.implied {
+            covered.push((id_of(&command, flag), "implied"));
         }
         for param in tool.params {
             if let Some(id) = param.id {
@@ -200,7 +194,6 @@ fn every_flag_of_a_tool_command_has_an_argument_or_a_reason() {
             covered.push(((*id).to_owned(), "not exposed"));
         }
         covered.sort();
-        covered.dedup_by(|a, b| a == b && a.1 == "implied");
         let mut ids: Vec<String> = covered.iter().map(|(id, _)| id.clone()).collect();
         let mut flags = flag_ids(&command);
         flags.sort();
@@ -274,6 +267,11 @@ fn the_input_schemas_list_exactly_the_arguments() {
     let listed = tools();
     for (entry, tool) in listed.as_array().unwrap().iter().zip(TOOLS) {
         assert_eq!(entry["name"], tool.name);
+        assert!(
+            entry["title"].as_str().is_some_and(|title| !title.is_empty()),
+            "{}: a title",
+            tool.name
+        );
         let properties = entry["inputSchema"]["properties"].as_object().unwrap();
         let names: Vec<&str> = properties.keys().map(String::as_str).collect();
         let params: Vec<&str> = tool.params.iter().map(|param| param.name).collect();
@@ -321,6 +319,20 @@ fn context(tool: &str, param: &str) -> Map<String, Value> {
     needs.as_object().unwrap().clone()
 }
 
+/// The flags of [`Tool::implied`] a user types for `arguments`: `--dry-run` with a fix, `--show` without `explain`.
+fn implied(tool: &Tool, arguments: &Map<String, Value>) -> Vec<&'static str> {
+    let set = |key: &str| {
+        arguments
+            .get(key)
+            .is_some_and(|value| !value.is_null() && value != false)
+    };
+    match tool.name {
+        "lint" if set("fix") || set("fix_unsafe") => vec!["--dry-run"],
+        "config" if !set("explain") => vec!["--show"],
+        _ => vec![],
+    }
+}
+
 /// `arguments` as a user types them after `skif` (and the subcommand): `--flag value`, positionals last.
 fn typed(tool: &Tool, arguments: &Map<String, Value>) -> Vec<String> {
     let mut command = (tool.command)();
@@ -328,8 +340,9 @@ fn typed(tool: &Tool, arguments: &Map<String, Value>) -> Vec<String> {
     let mut argv: Vec<String> = tool
         .fixed
         .iter()
-        .chain((tool.implied)(arguments))
-        .map(|flag| (*flag).to_owned())
+        .copied()
+        .chain(implied(tool, arguments))
+        .map(str::to_owned)
         .collect();
     let mut positionals = Vec::new();
     for param in tool.params {
@@ -380,10 +393,10 @@ fn cli(tool: &Tool, typed: &[String]) -> String {
 /// The arguments as the tool parses them, printed like [`cli`].
 fn server(tool: &Tool, arguments: &Map<String, Value>) -> String {
     let parsed = match tool.name {
-        "lint" => parse::<LintCommand>(tool, arguments).map(|command| format!("{:?}", command.args)),
-        "explain_usage" => parse::<ExplainCommand>(tool, arguments).map(|command| format!("{:?}", command.args)),
-        "config" => parse::<ConfigCommand>(tool, arguments).map(|command| format!("{:?}", command.args)),
-        _ => parse::<RulesCommand>(tool, arguments).map(|command| format!("{:?}", command.args)),
+        "lint" => lint_args(tool, arguments).map(|args| format!("{args:?}")),
+        "explain_usage" => parse::<ExplainCommand>(tool, arguments, &[]).map(|command| format!("{:?}", command.args)),
+        "config" => config_args(tool, arguments).map(|args| format!("{args:?}")),
+        _ => parse::<RulesCommand>(tool, arguments, &[]).map(|command| format!("{:?}", command.args)),
     };
     parsed.unwrap_or_else(|failure| panic!("{}: {arguments:?}: {}", tool.name, failure.0))
 }
