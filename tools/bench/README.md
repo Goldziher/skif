@@ -702,7 +702,8 @@ After the comparisons it prints, per repository, the wall time of the uncached, 
 cached runs and the store size after the cold run. These are single runs, labelled informational: they answer roughly
 what a warm cache saves, and are not a benchmark or a published row.
 
-The gate is run by hand before merging a change to the cache; no CI workflow runs it yet.
+Every `bench.yml` run also runs the gate with `--require-counters`, on the checkouts the benchmark installed, after
+it uploads the results; run it by hand with `mise run cache:diff` before merging a change to the cache.
 
 ## Policy diff against syncpack
 

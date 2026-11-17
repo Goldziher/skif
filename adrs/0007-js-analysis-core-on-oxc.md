@@ -273,5 +273,5 @@ lets every host, poly included, keep warm results in a store it owns while the l
   and `skif cache`. `crates/skif-cache/src/tests.rs` and `crates/skif-cli/tests/cache.rs` cover the store per
   repository, the failed run, the limits of `[cache]`, temporary files, planted links and unreadable stores.
 * `skif-bench cache-diff` compares uncached, cold, warm and seeded-edit runs on the corpus. It is run with
-  `mise run cache:diff` before a release; CI wiring is planned once the cache is on by default
+  `mise run cache:diff` and by every `bench.yml` run, on the checkouts that run installed
   ([ADR 0014](0014-benchmarks-and-the-comparison-harness.md)).

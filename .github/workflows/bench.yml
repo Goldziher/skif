@@ -213,3 +213,22 @@ jobs:
             bench-results/summary.md
             bench-results/raw/
           if-no-files-found: error
+      # ~keep The cache correctness gate (ADR 0007, ADR 0014) on the checkouts the benchmark installed: the measured
+      # ~keep skif lints each repository uncached, cold, warm and after seeded edits, and the step fails on any
+      # ~keep difference between the reports or on a warm run that counts no cache hit. It runs after the upload, so a
+      # ~keep failure here never withholds the timed results; nothing it runs is timed.
+      - name: Compare cached and uncached reports
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.resolve.outputs.rust }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          args=(
+            cache-diff
+            --skif measured/target/release/skif
+            --corpus-dir "${RUNNER_TEMP}/bench-work/corpus"
+            --scratch "${RUNNER_TEMP}/bench-work/cache-diff"
+            --require-counters
+          )
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          target/release/skif-bench "${args[@]}"

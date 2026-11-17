@@ -120,7 +120,7 @@ counted.
   [ADR 0001](0001-mission-scope-and-non-goals.md), so a warm number never stands in for a compared one.
 * `skif-bench cache-diff` lints the corpus uncached, cold, warm and after seeded edits, and fails on any difference
   between the reports, because a cache that changes a finding is a correctness defect, not a measurement. It is run
-  with `mise run cache:diff` before a release; CI wiring is planned once the cache is on by default.
+  with `mise run cache:diff`, and by every `bench.yml` run after its results are uploaded.
 
 ### Timing scope
 
