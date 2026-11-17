@@ -9,6 +9,7 @@
 //! The runs also give a first, informational answer to what a warm cache saves: the wall time of single uncached,
 //! cold, warm and one-edit runs and the size of the store. They are single runs, not a benchmark.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs;
@@ -238,6 +239,9 @@ pub enum Outcome {
     Different(Diff),
     /// A run produced no comparable report.
     Failed(String),
+    /// No file of the repository accepts the planned edit kind, so nothing was run. Not a cache defect, but a
+    /// repository whose every edit is skipped fails the verdict.
+    Skipped(String),
 }
 
 /// The report with its exit code as the `exit-code` section.
@@ -289,6 +293,7 @@ pub fn render(rows: &[Row]) -> String {
             Outcome::Identical => "identical".to_owned(),
             Outcome::Different(_) => "DIFFERENT".to_owned(),
             Outcome::Failed(reason) => format!("FAILED: {reason}"),
+            Outcome::Skipped(reason) => format!("skipped: {reason}"),
         };
         let note = row.note.as_deref().map_or_default(|note| format!(" ({note})"));
         let _ = writeln!(out, "{:<20} {:<6} {status}{note}  [{}]", row.repo, row.run, row.state);
@@ -299,31 +304,53 @@ pub fn render(rows: &[Row]) -> String {
     let count = |keep: fn(&Outcome) -> bool| rows.iter().filter(|row| keep(&row.outcome)).count();
     let _ = writeln!(
         out,
-        "{} comparison(s): {} identical, {} different, {} failed",
+        "{} comparison(s): {} identical, {} different, {} failed, {} skipped",
         rows.len(),
         count(|o| matches!(o, Outcome::Identical)),
         count(|o| matches!(o, Outcome::Different(_))),
         count(|o| matches!(o, Outcome::Failed(_))),
+        count(|o| matches!(o, Outcome::Skipped(_))),
     );
     out
 }
 
-/// The verdict over all rows: an error when nothing was compared or any comparison is not identical.
+/// The verdict over all rows: an error when nothing was compared, any comparison is not identical, or a repository
+/// had every planned edit skipped.
 ///
 /// # Errors
-/// Fails on zero comparisons, and on any `DIFFERENT` or `FAILED` row.
+/// Fails on zero comparisons, on any `DIFFERENT` or `FAILED` row, and on a repository with edit rows that are all
+/// skipped.
 pub fn verdict(rows: &[Row]) -> Result<()> {
     if rows.is_empty() {
         bail!("no comparison was made, so the cache was not checked");
     }
     let bad = rows
         .iter()
-        .filter(|row| !matches!(row.outcome, Outcome::Identical))
+        .filter(|row| matches!(row.outcome, Outcome::Different(_) | Outcome::Failed(_)))
         .count();
     if bad > 0 {
         bail!(
             "{bad} of {} comparison(s) differ between uncached and cached runs or have no report",
             rows.len()
+        );
+    }
+    let mut edits: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for row in rows.iter().filter(|row| row.state.starts_with("edit ")) {
+        let (total, skipped) = edits.entry(row.repo.as_str()).or_default();
+        *total += 1;
+        if matches!(row.outcome, Outcome::Skipped(_)) {
+            *skipped += 1;
+        }
+    }
+    let unedited: Vec<&str> = edits
+        .iter()
+        .filter(|(_, (total, skipped))| total == skipped)
+        .map(|(repo, _)| *repo)
+        .collect();
+    if !unedited.is_empty() {
+        bail!(
+            "no planned edit applied in {}, so the cache was not checked after an edit there",
+            unedited.join(", ")
         );
     }
     Ok(())
@@ -497,7 +524,7 @@ impl Pass<'_> {
             let edit = match planned {
                 Ok(edit) => edit,
                 Err(reason) => {
-                    rows.push(self.row(&format!("edit {number}"), "cached", Outcome::Failed(reason.clone())));
+                    rows.push(self.row(&format!("edit {number}"), "cached", Outcome::Skipped(reason.clone())));
                     continue;
                 }
             };
@@ -660,6 +687,42 @@ mod tests {
     }
 
     #[test]
+    fn a_skipped_edit_passes_unless_every_edit_of_a_repository_is_skipped() {
+        let edit = |repo: &str, outcome| Row {
+            repo: repo.into(),
+            state: "edit 1".into(),
+            run: "cached",
+            outcome,
+            note: None,
+        };
+        let skipped = || Outcome::Skipped("no source file tried accepts the add-import edit".into());
+        assert!(
+            verdict(&[
+                row(Outcome::Identical),
+                edit("r", Outcome::Identical),
+                edit("r", skipped())
+            ])
+            .is_ok()
+        );
+        let error = verdict(&[
+            row(Outcome::Identical),
+            edit("r", Outcome::Identical),
+            edit("q", skipped()),
+        ])
+        .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("no planned edit applied in q"),
+            "{error:#}"
+        );
+        let text = render(&[row(Outcome::Identical), edit("r", skipped())]);
+        assert!(text.contains("skipped: no source file tried accepts"), "{text}");
+        assert!(
+            text.contains("2 comparison(s): 1 identical, 0 different, 0 failed, 1 skipped"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn the_report_lists_sections_and_totals() {
         let rows = [
             row(Outcome::Identical),
@@ -672,7 +735,7 @@ mod tests {
         assert!(text.contains("- unused-file a.ts"), "{text}");
         assert!(text.contains("FAILED: cached run timed out"), "{text}");
         assert!(
-            text.contains("3 comparison(s): 1 identical, 1 different, 1 failed"),
+            text.contains("3 comparison(s): 1 identical, 1 different, 1 failed, 0 skipped"),
             "{text}"
         );
     }

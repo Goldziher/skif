@@ -690,10 +690,12 @@ Each cached run is compared with the uncached run of the same tree: the whole JS
 codes, except the `skif` version stamp and a `cache` or `timing` section, should a report carry one. stderr is never
 compared. Each comparison prints
 `identical`, `DIFFERENT` with the sections that differ and the findings only one side reports (`+` the cached run, `-`
-the uncached one), or `FAILED: <reason>` (a run timed out or printed no report, the cold
-run wrote no store, the warm run shows no use of the cache, the uncached run counts cache hits, or no file accepts an
-edit kind). Each edit line also says whether the edit changed the uncached report. The exit code is non-zero when any
-comparison is not identical or none was made.
+the uncached one), `FAILED: <reason>` (a run timed out or printed no report, the cold
+run wrote no store, the warm run shows no use of the cache, or the uncached run counts cache hits), or
+`skipped: <reason>` when no file of the repository accepts an edit kind (a CommonJS-only repository takes no import
+or `declare global` edit). Each edit line also says whether the edit changed the uncached report. The exit code is
+non-zero when any comparison is `DIFFERENT` or `FAILED`, when none was made, or when every planned edit of a
+repository was skipped.
 
 Identical reports prove nothing when no run used a cache, so the warm run must show that it did. The JSON report
 carries no cache counters; skif prints them on stderr under `--debug`, one line per namespace:

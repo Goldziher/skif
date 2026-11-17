@@ -760,7 +760,7 @@ fn warm_check(uncached: &Captured, warm: &Captured) -> Result<u64, String> {
             render_diff(&mut text, &diff);
             return Err(text.trim_end().to_owned());
         }
-        Outcome::Failed(reason) => return Err(reason),
+        Outcome::Failed(reason) | Outcome::Skipped(reason) => return Err(reason),
     }
     match cache_diff::cache_hits(&warm.stderr) {
         Some(0) => Err("it counts zero cache hits, so it read nothing from the store".to_owned()),
