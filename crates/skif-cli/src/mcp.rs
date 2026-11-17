@@ -658,7 +658,7 @@ fn tool_result(outcome: Result<Answer, Failure>) -> Value {
         let document = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "error": { "message": error.message } }));
         (document, true)
     });
-    let text = serde_json::to_string_pretty(&document).unwrap_or_default();
+    let text = serde_json::to_string(&document).unwrap_or_default();
     json!({
         "content": [{ "type": "text", "text": text }],
         "structuredContent": document,
