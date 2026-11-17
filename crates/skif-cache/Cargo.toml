@@ -1,0 +1,25 @@
+[package]
+name = "skif-cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "The disk cache store of skif: per-base stores under one location, pruned and capped."
+documentation = "https://docs.rs/skif-cache"
+keywords = ["cache", "linter", "monorepo", "skif"]
+categories = ["development-tools", "caching"]
+readme = "README.md"
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
+
+[dependencies]
+skif-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

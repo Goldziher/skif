@@ -23,6 +23,7 @@ settle_seconds="${SETTLE_SECONDS:-30}"
 
 crates=(
   skif-core
+  skif-cache
   skif-specifier
   skif-config
   skif-edit

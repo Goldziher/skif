@@ -63,8 +63,8 @@ pub use array_comments::{
     ConfigComments, ElementComment, PathSegment, PropertyComment, extract_array_comments, extract_config_comments,
 };
 pub use cache::{
-    CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, ParseCoalescer,
-    cache_version, parse_cached,
+    CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, MODULES, MemoryModuleCache, ModuleCache, ModuleKey,
+    ParseCoalescer, StoreModuleCache, cache_version, parse_cached,
 };
 pub use components::{
     RegisteredComponent, camelize, capitalize, is_native_tag, registered_components, registered_name, resolved_names,

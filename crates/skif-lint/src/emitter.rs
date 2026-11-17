@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use skif_core::{ConfigJudgement, Diagnostic, IncompletePackage};
+use skif_core::{CacheCounters, ConfigJudgement, Diagnostic, IncompletePackage};
 
 use crate::context::{EnabledRules, LintContext};
 use crate::ignore::Suppressions;
@@ -26,6 +27,7 @@ pub struct Emitter<'a> {
     other_project_build_sources: Vec<PathBuf>,
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
     config_judgements: Vec<ConfigJudgement>,
+    cache: BTreeMap<String, CacheCounters>,
 }
 
 impl<'a> Emitter<'a> {
@@ -43,6 +45,7 @@ impl<'a> Emitter<'a> {
             other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
+            cache: BTreeMap::new(),
         }
     }
 
@@ -67,11 +70,13 @@ impl<'a> Emitter<'a> {
             other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
+            cache: BTreeMap::new(),
         }
     }
 
     /// Appends the diagnostics, incomplete packages, files and build sources of other projects, ancestor dependency
     /// uses and configuration judgements collected by `other`.
+    /// The cache counters of `other` are added per namespace.
     pub fn merge(&mut self, other: Self) {
         if self.diagnostics.is_empty() {
             self.diagnostics = other.diagnostics;
@@ -84,6 +89,9 @@ impl<'a> Emitter<'a> {
             .extend(other.other_project_build_sources);
         self.ancestor_dependency_uses.extend(other.ancestor_dependency_uses);
         self.config_judgements.extend(other.config_judgements);
+        for (namespace, counters) in other.cache {
+            self.cache.entry(namespace).or_default().add(counters);
+        }
     }
 
     /// Merges `parts` in order, with the same result as calling [`merge`](Self::merge) for each.
@@ -222,6 +230,18 @@ impl<'a> Emitter<'a> {
     #[must_use]
     pub fn take_config_judgements(&mut self) -> Vec<ConfigJudgement> {
         std::mem::take(&mut self.config_judgements)
+    }
+
+    /// Records what a provider did with the cache store in `namespace`, for [`Report::cache`](skif_core::Report::cache);
+    /// counters recorded twice for one namespace add up.
+    pub fn report_cache(&mut self, namespace: &str, counters: CacheCounters) {
+        self.cache.entry(namespace.to_owned()).or_default().add(counters);
+    }
+
+    /// Takes the recorded cache counters, per namespace.
+    #[must_use]
+    pub fn take_cache_counters(&mut self) -> BTreeMap<String, CacheCounters> {
+        std::mem::take(&mut self.cache)
     }
 
     /// The kept diagnostics, in emission order.

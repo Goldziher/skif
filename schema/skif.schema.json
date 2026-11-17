@@ -121,6 +121,10 @@
         "max-concurrent-requests": 12
       }
     },
+    "cache": {
+      "$ref": "#/$defs/Cache",
+      "description": "`[cache]`: the cache store of the command line and the npm package (ADR 0003, ADR 0007). Read only from the\nroot configuration; the library never reads it, and no cache setting enters a cache key."
+    },
     "update-groups": {
       "type": "array",
       "items": {
@@ -963,6 +967,51 @@
         }
       },
       "description": "`[update]`: how `skif update` reads the package registry (ADR 0006). Linting never reads it."
+    },
+    "Cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether runs keep and reuse what they computed. Unset, the cache is on."
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The directory of the cache store: a path relative to this configuration file that stays inside its directory\n(no absolute path, no `..` that leaves it). Unset, `node_modules/.cache/skif` below the base when\n`node_modules` exists, else the per-user cache directory."
+        },
+        "max-size": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The most the project's cache store may hold: bytes as an integer, or a size such as `\"256MiB\"` (`KiB`, `MiB`,\n`GiB` count in 1024s, `KB`, `MB`, `GB` in 1000s). Unset, the cache location holds at most 512 MiB."
+        }
+      },
+      "description": "`[cache]`: where the command line and the npm package keep the cache store and how large it may grow (ADR 0007).\n\nOnly the root configuration's table applies: in a file reached through `extends`, a file above the root or the\nconfiguration of a nested root it is ignored with a warning, since one store serves the whole run. Flags\n(`--no-cache`, `--cache`, `--cache-location`, `--cache-max-size`) and the environment (`SKIF_CACHE`,\n`SKIF_CACHE_DIR`, `SKIF_CACHE_MAX_SIZE`) beat it. The library never reads it: a host caches only when it gives a\nlinter a store."
+    },
+    "ByteSize": {
+      "description": "Bytes as an integer, or a size with a unit: B, KiB, MiB, GiB, TiB (1024s), KB, MB, GB, TB (1000s), K, M, G, T (1024s).",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\s*[0-9]+\\s*([kKmMgGtT]([iI]?[bB])?|[bB])?\\s*$"
+        }
+      ]
     },
     "UpdateGroup": {
       "type": "object",

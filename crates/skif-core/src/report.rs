@@ -1,10 +1,12 @@
 //! Deterministic collection of diagnostics with summary counts.
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::cache::CacheCounters;
 use crate::diagnostic::Diagnostic;
 use crate::incomplete::IncompletePackage;
 use crate::rule::Severity;
@@ -75,6 +77,12 @@ pub struct Report {
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub config_judgements: Vec<ConfigJudgement>,
+    /// What the run did with the host's cache store, per namespace (`modules`): empty when the linter was given no
+    /// store. Hits, misses and bytes written are the only part of a report a store may change, so a host or a test
+    /// can assert that a warm run hit every entry. Not rendered.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub cache: BTreeMap<String, CacheCounters>,
 }
 
 /// An entry of a configuration list as `stale-js-config` judged it in one run (see [`Report::config_judgements`]).
@@ -154,6 +162,7 @@ impl Report {
             other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
+            cache: BTreeMap::new(),
         }
     }
 
@@ -162,6 +171,13 @@ impl Report {
     pub fn with_incomplete_packages(mut self, mut packages: Vec<IncompletePackage>) -> Self {
         packages.sort_by(|a, b| a.dir.cmp(&b.dir).then_with(|| a.name.cmp(&b.name)));
         self.incomplete_packages = packages;
+        self
+    }
+
+    /// Sets the cache counters of the run, per namespace.
+    #[must_use]
+    pub fn with_cache(mut self, cache: BTreeMap<String, CacheCounters>) -> Self {
+        self.cache = cache;
         self
     }
 

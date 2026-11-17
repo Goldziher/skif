@@ -5,7 +5,7 @@ use std::sync::Arc;
 use skif_config::{Config, ConfigError};
 use skif_core::timing::{self, Tally};
 use skif_core::{FileSystem, OsFs, RuleMeta};
-use skif_js_syntax::ModuleCache;
+use skif_js_syntax::{MODULES, ModuleCache, StoreModuleCache};
 use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, parse_options, reject_options,
 };
@@ -128,7 +128,19 @@ impl RuleProvider for JsProvider {
         if active.is_empty() || out.is_cancelled() {
             return Ok(());
         }
-        let parser = self.modules.as_ref().map(|modules| modules.parser(&cx.workspace.root));
+        // A store the linter caches through serves every file, behind the host's module cache when there is one.
+        let store = cx.cache().map(|handle| Arc::new(StoreModuleCache::new(handle.clone())));
+        let own;
+        let mut layered = None;
+        let parser = match (&self.modules, &store) {
+            (Some(modules), Some(store)) => Some(modules.parser_with_store(store.as_ref(), &mut layered)),
+            (Some(modules), None) => Some(modules.parser(&cx.workspace.root)),
+            (None, Some(store)) => {
+                own = SharedModules::host(Arc::clone(store) as Arc<dyn ModuleCache>);
+                Some(own.parser(&cx.workspace.root))
+            }
+            (None, None) => None,
+        };
         let mut analysis = JsAnalysis::build_cached(
             cx.workspace,
             cx.config,
@@ -146,6 +158,9 @@ impl RuleProvider for JsProvider {
         analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
         for package in analysis.incomplete_packages() {
             out.report_incomplete_package(package);
+        }
+        if let Some(store) = &store {
+            out.report_cache(MODULES.name, store.counters());
         }
         for file in analysis.other_project_files() {
             out.report_other_project_file(file);

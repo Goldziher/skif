@@ -13,11 +13,11 @@ use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
-use napi::bindgen_prelude::{AsyncTask, Result, panic_to_error};
+use napi::bindgen_prelude::{AsyncTask, Either, Result, panic_to_error};
 use napi::{Env, Status, Task};
 use napi_derive::napi;
 use skif::ConfigOverrides;
-use skif_cli::{CliError, Kind};
+use skif_cli::{CliError, Kind, LintCache};
 
 /// Runs the skif command line with `argv` (the arguments after the program name) and returns its exit code.
 ///
@@ -28,6 +28,16 @@ use skif_cli::{CliError, Kind};
 pub fn run(argv: Vec<String>) -> u32 {
     let command_line = std::iter::once(OsString::from("skif")).chain(argv.into_iter().map(OsString::from));
     u32::from(skif_cli::run(command_line))
+}
+
+/// Where [`lint`] and [`lint_async`] keep their cache and how large it may grow.
+#[napi(object)]
+#[derive(Default)]
+pub struct CacheOptions {
+    /// The directory of the cache (`--cache-location`).
+    pub location: Option<String>,
+    /// The most the cache location may hold: bytes as a number, or a size such as `"256MiB"` (`--cache-max-size`).
+    pub max_size: Option<Either<f64, String>>,
 }
 
 /// Options for [`lint`] and [`lint_async`]; each mirrors the CLI flag of the same name.
@@ -53,6 +63,10 @@ pub struct LintOptions {
     pub config: Option<String>,
     /// Read no configuration file: the defaults plus the other options (`--no-config`).
     pub no_config: Option<bool>,
+    /// The cache of what a lint computed, on by default as on the command line: `false` turns it off (`--no-cache`),
+    /// `true` turns it on whatever `SKIF_CACHE` and `[cache]` say (`--cache`), and an object names its location and
+    /// size. The cache never changes the report.
+    pub cache: Option<Either<bool, CacheOptions>>,
     /// @deprecated Removed in skif 0.9.0 with the type-aware analysis: setting it, to either value, fails with a
     /// `usage` error.
     pub type_aware: Option<bool>,
@@ -61,7 +75,52 @@ pub struct LintOptions {
     pub no_type_aware: Option<bool>,
 }
 
+/// The cache the `cache` option asks for.
+///
+/// # Errors
+/// An empty `location`, or a `maxSize` that is not a size.
+fn lint_cache(cache: Option<Either<bool, CacheOptions>>) -> std::result::Result<LintCache, String> {
+    let options = match cache {
+        None => return Ok(LintCache::default()),
+        Some(Either::A(enabled)) => return Ok(LintCache::default().with_enabled(enabled)),
+        Some(Either::B(options)) => options,
+    };
+    let mut cache = LintCache::default();
+    if let Some(location) = options.location {
+        if location.is_empty() {
+            return Err("`cache.location` must name a directory; it is empty".to_owned());
+        }
+        let location = PathBuf::from(location);
+        cache = cache.with_location(std::path::absolute(&location).unwrap_or(location));
+    }
+    match options.max_size {
+        None => {}
+        // The largest integer a JavaScript number holds exactly.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Some(Either::A(bytes)) if bytes >= 0.0 && bytes.fract() == 0.0 && bytes <= 9_007_199_254_740_991.0 => {
+            cache = cache.with_max_size(bytes as u64);
+        }
+        Some(Either::A(bytes)) => return Err(format!("`cache.maxSize` must be a whole number of bytes, not {bytes}")),
+        Some(Either::B(text)) => {
+            cache =
+                cache.with_max_size(skif::parse_byte_size(&text).map_err(|error| format!("`cache.maxSize`: {error}"))?);
+        }
+    }
+    Ok(cache)
+}
+
 impl LintOptions {
+    /// The configuration overrides and the cache the options ask for.
+    fn split(
+        mut self,
+    ) -> (
+        std::result::Result<ConfigOverrides, CliError>,
+        std::result::Result<LintCache, String>,
+    ) {
+        let cache = lint_cache(self.cache.take());
+        (self.overrides(), cache)
+    }
+
     /// The usage error for a removed option that is set, so that it fails as the removed flag does on the command
     /// line: a `#[napi(object)]` drops the properties it does not declare, which would accept the option silently.
     fn removed_option(&self) -> Option<CliError> {
@@ -132,8 +191,17 @@ pub struct LintOutcome {
     pub error: Option<LintFailure>,
 }
 
-fn outcome(path: &str, overrides: std::result::Result<ConfigOverrides, CliError>, recursive: bool) -> LintOutcome {
-    match overrides.and_then(|overrides| skif_cli::lint_to_json(Path::new(path), &overrides, recursive)) {
+fn outcome(
+    path: &str,
+    overrides: std::result::Result<ConfigOverrides, CliError>,
+    recursive: bool,
+    cache: &std::result::Result<LintCache, String>,
+) -> LintOutcome {
+    let linted = overrides.and_then(|overrides| match cache {
+        Ok(cache) => skif_cli::lint_to_json_cached(Path::new(path), &overrides, recursive, cache),
+        Err(message) => Err(CliError::new(Kind::Usage, message.clone())),
+    });
+    match linted {
         Ok(report) => LintOutcome {
             report: Some(report),
             error: None,
@@ -146,8 +214,10 @@ fn outcome(path: &str, overrides: std::result::Result<ConfigOverrides, CliError>
 }
 
 /// Lints the workspace containing `path` (or, with `recursive`, every root at or below it) and returns the report as
-/// the versioned JSON document the CLI prints for `--format json`, with the CLI's configuration checks. No file is
-/// written; the warnings the CLI prints go to stderr. The call blocks the event loop; use [`lint_async`] in a server.
+/// the versioned JSON document the CLI prints for `--format json`, with the CLI's configuration checks. No file of
+/// the project is written; unless the `cache` option or the environment turns it off, the lint reads and writes the
+/// cache store as the CLI does. The warnings the CLI prints go to stderr. The call blocks the event loop; use
+/// [`lint_async`] in a server.
 ///
 /// # Errors
 /// Throws an `Error` with the failure's message, and with its `kind` and, when there is one, `path` as properties
@@ -157,7 +227,8 @@ fn outcome(path: &str, overrides: std::result::Result<ConfigOverrides, CliError>
 pub fn lint(env: Env, path: String, options: Option<LintOptions>) -> Result<String> {
     let options = options.unwrap_or_default();
     let recursive = options.recursive.unwrap_or(false);
-    match outcome(&path, options.overrides(), recursive) {
+    let (overrides, cache) = options.split();
+    match outcome(&path, overrides, recursive, &cache) {
         LintOutcome {
             report: Some(report), ..
         } => Ok(report),
@@ -195,6 +266,7 @@ pub struct LintTask {
     path: String,
     overrides: std::result::Result<ConfigOverrides, CliError>,
     recursive: bool,
+    cache: std::result::Result<LintCache, String>,
 }
 
 impl Task for LintTask {
@@ -205,8 +277,9 @@ impl Task for LintTask {
         let path = std::mem::take(&mut self.path);
         let overrides = std::mem::replace(&mut self.overrides, Ok(ConfigOverrides::default()));
         let recursive = self.recursive;
+        let cache = std::mem::replace(&mut self.cache, Ok(LintCache::default()));
         Ok(
-            catch_unwind(AssertUnwindSafe(|| outcome(&path, overrides, recursive))).unwrap_or_else(|payload| {
+            catch_unwind(AssertUnwindSafe(|| outcome(&path, overrides, recursive, &cache))).unwrap_or_else(|payload| {
                 LintOutcome {
                     report: None,
                     error: Some(LintFailure {
@@ -231,10 +304,12 @@ impl Task for LintTask {
 pub fn lint_async(path: String, options: Option<LintOptions>) -> AsyncTask<LintTask> {
     let options = options.unwrap_or_default();
     let recursive = options.recursive.unwrap_or(false);
+    let (overrides, cache) = options.split();
     AsyncTask::new(LintTask {
         path,
-        overrides: options.overrides(),
+        overrides,
         recursive,
+        cache,
     })
 }
 
@@ -254,6 +329,24 @@ pub fn panic_for_test() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_cache_location_is_refused() {
+        let options = |location: &str| {
+            Some(Either::B(CacheOptions {
+                location: Some(location.to_owned()),
+                max_size: None,
+            }))
+        };
+        let error = lint_cache(options("")).unwrap_err();
+        assert!(error.contains("`cache.location`"), "{error}");
+        let named = lint_cache(options("some/dir")).unwrap();
+        assert!(
+            named
+                .location
+                .is_some_and(|location| location.ends_with(Path::new("some").join("dir")))
+        );
+    }
 
     #[test]
     fn a_removed_type_aware_option_is_a_usage_error_whatever_its_value() {

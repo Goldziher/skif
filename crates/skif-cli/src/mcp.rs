@@ -10,9 +10,9 @@
 //! next message waits for it, and `notifications/cancelled` cannot stop a call already running. A line longer than
 //! [`MAX_LINE`] is refused with `-32600` without being buffered, and the server goes on with the next line.
 //!
-//! `lint` keeps one in-memory module cache per canonical `path` and `recursive` pair (ADR 0007),
-//! pruned after each call to what it used, so a repeated call parses only the files that changed. The other tools are
-//! uncached.
+//! `lint` keeps one in-memory module cache per canonical `path` and `recursive` pair (ADR 0007), its misses read
+//! from the cache store, which the server never writes, and pruned after each call to what it used, so a repeated
+//! call parses only the files that changed. The other tools are uncached.
 
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, Write};
@@ -21,13 +21,12 @@ use std::sync::Arc;
 
 use clap::{CommandFactory, Parser};
 use serde_json::{Map, Value, json};
-use skif::MemoryModuleCache;
 
-use crate::args::{ConfigArgs, ExplainUsageArgs, Format, LintArgs, RulesArgs};
+use crate::args::{CacheCleanArgs, CacheStatsArgs, ConfigArgs, ExplainUsageArgs, Format, LintArgs, RulesArgs};
+use crate::cache::{CacheEnv, CacheHost, SeededHost};
 use crate::error::{CliError, Kind};
 use crate::explain::{self, Failure};
 use crate::lint::{canonical, run_captured};
-use crate::module_cache::CacheHost;
 use crate::output::{error_document, stderr_line};
 
 /// The protocol revisions this server speaks, newest first; the first is offered when the client asks for another.
@@ -45,7 +44,8 @@ const COULD_NOT_RUN: u8 = 2;
 const INSTRUCTIONS: &str = "skif lints JavaScript and TypeScript monorepos: workspace and manifest rules, version \
 policies, unused dependencies, files and exports. Each tool returns the JSON of the `skif` command it names. An \
 argument is the flag of the same name (`max_show_issues` is `--max-show-issues`); errors name the flags; paths are \
-relative to the server's working directory. Nothing is written: apply fixes with `skif --fix`.";
+relative to the server's working directory. No project file is written: apply fixes with `skif --fix`; \
+`cache_clean` removes only skif's own cache.";
 
 /// `skif [PATH]` as its own command, for parsing a lint tool's flags.
 #[derive(Debug, Parser)]
@@ -77,6 +77,22 @@ struct ConfigCommand {
 struct RulesCommand {
     #[command(flatten)]
     args: RulesArgs,
+}
+
+/// `skif cache stats` as its own command.
+#[derive(Debug, Parser)]
+#[command(name = "skif cache stats", no_binary_name = true)]
+struct CacheStatsCommand {
+    #[command(flatten)]
+    args: CacheStatsArgs,
+}
+
+/// `skif cache clean` as its own command.
+#[derive(Debug, Parser)]
+#[command(name = "skif cache clean", no_binary_name = true)]
+struct CacheCleanCommand {
+    #[command(flatten)]
+    args: CacheCleanArgs,
 }
 
 /// How a tool argument is written on the command line.
@@ -126,6 +142,30 @@ struct Tool {
     /// ([`LintArgs::fixing`]), and `config` passes `--show` unless `explain` is given, since its command line needs
     /// one of the two before it parses.
     implied: &'static [&'static str],
+    /// What a call does to the machine: every tool states it, so a tool added later cannot pass as read-only.
+    effect: Effect,
+}
+
+/// What a call of a tool does outside the server, as its `annotations` tell the client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Effect {
+    /// Changes nothing: no project file, and the cache store is read at most.
+    ReadOnly,
+    /// Deletes files.
+    Destructive,
+}
+
+impl Effect {
+    /// The tool annotations of MCP: no tool reaches beyond the machine, and repeating a call changes nothing more.
+    fn annotations(self) -> Value {
+        let read_only = self == Self::ReadOnly;
+        json!({
+            "readOnlyHint": read_only,
+            "destructiveHint": !read_only,
+            "idempotentHint": true,
+            "openWorldHint": false,
+        })
+    }
 }
 
 const PATH: Param = param("path", Shape::Text, "A directory or file in the project; default `.`.");
@@ -146,6 +186,12 @@ const WORKSPACE: Param = param(
 const PRODUCTION: Param = param("production", Shape::Flag, "Production code only.");
 const STRICT: Param = param("strict", Shape::Flag, "knip's strict mode; implies `production`.");
 const NO_JS: Param = param("no_js", Shape::Flag, "Skip the JavaScript analysis.");
+
+const CACHE_LOCATION: Param = param(
+    "cache_location",
+    Shape::Text,
+    "This cache directory instead of the one a lint of `path` uses.",
+);
 
 /// The tools, in the order `tools/list` gives them.
 const TOOLS: &[Tool] = &[
@@ -186,6 +232,7 @@ const TOOLS: &[Tool] = &[
             param("allow_remove_files", Shape::Flag, "Plan file deletions."),
         ],
         implied: &["--dry-run"],
+        effect: Effect::ReadOnly,
     },
     Tool {
         name: "explain_usage",
@@ -218,6 +265,7 @@ const TOOLS: &[Tool] = &[
             NO_CONFIG,
         ],
         implied: &[],
+        effect: Effect::ReadOnly,
     },
     Tool {
         name: "config",
@@ -238,6 +286,7 @@ const TOOLS: &[Tool] = &[
             NO_CONFIG,
         ],
         implied: &["--show"],
+        effect: Effect::ReadOnly,
     },
     Tool {
         name: "list_rules",
@@ -247,6 +296,32 @@ const TOOLS: &[Tool] = &[
         fixed: &["--format", "json"],
         params: &[],
         implied: &[],
+        effect: Effect::ReadOnly,
+    },
+    Tool {
+        name: "cache_stats",
+        title: "Show skif's cache",
+        description: "`skif cache stats --format json`: the cache location and the stores in it. Writes nothing.",
+        command: CacheStatsCommand::command,
+        fixed: &["--format", "json"],
+        params: &[PATH, CACHE_LOCATION],
+        implied: &[],
+        effect: Effect::ReadOnly,
+    },
+    Tool {
+        name: "cache_clean",
+        title: "Remove skif's cache",
+        description: "`skif cache clean --format json`: removes the cache store of the project; the next lint \
+                      rebuilds it. Touches no project file.",
+        command: CacheCleanCommand::command,
+        fixed: &["--format", "json"],
+        params: &[
+            PATH,
+            CACHE_LOCATION,
+            param("all", Shape::Flag, "Every project's store in the cache location."),
+        ],
+        implied: &[],
+        effect: Effect::Destructive,
     },
 ];
 
@@ -337,8 +412,9 @@ fn error_reply(id: &Value, RpcError(code, message): RpcError) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-/// The module caches of the `lint` tool, by canonical `path` and `recursive`.
-type Caches = BTreeMap<(PathBuf, bool), Arc<MemoryModuleCache>>;
+/// The module caches of the `lint` tool, by canonical `path` and `recursive`: in memory, their misses read from the
+/// cache store, which the server never writes.
+type Caches = BTreeMap<(PathBuf, bool), Arc<SeededHost>>;
 
 /// The reply to one line, or `None` for a notification or a response.
 fn handle_line(line: &str, caches: &mut Caches) -> Option<Value> {
@@ -429,8 +505,6 @@ fn initialize(params: &Value) -> Value {
 /// The `tools/list` entries. Each argument's type comes from its shape, and its allowed values from the command
 /// line's definition.
 fn tools() -> Value {
-    let read_only =
-        json!({ "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false });
     Value::Array(
         TOOLS
             .iter()
@@ -446,7 +520,7 @@ fn tools() -> Value {
                     "title": tool.title,
                     "description": tool.description,
                     "inputSchema": { "type": "object", "properties": properties, "additionalProperties": false },
-                    "annotations": read_only,
+                    "annotations": tool.effect.annotations(),
                 })
             })
             .collect(),
@@ -502,6 +576,8 @@ fn call(params: &Value, caches: &mut Caches) -> Result<Value, RpcError> {
         "lint" => lint(tool, arguments, caches),
         "explain_usage" => explain_usage(tool, arguments),
         "config" => config(tool, arguments),
+        "cache_stats" => cache_stats(tool, arguments),
+        "cache_clean" => cache_clean(tool, arguments),
         _ => list_rules(tool, arguments),
     };
     Ok(tool_result(outcome))
@@ -651,10 +727,15 @@ fn config_args(tool: &Tool, arguments: &Map<String, Value>) -> Result<ConfigArgs
 fn lint(tool: &Tool, arguments: &Map<String, Value>, caches: &mut Caches) -> Result<Answer, Failure> {
     let args = lint_args(tool, arguments)?;
     // A path that does not resolve gets no cache; the lint reports why it cannot run.
-    let cache = canonical(&args.path)
-        .ok()
-        .map(|start| Arc::clone(caches.entry((start, args.recursive)).or_default()));
-    let (stdout, code) = run_captured(&args, cache.as_ref().map(|cache| cache as &dyn CacheHost)).map_err(plain)?;
+    let cache = canonical(&args.path).ok().map(|start| {
+        Arc::clone(
+            caches
+                .entry((start, args.recursive))
+                .or_insert_with(|| Arc::new(SeededHost::new(CacheEnv::detect(false)))),
+        )
+    });
+    let (stdout, code) =
+        run_captured(&args, cache.as_ref().map(|cache| cache.as_ref() as &dyn CacheHost)).map_err(plain)?;
     Ok((parsed(&stdout)?, code == COULD_NOT_RUN))
 }
 
@@ -679,6 +760,18 @@ fn config(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure
 fn list_rules(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure> {
     let args = parse::<RulesCommand>(tool, arguments, &[])?.args;
     let text = crate::commands::render(&args).map_err(plain)?;
+    Ok((parsed(text.as_bytes())?, false))
+}
+
+fn cache_stats(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure> {
+    let args = parse::<CacheStatsCommand>(tool, arguments, &[])?.args;
+    let text = crate::cache_command::stats(&args).map_err(plain)?;
+    Ok((parsed(text.as_bytes())?, false))
+}
+
+fn cache_clean(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure> {
+    let args = parse::<CacheCleanCommand>(tool, arguments, &[])?.args;
+    let text = crate::cache_command::clean(&args).map_err(plain)?;
     Ok((parsed(text.as_bytes())?, false))
 }
 

@@ -16,13 +16,13 @@ use skif_core::timing;
 use skif_report::escape_controls;
 
 use crate::args::{Format, LintArgs, Select};
+use crate::cache::{CacheEnv, CacheHost, DiskHost};
 use crate::env::{Env, github_workspace};
 use crate::error::{CliError, Kind};
 use crate::explain;
 use crate::filter::{self, Filter};
 use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
-use crate::module_cache::{CacheHost, Persistent};
 use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
 use crate::roots::{self, Linters, Resolved, RootError, RootRun};
 use crate::trace::{self, Trace};
@@ -41,16 +41,11 @@ pub enum Teardown {
     Leak,
 }
 
-/// Runs the lint command and returns the process exit code. With `--cache`, the run reads and writes the store of
-/// parse results.
+/// Runs the lint command and returns the process exit code. Unless the cache is off, the run reads and writes the
+/// cache store (ADR 0007), which never changes the report or the exit code.
 pub fn run(args: &LintArgs, env: Env, teardown: Teardown) -> u8 {
-    let persistent = args.cache.then(|| Persistent::new(args));
-    run_with_cache(
-        args,
-        env,
-        teardown,
-        persistent.as_ref().map(|host| host as &dyn CacheHost),
-    )
+    let host = DiskHost::new(args.cache_flags(), CacheEnv::detect(env.ci), args.debug);
+    run_with_cache(args, env, teardown, Some(&host))
 }
 
 /// Like [`run`], parsing through the module cache of `modules`, which is told when the run has finished, whatever
@@ -61,15 +56,22 @@ pub fn run_with_cache(args: &LintArgs, env: Env, teardown: Teardown, modules: Op
         Some(name) => explain::trace_dependency(args, name).map(|()| CLEAN),
         None => execute(args, env, teardown, modules, None),
     };
+    let complete = completed(&result);
     let code = match result {
         Ok(code) => code,
         Err(error) => run_failed(args, &error),
     };
     if let Some(modules) = modules {
-        timing::phase("module cache", || modules.finish());
+        timing::phase("cache store", || modules.finish(complete));
     }
     trace.finish();
     code
+}
+
+/// Whether a run linted everything it was asked to: it did not fail, and no root of it could not be linted. Only
+/// such a run tells the cache which entries are no longer used.
+fn completed(result: &Result<u8, CliError>) -> bool {
+    matches!(result, Ok(code) if *code != COULD_NOT_RUN)
 }
 
 /// Reports `error` in the format of the run and returns the exit code of a run that could not start.
@@ -632,6 +634,74 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
     String::from_utf8(stdout).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
 }
 
+/// The cache of [`lint_to_json_cached`], as a host's options give it; each field left unset falls back to the
+/// environment (`SKIF_CACHE`, `SKIF_CACHE_DIR`, `SKIF_CACHE_MAX_SIZE`), then `[cache]` of the root configuration,
+/// then the defaults (on, 512 MiB, the default location).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LintCache {
+    /// Whether to cache: `Some(false)` reads and writes nothing.
+    pub enabled: Option<bool>,
+    /// The directory of the cache.
+    pub location: Option<PathBuf>,
+    /// The most the cache location may hold, in bytes.
+    pub max_size: Option<u64>,
+}
+
+impl LintCache {
+    /// Turns the cache on or off.
+    #[must_use]
+    pub const fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = Some(enabled);
+        self
+    }
+
+    /// Keeps the cache in `location`.
+    #[must_use]
+    pub fn with_location(mut self, location: PathBuf) -> Self {
+        self.location = Some(location);
+        self
+    }
+
+    /// Caps the cache location at `max_size` bytes.
+    #[must_use]
+    pub const fn with_max_size(mut self, max_size: u64) -> Self {
+        self.max_size = Some(max_size);
+        self
+    }
+}
+
+/// Like [`lint_to_json`], through the cache store of the command line (ADR 0007), on unless `cache` or the
+/// environment turns it off: the report is the same, and the run reads and writes the store as `skif` does, with the
+/// same location chain, size cap and rule for `CI`. A cache that cannot be read or written never fails the lint.
+///
+/// # Errors
+/// As [`lint_to_json`].
+pub fn lint_to_json_cached(
+    path: &Path,
+    overrides: &ConfigOverrides,
+    recursive: bool,
+    cache: &LintCache,
+) -> Result<String, CliError> {
+    if cache
+        .location
+        .as_ref()
+        .is_some_and(|location| location.as_os_str().is_empty())
+    {
+        return Err(CliError::new(Kind::Usage, crate::args::EMPTY_CACHE_LOCATION));
+    }
+    let args = json_args(path, recursive)?;
+    let flags = crate::cache::CacheFlags {
+        cache: cache.enabled == Some(true),
+        no_cache: cache.enabled == Some(false),
+        location: cache.location.clone(),
+        max_size: cache.max_size,
+    };
+    let host = DiskHost::new(flags, CacheEnv::detect(Env::detect().ci), false);
+    let (stdout, _) = capture(&args, overrides, Some(&host))?;
+    String::from_utf8(stdout).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
+}
+
 /// The flags of `skif --format json [-r] PATH`.
 fn json_args(path: &Path, recursive: bool) -> Result<LintArgs, CliError> {
     use clap::{Args as _, FromArgMatches as _};
@@ -660,8 +730,8 @@ pub fn lint_root(
     let start = canonical(path)?;
     let cached: Arc<dyn FileSystem> = Arc::new(CachedFs::new(Arc::clone(fs)));
     let Resolved { base, targets, .. } = roots::resolve(&start, false, cached.as_ref(), overrides)?;
-    let modules = modules.map(|host| host.modules(&base));
-    let linters = Linters::build_with(&targets, Some(&cached), modules.as_ref())?;
+    let attached = modules.map_or_default(|host| host.attach(&base, &targets));
+    let linters = Linters::build_with(&targets, Some(&cached), &attached)?;
     let mut runs = roots::lint_targets(&base, targets, &linters)?;
     roots::settle_shared_config(&mut runs);
     let reports: Vec<Cow<'_, Report>> = runs
@@ -730,7 +800,7 @@ fn capture(
     let mut stdout = Vec::new();
     let result = execute_with(args, overrides, HOST, Teardown::Free, modules, Some(&mut stdout));
     if let Some(modules) = modules {
-        modules.finish();
+        modules.finish(completed(&result));
     }
     result.map(|code| (stdout, code))
 }
@@ -792,9 +862,9 @@ fn execute_with(
     }
     apply_tsconfig(args, &mut targets)?;
     warn_empty_tsconfig_projects(&targets, fs);
-    let modules = modules.map(|host| host.modules(&base));
+    let attached = modules.map_or_default(|host| host.attach(&base, &targets));
     let run_fs: Arc<dyn FileSystem> = shared.clone();
-    let linters = Linters::build_with(&targets, Some(&run_fs), modules.as_ref())?;
+    let linters = Linters::build_with(&targets, Some(&run_fs), &attached)?;
     // An unknown `--fix-type` is a usage error before any root is linted.
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
@@ -823,6 +893,9 @@ fn execute_with(
         .map(|run| roots::prefixed(&run.report, &run.prefix))
         .collect();
     let aggregate = roots::aggregate(&reports);
+    if args.debug {
+        trace::debug_cache(&aggregate.cache);
+    }
     let prefixes: Vec<&Path> = runs.iter().map(|run| run.prefix.as_path()).collect();
     let root_fixes = roots_fix(&prefixes, &fixes);
     // `--max-show-issues` cuts a copy of the per-root reports (cheap: they are borrowed), so the full `aggregate`

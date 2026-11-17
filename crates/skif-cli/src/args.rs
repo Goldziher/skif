@@ -47,10 +47,60 @@ pub enum Command {
     Json(InstancesArgs),
     /// Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs.
     Format(FormatArgs),
+    /// Show or remove the cache store of a project.
+    Cache(CacheArgs),
     /// Run a Model Context Protocol server on stdin and stdout, for AI agents.
     Mcp,
     /// Run a Language Server Protocol server on stdin and stdout: diagnostics as you edit, fixes as code actions.
     Lsp,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CacheArgs {
+    #[command(subcommand)]
+    pub command: CacheCommand,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum CacheCommand {
+    /// Show what the cache location holds: every store with its entries and size. Writes nothing.
+    Stats(CacheStatsArgs),
+    /// Remove the cache store of the project, or every store of the cache location.
+    Clean(CacheCleanArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CacheStatsArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// The directory of the cache, instead of the one a lint of PATH uses.
+    #[arg(long, value_name = "DIR", value_parser = cache_location())]
+    pub cache_location: Option<PathBuf>,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CacheCleanArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// The directory of the cache, instead of the one a lint of PATH uses.
+    #[arg(long, value_name = "DIR", value_parser = cache_location())]
+    pub cache_location: Option<PathBuf>,
+
+    /// Remove the stores of every project in the cache location, not only this one's.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
 }
 
 /// How far `skif update` may move a version.
@@ -821,15 +871,25 @@ pub struct LintArgs {
     #[arg(long, conflicts_with_all = ["fix", "fix_unsafe"])]
     pub watch: bool,
 
-    /// Keep the parse results of source files between runs, so a run parses only the files that changed. The cache
-    /// never changes the report.
-    #[arg(long)]
+    /// Keep what a run computed (the parse results of source files) for the next run, even when `SKIF_CACHE=0` or
+    /// `[cache] enabled = false` turn the cache off. The cache is on by default and never changes the report.
+    #[arg(long, conflicts_with = "no_cache")]
     pub cache: bool,
 
-    /// The directory of the --cache store (default: `node_modules/.cache/skif` below the workspace root, or below the
-    /// invocation directory of a multi-root run; `$TEST_TMPDIR/skif` under `bazel test`).
-    #[arg(long, value_name = "DIR", requires = "cache")]
+    /// Do not read or write the cache.
+    #[arg(long)]
+    pub no_cache: bool,
+
+    /// The directory of the cache (default: `$TEST_TMPDIR/skif` under `bazel test`, else `node_modules/.cache/skif`
+    /// below the workspace root, or below the invocation directory of a multi-root run, when `node_modules` exists,
+    /// else the per-user cache directory). Also `SKIF_CACHE_DIR` and `[cache] location`.
+    #[arg(long, value_name = "DIR", value_parser = cache_location())]
     pub cache_location: Option<PathBuf>,
+
+    /// The most the cache location may hold, in bytes or with a unit such as `256MiB` (default: 512MiB). Also
+    /// `SKIF_CACHE_MAX_SIZE` and `[cache] max-size`.
+    #[arg(long, value_name = "SIZE", value_parser = cache_size)]
+    pub cache_max_size: Option<u64>,
 
     /// Instead of linting, print where this dependency is listed, every import of it and the packages that count it
     /// as used.
@@ -939,7 +999,9 @@ impl Default for LintArgs {
             color: ColorChoice::Auto,
             watch: false,
             cache: false,
+            no_cache: false,
             cache_location: None,
+            cache_max_size: None,
             trace_dependency: None,
             debug: false,
             performance: false,
@@ -1024,25 +1086,47 @@ impl LintArgs {
             .collect())
     }
 
-    /// The files the run itself writes (`--output`, every `FORMAT=FILE` target and the `--cache-location` store with
-    /// its temporary file), each spelled as [`file_identity`] resolves it, so `--watch` can leave them out of its scan
-    /// instead of reacting to its own writes. The default cache location is below `node_modules`, which the scan
-    /// never enters.
+    /// The files the run itself writes (`--output` and every `FORMAT=FILE` target), each spelled as [`file_identity`]
+    /// resolves it, so `--watch` can leave them out of its scan instead of reacting to its own writes. The cache
+    /// location is left out as a directory; see [`crate::cache::written_dirs`].
     pub fn written_files(&self) -> std::collections::BTreeSet<PathBuf> {
-        let store = self
-            .cache_location
-            .as_ref()
-            .filter(|_| self.cache)
-            .map(|dir| dir.join(crate::module_cache::FILE_NAME));
-        let temporary = store.as_deref().map(crate::module_cache::temporary_file);
         self.output
             .iter()
             .chain(self.format.iter().filter_map(|spec| spec.file.as_ref()))
-            .chain(store.iter())
-            .chain(temporary.iter())
             .map(|file| file_identity(file))
             .collect()
     }
+
+    /// The cache settings the flags give.
+    pub fn cache_flags(&self) -> crate::cache::CacheFlags {
+        crate::cache::CacheFlags {
+            cache: self.cache,
+            no_cache: self.no_cache,
+            location: self.cache_location.clone(),
+            max_size: self.cache_max_size,
+        }
+    }
+}
+
+/// What an empty cache location is answered with.
+pub const EMPTY_CACHE_LOCATION: &str = "the cache location is empty; name a directory";
+
+/// `--cache-location`: a directory. The empty path is refused: it would be the current directory, and the store
+/// would be written into the project.
+fn cache_location() -> impl clap::builder::TypedValueParser<Value = PathBuf> {
+    use clap::builder::TypedValueParser as _;
+    clap::builder::OsStringValueParser::new().try_map(|location| {
+        if location.is_empty() {
+            Err(EMPTY_CACHE_LOCATION)
+        } else {
+            Ok(PathBuf::from(location))
+        }
+    })
+}
+
+/// `--cache-max-size`: bytes, or a size with a unit.
+fn cache_size(text: &str) -> Result<u64, String> {
+    skif::parse_byte_size(text)
 }
 
 /// A key that is equal for two spellings of the same output file: the path made absolute with `.` and `..` resolved
@@ -1244,15 +1328,15 @@ mod tests {
         );
         assert!(parse(Vec::new()).written_files().is_empty());
         let cached = parse(vec![
-            "--cache".to_owned(),
             "--cache-location".to_owned(),
             root.join("cache").display().to_string(),
+            "--cache-max-size".to_owned(),
+            "64MiB".to_owned(),
         ]);
-        let store = root.join("cache").join("modules.bin");
-        assert_eq!(
-            cached.written_files(),
-            std::collections::BTreeSet::from([crate::module_cache::temporary_file(&store), store])
-        );
+        assert!(cached.written_files().is_empty());
+        let flags = cached.cache_flags();
+        assert_eq!(flags.location, Some(root.join("cache")));
+        assert_eq!(flags.max_size, Some(64 << 20));
     }
 
     #[test]

@@ -47,10 +47,50 @@ All notable changes to this project are documented here. The format follows
     member is read through an import or in its own file, or the whole enum or namespace is used.
 - MCP: `lint` and `explain_usage` no longer pass `--no-type-aware`; they never took a type-aware argument, and their
   results lose the `type-aware` object and follow the two changes above.
+- **The cache is on by default** and writes below `node_modules/.cache/skif` (when `node_modules` exists) or the
+  per-user cache directory. Turn it off with `--no-cache`, `SKIF_CACHE=0` or `[cache] enabled = false`.
+- **The store format changed**: each project has its own store, `<location>/<key>/modules.bin`. Worktrees of one git
+  repository share a store; two repositories, or two clones of one, never do. An old `modules.bin` directly in the
+  location is ignored and can be deleted.
+- **With `CI` set, a run reads the cache but writes it only when a location is given** by `--cache-location` or
+  `SKIF_CACHE_DIR` (not by `[cache] location`, which is a file of the checkout). A CI job that ran `skif --cache` and
+  saved `node_modules/.cache/skif` now names the directory, or uses the GitHub Action's `cache` input.
+- **skif no longer creates `node_modules`** for its cache: without one, the default location is the per-user cache
+  directory.
+- **Library: `ModuleKey::to_bytes` and `from_bytes` are 32 bytes** (a blake3 digest, was a 16-byte SipHash), and
+  `CACHE_SCHEMA` is 21.
+
+### Added
+
+- Cache store: `skif::cache` with `CacheStore`, `CacheNamespace`, `MemoryStore`, `CacheCounters`, `KeyBuilder`, `seal`
+  and `open`; `Linter::with_cache_store` and `Linter::with_cache_salt`; `Report::cache` counts hits, misses and bytes
+  written per namespace.
+- The `skif-cache` crate and the facade feature `cache-disk`: `skif::cache::DiskStore`, `stats`, `clean`,
+  `default_location` and `base_key`. A run that failed ends with `DiskStore::finish_failed_run`, which drops no
+  entry.
+- `--no-cache`, `--cache-max-size`, the variables `SKIF_CACHE`, `SKIF_CACHE_DIR` and `SKIF_CACHE_MAX_SIZE`, and the
+  `[cache]` table (`enabled`, `location`, `max-size`) of the root configuration. The table's `location` must stay
+  inside the directory of its file, and its `max-size` caps only the project's own store. An empty cache location is
+  an error wherever it is given.
+- `skif cache stats` and `skif cache clean [--all]` show and remove the stores of a cache location.
+- MCP: the tools `cache_stats` and `cache_clean`; `cache_clean` is annotated as destructive, every other tool as
+  read-only.
+- npm: the `cache` option of `lint` and `lintAsync`.
+- GitHub Action: the inputs `cache`, `cache-key`, `cache-max-size` and `cache-save` and the output `cache-hit`
+  restore and save skif's cache around the run. Unless `cache-save` says otherwise, only a `push` or `schedule` run of
+  the default branch saves; pull requests restore only.
 
 ### Changed
 
 - `Cargo.lock` resolves `unicode-id-start` 1.5.0 (was 1.1.2): the tsrs pin held it back.
+- Directories skif creates for its cache hold a `CACHEDIR.TAG` and a `.gitignore` of `*`.
+- `SKIF_CACHE_DIR` is also the download directory of the pre-commit launcher (`scripts/pre-commit/run-skif.sh`). The
+  two share it safely: the store keeps to its own key-named directories, and `skif cache clean` and the size cap
+  remove only files a store wrote.
+- `--cache-location` no longer requires `--cache`, and `--cache` only turns the cache on over `SKIF_CACHE=0` or
+  `[cache] enabled = false`.
+- `skif lsp` and `skif mcp` seed their in-memory caches from the store and never write it; `--watch` reads the store
+  once and writes it after each run.
 
 ## [0.8.0] - 2026-11-17
 

@@ -5,7 +5,8 @@
 //!
 //! The crate is library-first and deliberately free of side effects:
 //!
-//! - **No IO outside [`fs`].** Nothing else here reads or writes files. Paths are workspace-relative [`std::path::PathBuf`]s that the
+//! - **No IO outside [`fs`].** The [`cache`] module defines the store a host implements, never one that touches
+//!   a disk. Nothing else here reads or writes files. Paths are workspace-relative [`std::path::PathBuf`]s that the
 //!   caller resolves; fixes are described as data ([`FixOp`]) and only [`apply_text_edits`] touches text, in memory.
 //! - **Plain serde data.** Every type is `Serialize`/`Deserialize` with kebab-case names, so reports can be emitted
 //!   as JSON and fixes can cross process boundaries unchanged. The `schema` feature adds `schemars` derives.
@@ -36,6 +37,7 @@
 
 pub mod buffer_fs;
 pub mod builder;
+pub mod cache;
 pub mod cached_fs;
 pub mod dependency;
 pub mod diagnostic;
@@ -54,6 +56,7 @@ pub mod timing;
 
 pub use buffer_fs::BufferFs;
 pub use builder::{DiagnosticBuilder, diagnostic};
+pub use cache::{CacheCounters, CacheHandle, CacheNamespace, CacheStore, MemoryStore};
 pub use cached_fs::CachedFs;
 pub use dependency::{DependencyKind, is_valid_package_name};
 pub use diagnostic::Diagnostic;
@@ -99,4 +102,6 @@ const _: () = {
     let _ = assert_send_sync::<Severity>;
     let _ = assert_send_sync::<Category>;
     let _ = assert_send_sync::<Fixability>;
+    let _ = assert_send_sync::<MemoryStore>;
+    let _ = assert_send_sync::<std::sync::Arc<dyn CacheStore>>;
 };

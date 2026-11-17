@@ -9,11 +9,12 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use skif::{
-    ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
-    Workspace, join_lexical, slash,
+    ConfigOverrides, Diagnostic, FileSystem, Linter, Location, OsFs, Report, RuleMeta, RunOptions, Target, Workspace,
+    join_lexical, slash,
 };
 use skif_core::{HashMap, HashState};
 
+use crate::cache::Attached;
 use crate::error::{CliError, Kind};
 
 /// A root of a multi-root run that could not be loaded; the other roots are still linted.
@@ -136,12 +137,11 @@ impl Linters {
     /// serves all the roots it lints. The linters of a multi-root run share the module cache
     /// [`Linter::shared_modules`] builds, which lives as long as they do.
     pub fn build(targets: &[Target]) -> Result<Self, CliError> {
-        Self::build_with(targets, None, None)
+        Self::build_with(targets, None, &Attached::default())
     }
 
-    /// Like [`Linters::build`], reading through `fs` instead of the disk and parsing every source file through
-    /// `modules` when given (`--cache`, or the cache of a long-lived host) instead of the in-memory cache of a
-    /// multi-root run.
+    /// Like [`Linters::build`], reading through `fs` instead of the disk and caching through `cache` (the store of the
+    /// run, or the module cache of a long-lived host) instead of the in-memory cache of a multi-root run.
     ///
     /// `fs` is the language server's unsaved buffers, or the [`CachedFs`](skif::CachedFs) a command found its roots
     /// through, so the linters do not read the listings and manifests discovery already read again. Such a cache
@@ -149,9 +149,9 @@ impl Linters {
     pub fn build_with(
         targets: &[Target],
         fs: Option<&Arc<dyn FileSystem>>,
-        modules: Option<&Arc<dyn ModuleCache>>,
+        cache: &Attached,
     ) -> Result<Self, CliError> {
-        let shared = Linter::shared_modules(targets, modules.cloned());
+        let shared = Linter::shared_modules(targets, cache.modules.clone());
         let (firsts, of_target) = distinct_configs(targets.iter().map(|target| &target.config));
         let linters = firsts
             .into_iter()
@@ -162,9 +162,13 @@ impl Linters {
                     Some(modules) => Linter::with_shared_modules(&target.config, fs, modules),
                     None => Linter::with_fs(&target.config, fs),
                 };
-                linter.map_err(|error| target.locate(error))
+                let linter = linter.map_err(|error| target.locate(error))?;
+                Ok(match &cache.store {
+                    Some((store, salt)) => linter.with_cache_store(Arc::clone(store)).with_cache_salt(salt),
+                    None => linter,
+                })
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, CliError>>()?;
         Ok(Self { linters, of_target })
     }
 
@@ -568,7 +572,9 @@ pub fn prefixed<'a>(report: &'a Report, prefix: &Path) -> Cow<'a, Report> {
             package
         })
         .collect();
-    Cow::Owned(Report::new(diagnostics, report.summary.packages).with_incomplete_packages(incomplete))
+    let mut prefixed = Report::new(diagnostics, report.summary.packages).with_incomplete_packages(incomplete);
+    prefixed.cache.clone_from(&report.cache);
+    Cow::Owned(prefixed)
 }
 
 /// All roots as one report: diagnostics and incomplete packages merged in the usual deterministic order, package
@@ -580,21 +586,23 @@ pub fn aggregate<'a>(reports: &'a [Cow<'_, Report>]) -> Cow<'a, Report> {
     if let [report] = reports {
         return Cow::Borrowed(report);
     }
-    Cow::Owned(
-        Report::new(
-            reports
-                .iter()
-                .flat_map(|report| report.diagnostics.iter().cloned())
-                .collect(),
-            reports.iter().map(|report| report.summary.packages).sum(),
-        )
-        .with_incomplete_packages(
-            reports
-                .iter()
-                .flat_map(|report| report.incomplete_packages.iter().cloned())
-                .collect(),
-        ),
+    let mut aggregated = Report::new(
+        reports
+            .iter()
+            .flat_map(|report| report.diagnostics.iter().cloned())
+            .collect(),
+        reports.iter().map(|report| report.summary.packages).sum(),
     )
+    .with_incomplete_packages(
+        reports
+            .iter()
+            .flat_map(|report| report.incomplete_packages.iter().cloned())
+            .collect(),
+    );
+    for (namespace, counters) in reports.iter().flat_map(|report| &report.cache) {
+        aggregated.cache.entry(namespace.clone()).or_default().add(*counters);
+    }
+    Cow::Owned(aggregated)
 }
 
 /// The path of a root for display: `.` for the base itself.

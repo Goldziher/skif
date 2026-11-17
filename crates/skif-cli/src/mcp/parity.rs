@@ -4,7 +4,10 @@
 
 use serde_json::{Map, Value, json};
 
-use super::{ExplainCommand, Param, RulesCommand, Shape, TOOLS, Tool, config_args, lint_args, parse, tools};
+use super::{
+    CacheCleanCommand, CacheStatsCommand, ExplainCommand, Param, RulesCommand, Shape, TOOLS, Tool, config_args,
+    lint_args, parse, tools,
+};
 
 /// What happens to each command of the command line in the server: the tool that runs it, or why none does.
 /// `""` is the bare `skif`, the lint.
@@ -33,6 +36,8 @@ const COMMANDS: &[(&str, Result<&str, &str>)] = &[
         "format",
         Err("writes package.json files; its check is `lint` with `include: [package-json-format]`"),
     ),
+    ("cache stats", Ok("cache_stats")),
+    ("cache clean", Ok("cache_clean")),
     ("mcp", Err("this server")),
     ("lsp", Err("an editor server")),
 ];
@@ -78,8 +83,19 @@ const NOT_EXPOSED: &[(&str, &[(&str, &str)])] = &[
             ),
             ("color", "terminal output only"),
             ("watch", "a long-running loop; call `lint` again"),
-            ("cache", "the server keeps its own module cache per path"),
-            ("cache_location", "the server keeps its own module cache per path"),
+            (
+                "cache",
+                "the server keeps a memory cache per path and only reads the store",
+            ),
+            (
+                "no_cache",
+                "the server keeps a memory cache per path and only reads the store",
+            ),
+            (
+                "cache_location",
+                "the server reads the store the environment and skif.toml name",
+            ),
+            ("cache_max_size", "the server never writes the store"),
             ("trace_dependency", "use `explain_usage` with `dependency`"),
             ("debug", "stderr diagnostics only"),
             ("performance", "stderr diagnostics only"),
@@ -108,6 +124,8 @@ const NOT_EXPOSED: &[(&str, &[(&str, &str)])] = &[
     ("explain_usage", &[]),
     ("config", &[]),
     ("list_rules", &[]),
+    ("cache_stats", &[]),
+    ("cache_clean", &[]),
 ];
 
 /// The arguments no flag stands for, and what the tool does with them.
@@ -141,11 +159,22 @@ fn id_of(command: &clap::Command, flag: &str) -> String {
 #[test]
 fn every_command_has_a_tool_or_a_reason() {
     use clap::CommandFactory as _;
+    // A command that only groups subcommands (`cache`) is named by each of them: `cache stats`.
     let mut commands: Vec<&str> = crate::args::Cli::command()
         .get_subcommands()
-        .map(clap::Command::get_name)
-        .filter(|name| *name != "help")
-        .map(|name| Box::leak(name.to_owned().into_boxed_str()) as &str)
+        .filter(|command| command.get_name() != "help")
+        .flat_map(|command| {
+            let name = command.get_name().to_owned();
+            if COMMANDS.iter().any(|(declared, _)| *declared == name) {
+                return vec![name];
+            }
+            command
+                .get_subcommands()
+                .filter(|sub| sub.get_name() != "help")
+                .map(|sub| format!("{name} {}", sub.get_name()))
+                .collect()
+        })
+        .map(|name| Box::leak(name.into_boxed_str()) as &str)
         .collect();
     commands.insert(0, "");
     let mut declared: Vec<&str> = COMMANDS.iter().map(|(command, _)| *command).collect();
@@ -366,8 +395,9 @@ fn typed(tool: &Tool, arguments: &Map<String, Value>) -> Vec<String> {
 fn cli(tool: &Tool, typed: &[String]) -> String {
     use clap::Parser as _;
     let subcommand = COMMANDS.iter().find(|(_, served)| *served == Ok(tool.name)).unwrap().0;
+    // `cache stats` is two words on the command line.
     let full = std::iter::once("skif")
-        .chain((!subcommand.is_empty()).then_some(subcommand))
+        .chain(subcommand.split_whitespace())
         .map(str::to_owned)
         .chain(typed.iter().cloned());
     let parsed = crate::args::Cli::try_parse_from(full).unwrap_or_else(|error| panic!("{typed:?}: {error}"));
@@ -376,6 +406,10 @@ fn cli(tool: &Tool, typed: &[String]) -> String {
         Some(crate::args::Command::ExplainUsage(args)) => format!("{args:?}"),
         Some(crate::args::Command::Config(args)) => format!("{args:?}"),
         Some(crate::args::Command::Rules(args)) => format!("{args:?}"),
+        Some(crate::args::Command::Cache(args)) => match args.command {
+            crate::args::CacheCommand::Stats(args) => format!("{args:?}"),
+            crate::args::CacheCommand::Clean(args) => format!("{args:?}"),
+        },
         Some(other) => panic!("unexpected {other:?}"),
     }
 }
@@ -386,6 +420,8 @@ fn server(tool: &Tool, arguments: &Map<String, Value>) -> String {
         "lint" => lint_args(tool, arguments).map(|args| format!("{args:?}")),
         "explain_usage" => parse::<ExplainCommand>(tool, arguments, &[]).map(|command| format!("{:?}", command.args)),
         "config" => config_args(tool, arguments).map(|args| format!("{args:?}")),
+        "cache_stats" => parse::<CacheStatsCommand>(tool, arguments, &[]).map(|command| format!("{:?}", command.args)),
+        "cache_clean" => parse::<CacheCleanCommand>(tool, arguments, &[]).map(|command| format!("{:?}", command.args)),
         _ => parse::<RulesCommand>(tool, arguments, &[]).map(|command| format!("{:?}", command.args)),
     };
     parsed.unwrap_or_else(|failure| panic!("{}: {arguments:?}: {}", tool.name, failure.0))

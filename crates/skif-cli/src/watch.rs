@@ -9,23 +9,23 @@
 //! time: on a large repository the watcher spends up to about a third of one core per walker thread scanning, at most
 //! about four thirds of one core.
 //!
-//! The reports the run writes (`--output`, `--format FORMAT=FILE`) and a `--cache-location` store are left out of the
-//! scan: each run rewrites them, and seeing that write would start the next run, forever.
+//! The reports the run writes (`--output`, `--format FORMAT=FILE`) and the cache location are left out of the scan:
+//! each run rewrites them, and seeing that write would start the next run, forever.
 //!
-//! The rounds share one module cache (ADR 0007), pruned after each round to what it used: in memory, or with
-//! `--cache` the store on disk, written after each round.
+//! The rounds share one cache (ADR 0007), pruned after each round to what it used: the cache store, read once and
+//! written after each round, or with the cache off a module cache in memory.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
-use skif::{CachedFs, MemoryModuleCache, OsFs};
+use skif::{CachedFs, OsFs};
 
 use crate::args::{Format, LintArgs};
+use crate::cache::{CacheEnv, CacheHost, DiskHost};
 use crate::env::Env;
 use crate::lint::{self, canonical};
-use crate::module_cache::{CacheHost, Persistent};
 use crate::output::{stderr_line, write_stdout};
 use crate::roots;
 
@@ -50,16 +50,14 @@ pub fn run(args: &LintArgs, env: Env) -> u8 {
         Err(error) => return lint::run_failed(args, &error),
     };
     let clear = env.stdout_tty && targets.contains(&(Format::Human, None));
-    let written = args.written_files();
-    // One cache for every round, so a round parses only what changed: in memory, or the `--cache` store, written
-    // after each round.
-    let modules: Box<dyn CacheHost> = if args.cache {
-        Box::new(Persistent::new(args))
-    } else {
-        Box::new(Arc::new(MemoryModuleCache::new()))
-    };
+    let cache_env = CacheEnv::detect(env.ci);
+    let mut written = args.written_files();
+    written.extend(crate::cache::written_dirs(&args.cache_flags(), &cache_env));
+    // One cache for every round, so a round parses only what changed: the cache store, read once and written after
+    // each round, or with the cache off a module cache in memory.
+    let modules = DiskHost::new(args.cache_flags(), cache_env, args.debug).keeping_memory();
     let mut snapshot = scan(&dir, &written);
-    lint_round(args, env, clear, &dir, modules.as_ref());
+    lint_round(args, env, clear, &dir, &modules);
     let mut debouncer = Debouncer::new(QUIET);
     let mut last_scan = Duration::ZERO;
     loop {
@@ -70,7 +68,7 @@ pub fn run(args: &LintArgs, env: Env) -> u8 {
         let changed = next != snapshot;
         snapshot = next;
         if debouncer.observe(changed, Instant::now()) {
-            lint_round(args, env, clear, &dir, modules.as_ref());
+            lint_round(args, env, clear, &dir, &modules);
         }
     }
 }
@@ -118,8 +116,8 @@ fn watched_dir(args: &LintArgs) -> Result<PathBuf, u8> {
 type Stamp = (Option<SystemTime>, u64);
 
 /// Every file below `dir` with its modification time and size. `.gitignore` files are honoured, the [`SKIPPED`]
-/// directories are never entered, and the `written` files (canonical paths, as [`LintArgs::written_files`] gives
-/// them) are left out; so is a file that vanishes during the scan.
+/// directories are never entered, and the `written` files and everything below a `written` directory (canonical
+/// paths, as [`LintArgs::written_files`] gives them) are left out; so is a file that vanishes during the scan.
 ///
 /// The walk runs on up to [`SCAN_THREADS`] threads, each collecting what it sees; the map is ordered, so the result
 /// does not depend on which thread saw which file.
@@ -162,7 +160,10 @@ fn scan_threads() -> usize {
 
 /// What one entry of the walk adds to the scan: a file that is not `written`, with its stamp.
 fn stamp(entry: ignore::DirEntry, written: &BTreeSet<PathBuf>) -> Option<(PathBuf, Stamp)> {
-    if !entry.file_type().is_some_and(|kind| kind.is_file()) || written.contains(entry.path()) {
+    // `written` holds a handful of paths: files, and the directory of a cache location.
+    if !entry.file_type().is_some_and(|kind| kind.is_file())
+        || written.iter().any(|skip| entry.path().starts_with(skip))
+    {
         return None;
     }
     let metadata = entry.metadata().ok()?;

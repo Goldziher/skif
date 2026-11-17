@@ -14,18 +14,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use skif::{
-    BufferFs, ConfigOverrides, Diagnostic, FileSystem, MemoryModuleCache, ModuleCache, OsFs, Severity, content_hash,
-};
+use skif::{BufferFs, ConfigOverrides, Diagnostic, FileSystem, OsFs, Severity, content_hash};
 use skif_core::LineIndex;
 
+use crate::cache::{CacheEnv, SeededCaches};
 use crate::lint::lint_root;
-use crate::module_cache::CacheHost;
 use crate::output::stderr_line;
 use crate::roots::RootRun;
 
@@ -78,7 +76,10 @@ pub fn serve(mut input: impl BufRead + Send + 'static, mut output: impl Write) -
             }
         }
     });
-    let mut server = Server::default();
+    let mut server = Server {
+        modules: SeededCaches::new(CacheEnv::detect(false)),
+        ..Server::default()
+    };
     loop {
         let frame = match server.next_deadline() {
             Some(deadline) => match frames.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
@@ -192,28 +193,6 @@ struct Document {
     version: Option<i64>,
 }
 
-/// One in-memory module cache per root, pruned after each lint of that root to what the lint used.
-#[derive(Default)]
-struct RootCaches(Mutex<BTreeMap<PathBuf, Arc<MemoryModuleCache>>>);
-
-impl RootCaches {
-    fn prune(&self, base: &Path) {
-        if let Some(cache) = self.0.lock().unwrap_or_else(PoisonError::into_inner).get(base) {
-            cache.prune_unused();
-        }
-    }
-}
-
-impl CacheHost for RootCaches {
-    fn modules(&self, base: &Path) -> Arc<dyn ModuleCache> {
-        let mut caches = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        Arc::clone(caches.entry(base.to_path_buf()).or_default()) as Arc<dyn ModuleCache>
-    }
-
-    /// The server prunes the cache of the root it linted; see [`RootCaches::prune`].
-    fn finish(&self) {}
-}
-
 #[derive(Default)]
 struct Server {
     /// Whether `initialize` has been answered; until then requests get [`SERVER_NOT_INITIALIZED`] and
@@ -234,7 +213,8 @@ struct Server {
     /// The lints waiting for their root to be quiet: by root (or by directory before the first lint of a root),
     /// when they are due and the directory to lint.
     pending: BTreeMap<PathBuf, (Instant, PathBuf)>,
-    modules: RootCaches,
+    /// One memory cache per root, seeded read-only from the cache store and pruned after each lint of that root.
+    modules: SeededCaches,
 }
 
 impl Server {

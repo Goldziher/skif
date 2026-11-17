@@ -214,9 +214,18 @@ fn audited_crates() -> BTreeSet<String> {
         .map(|name| format!("skif-{}", name.replace('_', "-")))
         .collect();
     crates.insert("skif".to_owned());
-    // Crates the facade builds on and whose types can reach a host through it, though it never re-exports from them
-    // by name.
-    crates.extend(["skif-edit", "skif-rules", "skif-js-plugins", "skif-specifier"].map(str::to_owned));
+    // Crates the facade builds on and whose types can reach a host through it, though `lib.rs` never re-exports from
+    // them by name (`skif-cache` is re-exported by the `cache` module).
+    crates.extend(
+        [
+            "skif-edit",
+            "skif-rules",
+            "skif-js-plugins",
+            "skif-specifier",
+            "skif-cache",
+        ]
+        .map(str::to_owned),
+    );
     crates
 }
 

@@ -15,6 +15,8 @@ use serde_json::Map;
 
 mod args;
 mod baseline;
+mod cache;
+mod cache_command;
 mod commands;
 mod config;
 mod config_toml;
@@ -30,7 +32,6 @@ mod lint;
 mod lsp;
 mod mcp;
 mod migrate;
-mod module_cache;
 mod npmrc;
 mod output;
 mod registry;
@@ -44,7 +45,7 @@ use args::{Cli, Command, Format};
 use env::Env;
 pub use error::{CliError, Kind};
 use lint::Teardown;
-pub use lint::lint_to_json;
+pub use lint::{LintCache, lint_to_json, lint_to_json_cached};
 use output::{emit_error, emit_error_with};
 
 /// Runs the CLI with `args` (the first item is the program name, as in `std::env::args_os`) and returns the exit
@@ -186,6 +187,7 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
         Some(Command::List(args)) => instances::list(&args),
         Some(Command::Json(args)) => instances::json(&args),
         Some(Command::Format(args)) => format::run(&args, Env::detect(), teardown),
+        Some(Command::Cache(args)) => cache_command::run(&args),
         Some(Command::Mcp) => mcp::run(),
         Some(Command::Lsp) => lsp::run(),
     }

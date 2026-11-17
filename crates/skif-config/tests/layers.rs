@@ -1143,3 +1143,30 @@ fn a_missing_reason_is_named_by_its_place_in_the_merged_list() {
         Some("js.ignore-dependencies[3] `left-pad`")
     );
 }
+
+#[test]
+fn the_cache_table_merges_by_key_and_records_where_each_key_was_set() {
+    let resolved = two(
+        "[cache]\nenabled = false\nmax-size = \"1GiB\"\n",
+        "[cache]\nlocation = \".cache/skif\"\n",
+    );
+    let cache = &resolved.config.cache;
+    assert_eq!(cache.enabled, Some(false));
+    assert_eq!(cache.location.as_deref(), Some(".cache/skif"));
+    assert_eq!(cache.max_size, Some(skif_config::ByteSize(1 << 30)));
+    // A host tells the root's own keys from inherited ones by where they were set.
+    let source = |key: &str| {
+        let assignment = resolved.origins.last(key).unwrap();
+        resolved.sources[assignment.source].kind.clone()
+    };
+    assert_eq!(source("cache.location"), skif_config::SourceKind::Root);
+    assert_eq!(source("cache.enabled"), skif_config::SourceKind::Ancestor);
+}
+
+#[test]
+fn the_cache_table_is_rejected_in_an_override_and_a_package_file() {
+    let error = Config::from_toml_str("[[overrides]]\npackages = [\"a\"]\n[overrides.cache]\nenabled = false\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("cache"), "{error}");
+}

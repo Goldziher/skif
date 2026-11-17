@@ -241,7 +241,9 @@ impl Filter {
             .filter(|diagnostic| self.reports_rule(diagnostic.rule.as_str()))
             .filter(|diagnostic| self.selects(owner(workspace, diagnostic)))
             .collect();
-        Report::new(diagnostics, packages).with_config_judgements(report.config_judgements)
+        let mut narrowed = Report::new(diagnostics, packages).with_config_judgements(report.config_judgements);
+        narrowed.cache = report.cache;
+        narrowed
     }
 
     /// Narrows every root's report, after checking that `--workspace` selects a package in at least one of them.

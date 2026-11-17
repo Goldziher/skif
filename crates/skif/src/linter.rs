@@ -7,12 +7,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use skif_config::{Config, Level};
-use skif_core::{FileSystem, OsFs, Report, RuleMeta};
+use skif_core::cache::salt_digest;
+use skif_core::{CacheHandle, CacheStore, FileSystem, OsFs, Report, RuleMeta};
 use skif_lint::{Executor, Registry, RuleProvider};
 use skif_workspace::{IndexCache, Workspace};
 
-use crate::cache;
 use crate::error::Error;
+use crate::fs_cache;
 use crate::targets::Target;
 
 /// The rule providers compiled into this build, in registration order.
@@ -156,9 +157,15 @@ pub struct Linter {
     in_flight: Mutex<usize>,
     /// The parsed git indexes, read once by the rules and the JS analysis of every run while they are unchanged.
     indexes: IndexCache,
+    /// The host's cache store (ADR 0007), set with [`Linter::with_cache_store`].
+    store: Option<Arc<dyn CacheStore>>,
+    /// The digest of the host's salt, set with [`Linter::with_cache_salt`].
+    salt: [u8; 32],
+    /// `store` with `salt`, as the runs hand it to the providers.
+    handle: Option<CacheHandle>,
 }
 
-type SharedCache = skif_core::CachedFs<cache::Through<Arc<dyn FileSystem>>>;
+type SharedCache = skif_core::CachedFs<fs_cache::Through<Arc<dyn FileSystem>>>;
 
 /// Holds the cache of a [`Linter`] for the duration of one run: the first overlapping run empties it on entry, the
 /// last one on exit.
@@ -214,7 +221,7 @@ impl Linter {
     /// # Errors
     /// As [`Linter::new`].
     pub fn with_fs(config: &Config, fs: Arc<dyn FileSystem>) -> Result<Self, Error> {
-        let cache = cache::shared(fs);
+        let cache = fs_cache::shared(fs);
         let providers = builtin_providers(config, Arc::clone(&cache) as Arc<dyn FileSystem>);
         let mut linter = Self::with_providers(config, providers)?;
         linter.cache = Some(cache);
@@ -337,7 +344,7 @@ impl Linter {
         fs: Arc<dyn FileSystem>,
         modules: impl FnOnce(skif_js::JsProvider) -> skif_js::JsProvider,
     ) -> Result<Self, Error> {
-        let cache = cache::shared(fs);
+        let cache = fs_cache::shared(fs);
         let shared = Arc::clone(&cache) as Arc<dyn FileSystem>;
         #[cfg(feature = "manifest")]
         let mut providers: Vec<Box<dyn RuleProvider>> = skif_rules::providers();
@@ -365,7 +372,39 @@ impl Linter {
             cache: None,
             in_flight: Mutex::new(0),
             indexes: IndexCache::default(),
+            store: None,
+            salt: salt_digest(&[]),
+            handle: None,
         })
+    }
+
+    /// Caches what the runs of this linter compute in `store`, which the host owns and which outlives the runs
+    /// (ADR 0007): the JS analysis keeps each file's parse result in the `modules` namespace.
+    ///
+    /// skif derives every key (a parse result's from the file's name, its text and the parse options; never from a
+    /// modification time or an absolute path) and seals every value, so a store that loses, damages or mixes up entries only costs misses: a
+    /// report is the same with no store, a cold one, a warm one or a corrupt one, apart from
+    /// [`Report::cache`], which counts the hits, misses and bytes written of each namespace. A linter without a store
+    /// keeps nothing beyond a run, and a linter with one writes no file itself. A module cache given to the linter as
+    /// well ([`with_module_cache`](Self::with_module_cache)) sits in front of the store.
+    #[must_use]
+    pub fn with_cache_store(mut self, store: Arc<dyn CacheStore>) -> Self {
+        self.handle = Some(CacheHandle::new(Arc::clone(&store), self.salt));
+        self.store = Some(store);
+        self
+    }
+
+    /// Adds `salt`, the host's opaque bytes, to every cache key, so entries written under another salt are misses:
+    /// a host puts in it what skif cannot see, such as its own build identity. No salt and an empty salt are the
+    /// same.
+    #[must_use]
+    pub fn with_cache_salt(mut self, salt: &[u8]) -> Self {
+        self.salt = salt_digest(salt);
+        self.handle = self
+            .store
+            .as_ref()
+            .map(|store| CacheHandle::new(Arc::clone(store), self.salt));
+        self
     }
 
     /// The state of every dependency instance the version groups and the catalog rules govern, valid or not, as
@@ -446,6 +485,9 @@ impl Linter {
             .with_extra_entries(options.extra_entries)
             .with_extra_build_sources(options.extra_build_sources)
             .with_index_cache(&self.indexes);
+        if let Some(handle) = &self.handle {
+            run_options = run_options.with_cache(handle);
+        }
         // The rules that read a lockfile or patch files read them through the file system this linter was built with.
         if let Some(cache) = self.cache.as_deref() {
             run_options = run_options.with_fs(cache);
@@ -512,7 +554,7 @@ mod tests {
             inner: MemoryFs::new().with_file("/r/package.json", "{}"),
             reads: Arc::clone(&reads),
         };
-        (cache::shared(Arc::new(fs)), reads)
+        (fs_cache::shared(Arc::new(fs)), reads)
     }
 
     fn read(cache: &SharedCache) {

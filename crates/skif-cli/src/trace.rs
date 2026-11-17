@@ -108,6 +108,19 @@ pub fn debug_targets(base: &Path, targets: &[Target]) {
     }
 }
 
+/// `--debug`: what the run did with the cache store, per namespace; nothing when it cached nothing.
+pub fn debug_cache(cache: &std::collections::BTreeMap<String, skif::cache::CacheCounters>) {
+    for (namespace, counters) in cache {
+        stderr_line(&format!(
+            "skif debug: cache {}: {} hits, {} misses, {} bytes written",
+            escape_controls(namespace),
+            counters.hits,
+            counters.misses,
+            counters.bytes_written
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_vm_hwm;

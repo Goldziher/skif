@@ -63,6 +63,29 @@ impl SharedModules {
         }
     }
 
+    /// How the run of the workspace at `root` parses when the linter also caches through a store: every file goes
+    /// through `store`, behind the host's own cache when there is one, with this value's coalescing and cores.
+    pub(crate) fn parser_with_store<'a>(
+        &'a self,
+        store: &'a dyn ModuleCache,
+        layered: &'a mut Option<Layered<'a>>,
+    ) -> ModuleParser<'a> {
+        let cache: &'a dyn ModuleCache = if self.roots.is_some() {
+            // The run's own cache holds only shared files; the store serves every file instead.
+            store
+        } else {
+            &*layered.insert(Layered {
+                front: self.cache.as_ref(),
+                back: store,
+            })
+        };
+        ModuleParser {
+            cache,
+            coalescer: self.coalescer.as_deref(),
+            local: None,
+        }
+    }
+
     /// How the run of the workspace at `root` parses.
     pub(crate) fn parser<'a>(&'a self, root: &'a Path) -> ModuleParser<'a> {
         let local = self.roots.as_deref().map(|roots| Local {
@@ -87,6 +110,38 @@ impl std::fmt::Debug for SharedModules {
             .field("coalesced", &self.coalescer.is_some())
             .field("roots", &self.roots)
             .finish_non_exhaustive()
+    }
+}
+
+/// A host's module cache in front of the linter's store: a lookup the front misses is served by the store and kept
+/// in the front, and a fresh parse goes to both.
+pub(crate) struct Layered<'a> {
+    front: &'a dyn ModuleCache,
+    back: &'a dyn ModuleCache,
+}
+
+impl ModuleCache for Layered<'_> {
+    fn get(&self, key: ModuleKey) -> Option<CachedModule> {
+        if let Some(found) = self.front.get(key) {
+            return Some(found);
+        }
+        let found = self.back.get(key)?;
+        self.front.put(key, found.clone());
+        Some(found)
+    }
+
+    fn get_again(&self, key: ModuleKey) -> Option<CachedModule> {
+        if let Some(found) = self.front.get_again(key) {
+            return Some(found);
+        }
+        let found = self.back.get_again(key)?;
+        self.front.put(key, found.clone());
+        Some(found)
+    }
+
+    fn put(&self, key: ModuleKey, module: CachedModule) {
+        self.back.put(key, module.clone());
+        self.front.put(key, module);
     }
 }
 
@@ -164,6 +219,14 @@ struct Probe<'a> {
 impl ModuleCache for Probe<'_> {
     fn get(&self, key: ModuleKey) -> Option<CachedModule> {
         let found = self.cache.get(key);
+        if found.is_some() {
+            self.found.store(true, Ordering::Relaxed);
+        }
+        found
+    }
+
+    fn get_again(&self, key: ModuleKey) -> Option<CachedModule> {
+        let found = self.cache.get_again(key);
         if found.is_some() {
             self.found.store(true, Ordering::Relaxed);
         }

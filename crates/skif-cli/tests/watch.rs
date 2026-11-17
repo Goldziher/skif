@@ -52,6 +52,7 @@ fn documents(child: &mut Child) -> Receiver<Value> {
 fn a_changed_manifest_is_linted_again() {
     let dir = fixture("clean");
     let child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .env("SKIF_CACHE", "0")
         .args(["--watch", "--format", "json"])
         .arg(dir.path())
         .env_remove("CI")
@@ -90,6 +91,7 @@ fn the_reports_a_run_writes_do_not_start_another_run() {
     let dir = fixture("clean");
     let report = dir.path().join("report.txt");
     let child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .env("SKIF_CACHE", "0")
         .args(["--watch", "--format", "json", "--format"])
         .arg(format!("human={}", report.display()))
         .arg(dir.path())
@@ -122,6 +124,7 @@ fn the_reports_a_run_writes_do_not_start_another_run() {
 fn the_timings_of_a_round_are_written_before_the_next_round() {
     let dir = fixture("clean");
     let child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .env("SKIF_CACHE", "0")
         .args(["--watch", "--format", "json"])
         .arg(dir.path())
         .env_remove("CI")
@@ -153,4 +156,55 @@ fn the_timings_of_a_round_are_written_before_the_next_round() {
         }
     }
     assert!(timings > 0, "no timing line before the round ended");
+}
+
+/// The cache store is rewritten by every round that parsed something; a watcher that saw it would never rest.
+#[test]
+fn the_cache_a_round_writes_does_not_start_another_round() {
+    let dir = fixture("js");
+    // A location inside the watched root that skif did not create, so no `.gitignore` of its own hides it.
+    let location = dir.path().join("cache-here");
+    std::fs::create_dir(&location).unwrap();
+    let child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .args(["--watch", "--format", "json", "--cache-location"])
+        .arg(&location)
+        .arg(dir.path())
+        .env_remove("CI")
+        .env_remove("GITHUB_ACTIONS")
+        .env_remove("TEST_TMPDIR")
+        .env_remove("SKIF_CACHE")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut watcher = Watcher(child);
+    let runs = documents(&mut watcher.0);
+
+    runs.recv_timeout(TIMEOUT).expect("the first run");
+    // The store is written once the report is out.
+    let stored = || {
+        std::fs::read_dir(&location)
+            .unwrap()
+            .any(|entry| entry.unwrap().path().join("modules.bin").is_file())
+    };
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    while !stored() {
+        assert!(std::time::Instant::now() < deadline, "the first round wrote no store");
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        runs.recv_timeout(Duration::from_secs(3)).is_err(),
+        "the watcher reacted to the cache it wrote"
+    );
+    // A source edit is still seen, and its round writes the store again without starting a third.
+    std::fs::write(
+        dir.path().join("packages").join("app").join("index.js"),
+        "import 'left-pad';\nexport const edited = 1;\n",
+    )
+    .unwrap();
+    runs.recv_timeout(TIMEOUT).expect("the run after the edit");
+    assert!(
+        runs.recv_timeout(Duration::from_secs(3)).is_err(),
+        "the watcher reacted to the cache it wrote after an edit"
+    );
 }

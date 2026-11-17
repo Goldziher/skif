@@ -33,11 +33,15 @@ yaml-fix = ["fix", "skif-edit/yaml"]
 report = ["dep:skif-report"]
 # JSON Schema of `skif.toml`, as `skif::config_schema`.
 schema = ["skif-config/schema"]
+# The disk cache store of skif as `skif::cache::DiskStore` (`skif-cache`, ADR 0007), for hosts that want its layout,
+# eviction and size cap. The only library crate that writes files, and only below the cache location it is given.
+cache-disk = ["dep:skif-cache"]
 # `skif::update`: newer published versions through a registry the host supplies, planned as a `FixPlan` (ADR 0006).
 update = ["manifest", "fix"]
 
 [dependencies]
 rayon.workspace = true
+skif-cache = { workspace = true, optional = true }
 skif-config.workspace = true
 skif-core.workspace = true
 skif-edit = { workspace = true, optional = true }
@@ -71,6 +75,10 @@ required-features = ["js-analysis"]
 
 [[test]]
 name = "module_cache"
+required-features = ["js-analysis"]
+
+[[test]]
+name = "cache_store"
 required-features = ["js-analysis"]
 
 [[test]]

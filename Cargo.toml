@@ -15,6 +15,10 @@ repository = "https://github.com/polylint/skif"
 ahash = "0.8.12"
 anyhow = "1.0.104"
 assert_cmd = "2.2.2"
+# Cache keys and envelope checksums (ADR 0007).
+blake3 = "1.8.7"
+# The binary payload of cached parse results (ADR 0007): self-describing, so fields left out when empty decode.
+ciborium = "0.2.2"
 clap = { version = "4.6.8", features = ["derive"] }
 criterion = { version = "0.8.2", features = ["html_reports"] }
 globset = "0.4.21"
@@ -51,11 +55,10 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 serde_toon_format = "0.2"
 simdutf8 = "0.1.5"
 similar = "3.2.1"
-# The module cache key (ADR 0007); already in the tree through phf_shared.
-siphasher = "1.0.4"
 
 skif = { path = "crates/skif", version = "=0.8.0" }
 skif-bench = { path = "tools/bench" }
+skif-cache = { path = "crates/skif-cache", version = "=0.8.0" }
 skif-cli = { path = "crates/skif-cli", version = "=0.8.0" }
 skif-config = { path = "crates/skif-config", version = "=0.8.0" }
 skif-core = { path = "crates/skif-core", version = "=0.8.0" }

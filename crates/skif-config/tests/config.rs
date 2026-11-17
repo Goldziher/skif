@@ -1351,3 +1351,73 @@ fn js_compilers_are_root_scoped() {
     let error = Config::from_toml_str(source).unwrap_err();
     assert!(error.to_string().contains("compilers"), "{error}");
 }
+
+#[test]
+fn a_cache_location_stays_inside_the_directory_of_its_file() {
+    for location in [".cache/skif", "./tmp", "a/../b", "a/b/../../c", "C:cache"] {
+        let source = format!("[cache]\nlocation = {location:?}\n");
+        if cfg!(windows) && location.starts_with("C:") {
+            continue;
+        }
+        assert!(Config::from_toml_str(&source).is_ok(), "{location}");
+    }
+    let rooted = if cfg!(windows) { "C:\\cache" } else { "/var/cache" };
+    for (location, reason) in [
+        ("", "it is empty"),
+        (rooted, "not an absolute path"),
+        ("..", "must stay inside"),
+        ("../cache", "must stay inside"),
+        ("a/../../cache", "must stay inside"),
+    ] {
+        let source = format!("[cache]\nlocation = {location:?}\n");
+        let error = Config::from_toml_str(&source).unwrap_err().to_string();
+        assert!(error.contains("cache.location"), "{location}: {error}");
+        assert!(error.contains(reason), "{location}: {error}");
+    }
+}
+
+#[test]
+fn cache_sizes_parse_as_integers_or_with_units() {
+    use skif_config::{ByteSize, parse_byte_size};
+    for (text, bytes) in [
+        ("0", 0),
+        ("512", 512),
+        ("512B", 512),
+        ("4K", 4096),
+        ("4 KiB", 4096),
+        ("256MiB", 256 << 20),
+        ("256mib", 256 << 20),
+        ("2GiB", 2 << 30),
+        ("1TiB", 1 << 40),
+        ("3KB", 3000),
+        ("5MB", 5_000_000),
+        ("1GB", 1_000_000_000),
+        (" 7 m ", 7 << 20),
+    ] {
+        assert_eq!(parse_byte_size(text), Ok(bytes), "{text}");
+    }
+    for bad in [
+        "",
+        "MiB",
+        "-1",
+        "1.5GiB",
+        "12 parsecs",
+        "99999999999999999999",
+        "18446744073709551615GiB",
+    ] {
+        assert!(parse_byte_size(bad).is_err(), "{bad}");
+    }
+    let config = Config::from_toml_str("[cache]\nmax-size = 1048576\n").unwrap();
+    assert_eq!(config.cache.max_size, Some(ByteSize(1 << 20)));
+    let config =
+        Config::from_toml_str("[cache]\nenabled = true\nlocation = \"tmp/cache\"\nmax-size = \"64MiB\"\n").unwrap();
+    assert_eq!(config.cache.max_size, Some(ByteSize(64 << 20)));
+    assert_eq!(config.cache.enabled, Some(true));
+    for bad in [
+        "[cache]\nmax-size = \"lots\"\n",
+        "[cache]\nmax-size = -5\n",
+        "[cache]\nunknown = 1\n",
+    ] {
+        assert!(Config::from_toml_str(bad).is_err(), "{bad}");
+    }
+}

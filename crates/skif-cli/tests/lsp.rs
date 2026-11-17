@@ -416,6 +416,7 @@ fn a_burst_of_changes_is_linted_once_the_root_is_quiet() {
     let saved = std::fs::read_to_string(&manifest).unwrap();
     let typed = saved.replace("  }\n}", "  },\n  \"devDependencies\": {}\n}");
     let mut child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .env("SKIF_CACHE", "0")
         .arg("lsp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

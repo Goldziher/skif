@@ -98,6 +98,7 @@
 //! | `report` | no | the renderers (human, JSON, TOON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 //! | `schema` | no | `config_schema` |
 //! | `update` | no | [`update`]: newer published versions from a registry the host supplies, planned as a `FixPlan` |
+//! | `cache-disk` | no | skif's disk cache store, `skif::cache::DiskStore` (the only part of the facade that writes files) |
 //!
 //! # Third-party types in the API
 //!
@@ -132,10 +133,11 @@
 #[doc = include_str!("../README.md")]
 mod readme_examples {}
 
-mod cache;
+pub mod cache;
 mod error;
 #[cfg(feature = "fix")]
 mod fix;
+mod fs_cache;
 #[cfg(feature = "js-analysis")]
 mod js;
 mod linter;
@@ -176,6 +178,8 @@ pub use targets::{
     discover_targets_below, find_target, load_target, unapplied_config_files, unapplied_config_files_all,
 };
 
+/// The `[cache]` table of the configuration, which only a host reads (the [`cache`] module is the store itself).
+pub use skif_config::Cache as CacheConfig;
 /// The `[format]` table of the configuration: what `package-json-format` checks.
 pub use skif_config::Format as FormatConfig;
 /// The `[update]` table of the configuration (an [`update::Update`] is one proposed version).
@@ -183,12 +187,13 @@ pub use skif_config::Update as UpdateConfig;
 /// The `[workspace]` table of the configuration (the discovered [`Workspace`] is a different type).
 pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
-    Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
-    ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, FamilyScope,
-    GroupScope, IdleReason, IgnoreEntry, IgnoreExportsUsedInFile, IgnoreItem, InstanceFilter, Js, JsWorkspace, Level,
-    Lint, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer,
-    ResetKey, ResolvedConfig, RuleConfig, RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup,
-    UpdateTarget, VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
+    Assignment, ByteSize, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache,
+    ConfigError, ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds,
+    FamilyScope, GroupScope, IdleReason, IgnoreEntry, IgnoreExportsUsedInFile, IgnoreItem, InstanceFilter, Js,
+    JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, PluginConfig,
+    PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions, Selector, SemverGroup,
+    SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
+    parse_byte_size,
 };
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};

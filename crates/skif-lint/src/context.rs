@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, OsFs, RuleMeta, Severity};
+use skif_core::{CacheHandle, Diagnostic, FileSystem, OsFs, RuleMeta, Severity};
 use skif_workspace::{IndexCache, IndexedFs, TrackedFiles, Workspace};
 
 /// One shared value, stored by the first rule that finishes computing it.
@@ -63,6 +63,7 @@ pub struct LintContext<'a> {
     pub extra_build_sources: &'a [PathBuf],
     fs: FsRef<'a>,
     index_cache: Option<&'a IndexCache>,
+    cache: Option<&'a CacheHandle>,
     shared: &'a SharedCache,
 }
 
@@ -106,8 +107,21 @@ impl<'a> LintContext<'a> {
             extra_build_sources: &[],
             fs: FsRef(&OsFs),
             index_cache: None,
+            cache: None,
             shared,
         }
+    }
+
+    pub(crate) const fn with_cache(mut self, cache: Option<&'a CacheHandle>) -> Self {
+        self.cache = cache;
+        self
+    }
+
+    /// The store the host gave the linter and its salt (ADR 0007), passed with
+    /// [`RunOptions::with_cache`](crate::RunOptions::with_cache); `None` when nothing is to outlive the run.
+    #[must_use]
+    pub const fn cache(&self) -> Option<&'a CacheHandle> {
+        self.cache
     }
 
     pub(crate) const fn with_index_cache(mut self, index_cache: Option<&'a IndexCache>) -> Self {

@@ -57,6 +57,10 @@ pub struct Config {
     pub dependency_families: Vec<DependencyFamily>,
     /// `[update]`: how `skif update` reads the package registry. Linting never reads it.
     pub update: Update,
+    /// `[cache]`: the cache store of the command line and the npm package (ADR 0003, ADR 0007). Read only from the
+    /// root configuration; the library never reads it, and no cache setting enters a cache key.
+    #[serde(skip_serializing_if = "Cache::is_unset")]
+    pub cache: Cache,
     /// `[[update-groups]]`: how far `skif update` may move the dependencies it matches, first match wins.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub update_groups: Vec<UpdateGroup>,
@@ -400,6 +404,9 @@ impl Config {
         }
         if self.catalog.min_packages == 0 {
             return invalid("catalog.min-packages must be at least 1".to_string());
+        }
+        if let Some(message) = self.cache.location.as_deref().and_then(cache_location_problem) {
+            return invalid(format!("cache.location: {message}"));
         }
         if let Some(message) = selector_problem(&self.catalog.exclude) {
             return invalid(format!("catalog.exclude: {message}"));
@@ -1502,6 +1509,156 @@ impl Update {
         self.max_concurrent_requests = requests;
         self
     }
+}
+
+/// `[cache]`: where the command line and the npm package keep the cache store and how large it may grow (ADR 0007).
+///
+/// Only the root configuration's table applies: in a file reached through `extends`, a file above the root or the
+/// configuration of a nested root it is ignored with a warning, since one store serves the whole run. Flags
+/// (`--no-cache`, `--cache`, `--cache-location`, `--cache-max-size`) and the environment (`SKIF_CACHE`,
+/// `SKIF_CACHE_DIR`, `SKIF_CACHE_MAX_SIZE`) beat it. The library never reads it: a host caches only when it gives a
+/// linter a store.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct Cache {
+    /// Whether runs keep and reuse what they computed. Unset, the cache is on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// The directory of the cache store: a path relative to this configuration file that stays inside its directory
+    /// (no absolute path, no `..` that leaves it). Unset, `node_modules/.cache/skif` below the base when
+    /// `node_modules` exists, else the per-user cache directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    /// The most the project's cache store may hold: bytes as an integer, or a size such as `"256MiB"` (`KiB`, `MiB`,
+    /// `GiB` count in 1024s, `KB`, `MB`, `GB` in 1000s). Unset, the cache location holds at most 512 MiB.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_size: Option<ByteSize>,
+}
+
+impl Cache {
+    /// Whether no key of the table is set.
+    #[must_use]
+    pub const fn is_unset(&self) -> bool {
+        self.enabled.is_none() && self.location.is_none() && self.max_size.is_none()
+    }
+}
+
+/// Why `location` cannot be `[cache] location`: a configuration file is part of the project, so the store it names
+/// stays inside the directory of that file.
+fn cache_location_problem(location: &str) -> Option<&'static str> {
+    use std::path::Component;
+    if location.is_empty() {
+        return Some("must name a directory; it is empty");
+    }
+    let mut depth = 0_usize;
+    for component in Path::new(location).components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                return Some("must be relative to the configuration file, not an absolute path");
+            }
+            Component::ParentDir => match depth.checked_sub(1) {
+                Some(above) => depth = above,
+                None => return Some("must stay inside the directory of the configuration file"),
+            },
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+        }
+    }
+    None
+}
+
+/// A size in bytes, written as an integer or as a string with a unit (see [`parse_byte_size`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ByteSize(pub u64);
+
+impl Serialize for ByteSize {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ByteSize {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = ByteSize;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a size in bytes, or a string such as \"256MiB\"")
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<ByteSize, E> {
+                Ok(ByteSize(value))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<ByteSize, E> {
+                u64::try_from(value)
+                    .map(ByteSize)
+                    .map_err(|_| E::custom("a size cannot be negative"))
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<ByteSize, E> {
+                parse_byte_size(value).map(ByteSize).map_err(E::custom)
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for ByteSize {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ByteSize")
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "Bytes as an integer, or a size with a unit: B, KiB, MiB, GiB, TiB (1024s), KB, MB, GB, TB (1000s), K, M, G, T (1024s).",
+            "oneOf": [
+                { "type": "integer", "minimum": 0 },
+                { "type": "string", "pattern": "^\\s*[0-9]+\\s*([kKmMgGtT]([iI]?[bB])?|[bB])?\\s*$" }
+            ]
+        })
+    }
+}
+
+/// Reads a size: a whole number of bytes, optionally followed by a unit. `KiB`, `MiB`, `GiB` and `TiB`, and the
+/// single letters `K`, `M`, `G` and `T`, count in 1024s; `KB`, `MB`, `GB` and `TB` in 1000s. Units ignore case and
+/// may follow a space.
+///
+/// # Errors
+/// A message naming what is wrong: not a number, an unknown unit, or a size over `u64::MAX` bytes.
+pub fn parse_byte_size(text: &str) -> Result<u64, String> {
+    let text = text.trim();
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return Err(format!(
+            "`{text}` is not a size: expected a number of bytes such as `512MiB`"
+        ));
+    }
+    let (number, unit) = text.split_at(digits);
+    let number: u64 = number.parse().map_err(|_| format!("`{text}` is too large a size"))?;
+    let factor: u64 = match unit.trim().to_ascii_lowercase().as_str() {
+        "" | "b" => 1,
+        "k" | "kib" => 1 << 10,
+        "m" | "mib" => 1 << 20,
+        "g" | "gib" => 1 << 30,
+        "t" | "tib" => 1 << 40,
+        "kb" => 1_000,
+        "mb" => 1_000_000,
+        "gb" => 1_000_000_000,
+        "tb" => 1_000_000_000_000,
+        other => {
+            return Err(format!(
+                "`{other}` is not a size unit: use B, KiB, MiB, GiB, TiB, KB, MB, GB or TB"
+            ));
+        }
+    };
+    number
+        .checked_mul(factor)
+        .ok_or_else(|| format!("`{text}` is too large a size"))
 }
 
 /// One `[[update-groups]]` entry; first match wins. Set `target` to cap how far `skif update` moves the matched

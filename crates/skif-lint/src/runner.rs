@@ -1,9 +1,10 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, ConfigError};
-use skif_core::{ConfigJudgement, Diagnostic, FileSystem, IncompletePackage, Report};
+use skif_core::{CacheCounters, CacheHandle, ConfigJudgement, Diagnostic, FileSystem, IncompletePackage, Report};
 use skif_workspace::{IndexCache, Workspace, map_ordered};
 
 use crate::context::{FsRef, LintContext, SharedCache};
@@ -62,9 +63,19 @@ pub struct RunOptions<'a> {
     extra_build_sources: &'a [PathBuf],
     fs: FsRef<'a>,
     index_cache: Option<&'a IndexCache>,
+    cache: Option<&'a CacheHandle>,
 }
 
 impl<'a> RunOptions<'a> {
+    /// Caches through `cache`, the store the host gave the linter and its salt (ADR 0007): a provider that caches
+    /// reads and writes its entries there and records what it did per namespace in
+    /// [`Report::cache`](skif_core::Report::cache). Without one, nothing outlives the run.
+    #[must_use]
+    pub const fn with_cache(mut self, cache: &'a CacheHandle) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
     /// Rules that read files beyond the discovered workspace (a lockfile, patch files) read them through `fs`; the
     /// real file system by default. A host that discovered the workspace through its own [`FileSystem`] passes it here.
     #[must_use]
@@ -171,7 +182,8 @@ pub fn run(
             .with_other_project_files(collected.other_project_files)
             .with_other_project_build_sources(collected.other_project_build_sources)
             .with_ancestor_dependency_uses(collected.ancestor_dependency_uses)
-            .with_config_judgements(collected.config_judgements),
+            .with_config_judgements(collected.config_judgements)
+            .with_cache(collected.cache),
     )
 }
 
@@ -205,6 +217,8 @@ struct Collected {
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
     /// The configuration entries the rules judged.
     config_judgements: Vec<ConfigJudgement>,
+    /// What the providers did with the cache store, per namespace.
+    cache: BTreeMap<String, CacheCounters>,
 }
 
 /// Runs every enabled rule and returns the diagnostics, the incomplete packages, the files and build sources of other
@@ -229,7 +243,8 @@ fn collect(
     .with_extra_entries(options.extra_entries)
     .with_extra_build_sources(options.extra_build_sources)
     .with_fs(options.fs)
-    .with_index_cache(options.index_cache);
+    .with_index_cache(options.index_cache)
+    .with_cache(options.cache);
     let job = || execute(registry, &cx, options);
     match options.executor {
         Some(executor) if !options.sequential => executor.install(job),
@@ -264,6 +279,7 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
     let other_project_build_sources = root.take_other_project_build_sources();
     let ancestor_dependency_uses = root.take_ancestor_dependency_uses();
     let config_judgements = root.take_config_judgements();
+    let cache = root.take_cache_counters();
     let (diagnostics, incomplete_packages) = root.into_parts();
     Ok(Collected {
         diagnostics,
@@ -272,5 +288,6 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
         other_project_build_sources,
         ancestor_dependency_uses,
         config_judgements,
+        cache,
     })
 }

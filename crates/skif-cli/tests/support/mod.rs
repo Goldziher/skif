@@ -23,7 +23,9 @@ impl Run {
     }
 }
 
-/// The binary under test with a clean environment: no `CI`, no colour, not under `bazel run` or `bazel test`.
+/// The binary under test with a clean environment: no `CI`, no colour, not under `bazel run` or `bazel test`, and
+/// with the cache off, so that no test writes into the user's cache directory; a test of the cache sets
+/// `SKIF_CACHE=1` and names a location.
 pub fn skif() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_skif"));
     command
@@ -32,6 +34,9 @@ pub fn skif() -> Command {
         .env_remove("BUILD_WORKSPACE_DIRECTORY")
         .env_remove("BUILD_WORKING_DIRECTORY")
         .env_remove("TEST_TMPDIR")
+        .env_remove("SKIF_CACHE_DIR")
+        .env_remove("SKIF_CACHE_MAX_SIZE")
+        .env("SKIF_CACHE", "0")
         .env("NO_COLOR", "1");
     command
 }

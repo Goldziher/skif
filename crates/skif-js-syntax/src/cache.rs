@@ -1,34 +1,38 @@
 //! A cache of parse results keyed by everything a parse depends on (ADR 0007).
 //!
 //! A [`ModuleInfo`] is a pure function of the file name, the text and the [`ParseOptions`], so a key over those
-//! inputs can never return a stale result: a changed file has a new key. The cache itself is supplied by the host
-//! through [`ModuleCache`]; this crate only owns the key, the stored value, an in-memory implementation and the
-//! [`ParseCoalescer`] that makes the threads of one run parse each key once (ADR 0007).
+//! inputs can never return a stale result: a changed file has a new key. The cache itself is supplied by the host:
+//! a [`ModuleCache`] of its own, or a [`CacheStore`] the linter serves one from through [`StoreModuleCache`]. This
+//! crate owns the key, the stored value and its binary codec, an in-memory implementation and the [`ParseCoalescer`]
+//! that makes the threads of one run parse each key once (ADR 0007).
 
 use std::collections::BTreeMap;
 
 use skif_core::HashMap;
-use std::hash::Hasher as _;
+use skif_core::cache::{self, CacheCounters, CacheHandle, CacheNamespace, CacheTally, KeyBuilder};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
 
 use serde::{Deserialize, Serialize};
-use siphasher::sip128::{Hasher128 as _, SipHasher13};
 
 use crate::error::SyntaxError;
 use crate::model::{ModuleInfo, ParseOptions};
 use crate::style::{is_stylesheet, parse_stylesheet};
 
-/// The version of the parse output. Raise it whenever [`ModuleInfo`] or what the parsers put in it changes, so a
-/// cache written by an older build at the same crate version is not trusted; the test
-/// `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
-pub const CACHE_SCHEMA: u32 = 20;
+/// The version of the parse output and of its binary codec. Raise it whenever [`ModuleInfo`], what the parsers put
+/// in it or the codec changes, so an entry written by an older build at the same crate version is not trusted; the
+/// test `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
+pub const CACHE_SCHEMA: u32 = 21;
 
-/// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
-/// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0x4b0b_3173_32e8_3b11_bf99_a6aa_d389_62e5;
+/// The digest of the encoded parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard, not
+/// part of any key: when the parse output or its codec changes, the test reports the new digest and both constants
+/// move.
+pub const CACHE_SCHEMA_DIGEST: u128 = 0xfc98_ac81_6661_106a_baba_a0ef_2c37_930d;
+
+/// The namespace of parse results in a [`CacheStore`](skif_core::CacheStore): `modules` at [`CACHE_SCHEMA`].
+pub const MODULES: CacheNamespace = CacheNamespace::new("modules", CACHE_SCHEMA);
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.
@@ -37,11 +41,11 @@ pub fn cache_version() -> String {
     format!("{}+{CACHE_SCHEMA}", env!("CARGO_PKG_VERSION"))
 }
 
-/// The key of one parse result: a 128-bit `SipHash-1-3` of the schema, the crate version, the parser, the parse
-/// options, the file name and the text. The directory is not part of it, so identical files share an entry and a
-/// moved checkout keeps its cache.
+/// The key of one parse result: a 32-byte blake3 digest of the cache version, the schema, the crate version, the
+/// parser, the parse options, the file name and the text. The directory is not part of it, so identical files share
+/// an entry and a moved checkout keeps its cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ModuleKey(u128);
+pub struct ModuleKey([u8; 32]);
 
 impl ModuleKey {
     /// The key for parsing `source`, the text of `path`, with `options`.
@@ -52,37 +56,35 @@ impl ModuleKey {
             in_file_references,
             member_accesses,
         } = *options;
-        let mut hasher = SipHasher13::new_with_keys(0, 0);
-        hasher.write(&CACHE_SCHEMA.to_le_bytes());
-        write_field(&mut hasher, env!("CARGO_PKG_VERSION").as_bytes());
-        hasher.write_u8(u8::from(is_stylesheet(path)));
-        hasher.write_u8(u8::from(in_file_references));
-        hasher.write_u8(u8::from(member_accesses));
-        write_field(
-            &mut hasher,
-            path.file_name().map_or_default(std::ffi::OsStr::as_encoded_bytes),
-        );
-        write_field(&mut hasher, source.as_bytes());
-        Self(hasher.finish128().as_u128())
+        let key = KeyBuilder::new(MODULES, &[0; 32])
+            .bytes(&[
+                u8::from(is_stylesheet(path)),
+                u8::from(in_file_references),
+                u8::from(member_accesses),
+            ])
+            .bytes(path.file_name().map_or_default(std::ffi::OsStr::as_encoded_bytes))
+            .content(source.as_bytes())
+            .finish();
+        Self(key)
     }
 
-    /// The key as 16 little-endian bytes, for a host that persists it.
+    /// The key as bytes, for a host that persists it.
     #[must_use]
-    pub const fn to_bytes(self) -> [u8; 16] {
-        self.0.to_le_bytes()
+    pub const fn to_bytes(self) -> [u8; 32] {
+        self.0
     }
 
     /// A key from the bytes [`ModuleKey::to_bytes`] gave.
     #[must_use]
-    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
-        Self(u128::from_le_bytes(bytes))
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
     }
-}
 
-/// Writes a variable-length field with its length first, so two different splits of the same bytes never hash alike.
-fn write_field(hasher: &mut SipHasher13, bytes: &[u8]) {
-    hasher.write(&(bytes.len() as u64).to_le_bytes());
-    hasher.write(bytes);
+    /// The key of this entry in a [`CacheStore`](skif_core::CacheStore) under the host salt digest `salt`.
+    #[must_use]
+    pub fn store_key(self, salt: &[u8; 32]) -> [u8; 32] {
+        KeyBuilder::new(MODULES, salt).bytes(&self.0).finish()
+    }
 }
 
 /// One cached parse result. Its fields are private: a host stores and serializes it without depending on the shape
@@ -90,6 +92,25 @@ fn write_field(hasher: &mut SipHasher13, bytes: &[u8]) {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct CachedModule(ModuleInfo);
+
+impl CachedModule {
+    /// The binary payload a [`StoreModuleCache`] stores: CBOR of the parse result, which keeps the fields left out
+    /// when empty readable without a schema of positions.
+    ///
+    /// # Errors
+    /// When the encoder fails, which it does only on a write error of the in-memory buffer.
+    pub fn encode(&self) -> Result<Vec<u8>, String> {
+        let mut payload = Vec::new();
+        ciborium::into_writer(&self.0, &mut payload).map_err(|error| error.to_string())?;
+        Ok(payload)
+    }
+
+    /// The result [`encode`](Self::encode) wrote, or `None` for bytes that are not one.
+    #[must_use]
+    pub fn decode(payload: &[u8]) -> Option<Self> {
+        ciborium::from_reader(payload).ok().map(Self)
+    }
+}
 
 /// A store of parse results the host owns and gives the analysis.
 ///
@@ -100,6 +121,13 @@ pub trait ModuleCache: Send + Sync {
     fn get(&self, key: ModuleKey) -> Option<CachedModule>;
     /// Stores `module` under `key`.
     fn put(&self, key: ModuleKey, module: CachedModule);
+    /// Looks `key` up a second time for one parse, after [`get`](Self::get) missed it: [`ParseCoalescer`] does once
+    /// it holds the key, in case another thread stored the result in between. A cache that counts its lookups
+    /// counts the pair as one: a hit here replaces the miss, and a second miss is not counted. By default
+    /// [`get`](Self::get); a cache that wraps another forwards it.
+    fn get_again(&self, key: ModuleKey) -> Option<CachedModule> {
+        self.get(key)
+    }
 }
 
 /// An in-process [`ModuleCache`] for long-lived hosts (watch mode, the language server, the MCP server).
@@ -154,6 +182,97 @@ impl ModuleCache for MemoryModuleCache {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(key, (Arc::new(module), true));
+    }
+}
+
+/// A [`ModuleCache`] served from the [`CacheStore`](skif_core::CacheStore) a host gave the linter, in the
+/// [`MODULES`] namespace.
+///
+/// Keys are [`ModuleKey::store_key`] under the host's salt, and values are sealed in skif's envelope around the
+/// binary payload of [`CachedModule::encode`]: a value that does not open or decode is a miss, so whatever the store
+/// returns, a parse result is right. It counts hits, misses and the bytes it wrote for the run's report.
+pub struct StoreModuleCache {
+    handle: CacheHandle,
+    tally: CacheTally,
+    read_only: bool,
+}
+
+impl StoreModuleCache {
+    /// A cache over the store and salt of `handle` that reads and writes.
+    #[must_use]
+    pub fn new(handle: CacheHandle) -> Self {
+        Self {
+            handle,
+            tally: CacheTally::new(),
+            read_only: false,
+        }
+    }
+
+    /// The same cache, never writing the store: for a host that seeds a cache of its own from a store it must not
+    /// change.
+    #[must_use]
+    pub const fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
+    }
+
+    /// The lookups and writes so far.
+    #[must_use]
+    pub fn counters(&self) -> CacheCounters {
+        self.tally.snapshot()
+    }
+}
+
+impl std::fmt::Debug for StoreModuleCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoreModuleCache")
+            .field("read_only", &self.read_only)
+            .field("counters", &self.counters())
+            .finish_non_exhaustive()
+    }
+}
+
+impl StoreModuleCache {
+    /// The result the store holds under `key`, when its value opens and decodes.
+    fn lookup(&self, key: ModuleKey) -> Option<CachedModule> {
+        let key = key.store_key(self.handle.salt());
+        self.handle
+            .store()
+            .get(MODULES, &key)
+            .and_then(|value| cache::open(MODULES, &key, &value).and_then(CachedModule::decode))
+    }
+}
+
+impl ModuleCache for StoreModuleCache {
+    fn get(&self, key: ModuleKey) -> Option<CachedModule> {
+        let found = self.lookup(key);
+        if found.is_some() {
+            self.tally.hit();
+        } else {
+            self.tally.miss();
+        }
+        found
+    }
+
+    fn get_again(&self, key: ModuleKey) -> Option<CachedModule> {
+        let found = self.lookup(key);
+        if found.is_some() {
+            self.tally.hit_after_miss();
+        }
+        found
+    }
+
+    fn put(&self, key: ModuleKey, module: CachedModule) {
+        if self.read_only {
+            return;
+        }
+        let Ok(payload) = module.encode() else {
+            return;
+        };
+        let key = key.store_key(self.handle.salt());
+        let value = cache::seal(MODULES, &key, &payload);
+        self.tally.written(value.len());
+        self.handle.store().put(MODULES, &key, value);
     }
 }
 
@@ -247,7 +366,7 @@ impl ParseCoalescer {
                 Turn::Parse(mut claim) => {
                     // Looked up again with the key claimed: a parse that ended since the lookup above stored its
                     // result before it released the key.
-                    let result = match cache.get(key) {
+                    let result = match cache.get_again(key) {
                         Some(found) => Ok(found),
                         None => parse().inspect(|module| cache.put(key, module.clone())),
                     };
@@ -389,6 +508,7 @@ const _: fn() = || {
     assert_send_sync::<CachedModule>();
     assert_send_sync::<MemoryModuleCache>();
     assert_send_sync::<ParseCoalescer>();
+    assert_send_sync::<StoreModuleCache>();
 };
 
 #[cfg(test)]
@@ -559,38 +679,180 @@ mod tests {
     }
 
     #[test]
-    fn parse_results_round_trip_through_serde() {
+    fn the_store_key_depends_on_the_salt() {
+        let key = key("a.ts", "x", ParseOptions::default());
+        assert_ne!(key.store_key(&[0; 32]), key.store_key(&[1; 32]));
+        assert_ne!(key.store_key(&[0; 32]), key.to_bytes());
+    }
+
+    #[test]
+    fn parse_results_round_trip_through_serde_and_the_codec() {
         for (path, source) in probe_corpus() {
             let info = parse_cached(None, &path, &source, &ParseOptions::default()).unwrap();
             let cached = CachedModule(info);
             let json = serde_json::to_string(&cached).unwrap();
             let back: CachedModule = serde_json::from_str(&json).unwrap();
             assert_eq!(back, cached, "{}", path.display());
+            let decoded = CachedModule::decode(&cached.encode().unwrap()).unwrap();
+            assert_eq!(decoded, cached, "{}", path.display());
         }
     }
 
     #[test]
+    fn bytes_that_are_not_a_payload_do_not_decode() {
+        assert!(CachedModule::decode(b"").is_none());
+        assert!(CachedModule::decode(b"not cbor at all").is_none());
+        let payload = CachedModule(ModuleInfo::default()).encode().unwrap();
+        assert!(CachedModule::decode(&payload[..payload.len() - 1]).is_none());
+    }
+
+    #[test]
     fn the_cache_schema_matches_the_parse_output() {
-        let mut hasher = SipHasher13::new_with_keys(0, 0);
+        // Hashed without `KeyBuilder`, whose keys change with the crate version: this digest moves only with the
+        // parse output and its codec.
+        let mut probe = Vec::new();
+        let mut field = |bytes: &[u8]| {
+            probe.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+            probe.extend_from_slice(bytes);
+        };
         for (path, source) in probe_corpus() {
             for options in [
                 ParseOptions::default(),
                 ParseOptions {
-                    in_file_references: false,
-                    member_accesses: false,
+                    in_file_references: true,
+                    member_accesses: true,
                 },
             ] {
                 let info = parse_cached(None, &path, &source, &options).unwrap();
-                write_field(&mut hasher, path.as_os_str().as_encoded_bytes());
-                write_field(&mut hasher, &serde_json::to_vec(&info).unwrap());
+                field(path.as_os_str().as_encoded_bytes());
+                field(&CachedModule(info).encode().unwrap());
             }
         }
-        let digest = hasher.finish128().as_u128();
+        let mut digest = [0; 16];
+        digest.copy_from_slice(&cache::content_digest(&probe)[..16]);
+        let digest = u128::from_le_bytes(digest);
         assert_eq!(
             digest, CACHE_SCHEMA_DIGEST,
-            "the parse output changed: raise CACHE_SCHEMA (now {CACHE_SCHEMA}) and set CACHE_SCHEMA_DIGEST to \
-             {digest:#034x}"
+            "the parse output or its codec changed: raise CACHE_SCHEMA (now {CACHE_SCHEMA}) and set \
+             CACHE_SCHEMA_DIGEST to {digest:#034x}"
         );
+    }
+
+    /// A cold lookup through the coalescer looks the key up twice, before and after claiming it: one miss.
+    #[test]
+    fn a_cold_parse_through_the_coalescer_counts_one_miss_per_file() {
+        const FILES: u64 = 5;
+        let store = Arc::new(skif_core::MemoryStore::new());
+        let cache = StoreModuleCache::new(CacheHandle::new(store, skif_core::cache::salt_digest(b"host")));
+        let coalescer = ParseCoalescer::new();
+        let options = ParseOptions::default();
+        let lint = || {
+            for index in 0..FILES {
+                let source = format!("export const value = {index};");
+                coalescer
+                    .parse_cached(&cache, Path::new("a.ts"), &source, &options)
+                    .unwrap();
+            }
+        };
+        lint();
+        let cold = cache.counters();
+        assert_eq!((cold.hits, cold.misses), (0, FILES));
+        lint();
+        let warm = cache.counters();
+        assert_eq!((warm.hits, warm.misses), (FILES, FILES));
+    }
+
+    /// An entry that arrives between the two looks of one lookup is a hit, and the miss of the first look is not
+    /// kept.
+    #[test]
+    fn a_second_look_that_hits_replaces_the_miss_of_the_first() {
+        let store = Arc::new(skif_core::MemoryStore::new());
+        let handle = CacheHandle::new(store, skif_core::cache::salt_digest(b"host"));
+        let cache = StoreModuleCache::new(handle.clone());
+        let key = key("a.ts", "export const a = 1;", ParseOptions::default());
+        assert!(cache.get(key).is_none());
+        assert!(cache.get_again(key).is_none());
+        assert_eq!((cache.counters().hits, cache.counters().misses), (0, 1));
+        StoreModuleCache::new(handle).put(key, module("export const a = 1;"));
+        assert!(cache.get_again(key).is_some());
+        assert_eq!((cache.counters().hits, cache.counters().misses), (1, 0));
+    }
+
+    #[test]
+    fn a_store_module_cache_serves_what_it_stored_and_counts() {
+        let store = Arc::new(skif_core::MemoryStore::new());
+        let handle = CacheHandle::new(store.clone(), skif_core::cache::salt_digest(b"host"));
+        let cache = StoreModuleCache::new(handle.clone());
+        let options = ParseOptions::default();
+        let path = Path::new("a.ts");
+        let first = parse_cached(Some(&cache), path, "export const a = 1;", &options).unwrap();
+        assert_eq!(
+            cache.counters(),
+            CacheCounters::new(0, 1, cache.counters().bytes_written)
+        );
+        assert!(cache.counters().bytes_written > 0);
+        let second = parse_cached(Some(&cache), path, "export const a = 1;", &options).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(cache.counters().hits, 1);
+        assert_eq!(store.len(), 1);
+        // Another salt reads nothing the first wrote.
+        let other = StoreModuleCache::new(CacheHandle::new(store.clone(), skif_core::cache::salt_digest(b"other")));
+        assert!(other.get(key("a.ts", "export const a = 1;", options)).is_none());
+        // A read-only cache reads and never writes.
+        let reader = StoreModuleCache::new(handle).read_only();
+        assert!(reader.get(key("a.ts", "export const a = 1;", options)).is_some());
+        parse_cached(Some(&reader), path, "export const b = 2;", &options).unwrap();
+        assert_eq!(store.len(), 1);
+        assert_eq!(reader.counters().bytes_written, 0);
+    }
+
+    /// A store that answers every lookup with damage: what it holds under another key (mode 0), the entry of the key
+    /// with its last byte flipped (mode 1), or random bytes (mode 2).
+    struct Adversarial {
+        inner: skif_core::MemoryStore,
+        mode: u8,
+    }
+
+    impl skif_core::CacheStore for Adversarial {
+        fn get(&self, _namespace: CacheNamespace, key: &[u8; 32]) -> Option<Arc<[u8]>> {
+            let entries = self.inner.entries();
+            let mut bytes = match self.mode {
+                0 => entries.iter().find(|(_, other, _)| other != key)?.2.to_vec(),
+                1 => entries.iter().find(|(_, other, _)| other == key)?.2.to_vec(),
+                _ => {
+                    let seed = u64::from_le_bytes(key[..8].try_into().unwrap_or_default());
+                    (0..256_u32)
+                        .map(|at| seed.rotate_left(at % 64).to_le_bytes()[0])
+                        .collect()
+                }
+            };
+            if self.mode == 1 {
+                let last = bytes.len() - 1;
+                bytes[last] ^= 0x40;
+            }
+            Some(Arc::from(bytes))
+        }
+
+        fn put(&self, namespace: CacheNamespace, key: &[u8; 32], value: Arc<[u8]>) {
+            self.inner.put(namespace, key, value);
+        }
+    }
+
+    #[test]
+    fn an_adversarial_store_is_only_ever_a_miss() {
+        let options = ParseOptions::default();
+        for mode in 0..3 {
+            let store = Arc::new(Adversarial {
+                inner: skif_core::MemoryStore::new(),
+                mode,
+            });
+            let cache = StoreModuleCache::new(CacheHandle::new(store, [7; 32]));
+            for source in ["export const a = 1;", "export const b = 2;", "import x from 'x';"].repeat(2) {
+                let parsed = parse_cached(Some(&cache), Path::new("a.ts"), source, &options).unwrap();
+                assert_eq!(parsed, parse_cached(None, Path::new("a.ts"), source, &options).unwrap());
+            }
+            assert_eq!(cache.counters().hits, 0, "mode {mode}");
+        }
     }
 
     /// Counts the lookups that hit and the stores of a [`MemoryModuleCache`].

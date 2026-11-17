@@ -65,7 +65,7 @@ fn collect(args: &InstancesArgs) -> Result<Listing, CliError> {
     for target in &mut targets {
         apply_filter(&args.filter, &mut target.config)?;
     }
-    let linters = Linters::build_with(&targets, Some(&fs), None)?;
+    let linters = Linters::build_with(&targets, Some(&fs), &crate::cache::Attached::default())?;
     let runs = roots::lint_targets(&base, targets, &linters)?;
     let mut statuses = Vec::new();
     for run in &runs {

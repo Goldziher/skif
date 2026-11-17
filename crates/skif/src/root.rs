@@ -114,7 +114,7 @@ pub(crate) fn workspace_members(
 /// # Ok::<(), skif::Error>(())
 /// ```
 pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf, Error> {
-    let cached = crate::cache::per_call(fs);
+    let cached = crate::fs_cache::per_call(fs);
     let fs: &dyn FileSystem = &cached;
     let Located { project, ancestors } = locate(start, fs)?;
     if declares_workspace(fs, &project) {

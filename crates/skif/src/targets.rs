@@ -192,7 +192,7 @@ fn load_in_repository(
 /// project, otherwise [`load_target`]'s errors for the chosen root. An ancestor workspace that lists the project but
 /// cannot be loaded is that error, not a silent fallback to the project alone.
 pub fn find_target(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Target, Error> {
-    let cached = crate::cache::per_call(fs);
+    let cached = crate::fs_cache::per_call(fs);
     let fs: &dyn FileSystem = &cached;
     let Located { project, ancestors } = locate(start, fs)?;
     let cache = ConfigCache::new();
@@ -289,7 +289,7 @@ fn discover(
     overrides: &ConfigOverrides,
     known: Option<&Workspace>,
 ) -> Result<Discovery, Error> {
-    let cached = crate::cache::per_call(fs);
+    let cached = crate::fs_cache::per_call(fs);
     let fs: &dyn FileSystem = &cached;
     if !start.has_root() {
         return Err(Error::RelativePath(start.to_path_buf()));

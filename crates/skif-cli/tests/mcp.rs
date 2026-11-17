@@ -70,7 +70,17 @@ fn a_session_initializes_lists_tools_and_lints() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["lint", "explain_usage", "config", "list_rules"]);
+    assert_eq!(
+        names,
+        [
+            "lint",
+            "explain_usage",
+            "config",
+            "list_rules",
+            "cache_stats",
+            "cache_clean"
+        ]
+    );
 
     let lint = &replies[2]["result"];
     assert_eq!(lint["isError"], false);
@@ -92,6 +102,39 @@ fn a_session_initializes_lists_tools_and_lints() {
             .iter()
             .any(|rule| rule["id"] == "root-package-private-field")
     );
+}
+
+/// Every tool states what a call does to the machine. The table is explicit, so a tool added later fails here until
+/// it is listed with its own annotations instead of inheriting read-only ones.
+#[test]
+fn every_tool_is_annotated_with_what_it_does() {
+    let dir = fixture("dirty");
+    let replies = session(
+        dir.path(),
+        &[
+            initialize("2025-06-18"),
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        ],
+    );
+    let read_only =
+        json!({ "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false });
+    let destructive =
+        json!({ "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false });
+    let expected = [
+        ("lint", &read_only),
+        ("explain_usage", &read_only),
+        ("config", &read_only),
+        ("list_rules", &read_only),
+        ("cache_stats", &read_only),
+        ("cache_clean", &destructive),
+    ];
+    let listed: Vec<(&str, &Value)> = replies[1]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| (tool["name"].as_str().unwrap(), &tool["annotations"]))
+        .collect();
+    assert_eq!(listed, expected);
 }
 
 #[test]
@@ -399,4 +442,77 @@ fn every_tool_answers_with_the_document_of_its_command() {
             );
         }
     }
+}
+
+/// The cache tools mirror `skif cache`, and a lint of the server reads the store without writing it.
+#[test]
+fn the_cache_tools_show_and_remove_the_store_and_a_lint_never_writes_it() {
+    let dir = fixture("js");
+    let home = tempfile::tempdir().unwrap();
+    let location = home.path().join("cache");
+    let cached = |command: &mut assert_cmd::Command| {
+        run(command
+            .current_dir(dir.path())
+            .env_remove("SKIF_CACHE")
+            .env("HOME", home.path())
+            .env("XDG_CACHE_HOME", home.path().join("xdg"))
+            .env("SKIF_CACHE_DIR", &location))
+    };
+    let stores = || -> Vec<std::path::PathBuf> {
+        fs::read_dir(&location).map_or_else(
+            |_| Vec::new(),
+            |entries| {
+                entries
+                    .map(|entry| entry.unwrap().path().join("modules.bin"))
+                    .filter(|file| file.is_file())
+                    .collect()
+            },
+        )
+    };
+    let messages = |calls: &[Value]| -> String {
+        std::iter::once(initialize("2025-06-18"))
+            .chain(calls.iter().cloned())
+            .map(|message| message.to_string() + "\n")
+            .collect()
+    };
+    let replies =
+        |stdout: &str| -> Vec<Value> { stdout.lines().map(|line| serde_json::from_str(line).unwrap()).collect() };
+
+    // Nothing is stored yet: the server's lint leaves it that way.
+    let cold = cached(skif().arg("mcp").write_stdin(messages(&[call(1, "lint", &json!({}))])));
+    assert_eq!(replies(&cold.stdout)[1]["result"]["isError"], false, "{}", cold.stdout);
+    assert!(stores().is_empty(), "the server wrote the store");
+
+    // A run of the command line writes it; the server reads it and still writes nothing.
+    assert!(matches!(cached(skif().args(["--format", "json"])).code, 0 | 1));
+    let on_disk = stores();
+    let [store] = on_disk.as_slice() else {
+        panic!("expected one store in {}", location.display());
+    };
+    let written = fs::read(store).unwrap();
+    let session = cached(skif().arg("mcp").write_stdin(messages(&[
+        call(1, "lint", &json!({})),
+        call(2, "cache_stats", &json!({})),
+        call(3, "cache_clean", &json!({})),
+        call(4, "cache_stats", &json!({})),
+    ])));
+    assert_eq!(session.code, 0, "{}", session.stderr);
+    let answers = replies(&session.stdout);
+    assert_eq!(
+        answers[1]["result"]["structuredContent"],
+        replies(&cold.stdout)[1]["result"]["structuredContent"]
+    );
+    let stats = &answers[2]["result"];
+    assert_eq!(stats["isError"], false, "{stats}");
+    let found = &stats["structuredContent"]["stores"];
+    assert_eq!(found.as_array().unwrap().len(), 1, "{stats}");
+    assert_eq!(found[0]["current"], true);
+    assert_eq!(found[0]["namespaces"][0]["name"], "modules");
+    // The lint before the stats call changed nothing on disk.
+    assert_eq!(found[0]["namespaces"][0]["bytes"], written.len());
+    let cleaned = &answers[3]["result"];
+    assert_eq!(cleaned["isError"], false, "{cleaned}");
+    assert_eq!(cleaned["structuredContent"]["stores"], 1);
+    assert_eq!(answers[4]["result"]["structuredContent"]["stores"], json!([]));
+    assert_eq!(stores(), Vec::<std::path::PathBuf>::new());
 }
