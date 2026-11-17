@@ -9,10 +9,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `--format toon`: the JSON report encoded as TOON (Token-Oriented Object Notation), with the same data.
+- MCP: `lint` takes `config`, `no_config`, `include`, `exclude`, `workspace`, `strict` and `max_show_issues`.
+- MCP: `lint` with `fix` or `fix_unsafe` (plus `fix_type`, `select`, `allow_remove_files`) returns the dry-run fix plan.
+- MCP: `explain_usage` explains a dependency (`dependency`, `package`) and takes `config` and `no_config`.
+- MCP: a `config` tool returns the effective configuration, as `skif config --format json` does.
+
 ### Changed
 
 - The type checker is tsrs 7.1.0-beta.tsrs2 (was tsrs1), and the parser oxc 0.159; the `type-aware.engine` field of
   the JSON report names the new checker.
+- MCP: each tool argument is the `skif` flag of the same name, and the `lint` tool's `rules` argument is now `include`.
+- MCP: tool results carry compact JSON text instead of pretty-printed JSON, and tool descriptions are shorter.
+
+### Fixed
+
+- MCP: `lint` now honours `[lint] require-ignore-reasons` and the tsconfig checks, and sets `isError` when roots fail.
+- MCP: `explain_usage` resolves `file` against the working directory, as `skif explain-usage` does, not against `path`.
 
 ## [0.7.0] - 2026-11-17
 
