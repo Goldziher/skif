@@ -26,7 +26,7 @@ and `skif migrate` translates an existing sherif, syncpack and knip setup in one
 ## Performance
 
 <!-- bench:claims:start -->
-- [**4.0–8.0x faster than knip**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 5.5x) for dead-code analysis, on 7 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core (on n8n and next-js it exits with an error after its report).
+- [**4.0–8.0x faster than knip**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 5.5x) for dead-code analysis, on 7 pinned public repositories where knip completes (knip fails on create-t3-turbo and vue-core and on n8n and next-js it exits with an error after its report).
 - [**up to 7.9x faster than sherif**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 3.2x), and slower on 3 of 12 targets for manifest and workspace checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
 - [**1.6–22.3x faster than syncpack**](https://polylint.github.io/skif/guides/benchmarks/#speed) (median 8.6x) for version-policy checks (`skif --no-js`), on 9 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
 
