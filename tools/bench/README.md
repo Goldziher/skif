@@ -7,7 +7,7 @@ skif binary as an external command; the crate also exposes its synthetic monorep
 ## What it measures
 
 `skif-bench run` times full CLI invocations with [hyperfine](https://github.com/sharkdp/hyperfine) (`-N`, no shell,
-with `--warmup` and `--runs`) on two kinds of targets:
+with `--warmup` and `--runs`) on three kinds of targets:
 
 | Target | Contents | Tools timed |
 | --- | --- | --- |
@@ -15,14 +15,14 @@ with `--warmup` and `--runs`) on two kinds of targets:
 | Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif`, `skif --type-aware` |
 | Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --type-aware`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
-`sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, where their versions are
-declared. `tools/package.json` and `tools/package-lock.json` repeat them and pin every package they depend on; the
-harness refuses to load `corpus.toml` when the lock's root dependencies or its installed `node_modules/<tool>` versions
-differ from `[tools]`. The pins stay exact, at the latest releases: `skif-bench tools update` looks each tool up on the
-npm registry (`npm view <tool> version`), rewrites `[tools]` and `tools/package.json` for every tool that is behind and
-runs `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` in `tools/`, printing `old -> new` per
-tool; `skif-bench tools check` exits non-zero and lists each tool that is `pinned X, latest Y` (a registry failure is an
-error, not a pass). `run` copies the two files into `target/bench-generated/tools`,
+`sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`. `tools/package.json` and
+`tools/package-lock.json` repeat them and pin every package they depend on; the harness refuses to load `corpus.toml`
+when the lock's root dependencies or its installed `node_modules/<tool>` versions differ from `[tools]`. The pins stay
+exact, at the latest releases: `skif-bench tools update` looks each tool up on the npm registry (`npm view <tool>
+version`), rewrites `[tools]` and `tools/package.json` for every tool that is behind and runs `npm install
+--package-lock-only --ignore-scripts --no-audit --no-fund` in `tools/`, printing `old -> new` per tool (a failed relock
+restores all three files); `skif-bench tools check` exits non-zero and lists each tool that is `pinned X, latest Y` (a
+registry failure is an error, not a pass). `run` copies the two files into `target/bench-generated/tools`,
 installs them there once with `npm ci --ignore-scripts` (skipped when that directory already holds the byte-identical
 lock and every executable) and times the executables in its `node_modules/.bin` directly, so no `npx` resolution is
 timed and nothing on `PATH` is used. `parity`, `syncpack-diff` and `deadcode --knip` install and run the same locked
@@ -30,7 +30,7 @@ tools from `--tools-dir` (default `target/bench-generated/tools`, the directory 
 against the same dependency versions; they fail when the tools cannot be installed. A tool that cannot be installed (no `npm`, a failed
 install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
 `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks),
-`summary.json` (schema 7: skif version, the commit of the skif source it was built from with a `-dirty` flag
+`summary.json` (schema 8: skif version, the commit of the skif source it was built from with a `-dirty` flag
 (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record and the one line
 `machine_text` that `summary.md` and the published tables print, the toolchain, the load average before and after the
 run, hyperfine version, each comparison tool's `--version`, the corpus repositories of an `--only` run, every target
@@ -118,6 +118,7 @@ their dependencies installed.
 mise run bench            # build release skif, fetch the corpus, run everything
 mise run bench:local      # as CI runs it: --install --no-enforce (numbers are not publishable)
 mise run bench:tools:update  # update the pinned sherif, syncpack and knip (bench:tools:check verifies them)
+mise run typed:diff <reference-binary> [--allow FILE]  # type-aware correctness gate (see "Typed diff")
 mise run profile -- <repo-dir> [skif args...]  # samply profile plus SKIF_TIMINGS of one run (see "Profiling")
 mise run bench:micro      # all criterion benchmarks (see "In-process benchmarks")
 mise run bench:corpus     # only fetch the timed corpus repositories
@@ -136,18 +137,21 @@ Directly:
 ```sh
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
-cargo run --release -p skif-bench -- run [--skif PATH] [--skif-source DIR] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus | --only NAME,...] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--install]
+cargo run --release -p skif-bench -- run [--skif PATH] [--skif-source DIR] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus | --only NAME,...] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--check-budget] [--install]
 cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--no-untyped-pass] [--type-aware-baseline FILE] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode] [--force]
+cargo run --release -p skif-bench -- tools update|check [--file corpus.toml]
 ```
 
-`corpus fetch`, `run`, `parity` and `syncpack-diff` lock each corpus checkout (`<dir>/<name>.lock`, the operating
-system's file lock, holding the process id) from the fetch to the end of their pass over it, so two runs never
+`corpus fetch`, `run`, `parity`, `syncpack-diff` and `typed-diff` lock each corpus checkout (`<dir>/<name>.lock`, the
+operating system's file lock, holding the process id) from the fetch to the end of their pass over it, so two runs never
 install into, write into or time the same checkout at once: a second run stops at once and names the lock file and,
 except on Windows, where the lock keeps other processes from reading the file, the process id it holds. A run that
 dies releases its locks with the process, so there is no stale lock to remove. The corpus directory must be writable:
-a lock file that cannot be created there is an error that says so.
+a lock file that cannot be created there is an error that says so. A cached checkout that is not a repository of its
+own (a `.git` a cache restored empty, where git would act on the enclosing skif checkout) is re-initialised, and a
+cached `origin` is reset to the URL in `corpus.toml`.
 
 `generate` is deterministic for a seed: the same options produce byte-identical files. It writes a root `package.json`,
 a lockfile stub (and `pnpm-workspace.yaml` for pnpm) so package manager detection works, and packages under `apps/*`,
@@ -689,28 +693,32 @@ keys name the member, not the export an import reads.
 `skif-bench typed-diff` is the correctness gate for changes to the type-aware analysis. For every repository of the
 `bench` suite it runs a reference skif binary (the build before the change) and the binary under test with
 `. --format json --no-install` (plus `--recursive` where the repository sets `recursive`), once with `--type-aware` and
-once without, and compares the two JSON documents. It fetches a checkout only when it is missing, so installed
-checkouts under `target/bench-corpus` are used as they are.
+once without, and compares the two JSON documents, exit codes included. It fetches a checkout only when it is not at
+its pin, so installed checkouts under `target/bench-corpus` are used as they are, and it refuses to start, naming them,
+when any checkout is not installed (install with `skif-bench parity --install`), since without its dependencies a
+typed run types nothing.
 
 ```sh
 mise run typed:diff <reference-binary> [--allow allow.json]
-cargo run --release -p skif-bench -- typed-diff --reference <old skif> --skif target/release/skif [--only babel,vue-core] [--corpus-dir DIR] [--allow FILE] [--out report.json]
+cargo run --release -p skif-bench -- typed-diff --reference <old skif> --skif target/release/skif [--only babel,vue-core] [--corpus-dir DIR] [--allow FILE] [--out report.json] [--timeout-secs 900]
 ```
 
-Each comparison prints `identical`, `identical but for N allowed difference(s)`, `FAILED: <reason>` (a run timed out,
-printed no report or exited with a different code) or `DIFFERENT` with the top-level sections that differ, the findings
+Each comparison prints `identical`, `identical but for N allowed difference(s)`, `FAILED: <reason>` (a run timed out
+or printed no report, or the reference's typed run has no package in state `typed`) or `DIFFERENT` with the
+top-level sections that differ (a changed exit code is the `exit-code` section), the findings
 only one side reports (`+` the binary under test, `-` the reference, by rule, file, line and message; the whole
 diagnostic is compared, so a changed severity or fix shows as a `-` and a `+`) and the packages whose
 `type-aware.packages` entry changed (`~ dir: typed -> partial (reason)`). Lists are capped at 20 entries. The exit code
-is non-zero when any comparison is not identical or allowed. The `skif` version stamp is not compared. `--out` also
-writes the result as JSON.
+is non-zero when any comparison is not identical or allowed, or when nothing was compared. The `skif` version stamp is
+not compared. `--out` also writes the result as JSON. Captured output goes to `--scratch` (default
+`target/bench-typed-diff`).
 
 `--allow` names a JSON file for differences a decision record sanctions. A comparison whose differences are all covered
-passes; anything left over fails.
+passes; anything left over fails. A run without `--only` warns about each entry that matched nothing.
 
 ```json
 {"allow": [
-  {"kind": "added", "reason": "ADR 00NN", "repo": "babel", "mode": "typed", "rule": "unused-export", "file": "src/a.ts"},
+  {"kind": "added", "reason": "ADR 00NN", "repo": "babel", "mode": "typed", "rule": "unused-exports", "file": "src/a.ts"},
   {"kind": "package", "reason": "ADR 00NN", "package": "packages/core"},
   {"kind": "section", "reason": "ADR 00NN", "section": "incomplete-packages"}
 ]}
@@ -762,6 +770,12 @@ mise run parity -- --install --write-baseline
 mise run diff:syncpack -- --write-baseline
 ```
 
+Or record them on CI, where every package manager is installed: `gh workflow run corpus.yml -f record=true` (optionally
+`-f only=NAME,...`) uploads the rewritten files as the `corpus-baselines` artifact, to review and commit.
+`scripts/check-baseline-tool-versions.sh` (in `mise run consistency` and CI) fails when `parity.json` or
+`syncpack.json` records another knip or syncpack version than `[tools]` pins, so a pin bump without a re-record is
+caught.
+
 `--check` compares a run with the baseline and exits non-zero when a count moves by more than
 `--tolerance-percent` (default 10) of its baseline value or `--tolerance-abs` (default 5), whichever is larger, when a
 repository changes between compared and skipped, or when a fixture that agreed before now differs. It refuses, with
@@ -773,7 +787,9 @@ differently, or whose skif ran with another `--recursive` mode, from when it was
 be refreshed one repository at a time (install, run, then delete the checkout's `node_modules`) where the disk does
 not hold every install at once; entries recorded with another tool version or category set are dropped on write, not
 merged. The scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests)
-runs both checks and writes the parity table and any drift to the job summary. The decision is
+runs both checks (or, with `record`, records), writes the tables and any drift to the job summary and uploads the full
+reports as `corpus-reports`. It runs `skif-bench tools check` first but fails the job for a stale pin only after both
+checks, so a new upstream release does not hide drift against the pinned one. The decision is
 [ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md).
 
 ## Measured numbers
@@ -784,7 +800,7 @@ methodology; the README and the comparison guide carry headline claims generated
 image ([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md)):
 
 ```sh
-gh workflow run bench.yml -f ref=v0.3.0 -f runner=ubuntu-24.04   # also: -f runs=15 -f warmup=3 -f only=babel
+gh workflow run bench.yml -f ref=v0.7.0 -f runner=ubuntu-24.04   # also: -f runs=15 -f warmup=3 -f only=babel
 gh run list --workflow bench.yml --limit 1                       # the run id
 mise run bench:import -- <run-id>
 ```
@@ -801,7 +817,8 @@ workspaces to the runner's temporary directory, writes `summary.md` to the job s
 uploads `summary.{json,md}` and `raw/` as the artifact `bench-<commit>-<runner>`. Runs on one runner image queue rather
 than overlap (a concurrency group per image); GitHub keeps one pending run per group, so a dispatch made while another
 waits cancels the waiting one. The harness fails before timing anything when a corpus repository is not pinned to a full
-commit SHA or a comparison tool not to an exact version.
+commit SHA or a comparison tool not to an exact version, and `skif-bench tools check` fails the run before that when a
+pinned tool is behind its latest npm release.
 
 `mise run bench:import -- <run-id>` (`scripts/bench-import.sh`, needs `gh`, `git`, `jq` and Node) imports only a
 successful `workflow_dispatch` run of `bench` whose commit is on `origin/main` (it runs `git fetch origin main` first)
@@ -817,11 +834,12 @@ speed tables names the skif version, source commit and the `rustc` that built it
 harness commit when it differs, the runner image and the machine, its load, the date and the workflow run attempt.
 `refresh-numbers.mjs` writes nothing and exits non-zero when a comparison tool was not timed, a corpus repository has no
 row for one of the tools, the run was narrowed with `only`, a tool exited with an error in a measured run that is not a
-declared knip failure the run matched, an ADR 0001 check is `invalid`, the summary is of an older schema, it records no
-GitHub-hosted runner or no workflow run, or the measured or the harness checkout had local changes (`-dirty`); the
-import then changes nothing either. `mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement
-table of the benchmarks page from `baselines/parity.json` the same way, and refuses a baseline recorded by an older
-harness. `node --test tools/bench/refresh-numbers.test.mjs` tests both. Measure the release commit after `release-bump`,
+declared knip failure the run matched, an ADR 0001 check is `invalid`, the summary is of an older schema, its tool
+versions differ from the `[tools]` pins of `corpus.toml`, it records no GitHub-hosted runner or no workflow run, or the
+measured or the harness checkout had local changes (`-dirty`); the import then changes nothing either.
+`mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement table of the benchmarks page from
+`baselines/parity.json` the same way, and refuses a baseline recorded by an older harness.
+`node --test tools/bench/refresh-numbers.test.mjs` tests both. Measure the release commit after `release-bump`,
 or the skif version names the previous release. Without flags, `refresh-numbers.mjs` refreshes both and leaves the speed
 blocks as they are while `tools/bench/results` holds no imported summary.
 
@@ -902,8 +920,8 @@ and fail when it misses a seeded finding or reports a false one. CI exercises ne
 the knip side: `skif-bench` cannot depend on the `skif` binary in its tests, and knip needs Node and the npm registry.
 Run `deadcode` with `--knip` by hand to check them.
 
-Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items). skif was measured at the current source
-(after 0.1.1) on 2026-11-08; knip 6.44.1 on 2026-11-07:
+Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items), last measured with skif after 0.1.1 and
+knip 6.44.1; rerun with `mise run bench:deadcode -- --knip` to refresh it:
 
 | Issue type | Seeded | skif precision | skif recall | knip precision | knip recall |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -962,7 +980,8 @@ in-process part.
   same way. Where knip fails even installed, for reasons that are the repository's own, the repository declares it
   with `bench-knip-failure` and knip's row is published as failing, or, with `timed = true` where knip prints its
   whole report first, with its time and the reason.
-- Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
+- hyperfine runs with `--ignore-failure`, since linters exit 1 when they find something; an exit above 1 is still
+  flagged as an error, as "What it measures" describes.
 - The skif command line is `skif . --format json --no-install [--no-js] [--config <entry files>]`, plus `--recursive`
   on the informational `skif --recursive` row alone (ADR 0014); the working directory is the target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
