@@ -59,15 +59,17 @@ fn none() -> Vec<String> {
     Vec::new()
 }
 
-fn explain(files: &[(&str, &str)], file: &str, export: &str) -> String {
+fn explain_report(files: &[(&str, &str)], file: &str, export: &str) -> skif_js::UsageReport {
     let memory = memory(files);
     let config = Config::from_toml_str("").unwrap();
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let sources: Vec<Arc<dyn InputSource>> = Vec::new();
-    JsAnalysis::build(&workspace, &config, &fs, &sources, true)
-        .explain_usage(Path::new(file), Some(export))
-        .render()
+    JsAnalysis::build(&workspace, &config, &fs, &sources, true).explain_usage(Path::new(file), Some(export))
+}
+
+fn explain(files: &[(&str, &str)], file: &str, export: &str) -> String {
+    explain_report(files, file, export).render()
 }
 
 const STORE: &str = "export class Store {\n\
@@ -648,4 +650,39 @@ fn explain_usage_names_the_type_only_exemption() {
         "{text}"
     );
     assert!(text.contains("=> not judged"), "{text}");
+}
+
+#[test]
+fn explain_usage_says_whether_an_enum_member_is_used() {
+    let files = [
+        PACKAGE,
+        ("colors.ts", "export enum Color {\n  Red,\n  Green,\n}\n"),
+        (
+            "index.ts",
+            "import { Color } from './colors';\n\nexport const red = Color.Red;\n",
+        ),
+    ];
+    let report = explain_report(&files, "colors.ts", "Color.Red");
+    let text = report.render();
+    assert!(text.contains("enum member `Color.Red`:"), "{text}");
+    assert!(
+        text.contains("used: read through an import or in its own file, or the whole enum is used"),
+        "{text}"
+    );
+    assert!(text.contains("\n    => used\n"), "{text}");
+    let red = serde_json::to_value(&report).unwrap();
+    assert_eq!(red["class-member"]["of"], "enum");
+    assert_eq!(red["class-member"]["used"], true);
+    assert_eq!(red["class-member"]["verdict"], "used");
+    let green = serde_json::to_value(explain_report(&files, "colors.ts", "Color.Green")).unwrap();
+    assert_eq!(green["class-member"].get("used"), None, "false is left out");
+    assert_eq!(green["class-member"]["verdict"], "unused");
+    for removed in ["used-without-types", "typed", "untyped-because"] {
+        assert_eq!(red["class-member"].get(removed), None, "{removed}");
+        assert_eq!(green["class-member"].get(removed), None, "{removed}");
+    }
+    assert_eq!(
+        found_by(&lint_with(&files, ""), "unused-enum-members"),
+        ["colors.ts: Color.Green"]
+    );
 }

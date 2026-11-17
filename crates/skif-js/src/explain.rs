@@ -297,7 +297,7 @@ pub struct ClassMemberReport {
     /// For an enum or namespace member: it is read through an import or in its own file, or the whole enum or
     /// namespace is used.
     #[serde(skip_serializing_if = "is_false")]
-    pub used_without_types: bool,
+    pub used: bool,
 }
 
 /// The explanation [`JsAnalysis::explain_usage`] returns.
@@ -535,7 +535,7 @@ fn render_evidence(report: &ClassMemberReport, out: &mut String) {
         } else {
             let _ = writeln!(out, "    read by name in {}", report.readers.join(", "));
         }
-    } else if report.used_without_types {
+    } else if report.used {
         render_syntactic_use(report.of, out);
     } else {
         let _ = writeln!(out, "    no module reads it");
@@ -869,7 +869,7 @@ impl JsAnalysis<'_> {
             verdict: MemberVerdict::NotAMember,
             exemption: None,
             readers: Vec::new(),
-            used_without_types: false,
+            used: false,
         };
         let Some(export) = declaration_export(module, class) else {
             return report;
@@ -945,7 +945,7 @@ impl JsAnalysis<'_> {
             report.verdict = MemberVerdict::NotJudged;
             return report;
         }
-        report.used_without_types = self.member_in_use(module, export, declared);
+        report.used = self.member_in_use(module, export, declared);
         report.exemption = if self.exempts_tags(&declared.tags) {
             Some(MemberExemption::Tagged)
         } else if self.ignores_member(module.owner, &declared.name) {
