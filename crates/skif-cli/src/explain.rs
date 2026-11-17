@@ -134,15 +134,22 @@ pub fn explain(
 fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
     let cwd = std::env::current_dir()
         .map_err(|error| fail(Kind::Io, format!("cannot read the current directory: {error}")))?;
+    let text = render(args, &cwd, format)?;
+    write_stdout(text.as_bytes()).map_err(|error| Box::new((error, Map::new())))
+}
+
+/// What `skif explain-usage` prints on stdout for `args`, with relative paths taken from `cwd`: the JSON document
+/// for [`Format::Json`], text otherwise. `skif mcp` answers its `explain_usage` tool with the JSON document.
+pub(crate) fn render(args: &ExplainUsageArgs, cwd: &Path, format: Format) -> Result<String, Failure> {
     if let Some(name) = &args.dependency {
-        return explain_dependency(args, &cwd, name, format);
+        return explain_dependency(args, cwd, name, format);
     }
     let target = args
         .target
         .as_deref()
         .ok_or_else(|| fail(Kind::Usage, "give a FILE to explain, or --dependency NAME"))?;
     let (file, export) = split_target(target);
-    let file = resolve_file(&cwd, file).map_err(|error| Box::new((error, Map::new())))?;
+    let file = resolve_file(cwd, file).map_err(|error| Box::new((error, Map::new())))?;
     let start =
         canonical(args.path.as_deref().unwrap_or(Path::new("."))).map_err(|error| Box::new((error, Map::new())))?;
     let report = explain(&start, &file, export, &overrides(args))?;
@@ -151,10 +158,9 @@ fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
             let value = serde_json::to_value(&report).map_err(|error| fail(Kind::Internal, error.to_string()))?;
             let mut members = Map::new();
             members.insert("report".to_owned(), value);
-            let text = document(members).map_err(|error| Box::new((error, Map::new())))?;
-            write_stdout(text.as_bytes()).map_err(|error| Box::new((error, Map::new())))
+            document(members).map_err(|error| Box::new((error, Map::new())))
         }
-        _ => write_stdout(report.render().as_bytes()).map_err(|error| Box::new((error, Map::new()))),
+        _ => Ok(report.render()),
     }
 }
 
@@ -195,7 +201,7 @@ fn find_package(target: &Target, cwd: &Path, value: &str) -> Result<PackageId, F
 
 /// `skif explain-usage --dependency NAME [--package NAME|DIR]`: why the dependency is used or unused in the packages
 /// of the root found from the path.
-fn explain_dependency(args: &ExplainUsageArgs, cwd: &Path, name: &str, format: Format) -> Result<(), Failure> {
+fn explain_dependency(args: &ExplainUsageArgs, cwd: &Path, name: &str, format: Format) -> Result<String, Failure> {
     let plain = |error: CliError| Box::new((error, Map::new()));
     let start = canonical(dependency_path(args)?).map_err(plain)?;
     let Resolved { targets, .. } =
@@ -220,10 +226,9 @@ fn explain_dependency(args: &ExplainUsageArgs, cwd: &Path, name: &str, format: F
             let value = serde_json::to_value(&explanation).map_err(|error| fail(Kind::Internal, error.to_string()))?;
             let mut members = Map::new();
             members.insert("report".to_owned(), value);
-            let text = document(members).map_err(plain)?;
-            write_stdout(text.as_bytes()).map_err(plain)
+            document(members).map_err(plain)
         }
-        _ => write_stdout(escape_multiline(&explanation.render()).as_bytes()).map_err(plain),
+        _ => Ok(escape_multiline(&explanation.render()).into_owned()),
     }
 }
 

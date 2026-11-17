@@ -52,7 +52,7 @@ fn a_session_initializes_lists_tools_and_lints() {
             json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
             json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
             call(2, "lint", &json!({})),
-            call(3, "lint", &json!({ "path": ".", "rules": ["empty-dependencies"] })),
+            call(3, "lint", &json!({ "path": ".", "include": ["empty-dependencies"] })),
             call(4, "list_rules", &json!({})),
         ],
     );
@@ -70,7 +70,7 @@ fn a_session_initializes_lists_tools_and_lints() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["lint", "explain_usage", "list_rules"]);
+    assert_eq!(names, ["lint", "explain_usage", "config", "list_rules"]);
 
     let lint = &replies[2]["result"];
     assert_eq!(lint["isError"], false);
@@ -103,12 +103,12 @@ fn an_unknown_version_gets_the_newest_one() {
 
 #[test]
 fn a_tool_that_cannot_run_returns_the_error_document() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = fixture("clean");
     let replies = session(
         dir.path(),
         &[
             call(1, "lint", &json!({ "path": "missing" })),
-            call(2, "lint", &json!({ "rules": ["no-such-rule"] })),
+            call(2, "lint", &json!({ "include": ["no-such-rule"] })),
         ],
     );
     for reply in &replies {
@@ -177,4 +177,137 @@ fn explain_usage_returns_the_report() {
     assert_eq!(orphan["isError"], true);
     assert_eq!(orphan["structuredContent"]["report"]["in-graph"], false, "{orphan}");
     assert_eq!(replies[2]["result"]["isError"], true);
+}
+
+/// A temporary project whose `index.ts` uses `run` of `lib.ts`, and leaves `idle` and `orphan.ts` unused.
+fn explain_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    fs::write(
+        dir.path().join("package.json"),
+        r#"{"name":"app","version":"1.0.0","private":true,"main":"index.ts"}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("index.ts"), "import { run } from './lib';\nrun();\n").unwrap();
+    fs::write(
+        dir.path().join("lib.ts"),
+        "export function run() {}\nexport function idle() {}\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("orphan.ts"), "export const lonely = 1;\n").unwrap();
+    dir
+}
+
+/// Each call answers with exactly the document its command prints with `--format json`, and is an error exactly
+/// when the command exits 2. Every case runs the binary twice in the same directory: as `skif ARGV` and as one
+/// `tools/call` of `skif mcp`.
+#[test]
+fn every_tool_answers_with_the_document_of_its_command() {
+    let dirty = fixture("dirty");
+    let multi = fixture("multi");
+    let explained = explain_fixture();
+    let cases: Vec<(&Path, &str, Value, Vec<&str>)> = vec![
+        (dirty.path(), "lint", json!({}), vec![]),
+        (dirty.path(), "lint", json!({ "path": "." }), vec!["."]),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "include": ["empty-dependencies", "root-package-private-field"] }),
+            vec!["--include", "empty-dependencies,root-package-private-field"],
+        ),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "exclude": ["empty-dependencies"], "no_js": true, "production": true }),
+            vec!["--exclude", "empty-dependencies", "--no-js", "--production"],
+        ),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "max_show_issues": 0 }),
+            vec!["--max-show-issues", "0"],
+        ),
+        (dirty.path(), "lint", json!({ "workspace": ["."] }), vec!["-W", "."]),
+        (dirty.path(), "lint", json!({ "strict": true }), vec!["--strict"]),
+        (dirty.path(), "lint", json!({ "no_config": true }), vec!["--no-config"]),
+        (dirty.path(), "lint", json!({ "fix": true }), vec!["--fix", "--dry-run"]),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "fix_unsafe": true, "select": "highest", "fix_type": ["empty-dependencies"] }),
+            vec![
+                "--fix-unsafe",
+                "--dry-run",
+                "--select",
+                "highest",
+                "--fix-type",
+                "empty-dependencies",
+            ],
+        ),
+        (dirty.path(), "lint", json!({ "path": "missing" }), vec!["missing"]),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "include": ["no-such-rule"] }),
+            vec!["--include", "no-such-rule"],
+        ),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "fix": true, "max_show_issues": 1 }),
+            vec!["--fix", "--dry-run", "--max-show-issues", "1"],
+        ),
+        (multi.path(), "lint", json!({ "recursive": true }), vec!["-r"]),
+        (dirty.path(), "config", json!({}), vec!["config", "--show"]),
+        (
+            dirty.path(),
+            "config",
+            json!({ "explain": "lint.fail-on-warnings" }),
+            vec!["config", "--explain", "lint.fail-on-warnings"],
+        ),
+        (
+            multi.path(),
+            "config",
+            json!({ "recursive": true }),
+            vec!["config", "--show", "-r"],
+        ),
+        (dirty.path(), "list_rules", json!({}), vec!["rules"]),
+        (
+            explained.path(),
+            "explain_usage",
+            json!({ "file": "lib.ts", "export": "idle" }),
+            vec!["explain-usage", "lib.ts#idle"],
+        ),
+        (
+            explained.path(),
+            "explain_usage",
+            json!({ "file": "orphan.ts" }),
+            vec!["explain-usage", "orphan.ts"],
+        ),
+        (
+            explained.path(),
+            "explain_usage",
+            json!({ "dependency": "left-pad" }),
+            vec!["explain-usage", "--dependency", "left-pad"],
+        ),
+    ];
+    for (dir, tool, arguments, argv) in cases {
+        let cli = run(skif().current_dir(dir).args(&argv).args(["--format", "json"]));
+        let expected: Value = serde_json::from_str(&cli.stdout)
+            .unwrap_or_else(|error| panic!("skif {argv:?}: {error}: {}{}", cli.stdout, cli.stderr));
+        let replies = session(dir, &[call(1, tool, &arguments)]);
+        let result = &replies[0]["result"];
+        assert_eq!(
+            result["structuredContent"], expected,
+            "{tool} {arguments} against skif {argv:?}"
+        );
+        let text: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(text, expected, "{tool} {arguments}: the text is the same document");
+        assert_eq!(
+            result["isError"],
+            cli.code == 2,
+            "{tool} {arguments}: isError against exit code {}",
+            cli.code
+        );
+    }
 }

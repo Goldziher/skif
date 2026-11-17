@@ -70,6 +70,19 @@ fn overrides(args: &ConfigArgs) -> ConfigOverrides {
 }
 
 fn execute(args: &ConfigArgs) -> Result<u8, CliError> {
+    let (text, failures) = render(args)?;
+    write_stdout(text.as_bytes())?;
+    if args.format == RulesFormat::Human {
+        for failure in &failures {
+            stderr_line(&format!("error: {failure}"));
+        }
+    }
+    Ok(if failures.is_empty() { CLEAN } else { COULD_NOT_RUN })
+}
+
+/// What `skif config` prints on stdout for `args`, with the roots that could not be loaded, described (exit code 2);
+/// the JSON text lists them too. `skif mcp` answers its `config` tool with the JSON text.
+pub(crate) fn render(args: &ConfigArgs) -> Result<(String, Vec<String>), CliError> {
     let fs = CachedFs::new(OsFs);
     let start = canonical(&args.path)?;
     let Resolved {
@@ -105,13 +118,7 @@ fn execute(args: &ConfigArgs) -> Result<u8, CliError> {
         (None, RulesFormat::Human) => show_human(&views, &base)?,
         (None, RulesFormat::Json) => show_json(&views, &base, &failures)?,
     };
-    write_stdout(text.as_bytes())?;
-    if args.format == RulesFormat::Human {
-        for failure in &failures {
-            stderr_line(&format!("error: {}", failure.describe()));
-        }
-    }
-    Ok(if failures.is_empty() { CLEAN } else { COULD_NOT_RUN })
+    Ok((text, failures.iter().map(RootError::describe).collect()))
 }
 
 /// A configuration file below a root that its configuration was not built from.

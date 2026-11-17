@@ -10,8 +10,8 @@ use rayon::prelude::*;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
-    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IdleReason, IgnoreEntry, Linter,
-    ModuleCache, OsFs, Prefer, Report, Selector, Target, Workspace, join_lexical, relative_tsconfig,
+    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IdleReason, IgnoreEntry, Linter, OsFs,
+    Prefer, Report, Selector, Target, Workspace, join_lexical, relative_tsconfig,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -60,7 +60,7 @@ pub fn run_with_cache(args: &LintArgs, env: Env, teardown: Teardown, modules: Op
     let trace = Trace::start(args);
     let result = match &args.trace_dependency {
         Some(name) => explain::trace_dependency(args, name).map(|()| CLEAN),
-        None => execute(args, env, teardown, modules),
+        None => execute(args, env, teardown, modules, None),
     };
     let code = match result {
         Ok(code) => code,
@@ -632,16 +632,6 @@ fn plan_roots(
 /// A [`CliError`] when `path` cannot be resolved, no workspace is found there, the configuration is invalid or
 /// the lint cannot run.
 pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -> Result<String, CliError> {
-    lint_to_json_with(path, overrides, recursive, None)
-}
-
-/// [`lint_to_json`], parsing through `modules` when given (`skif mcp` keeps one per path).
-pub(crate) fn lint_to_json_with(
-    path: &Path,
-    overrides: &ConfigOverrides,
-    recursive: bool,
-    modules: Option<&Arc<dyn ModuleCache>>,
-) -> Result<String, CliError> {
     let fs = Arc::new(CachedFs::new(OsFs));
     let start = canonical(path)?;
     let Resolved {
@@ -654,7 +644,7 @@ pub(crate) fn lint_to_json_with(
     } = timing::phase("root discovery (roots, configs, workspaces)", || {
         roots::resolve(&start, recursive, &*fs, overrides)
     })?;
-    let linters = Linters::build_with(&targets, Some(&(fs as Arc<dyn FileSystem>)), modules)?;
+    let linters = Linters::build_with(&targets, Some(&(fs as Arc<dyn FileSystem>)), None)?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     roots::settle_shared_config(&mut runs);
     let reports: Vec<Cow<'_, Report>> = runs
@@ -749,7 +739,39 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
     )
 }
 
-fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn CacheHost>) -> Result<u8, CliError> {
+/// The environment of a host that runs lints on a client's behalf (`skif mcp`): not CI, no terminal, so nothing is
+/// coloured and no fix is put to a prompt.
+const HOST: Env = Env {
+    ci: false,
+    no_color: true,
+    stdin_tty: false,
+    stdout_tty: false,
+    github_actions: false,
+};
+
+/// Runs the lint `args` describes exactly as the command line does, but returns what it would print on stdout and
+/// its exit code instead of printing: `skif mcp` answers with the document `skif ARGS` prints, so a tool and the
+/// command it stands for cannot drift apart. Warnings still go to stderr. `args` must send its one format to stdout.
+///
+/// # Errors
+/// The [`CliError`] the command line reports as its error document (exit code 2).
+pub(crate) fn run_captured(args: &LintArgs, modules: Option<&dyn CacheHost>) -> Result<(Vec<u8>, u8), CliError> {
+    let mut stdout = Vec::new();
+    let result = execute(args, HOST, Teardown::Free, modules, Some(&mut stdout));
+    if let Some(modules) = modules {
+        modules.finish();
+    }
+    result.map(|code| (stdout, code))
+}
+
+/// The lint run: `capture`, when given, receives what would go to stdout.
+fn execute(
+    args: &LintArgs,
+    env: Env,
+    teardown: Teardown,
+    modules: Option<&dyn CacheHost>,
+    capture: Option<&mut Vec<u8>>,
+) -> Result<u8, CliError> {
     let shared = Arc::new(CachedFs::new(OsFs));
     let fs: &CachedFs<OsFs> = &shared;
     let targets_out = args.targets()?;
@@ -868,6 +890,7 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         rendering,
         (&aggregate, shown.as_ref(), &views, &root_fixes),
         fs,
+        capture,
     )?;
     if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
         write_summary_to_stderr(&root_fixes);
@@ -1068,7 +1091,7 @@ fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)])
 /// written before it in place. `shown` is the report `--max-show-issues` cut short: the JSON rendering lists it, and
 /// the human rendering lists the (equally cut) `views` while its annotations come from the full `report`. A run with
 /// stdout as its only output streams the report instead, except JSON (see [`output::render_to_stdout`]), so a renderer
-/// error there can leave a partial report on stdout.
+/// error there can leave a partial report on stdout. With `capture`, the stdout rendering goes there instead.
 fn render_and_write(
     args: &LintArgs,
     env: Env,
@@ -1076,6 +1099,7 @@ fn render_and_write(
     mut rendering: Rendering<'_>,
     (report, shown, views, fixes): (&Report, Option<&Report>, &[RootView<'_>], &[RootFix<'_>]),
     fs: &dyn FileSystem,
+    mut capture: Option<&mut Vec<u8>>,
 ) -> Result<(), CliError> {
     let needs_repo_root = rendering.annotations
         || targets.iter().any(|(format, _)| {
@@ -1092,8 +1116,12 @@ fn render_and_write(
         rendering.format = *format;
         rendering.color = color_enabled(args, env, *format, None);
         let listed = shown.filter(|_| *format == Format::Json).unwrap_or(report);
-        return timing::phase("render", || {
-            output::render_to_stdout(listed, views, &rendering, fs, fixes)
+        return timing::phase("render", || match capture {
+            Some(capture) => {
+                capture.extend(output::render(listed, views, &rendering, fs, fixes)?);
+                Ok(())
+            }
+            None => output::render_to_stdout(listed, views, &rendering, fs, fixes),
         });
     }
     let mut rendered = Vec::with_capacity(targets.len());
@@ -1112,7 +1140,10 @@ fn render_and_write(
     }
     for (bytes, file) in &rendered {
         if file.is_none() {
-            output::emit(bytes, None)?;
+            match capture.as_deref_mut() {
+                Some(capture) => capture.extend_from_slice(bytes),
+                None => output::emit(bytes, None)?,
+            }
         }
     }
     Ok(())
