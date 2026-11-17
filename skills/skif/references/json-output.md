@@ -85,4 +85,5 @@ When skif cannot run (exit `2`), the document is:
   [CLI reference](https://polylint.github.io/skif/reference/cli/).
 - `skif json` prints NDJSON: one object per dependency instance, one per line.
 
-The MCP server (`skif mcp`) returns these same documents from its `lint`, `explain_usage` and `list_rules` tools.
+The MCP server (`skif mcp`) returns these same documents from its `lint`, `explain_usage`, `config` and `list_rules`
+tools. `--format toon` prints the same document encoded as TOON.

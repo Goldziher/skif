@@ -25,9 +25,10 @@ pins skif (a `@polylint/skif` dev dependency, the GitHub Action, a pre-commit ho
 channels are in [references/commands.md](references/commands.md#install).
 
 The skif plugin also registers skif's MCP server, `skif`, which runs `npx -y @polylint/skif@<release> mcp`. When its
-tools `lint`, `explain_usage` and `list_rules` are available, use them to lint, explain and list rules: they return
-the documents the matching commands print with `--format json` (see
-[references/json-output.md](references/json-output.md)). The server never writes files: run `skif --fix` to fix.
+tools `lint`, `explain_usage`, `config` and `list_rules` are available, use them to lint (and plan fixes), explain,
+show the configuration and list rules: each argument is the flag of the same name, and each tool returns the document
+its command prints with `--format json` (see [references/json-output.md](references/json-output.md)). The server
+never writes files: run `skif --fix` to fix.
 
 ## The loop
 

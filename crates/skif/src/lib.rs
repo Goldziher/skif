@@ -97,7 +97,7 @@
 //! | `plain-ptrs` | no | plain pointers in tsrs instead of its fixed address-space reservation; only with `type-aware` |
 //! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
-//! | `report` | no | the renderers (human, JSON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
+//! | `report` | no | the renderers (human, JSON, TOON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 //! | `schema` | no | `config_schema` |
 //! | `update` | no | [`update`]: newer published versions from a registry the host supplies, planned as a `FixPlan` |
 //!

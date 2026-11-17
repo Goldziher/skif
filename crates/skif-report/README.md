@@ -1,6 +1,6 @@
 # skif-report
 
-Renderers that turn a `skif_core::Report` into human-readable, JSON, SARIF, GitHub annotation, Code Climate,
+Renderers that turn a `skif_core::Report` into human-readable, JSON, TOON, SARIF, GitHub annotation, Code Climate,
 compact, Markdown or CODEOWNERS-grouped output.
 
 Renderers write to a `&mut dyn std::io::Write`, never touch the environment or the terminal, and take
@@ -64,6 +64,13 @@ A run over several roots (`skif -r`) adds two top-level members through `render_
 extra fields: `roots`, an array with one `{ "path", "packages", "summary" }` object per root (`packages` lists the
 package directories, `summary` has the counts of that root), and `errors`, present only when a root could not be
 loaded, with one `{ "path", "kind", "message" }` object per failed root. The other roots are still linted.
+
+## TOON
+
+`Format::Toon` writes the JSON document above encoded as [TOON](https://toonformat.dev) (Token-Oriented Object
+Notation): the same data, decoding to the same value. `render_toon_with`, `render_toon_error`,
+`render_toon_error_info` and `render_toon_error_info_with` mirror their JSON counterparts. The JSON document stays the
+contract.
 
 ## SARIF and GitHub annotations
 

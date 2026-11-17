@@ -119,8 +119,8 @@ git root, so one organisation file applies to every project below it. See the
   [Bazel with rules_js](https://polylint.github.io/skif/guides/bazel/).
 - **Fixes**: safe and unsafe levels, `--fix-type` to fix some rules only, `--dry-run` diffs, and `skif format` for
   `package.json` layout.
-- **CI output**: human, JSON, SARIF, GitHub annotations, GitLab Code Quality, compact, Markdown and CODEOWNERS
-  reports, several in one run, with stable rule ids and documented exit codes.
+- **CI output**: human, JSON, TOON, SARIF, GitHub annotations, GitLab Code Quality, compact, Markdown and
+  CODEOWNERS reports, several in one run, with stable rule ids and documented exit codes.
 - **Editors and agents**: watch mode, a language server, an MCP server (all three without types) and an
   [agent skill](https://polylint.github.io/skif/guides/editors-and-agents/#agent-skill).
 - **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own and puts the JS analysis and the type

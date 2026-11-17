@@ -64,7 +64,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `skif list [PATH]` | List every dependency the version groups and the catalog govern, by version group, with its specifiers and states (see below). |
 | `skif json [PATH]` | Print every dependency instance the version groups and the catalog govern as one JSON object per line (see below). |
 | `skif format [PATH]` | Format every `package.json` as `[format]` describes, or check it with `--check` (see below). |
-| `skif mcp` | Run a Model Context Protocol server on stdin and stdout, with the tools `lint`, `explain_usage` and `list_rules`. See [editors and agents](../../guides/editors-and-agents/). |
+| `skif mcp` | Run a Model Context Protocol server on stdin and stdout, with the tools `lint`, `explain_usage`, `config` and `list_rules`. See [editors and agents](../../guides/editors-and-agents/). |
 | `skif lsp` | Run a Language Server Protocol server on stdin and stdout that publishes diagnostics when a file is opened, changed (unsaved text included) or saved and offers fixes as code actions. See [editors and agents](../../guides/editors-and-agents/#language-server). |
 
 ## Flags
@@ -72,7 +72,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | Flag | Meaning |
 | --- | --- |
 | `-r`, `--recursive` | Lint every workspace and standalone package at or below `PATH` in one run, instead of only the project containing `PATH`. |
-| `--format <FORMAT[=FILE]>` | Output format: `human`, `json`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure` or `codeowners`. `FORMAT=FILE` writes that rendering to `FILE`. Repeatable, with at most one format on stdout (see [Several reports in one run](#several-reports-in-one-run)). Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
+| `--format <FORMAT[=FILE]>` | Output format: `human`, `json`, `toon`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure` or `codeowners`. `FORMAT=FILE` writes that rendering to `FILE`. Repeatable, with at most one format on stdout (see [Several reports in one run](#several-reports-in-one-run)). Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires exactly one `--format`, without `=FILE`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. Fixes that delete files still need `--allow-remove-files`. |
@@ -86,7 +86,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--max-warnings <N>` | Exit `1` when there are more than `N` warnings. |
 | `--fail-on-warnings` | Same as `--max-warnings 0`. Also set by `[lint] fail-on-warnings`. Conflicts with `--max-warnings`. |
 | `--max-issues <N>` | Exit `1` only when there are more than `N` errors (default `0`), counted over all roots. Warnings still follow `--max-warnings`. |
-| `--max-show-issues <N>` | Show at most `N` findings of each rule, in report order over all roots. The summary still counts every finding and the exit code is unchanged; in human output a note on stderr says how many were left out. Human and `json` output only: when any `--format` is another format, or with `--fix`, it exits `2`; with several formats, each human and `json` rendering is shortened. The annotations human output adds under GitHub Actions still list every finding. |
+| `--max-show-issues <N>` | Show at most `N` findings of each rule, in report order over all roots. The summary still counts every finding and the exit code is unchanged; in human output a note on stderr says how many were left out. Human, `json` and `toon` output only: when any `--format` is another format, or with `--fix`, it exits `2`; with several formats, each human, `json` and `toon` rendering is shortened. The annotations human output adds under GitHub Actions still list every finding. |
 | `--no-exit-code` | Exit `0` when problems remain. A run that could not happen still exits `2`. |
 | `--rule <ID>=<off\|info\|warn\|error>` | Set a rule's level. Repeatable. |
 | `--ignore-rule <ID>` | Turn a rule off. Repeatable. |
@@ -418,6 +418,7 @@ formatting in every lint instead, set `package-json-format = "error"` in `[rules
 | --- | --- |
 | `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. A note before the summary names the packages whose unused files and dependencies were not fully checked, and a `types:` line counts the packages the type checker did not fully cover, by reason. |
 | `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. `incomplete-packages` (omitted when empty) lists the packages whose unused files and dependencies were not fully checked, and `type-aware` the type checker's coverage of each package, see below. |
+| `toon` | The `json` document encoded as [TOON](https://toonformat.dev) (Token-Oriented Object Notation): the same data, error documents included, without JSON's quotes and braces. `json` stays the contract. |
 | `sarif` | SARIF 2.1.0 for code scanning. The run's `properties` carry the `type-aware` object of the JSON report. |
 | `github` | GitHub Actions workflow-command annotations. |
 | `codeclimate` | A Code Climate JSON array for GitLab Code Quality: one issue per diagnostic with `description`, `check_name` (the rule), `fingerprint`, `severity` and `location` (`path`, `lines.begin`). Errors are `major`, warnings `minor` and infos `info`. The fingerprint is a hash of the rule, path, package, dependency, specifier and message text (not the line), so an issue keeps its identity when code above it moves; a release that rewords a message changes the fingerprints of its issues. Paths are relative to the repository top-level. |
@@ -447,8 +448,8 @@ skip types`, and nothing when every package is typed or types are off.
 
 In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
 `error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,
-`path`, `line` and `column`. `--output` never receives an error document: on failure the file is not written and
-the error goes to stdout.
+`path`, `line` and `column`. `--format toon` gives the same document in TOON. `--output` never receives an error
+document: on failure the file is not written and the error goes to stdout.
 
 ### Several reports in one run
 
@@ -465,7 +466,7 @@ skif --format human --format json=skif.json --format codeclimate=gl-code-quality
 * Every rendering is made before any file is written. When one fails (for example `codeowners` without a CODEOWNERS
   file), no file is written or replaced and the run exits `2`. Each file is replaced atomically, but a write that
   fails partway leaves the files written before it in place.
-* The format on stdout decides JSON mode: with `json` on stdout, an error is a JSON `error` document there; when no
+* The format on stdout decides JSON mode: with `json` (or `toon`) on stdout, an error is an `error` document there; when no
   format goes to stdout, the first `--format` decides, so `--format json=skif.json` alone behaves like
   `--format json --output skif.json`.
 * Only the rendering on stdout (or in `--output`) is coloured; a `FORMAT=FILE` rendering never is.

@@ -27,9 +27,9 @@ Output:
 
 | Flag | Meaning |
 | --- | --- |
-| `--format <FORMAT[=FILE]>` | `human`, `json`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure`, `codeowners`. Repeatable; at most one goes to stdout, the others to `FILE`. |
+| `--format <FORMAT[=FILE]>` | `human`, `json`, `toon` (the JSON document in TOON), `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure`, `codeowners`. Repeatable; at most one goes to stdout, the others to `FILE`. |
 | `--output <FILE>` | Write the single `--format` to a file. |
-| `--max-show-issues <N>` | Show at most `N` findings per rule (human and json only, not with a fix flag); the summary counts all. |
+| `--max-show-issues <N>` | Show at most `N` findings per rule (human, json and toon only, not with a fix flag); the summary counts all. |
 | `--max-warnings <N>`, `--fail-on-warnings` | Exit `1` above `N` warnings / on any warning. |
 | `--max-issues <N>` | Exit `1` only above `N` errors. |
 | `--no-exit-code` | Exit `0` when problems remain (`2` is kept). |
@@ -101,7 +101,7 @@ report), `--color <auto|always|never>`.
 | `skif update [PATH] [--check\|--interactive] [--target latest\|minor\|patch] [--dependencies <NAME>] [--no-install]` | Write newer published versions from the npm registry and install (`--check` writes nothing, exit `1` when an update exists); the only command that uses the network. |
 | `skif list [PATH] [-r] [--show ...]`, `skif json [PATH] [-r]` | The dependencies the version groups govern, as text / NDJSON. |
 | `skif format [PATH] [-r] [--check\|--unsafe]` | Format every `package.json` as `[format]` describes. |
-| `skif mcp` | MCP server on stdio with the tools `lint`, `explain_usage`, `list_rules`; it never writes files. |
+| `skif mcp` | MCP server on stdio with the tools `lint`, `explain_usage`, `config`, `list_rules`; an argument is the flag of the same name, and it never writes files. |
 | `skif lsp` | Language server on stdio: diagnostics as you edit, fixes as code actions. |
 
 `rules`, `config`, `explain-usage`, `migrate`, `baseline` and `update` take `--format human|json`.

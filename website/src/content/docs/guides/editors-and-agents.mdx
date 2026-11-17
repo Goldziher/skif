@@ -63,20 +63,22 @@ manager that updates on a version change picks up each release, and its server w
 
 ## MCP server for agents
 
-`skif mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio. An agent calls its tools
-and gets skif's findings as data: each tool returns the same JSON document the matching command prints with
-`--format json`, as structured content and as text.
+`skif mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio. Each tool runs one
+command with `--format json` and returns the document it prints, as structured content and as compact JSON text. An
+argument is the flag of the same name (`max_show_issues` is `--max-show-issues`), parsed by the command line itself,
+so a bad value gets the command's own message.
 
-| Tool | Arguments | Returns |
+| Tool | Command | Arguments |
 | --- | --- | --- |
-| `lint` | `path` (default `.`), `recursive`, `rules` (run only these rule IDs), `production`, `no_js` | the [JSON report](../../reference/cli/#output-formats) |
-| `explain_usage` | `file` (relative to `path`), `export`, `path` (default `.`), `production` | the `report` of [`skif explain-usage`](../../reference/cli/#explaining-usage) |
-| `list_rules` | none | the document of `skif rules --format json` |
+| `lint` | `skif` | `path` (default `.`), `recursive`, `config`, `no_config`, `include`, `exclude`, `workspace`, `production`, `strict`, `no_js`, `max_show_issues`; `fix`, `fix_unsafe`, `fix_type`, `select`, `allow_remove_files` plan fixes as `--dry-run` does and add `fix.changes` |
+| `explain_usage` | `skif explain-usage` | `file`, `export`, or `dependency` with `package`; `path` (default `.`), `production`, `config`, `no_config` |
+| `config` | `skif config` | `path`, `recursive`, `explain` with `package`, `config`, `no_config`; without `explain` it is `--show` |
+| `list_rules` | `skif rules` | none |
 
-A relative `path` is relative to the directory the server was started in, so start it in the repository. Problems
-in the project are the report, not an error. When a tool cannot run (no workspace, an invalid `skif.toml`, an
-unknown rule ID, a file outside the module graph) the result is flagged `isError` and holds the JSON `error`
-document with its `kind` and message. The server never writes a file: to apply fixes, run `skif --fix`.
+Paths, `file` included, are relative to the directory the server was started in, so start it in the repository.
+Problems in the project are the report, not an error. A command that exits `2` gives a result flagged `isError`:
+the JSON `error` document with its `kind` and message, or, when roots of a recursive run failed, the report with its
+`errors`. The server never writes a file: to apply fixes, run `skif --fix`.
 
 The server handles one call at a time: a `lint` of a large monorepo holds every later request until it finishes,
 and cancelling a call does not stop it. A message longer than 64 MiB is refused.
