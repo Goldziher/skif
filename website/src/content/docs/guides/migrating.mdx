@@ -42,7 +42,7 @@ different flags, the result is their union (or, for `[js] production`, left out)
 
 ## Profiles
 
-sherif checks ten things and nothing else; skif has more rules, and it enables many of them by default. The profile
+sherif runs ten rules and stops on an invalid `package.json`; skif has more rules, and it enables many of them by default. The profile
 decides what the migration does about the checks the old tools did not run.
 
 | Profile | Result |
@@ -63,14 +63,15 @@ mapping is read from the sources of the tools (sherif 1.13, syncpack 15.3, knip 
 | skif rules | Run by |
 | --- | --- |
 | `empty-dependencies`, `version-mismatch`, `root-package-dependencies`, `root-package-manager-field`, `root-package-private-field`, `types-in-dependencies`, `unsorted-dependencies` | sherif (`empty-dependencies`, `multiple-dependency-versions`, `root-package-dependencies`, `root-package-manager-field`, `root-package-private-field`, `types-in-dependencies`, `unordered-dependencies`) |
-| `unmatched-workspace-patterns`, `missing-package-manifest`, `unsynced-dependency-family` | sherif only (`non-existant-packages`, `packages-without-package-json`, `unsync-similar-dependencies`) |
+| `unmatched-workspace-patterns`, `missing-package-manifest`, `unsynced-dependency-family`, `invalid-workspace-file` | sherif only (`non-existant-packages`, `packages-without-package-json`, `unsync-similar-dependencies`, and stopping on an invalid manifest) |
 | `version-mismatch`, `semver-range-mismatch`, `banned-dependency`, `invalid-local-version`, `policy-conflict` | syncpack `lint`: the version and semver group states, `IsBanned`, `InvalidLocalVersion` and the conflict states |
 | `catalog-mismatch` | syncpack: `DiffersToCatalog`, in every highest or lowest version group (skif keeps it on in every group) |
 | `catalog-not-used`, `catalog-missing-entry`, `unresolved-catalog-references` | syncpack only with a `policy: catalog` version group (`NotUsingCatalog`, `MissingFromCatalog`, `DependsOnMissingCatalogDefinition`); knip covers `unresolved-catalog-references` through `catalogReferences` |
 | `unsorted-dependencies` | syncpack only when `sortAz` names a dependency map and a script runs `syncpack format` |
 | `package-json-format` | syncpack `format`: when a script runs `syncpack format` (the rule is off by default; format keys alone are written to `[format]` for `skif format`) |
 | the rules of the knip issue types that stay enabled | knip (`unused-files`, `unused-subpath-imports`, `unused-subpath-exports` with `includeSubpathExports`, `unused-dependencies`, `unused-dev-dependencies`, `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`, `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `duplicate-exports`, `unused-enum-members`, `unused-namespace-members`, `unused-catalog-entries`, `unresolved-catalog-references`, `circular-imports`) |
-| `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields`, `toolchain-pin-drift`, `foreign-package-manager-command`, `stray-lockfile`, `nested-workspace-root`, `stale-lerna-config`, `lerna-packages-mismatch` | none of the three |
+| `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields`, `toolchain-pin-drift`, `foreign-package-manager-command`, `stray-lockfile`, `nested-workspace-root`, `stale-lerna-config`, `lerna-packages-mismatch`, `catalog-version-divergence`, `stale-patched-dependencies` | none of the three |
+| `unused-class-members` | none: knip 6 has no class-member issue type (knip 5 had `classMembers`) |
 | `unparseable-files` | none: knip skips a file it cannot parse without reporting it |
 | `stale-js-config` | none unless `treatConfigHintsAsErrors` is set: skif's configuration hints differ from knip's |
 | `stale-mocks` | none: knip does not read the specifiers of `vi.mock`, `jest.mock` and the like, so the `exact` profile turns it off |
@@ -178,7 +179,7 @@ skif adds beyond sherif's are listed under the [report](#the-report)'s extra che
 | `specifierTypes` | `specifier-types` with the types skif knows; `hosted-git` is `git` (A), `**` is no filter, and a type skif does not know (`delete`) is dropped (A) or, when the group selects only such types, the group is not written (X) |
 | `customTypes` with `strategy` `name@version`, `version`, `versionsByName` or `name~version` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`, `"name~version"` with `name-path` from `namePath`) |
 | a custom type whose name is a built-in token (`dev`, `overrides`, ...) | `[[custom-types]]` under `<name>-custom` (A); groups that name the token select the built-in type |
-| a custom type for `optionalDependencies` | the native `optional` dependency type |
+| a custom type for `optionalDependencies` with `strategy` `versionsByName` | the native `optional` dependency type |
 | a custom type's `source` | `"PackageJson"`, syncpack's default, is translated like a type without it; `"PnpmWorkspace"` is not (X): skif reads custom types from `package.json` only |
 | `dependencyGroups`, `strict`, `sourceMode` | none (X or H) |
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
@@ -232,11 +233,12 @@ way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` i
 | `--fix`, `--fix-type`, `--allow-remove-files` | none in the file; `skif --fix-unsafe` with `--fix-type` and `--allow-remove-files` does the same on the command line (`--fix-type` takes knip's issue types) |
 | `--production`, `--strict` | `[js] strict = true` when every script runs knip with `--strict`, else `[js] production = true` when every script runs knip in production mode (otherwise H for each), and the issue types production leaves out (`devDependencies`, `catalog`, `catalogReferences`) are turned off. A project that wants knip's strict isolation for its tests and configs too can set `[js] isolate-workspaces = true` instead, which isolates every package without production mode |
 | `--isolate-workspaces` (knip 5) | none, without a note: it built one TypeScript program per workspace, which changes no finding, and knip 6 always does so. It is not skif's `[js] isolate-workspaces` |
-| `compilers: true`, or `true` for `mdx`, `vue`, `svelte`, `astro`, `css`, `scss`, `sass`, `less`, `styl`, `stylus` or `tsrx` | none (D): skif reads those files with built-in extractors, without a compiler; for `mdx` and `tsrx` the note suggests adding them to `project`, which knip does when a compiler reads them |
+| `compilers: true`, or `true` for `mdx`, `vue`, `svelte`, `astro`, `css`, `pcss`, `scss`, `sass`, `less`, `styl`, `stylus` or `tsrx` | none (D): skif reads those files with built-in extractors, without a compiler; for `mdx` and `tsrx` the note suggests adding them to `project`, which knip does when a compiler reads them |
 | a `compilers` function for one of those extensions | none (A): the function is never run, and the built-in extractor reads the files |
 | `compilers` for other extensions, `asyncCompilers`, `preprocessor` | none (X): functions are never run. Translate a compiler by hand into `[js.compilers]`: when it extracts imports (a `.html` compiler that turns `<script src>` into `import` statements), write regular expressions that capture the specifiers (`html = { imports = ['<script[^>]+src="([^"]+)"'] }`); when it hands the file to another language's compiler, map the extension onto that reader (`page = { as = "mdx" }`). The note names `[js.compilers]` |
 | `ignoreGlobalBinaries` | `[js] ignore-global-binaries` (`true` is the default); a workspace-level `false` has no equivalent (X) |
 | `treatTagHintsAsErrors` | none (A): tag hints are part of `stale-js-config`, which `--strict-hints` makes an error |
+| `--treat-tag-hints-as-errors` | none (X) |
 | `ignoreIssues` with a name that is not a knip issue type (`classMembers`) | none (X): knip 6 has no such issue type |
 | a plugin key skif has no plugin for | none (X), named in the report |
 
