@@ -103,17 +103,17 @@ git root, so one organisation file applies to every project below it. See the
   workflows, `MODULE.bazel`). `skif update` finds newer published versions; it is the only command that uses the
   network.
 - **Dead-code analysis on [oxc](https://oxc.rs)**: unused files, exports, types, enum, namespace and class members
-  and `package.json` subpaths; unused, unlisted and unresolved dependencies and binaries; duplicate exports; circular
-  imports. Vue, Svelte, Astro, MDX and Marko files are read, and 213 plugins read the configuration of common tools.
+  and `package.json` subpaths; unused and unlisted dependencies, unlisted binaries and unresolved imports; duplicate
+  exports; circular imports. Vue, Svelte, Astro, MDX and Marko files are read, and 213 plugins read the configuration
+  of common tools.
   `skif explain-usage` says why a file, export, member or dependency counts as used.
 - **Type-aware analysis**: where a package has a `tsconfig.json` or `jsconfig.json`, the TypeScript checker of tsrs
   resolves each member read to the declaration it reaches, also through a base class or an implemented interface. A
   read `a.dispose()` then keeps only the `dispose` of `a`'s class out of `unused-class-members`, not every `dispose`
   of the project, and `unused-enum-members` and `unused-namespace-members` also count reads through an alias or
-  `this`. It is off by default in the CLI and the npm package, since it costs time and memory: on a 4-vCPU runner a
-  typed run takes several times as long as the default one, roughly as long as knip
-  ([benchmarks](https://polylint.github.io/skif/guides/benchmarks/#speed)). `--type-aware` or `[js] type-aware = true` turns it on. A package without types keeps the
-  name-based analysis, and the report names it ([type-aware analysis](https://polylint.github.io/skif/reference/configuration/#js)).
+  `this`. It is off by default in the CLI and the npm package because it costs time and memory (see the
+  [benchmarks](https://polylint.github.io/skif/guides/benchmarks/#speed)); `--type-aware` or `[js] type-aware = true`
+  turns it on. A package without types keeps the name-based analysis, and the report names it ([type-aware analysis](https://polylint.github.io/skif/reference/configuration/#js)).
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
   roots, Rush, [Turborepo, Nx and Lerna](https://polylint.github.io/skif/guides/turborepo-nx-lerna/), and
   [Bazel with rules_js](https://polylint.github.io/skif/guides/bazel/).
@@ -121,7 +121,7 @@ git root, so one organisation file applies to every project below it. See the
   `package.json` layout.
 - **CI output**: human, JSON, SARIF, GitHub annotations, GitLab Code Quality, compact, Markdown and CODEOWNERS
   reports, several in one run, with stable rule ids and documented exit codes.
-- **Editors and agents**: watch mode, a language server, an MCP server (all three without types, for now) and an
+- **Editors and agents**: watch mode, a language server, an MCP server (all three without types) and an
   [agent skill](https://polylint.github.io/skif/guides/editors-and-agents/#agent-skill).
 - **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own and puts the JS analysis and the type
   checker behind its `js-analysis` and `type-aware` features, and the npm package exports `lint`, `lintAsync` and
@@ -155,9 +155,9 @@ capability by capability, with sources.
 
 ## polylint organization
 
-skif is part of [polylint](https://github.com/polylint), high-performance Rust linters and formatters built for agentic
-workflows. Sibling tools: [polylint](https://github.com/polylint/polylint) (one linter and formatter for every
-language; it can run skif as an engine), [adrlint](https://github.com/polylint/adrlint) (MADR decision records),
+skif is part of [polylint](https://github.com/polylint), a set of Rust linters and formatters. Sibling tools:
+[polylint](https://github.com/polylint/polylint) (one linter and formatter for every language; it can run skif as an
+engine), [adrlint](https://github.com/polylint/adrlint) (MADR decision records),
 [uncomment](https://github.com/polylint/uncomment) (comment removal and linting). Install any of them from the Homebrew
 tap (`brew tap polylint/tap`) or the Scoop bucket.
 

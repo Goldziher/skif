@@ -2,8 +2,8 @@
 
 [skif](https://github.com/polylint/skif) is a dependency and package-manager linter, auditor and enforcer for
 JavaScript and TypeScript, with first-class monorepo support: workspace rules and version and catalog policies,
-for npm, pnpm, Yarn and Bun. It also finds unused, unlisted and unresolved dependencies, unused files and
-exports.
+for npm, pnpm, Yarn and Bun. It also finds unused and unlisted dependencies, unresolved imports, and unused files
+and exports.
 
 ## Requirements
 
@@ -19,7 +19,8 @@ pnpm add --save-dev @polylint/skif
 # or: npm install --save-dev @polylint/skif / yarn add --dev @polylint/skif / bun add --dev @polylint/skif
 ```
 
-Earlier releases were published as `skif-cli`. That package is deprecated on npm and receives no new versions.
+Earlier releases were published as `skif-cli`. That package is deprecated on npm and receives no new versions;
+replace it with `@polylint/skif`. The command is still `skif`.
 
 Run it without installing:
 
@@ -44,22 +45,29 @@ else console.log(JSON.parse(outcome.report).summary);
 const exitCode = run(["--format", "json", "./my-monorepo"]);
 ```
 
-- `lint(path, options?)` lints the project containing `path` and returns the JSON report as a string. With
-  `{ recursive: true }` it lints every workspace and standalone package at or below `path`, like `skif -r`, and
-  the report gains a `roots` array, an `errors` array listing the roots that could not be loaded (the others are still
-  linted) and, when the depth limit stopped the search, a `truncated` array of the directories it did not enter. It
-  prints nothing and writes no files. When the lint cannot run it throws an `Error` with `kind` and, when there is one,
-  `path` properties, the fields `lintAsync` returns in `error`. It blocks the event loop, so use `lintAsync` in a server. `{ config: "path/to/skif.toml" }`
-  uses that file (and the files it extends) instead of discovering configuration files, like `--config`, and
-  `{ noConfig: true }` reads none, like `--no-config`. `{ typeAware: true }` resolves member reads with the
-  TypeScript type checker, like `--type-aware`: more accurate member findings, and slower. Types are off by default;
-  `{ noTypeAware: true }` keeps them off, like `--no-type-aware`, over a configuration that turns them on.
+- `lint(path, options?)` lints the project containing `path` and returns the JSON report as a string. It prints
+  nothing and writes no files. When the lint cannot run it throws an `Error` with `kind` and, when there is one,
+  `path` properties. It blocks the event loop, so use `lintAsync` in a server.
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
-  cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`). Both
-  functions read the configuration file the way the command line does.
+  cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or
+  `internal`).
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
   streams to the process's stdout and stderr. Unlike the `skif` bin, it does not change directory under `bazel run`:
   relative paths resolve against `process.cwd()`.
+
+`lint` and `lintAsync` read configuration files the way the command line does. Each option mirrors a flag:
+
+| Option | Flag |
+| --- | --- |
+| `recursive` | `--recursive`: lint every workspace and standalone package at or below `path`. The report gains a `roots` array, an `errors` array of the roots that could not be loaded (the others are still linted) and, when the depth limit stopped the search, a `truncated` array of the directories it did not enter. |
+| `config` | `--config`: use this file (and the files it extends) instead of discovering configuration files |
+| `noConfig` | `--no-config`: read no configuration file; wins over `config` |
+| `typeAware` | `--type-aware`: resolve member reads with the TypeScript type checker; more accurate member findings, and slower |
+| `noTypeAware` | `--no-type-aware`: keep types off (the default) over a configuration that turns them on; wins over `typeAware` |
+| `production` | `--production` |
+| `noJs` | `--no-js` |
+| `failOnWarnings` | `--fail-on-warnings` |
+| `ignoreRules`, `ignorePackages`, `ignoreDependencies` | `--ignore-rule`, `--ignore-package`, `--ignore-dependency`, as arrays |
 
 Types ship in `index.d.ts`.
 
@@ -87,14 +95,14 @@ If no platform package is installed (for example because optional dependencies w
 
 ## polylint organization
 
-skif is part of [polylint](https://github.com/polylint), high-performance Rust linters and formatters built for agentic
-workflows. Sibling tools: [polylint](https://github.com/polylint/polylint) (one linter and formatter for every
-language; it can run skif as an engine), [adrlint](https://github.com/polylint/adrlint) (MADR decision records),
+skif is part of [polylint](https://github.com/polylint), a set of Rust linters and formatters. Sibling tools:
+[polylint](https://github.com/polylint/polylint) (one linter and formatter for every language; it can run skif as an
+engine), [adrlint](https://github.com/polylint/adrlint) (MADR decision records),
 [uncomment](https://github.com/polylint/uncomment) (comment removal and linting). Install any of them from the Homebrew
 tap (`brew tap polylint/tap`) or the Scoop bucket.
 
 ## Links
 
-- [Documentation](https://github.com/polylint/skif#readme)
+- [Documentation](https://polylint.github.io/skif/)
 - [Changelog](https://github.com/polylint/skif/blob/main/CHANGELOG.md)
 - [Issues](https://github.com/polylint/skif/issues)

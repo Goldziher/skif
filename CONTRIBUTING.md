@@ -1,10 +1,9 @@
 # Contributing to skif
 
-Thanks for helping out. skif is a Rust dependency linter for JavaScript and TypeScript monorepos. Its
-diagnostics gate other people's CI, so a false positive or an unstable rule ID is a regression.
+skif is a Rust dependency linter for JavaScript and TypeScript monorepos. Its diagnostics gate other people's CI,
+so a false positive or an unstable rule ID is a regression.
 
-Read the records in [`adrs/`](adrs/index.md) before your first change. They are short and they explain most of
-the design.
+Read the records in [`adrs/`](adrs/index.md) before your first change; they explain the design.
 
 ## Setup
 
@@ -49,7 +48,7 @@ the CI matrices, and the LICENSE and ATTRIBUTIONS files each published crate mus
 ## Adding a rule
 
 1. Give the rule a stable kebab-case ID. IDs are the public contract; add it to `rule-ids.txt`.
-2. Implement it in `skif-rules` (manifest, policy, catalog) or `skif-js` (JS), with a fixture (under the crate's
+2. Implement it in `skif-rules` (manifest, workspace, policy, catalog) or `skif-js` (JS), with a fixture (under the crate's
    `tests/fixtures` or the top-level `fixtures/`) and a snapshot test for the diagnostics. Never edit `.snap` files by hand.
 3. Fixers must keep the original indentation and newline style of the edited file.
 4. Regenerate the reference with `SKIF_UPDATE_DOCS=1 cargo test -p skif --features js-analysis --test docs`
@@ -160,7 +159,8 @@ publishing; the steps around it are by hand.
 
 `action.yml` `BAKED_VERSION` is what makes a SHA-pinned `polylint/skif@<sha>` install that release instead of the
 latest one. The release archives carry a build-provenance attestation
-(`gh attestation verify skif-<target>.tar.gz --repo polylint/skif`).
+(`gh attestation verify skif-<target>.tar.gz --repo polylint/skif`; releases up to v0.6.0 were attested by
+`Goldziher/skif`).
 
 ## AI governance
 
