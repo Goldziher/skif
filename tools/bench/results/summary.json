@@ -1,32 +1,32 @@
 {
-  "schema": 8,
-  "skif": "skif 0.7.0",
-  "source_rev": "b2a21d3adb74",
-  "harness_rev": "27ef55dd0372",
-  "measured_at": 1794898153,
+  "schema": 10,
+  "skif": "skif 0.9.0",
+  "source_rev": "69850aeed43d",
+  "harness_rev": "69850aeed43d",
+  "measured_at": 1794942605,
   "machine": {
     "os": "Ubuntu 24.04.5 LTS",
-    "kernel": "Linux 7.0.0-1017-azure",
+    "kernel": "Linux 7.0.0-1014-aws",
     "arch": "x86_64",
-    "cpu": "AMD EPYC 7763 64-Core Processor",
+    "cpu": "Intel(R) Xeon(R) 6975P-C",
     "logical_cpus": 4,
     "available_cpus": 4,
     "physical_cores": 2,
-    "memory_bytes": 16760340480,
+    "memory_bytes": 16464297984,
     "cgroup_cpu_limit": null,
-    "virtualization": "Microsoft",
+    "virtualization": "KVM",
     "github": {
       "image_os": "ubuntu24",
-      "image_version": "20261111.370.1",
+      "image_version": "20261111.127.1",
       "runner_os": "Linux",
       "runner_arch": "X64",
       "runner_environment": "github-hosted",
-      "runner_name": "GitHub Actions 1000002879",
+      "runner_name": "GitHub Actions 1000004325",
       "run_attempt": 1,
-      "run_url": "https://github.com/polylint/skif/actions/runs/44028742119/attempts/1"
+      "run_url": "https://github.com/polylint/skif/actions/runs/44151292705/attempts/1"
     }
   },
-  "machine_text": "Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft",
+  "machine_text": "Ubuntu 24.04.5 LTS, Linux 7.0.0-1014-aws, x86_64, Intel(R) Xeon(R) 6975P-C, 4 logical CPUs (2 physical cores), 15.3 GiB memory, hypervisor KVM",
   "toolchain": {
     "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
     "node": "v26.13.0",
@@ -36,14 +36,14 @@
     "bun": null
   },
   "load_before": [
-    5.76,
-    3.53,
-    2.07
+    5.71,
+    3.16,
+    1.64
   ],
   "load_after": [
-    3.24,
-    3.01,
-    2.82
+    2.97,
+    2.56,
+    2.01
   ],
   "hyperfine": "hyperfine 1.20.0",
   "tool_versions": {
@@ -68,11 +68,11 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 5.6437838,
-          "stddev_ms": 0.14632301257062352,
-          "median_ms": 5.6334420000000005,
-          "min_ms": 5.440963,
-          "max_ms": 6.079404,
+          "mean_ms": 3.9992681333333335,
+          "stddev_ms": 0.23115170741060526,
+          "median_ms": 3.939525,
+          "min_ms": 3.747853,
+          "max_ms": 4.581511,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
@@ -81,12 +81,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 35.292123266666664,
-          "stddev_ms": 1.379859617176092,
-          "median_ms": 35.449448000000004,
-          "min_ms": 33.231790000000004,
-          "max_ms": 37.407056000000004,
-          "relative_to_skif": 6.2532734274241095,
+          "mean_ms": 25.5843424,
+          "stddev_ms": 1.8710680701138431,
+          "median_ms": 24.904290999999997,
+          "min_ms": 23.120262000000004,
+          "max_ms": 29.091551,
+          "relative_to_skif": 6.397256084621617,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -94,18 +94,19 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 46.14311973333334,
-          "stddev_ms": 1.4377099729223382,
-          "median_ms": 45.914789999999996,
-          "min_ms": 44.054683999999995,
-          "max_ms": 49.192672,
-          "relative_to_skif": 8.175919094089561,
+          "mean_ms": 31.470035,
+          "stddev_ms": 1.1430383592604028,
+          "median_ms": 31.849898000000003,
+          "min_ms": 30.039845999999997,
+          "max_ms": 33.571572,
+          "relative_to_skif": 7.8689485052781825,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": null
     },
     {
       "target": "generated: 500 packages (pnpm)",
@@ -119,11 +120,11 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 29.27609773333333,
-          "stddev_ms": 0.415076004557249,
-          "median_ms": 29.272732,
-          "min_ms": 28.423107,
-          "max_ms": 30.108061,
+          "mean_ms": 18.9637522,
+          "stddev_ms": 0.4801438569450085,
+          "median_ms": 19.025741999999997,
+          "min_ms": 17.778564,
+          "max_ms": 19.785327,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
@@ -132,12 +133,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 59.3650036,
-          "stddev_ms": 1.2510922904935506,
-          "median_ms": 59.477657,
-          "min_ms": 57.232317,
-          "max_ms": 61.521851000000005,
-          "relative_to_skif": 2.0277635407811845,
+          "mean_ms": 38.14578033333334,
+          "stddev_ms": 1.0653620555281174,
+          "median_ms": 38.213588,
+          "min_ms": 36.757667,
+          "max_ms": 40.563931999999994,
+          "relative_to_skif": 2.0115101658696712,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -145,18 +146,19 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 178.0316782666667,
-          "stddev_ms": 1.5447113062203748,
-          "median_ms": 178.02185300000002,
-          "min_ms": 175.74071700000002,
-          "max_ms": 180.665145,
-          "relative_to_skif": 6.081127337676649,
+          "mean_ms": 114.60182393333332,
+          "stddev_ms": 1.8875338656226022,
+          "median_ms": 115.45039799999999,
+          "min_ms": 111.24534,
+          "max_ms": 117.236984,
+          "relative_to_skif": 6.043204041304301,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": null
     },
     {
       "target": "generated: 2000 packages (pnpm)",
@@ -170,11 +172,11 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 121.6304926,
-          "stddev_ms": 1.674492962962982,
-          "median_ms": 121.46489700000001,
-          "min_ms": 118.94958199999999,
-          "max_ms": 125.68768600000001,
+          "mean_ms": 83.925702,
+          "stddev_ms": 7.347844316346811,
+          "median_ms": 82.189443,
+          "min_ms": 79.511104,
+          "max_ms": 110.04088800000001,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
@@ -183,12 +185,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 143.76076126666663,
-          "stddev_ms": 1.1847333693987572,
-          "median_ms": 143.657539,
-          "min_ms": 142.58035800000002,
-          "max_ms": 146.80362900000003,
-          "relative_to_skif": 1.1819467157750099,
+          "mean_ms": 94.16490306666668,
+          "stddev_ms": 3.312524969015381,
+          "median_ms": 93.733307,
+          "min_ms": 90.738186,
+          "max_ms": 103.75827699999999,
+          "relative_to_skif": 1.1220031625909626,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -196,18 +198,19 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 791.9478760666666,
-          "stddev_ms": 11.53288531989074,
-          "median_ms": 786.398949,
-          "min_ms": 776.0093300000001,
-          "max_ms": 815.3021570000001,
-          "relative_to_skif": 6.511096511555743,
+          "mean_ms": 513.8480224666666,
+          "stddev_ms": 9.682974720009248,
+          "median_ms": 512.074515,
+          "min_ms": 507.1693850000001,
+          "max_ms": 547.792893,
+          "relative_to_skif": 6.122653850028762,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": null
     },
     {
       "target": "graph: 10000 files in 100 packages",
@@ -221,31 +224,27 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 347.3048861333333,
-          "stddev_ms": 21.913801947519797,
-          "median_ms": 335.526633,
-          "min_ms": 321.71027200000003,
-          "max_ms": 384.53141,
+          "mean_ms": 203.10001593333334,
+          "stddev_ms": 3.1235790206312197,
+          "median_ms": 203.599211,
+          "min_ms": 197.46111299999998,
+          "max_ms": 206.73349299999998,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 115941376
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 437.42878559999997,
-          "stddev_ms": 8.881682103265415,
-          "median_ms": 436.773867,
-          "min_ms": 424.243311,
-          "max_ms": 450.60437900000005,
-          "relative_to_skif": 1.2594950519413866,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 125108224
+          "peak_rss_bytes": 114466816
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 196.688252,
+        "stddev_ms": 2.541188709471895,
+        "median_ms": 197.105216,
+        "min_ms": 190.475665,
+        "max_ms": 200.05249400000005,
+        "speedup": 1.0329468449987644,
+        "cache_hits": 10000
+      }
     },
     {
       "target": "corpus: create-t3-turbo (pnpm)",
@@ -263,38 +262,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 41.6764082,
-          "stddev_ms": 0.8541024509673634,
-          "median_ms": 42.008506000000004,
-          "min_ms": 40.364616000000005,
-          "max_ms": 42.917492,
+          "mean_ms": 28.047805,
+          "stddev_ms": 0.6239893760275781,
+          "median_ms": 28.052249,
+          "min_ms": 27.023708,
+          "max_ms": 29.251005000000003,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 29511680
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 671.7705024666666,
-          "stddev_ms": 42.5138140980116,
-          "median_ms": 656.486028,
-          "min_ms": 644.149411,
-          "max_ms": 792.368322,
-          "relative_to_skif": 16.118723553213172,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 262336512
+          "peak_rss_bytes": 27734016
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 4.408043133333334,
-          "stddev_ms": 0.03999655468888476,
-          "median_ms": 4.419577,
-          "min_ms": 4.33483,
-          "max_ms": 4.472736,
-          "relative_to_skif": 0.10576830690830342,
+          "mean_ms": 2.9515564000000003,
+          "stddev_ms": 0.06812756486474468,
+          "median_ms": 2.9308530000000004,
+          "min_ms": 2.880469,
+          "max_ms": 3.142658,
+          "relative_to_skif": 0.10523306190983574,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -302,12 +288,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 33.67701066666667,
-          "stddev_ms": 1.4406801836884773,
-          "median_ms": 32.886729,
-          "min_ms": 31.906791000000005,
-          "max_ms": 36.15038800000001,
-          "relative_to_skif": 7.6399004383608045,
+          "mean_ms": 23.42492533333333,
+          "stddev_ms": 1.4862784707632135,
+          "median_ms": 23.418894,
+          "min_ms": 21.234917,
+          "max_ms": 26.345698000000002,
+          "relative_to_skif": 7.936465430012901,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -315,12 +301,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 40.563343666666675,
-          "stddev_ms": 1.7794731060795035,
-          "median_ms": 39.909161000000005,
-          "min_ms": 38.599560000000004,
-          "max_ms": 44.787948,
-          "relative_to_skif": 9.202120405748602,
+          "mean_ms": 27.157695800000003,
+          "stddev_ms": 1.443578288627663,
+          "median_ms": 27.155033,
+          "min_ms": 25.094179,
+          "max_ms": 30.389681000000003,
+          "relative_to_skif": 9.201144115016742,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -328,11 +314,11 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 1949.790583733333,
-          "stddev_ms": 32.55145216613161,
-          "median_ms": 1945.8341169999999,
-          "min_ms": 1919.722991,
-          "max_ms": 2058.7761069999997,
+          "mean_ms": 1246.9603925333338,
+          "stddev_ms": 14.366166218071395,
+          "median_ms": 1241.7475650000001,
+          "min_ms": 1227.260028,
+          "max_ms": 1284.332986,
           "relative_to_skif": null,
           "error_runs": 15,
           "error_output": "ERROR: Error loading apps/expo/metro.config.js (Cannot find module 'metro-cache')",
@@ -343,7 +329,16 @@
           },
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 27.93116413333334,
+        "stddev_ms": 0.591819600637712,
+        "median_ms": 28.035839000000003,
+        "min_ms": 26.920969000000003,
+        "max_ms": 28.706479000000005,
+        "speedup": 1.0005853222370122,
+        "cache_hits": 78
+      }
     },
     {
       "target": "corpus: vue-core (pnpm)",
@@ -361,38 +356,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 92.73062573333334,
-          "stddev_ms": 0.8683680660581059,
-          "median_ms": 92.663118,
-          "min_ms": 91.714227,
-          "max_ms": 94.574537,
+          "mean_ms": 63.18628593333334,
+          "stddev_ms": 0.6056942094991349,
+          "median_ms": 63.258727,
+          "min_ms": 62.20214,
+          "max_ms": 64.141305,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 37330944
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 420.9910602666667,
-          "stddev_ms": 10.52545305241092,
-          "median_ms": 422.37021200000004,
-          "min_ms": 401.16598,
-          "max_ms": 443.821641,
-          "relative_to_skif": 4.539935506068041,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 154304512
+          "peak_rss_bytes": 35020800
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 4.652508066666667,
-          "stddev_ms": 0.08210892919466938,
-          "median_ms": 4.641902000000001,
-          "min_ms": 4.545844000000001,
-          "max_ms": 4.773928000000001,
-          "relative_to_skif": 0.05017229237777328,
+          "mean_ms": 3.1815032000000003,
+          "stddev_ms": 0.3422856813031643,
+          "median_ms": 3.108482,
+          "min_ms": 2.9632110000000003,
+          "max_ms": 4.388665,
+          "relative_to_skif": 0.05035116644388221,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -400,12 +382,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 34.509752,
-          "stddev_ms": 0.9567512578347784,
-          "median_ms": 34.504757000000005,
-          "min_ms": 32.71598,
-          "max_ms": 37.073761,
-          "relative_to_skif": 7.417451298418669,
+          "mean_ms": 23.923666199999996,
+          "stddev_ms": 1.7848698533641922,
+          "median_ms": 23.906944000000003,
+          "min_ms": 21.13283,
+          "max_ms": 27.332463,
+          "relative_to_skif": 7.5196109185117255,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -413,12 +395,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 43.1905426,
-          "stddev_ms": 1.5243365778263194,
-          "median_ms": 43.439901000000006,
-          "min_ms": 41.227786,
-          "max_ms": 47.439383,
-          "relative_to_skif": 9.283281615230873,
+          "mean_ms": 28.827746333333334,
+          "stddev_ms": 1.5563302613685581,
+          "median_ms": 28.540666,
+          "min_ms": 26.928296,
+          "max_ms": 32.219305000000006,
+          "relative_to_skif": 9.06104583937974,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -426,11 +408,11 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 1599.3380001333333,
-          "stddev_ms": 17.781804077249046,
-          "median_ms": 1599.263508,
-          "min_ms": 1568.6969980000001,
-          "max_ms": 1632.250641,
+          "mean_ms": 1082.1607906,
+          "stddev_ms": 16.616697319749758,
+          "median_ms": 1075.431568,
+          "min_ms": 1066.793936,
+          "max_ms": 1131.375087,
           "relative_to_skif": null,
           "error_runs": 15,
           "error_output": "ERROR: Error loading packages-private/sfc-playground/vite.config.ts (__DEV__ is not defined)",
@@ -441,7 +423,16 @@
           },
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 41.8873666,
+        "stddev_ms": 0.583817712796286,
+        "median_ms": 41.812087999999996,
+        "min_ms": 40.769669,
+        "max_ms": 43.056737999999996,
+        "speedup": 1.512929155798199,
+        "cache_hits": 532
+      }
     },
     {
       "target": "corpus: tanstack-query (pnpm)",
@@ -455,38 +446,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 512.5181882,
-          "stddev_ms": 3.58611326741632,
-          "median_ms": 512.245241,
-          "min_ms": 507.260099,
-          "max_ms": 519.6712660000001,
+          "mean_ms": 358.96343433333334,
+          "stddev_ms": 2.9366811349947097,
+          "median_ms": 358.600531,
+          "min_ms": 354.951585,
+          "max_ms": 366.258758,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 114733056
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 3904.1545550666674,
-          "stddev_ms": 82.35243947807987,
-          "median_ms": 3892.724186,
-          "min_ms": 3777.6373,
-          "max_ms": 4110.9295010000005,
-          "relative_to_skif": 7.617592204441237,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 422801408
+          "peak_rss_bytes": 112799744
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 12.156628066666668,
-          "stddev_ms": 0.16166810977363774,
-          "median_ms": 12.202279,
-          "min_ms": 11.853047,
-          "max_ms": 12.392363999999999,
-          "relative_to_skif": 0.023719408104055,
+          "mean_ms": 7.921006466666668,
+          "stddev_ms": 0.16675929083856442,
+          "median_ms": 7.8751310000000005,
+          "min_ms": 7.722851,
+          "max_ms": 8.357128,
+          "relative_to_skif": 0.022066332414546783,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -494,12 +472,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 40.8861684,
-          "stddev_ms": 1.1643581214216452,
-          "median_ms": 41.305625000000006,
-          "min_ms": 38.55909,
-          "max_ms": 42.187582,
-          "relative_to_skif": 3.36328200351127,
+          "mean_ms": 27.654716800000003,
+          "stddev_ms": 1.1749477776963537,
+          "median_ms": 27.94399,
+          "min_ms": 25.470309,
+          "max_ms": 29.306914000000003,
+          "relative_to_skif": 3.491313498654131,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -507,12 +485,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 122.77864373333335,
-          "stddev_ms": 1.5083981788787195,
-          "median_ms": 122.442236,
-          "min_ms": 120.584268,
-          "max_ms": 125.47924200000001,
-          "relative_to_skif": 10.099728564534352,
+          "mean_ms": 78.14296519999999,
+          "stddev_ms": 2.7201892831090206,
+          "median_ms": 77.29532499999999,
+          "min_ms": 75.185766,
+          "max_ms": 84.46573000000001,
+          "relative_to_skif": 9.865282338657686,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -520,18 +498,27 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 4327.142566400001,
-          "stddev_ms": 22.148306215599074,
-          "median_ms": 4329.368097,
-          "min_ms": 4290.431065,
-          "max_ms": 4355.864076999999,
-          "relative_to_skif": 8.4429053758994,
+          "mean_ms": 2873.9985209999995,
+          "stddev_ms": 20.358564102476382,
+          "median_ms": 2869.2300099999998,
+          "min_ms": 2842.233298,
+          "max_ms": 2914.383952,
+          "relative_to_skif": 8.006382394734961,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 317.1750087333333,
+        "stddev_ms": 2.497869291742618,
+        "median_ms": 317.275442,
+        "min_ms": 313.217919,
+        "max_ms": 321.35548,
+        "speedup": 1.1302498823719234,
+        "cache_hits": 2365
+      }
     },
     {
       "target": "corpus: babel (yarn)",
@@ -545,38 +532,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 1117.180800866667,
-          "stddev_ms": 6.898572888774043,
-          "median_ms": 1117.54012,
-          "min_ms": 1106.5494529999999,
-          "max_ms": 1133.2264910000001,
+          "mean_ms": 807.6711574666667,
+          "stddev_ms": 4.35544737333391,
+          "median_ms": 806.691988,
+          "min_ms": 801.42397,
+          "max_ms": 814.7052170000001,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 165707776
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 12968.838732,
-          "stddev_ms": 167.70425917857008,
-          "median_ms": 13003.591126,
-          "min_ms": 12721.570119,
-          "max_ms": 13159.490468,
-          "relative_to_skif": 11.60854064260616,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 484900864
+          "peak_rss_bytes": 161128448
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 12.241557266666666,
-          "stddev_ms": 0.35189415818832026,
-          "median_ms": 12.199186000000001,
-          "min_ms": 11.570252,
-          "max_ms": 12.692883,
-          "relative_to_skif": 0.010957543539210598,
+          "mean_ms": 8.274810133333332,
+          "stddev_ms": 0.19750980696912504,
+          "median_ms": 8.309911,
+          "min_ms": 7.935241,
+          "max_ms": 8.608619000000001,
+          "relative_to_skif": 0.01024527130483156,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -584,11 +558,11 @@
         },
         {
           "tool": "skif --recursive",
-          "mean_ms": 1102.954489266667,
-          "stddev_ms": 8.769000536591568,
-          "median_ms": 1101.2784849999998,
-          "min_ms": 1088.049127,
-          "max_ms": 1117.77765,
+          "mean_ms": 810.9032673333335,
+          "stddev_ms": 6.25527716318972,
+          "median_ms": 811.687606,
+          "min_ms": 802.896287,
+          "max_ms": 825.4802010000001,
           "relative_to_skif": null,
           "error_runs": 0,
           "error_output": null,
@@ -597,12 +571,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 36.63923800000001,
-          "stddev_ms": 1.4196405161337757,
-          "median_ms": 36.831401,
-          "min_ms": 34.218927,
-          "max_ms": 39.43544800000001,
-          "relative_to_skif": 2.993021002300694,
+          "mean_ms": 25.30429926666667,
+          "stddev_ms": 1.368179574903898,
+          "median_ms": 25.162845000000004,
+          "min_ms": 23.066493,
+          "max_ms": 27.833997999999998,
+          "relative_to_skif": 3.0579915259606527,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -610,12 +584,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 342.5444549333333,
-          "stddev_ms": 1.5875210598285676,
-          "median_ms": 342.41269900000003,
-          "min_ms": 340.25047600000005,
-          "max_ms": 345.164122,
-          "relative_to_skif": 27.98209798569255,
+          "mean_ms": 186.19131926666668,
+          "stddev_ms": 1.5646968476951257,
+          "median_ms": 185.841439,
+          "min_ms": 183.33355500000002,
+          "max_ms": 189.080526,
+          "relative_to_skif": 22.500977819011712,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -623,18 +597,27 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 6552.361705066667,
-          "stddev_ms": 43.06750407650959,
-          "median_ms": 6551.004748,
-          "min_ms": 6486.499136,
-          "max_ms": 6649.454652,
-          "relative_to_skif": 5.865086206264547,
+          "mean_ms": 4441.453861666667,
+          "stddev_ms": 21.68718058596655,
+          "median_ms": 4440.72496,
+          "min_ms": 4410.717905,
+          "max_ms": 4484.938315,
+          "relative_to_skif": 5.4990868754032105,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 796.7850521333334,
+        "stddev_ms": 2.861125471824724,
+        "median_ms": 797.3094340000001,
+        "min_ms": 791.320059,
+        "max_ms": 801.502775,
+        "speedup": 1.0117677699521612,
+        "cache_hits": 720
+      }
     },
     {
       "target": "corpus: npm-cli (npm)",
@@ -648,38 +631,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 121.03583746666669,
-          "stddev_ms": 1.4792154978994216,
-          "median_ms": 121.048575,
-          "min_ms": 119.060848,
-          "max_ms": 125.539235,
+          "mean_ms": 82.72089146666667,
+          "stddev_ms": 0.7424174031030418,
+          "median_ms": 82.639994,
+          "min_ms": 80.511716,
+          "max_ms": 83.70935,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 47202304
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 156.1029776,
-          "stddev_ms": 4.168248891131567,
-          "median_ms": 156.17356,
-          "min_ms": 148.441032,
-          "max_ms": 162.148851,
-          "relative_to_skif": 1.2897252654032392,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 52486144
+          "peak_rss_bytes": 47026176
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 7.0273112666666675,
-          "stddev_ms": 0.18162961365351135,
-          "median_ms": 6.995915,
-          "min_ms": 6.808384,
-          "max_ms": 7.468045,
-          "relative_to_skif": 0.05805975662870918,
+          "mean_ms": 4.827727666666667,
+          "stddev_ms": 0.12098875787837644,
+          "median_ms": 4.802176,
+          "min_ms": 4.648584,
+          "max_ms": 5.035932,
+          "relative_to_skif": 0.05836164941007744,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -687,12 +657,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 32.44865133333334,
-          "stddev_ms": 1.16403515095671,
-          "median_ms": 32.528801,
-          "min_ms": 30.671525000000003,
-          "max_ms": 34.68521500000001,
-          "relative_to_skif": 4.61750591399732,
+          "mean_ms": 24.512712533333335,
+          "stddev_ms": 1.4728453291663468,
+          "median_ms": 24.647282000000004,
+          "min_ms": 22.018202000000002,
+          "max_ms": 26.753039,
+          "relative_to_skif": 5.0774845280902685,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -700,12 +670,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 77.00871520000001,
-          "stddev_ms": 1.0301189579210344,
-          "median_ms": 76.786168,
-          "min_ms": 75.347564,
-          "max_ms": 79.523526,
-          "relative_to_skif": 10.958489282420572,
+          "mean_ms": 50.00642366666668,
+          "stddev_ms": 2.531366218998509,
+          "median_ms": 50.129929,
+          "min_ms": 44.762891,
+          "max_ms": 55.070271,
+          "relative_to_skif": 10.358169954767542,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -713,18 +683,27 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 824.1225631333333,
-          "stddev_ms": 5.64867402822468,
-          "median_ms": 823.131715,
-          "min_ms": 816.00145,
-          "max_ms": 835.6594,
-          "relative_to_skif": 6.808913627422927,
+          "mean_ms": 539.2283246666667,
+          "stddev_ms": 4.753799701835839,
+          "median_ms": 539.060775,
+          "min_ms": 531.509572,
+          "max_ms": 547.822443,
+          "relative_to_skif": 6.518647407033264,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 55.64319666666667,
+        "stddev_ms": 0.8471164288203724,
+        "median_ms": 55.950381,
+        "min_ms": 53.539448,
+        "max_ms": 56.628664,
+        "speedup": 1.4770228999870438,
+        "cache_hits": 691
+      }
     },
     {
       "target": "corpus: angular (pnpm)",
@@ -738,38 +717,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 1159.4396688,
-          "stddev_ms": 4.735923594942099,
-          "median_ms": 1160.761222,
-          "min_ms": 1153.758783,
-          "max_ms": 1165.869986,
+          "mean_ms": 855.1766180000001,
+          "stddev_ms": 7.030802481680378,
+          "median_ms": 857.402822,
+          "min_ms": 846.9726830000001,
+          "max_ms": 862.1960500000001,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 228245504
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 5086.8903856,
-          "stddev_ms": 38.644408776640574,
-          "median_ms": 5088.822658,
-          "min_ms": 5035.312594,
-          "max_ms": 5140.441478,
-          "relative_to_skif": 4.387369625592372,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 649039872
+          "peak_rss_bytes": 225693696
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 6.949161800000001,
-          "stddev_ms": 0.1531720253349155,
-          "median_ms": 6.942836000000001,
-          "min_ms": 6.747151000000001,
-          "max_ms": 7.166794,
-          "relative_to_skif": 0.005993551874236168,
+          "mean_ms": 5.0539548000000005,
+          "stddev_ms": 0.194690923598662,
+          "median_ms": 4.989223,
+          "min_ms": 4.856821,
+          "max_ms": 5.35925,
+          "relative_to_skif": 0.005909837445999956,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -777,12 +743,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 32.976835,
-          "stddev_ms": 0.636870046855322,
-          "median_ms": 32.947301,
-          "min_ms": 32.118947,
-          "max_ms": 33.746994,
-          "relative_to_skif": 4.745440665951971,
+          "mean_ms": 25.6384592,
+          "stddev_ms": 1.6239236754395814,
+          "median_ms": 25.092438,
+          "min_ms": 24.027252999999998,
+          "max_ms": 28.188185,
+          "relative_to_skif": 5.072949841181801,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -790,12 +756,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 103.107703,
-          "stddev_ms": 1.1811621508728156,
-          "median_ms": 103.515989,
-          "min_ms": 101.411322,
-          "max_ms": 104.540059,
-          "relative_to_skif": 14.837430177550331,
+          "mean_ms": 63.115536,
+          "stddev_ms": 0.7367840248980704,
+          "median_ms": 63.17049500000001,
+          "min_ms": 62.178627000000006,
+          "max_ms": 64.101341,
+          "relative_to_skif": 12.488345958297845,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -803,18 +769,27 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 4861.9023676,
-          "stddev_ms": 28.085886893837717,
-          "median_ms": 4858.191358,
-          "min_ms": 4823.32338,
-          "max_ms": 4891.782751,
-          "relative_to_skif": 4.193320703467033,
+          "mean_ms": 3465.5530806,
+          "stddev_ms": 55.4195698235914,
+          "median_ms": 3451.752859,
+          "min_ms": 3413.889191,
+          "max_ms": 3558.785019,
+          "relative_to_skif": 4.052441340953501,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 408.6696914,
+        "stddev_ms": 2.5672624858989885,
+        "median_ms": 409.483122,
+        "min_ms": 404.95780199999996,
+        "max_ms": 411.350979,
+        "speedup": 2.093866086133826,
+        "cache_hits": 4626
+      }
     },
     {
       "target": "corpus: vscode (pnpm)",
@@ -828,38 +803,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 3248.5643338,
-          "stddev_ms": 5.596105588344518,
-          "median_ms": 3245.534883,
-          "min_ms": 3244.251138,
-          "max_ms": 3257.830231,
+          "mean_ms": 2555.62156,
+          "stddev_ms": 18.26746739632412,
+          "median_ms": 2565.858296,
+          "min_ms": 2526.554219,
+          "max_ms": 2570.317144,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 460341248
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 13931.585266200002,
-          "stddev_ms": 126.28045589589738,
-          "median_ms": 13940.453361,
-          "min_ms": 13787.674916,
-          "max_ms": 14113.843587,
-          "relative_to_skif": 4.288536053064266,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 3108057088
+          "peak_rss_bytes": 461230080
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 61.572363,
-          "stddev_ms": 3.028907932825957,
-          "median_ms": 60.893342000000004,
-          "min_ms": 58.484236,
-          "max_ms": 66.394558,
-          "relative_to_skif": 0.01895371514098226,
+          "mean_ms": 34.2776626,
+          "stddev_ms": 0.4712890542027256,
+          "median_ms": 34.305893000000005,
+          "min_ms": 33.651671,
+          "max_ms": 34.843974,
+          "relative_to_skif": 0.013412651989052714,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -867,11 +829,11 @@
         },
         {
           "tool": "skif --recursive",
-          "mean_ms": 5137.001106799999,
-          "stddev_ms": 4.075167963535061,
-          "median_ms": 5137.289579,
-          "min_ms": 5132.020359,
-          "max_ms": 5142.12079,
+          "mean_ms": 4067.1108564,
+          "stddev_ms": 17.78162565999925,
+          "median_ms": 4066.631427,
+          "min_ms": 4050.347725,
+          "max_ms": 4092.6144190000005,
           "relative_to_skif": null,
           "error_runs": 0,
           "error_output": null,
@@ -880,12 +842,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 34.6095034,
-          "stddev_ms": 0.9571695426815985,
-          "median_ms": 34.379134,
-          "min_ms": 33.837922999999996,
-          "max_ms": 36.266976,
-          "relative_to_skif": 0.5620947729422046,
+          "mean_ms": 27.2525646,
+          "stddev_ms": 2.14330831498849,
+          "median_ms": 27.376498,
+          "min_ms": 24.846615999999997,
+          "max_ms": 29.898860000000003,
+          "relative_to_skif": 0.7950531784509718,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -893,12 +855,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 163.25649260000003,
-          "stddev_ms": 0.788576858849084,
-          "median_ms": 163.261238,
-          "min_ms": 162.25349800000004,
-          "max_ms": 164.259979,
-          "relative_to_skif": 2.651457320226609,
+          "mean_ms": 99.5234998,
+          "stddev_ms": 0.5340210116603059,
+          "median_ms": 99.683252,
+          "min_ms": 98.83156,
+          "max_ms": 100.088019,
+          "relative_to_skif": 2.9034505929234506,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -906,18 +868,27 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 16369.306358599999,
-          "stddev_ms": 182.9970210589715,
-          "median_ms": 16322.827991,
-          "min_ms": 16111.264738999998,
-          "max_ms": 16563.790495999998,
-          "relative_to_skif": 5.038935565561678,
+          "mean_ms": 12969.3497262,
+          "stddev_ms": 154.57870664425423,
+          "median_ms": 12924.084418,
+          "min_ms": 12826.717517000001,
+          "max_ms": 13222.401238,
+          "relative_to_skif": 5.074831864464315,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 1381.190766,
+        "stddev_ms": 13.262407038986124,
+        "median_ms": 1376.955259,
+        "min_ms": 1369.560387,
+        "max_ms": 1404.0348099999999,
+        "speedup": 1.8634289525597432,
+        "cache_hits": 13412
+      }
     },
     {
       "target": "corpus: n8n (pnpm)",
@@ -935,38 +906,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 6276.200821,
-          "stddev_ms": 11.660739397796805,
-          "median_ms": 6283.974903,
-          "min_ms": 6262.897995,
-          "max_ms": 6286.077877000001,
+          "mean_ms": 5065.257906,
+          "stddev_ms": 28.423040218769316,
+          "median_ms": 5078.847093,
+          "min_ms": 5027.396682,
+          "max_ms": 5093.2998769999995,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 868925440
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 27675.820244599996,
-          "stddev_ms": 212.20000237589622,
-          "median_ms": 27577.134872,
-          "min_ms": 27495.775424000003,
-          "max_ms": 27934.3997,
-          "relative_to_skif": 4.409645426258102,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 3838664704
+          "peak_rss_bytes": 885268480
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 130.3422456,
-          "stddev_ms": 0.9166010377976873,
-          "median_ms": 129.95543700000002,
-          "min_ms": 129.532229,
-          "max_ms": 131.841073,
-          "relative_to_skif": 0.020767698376361436,
+          "mean_ms": 82.56926340000001,
+          "stddev_ms": 1.1650478360437853,
+          "median_ms": 82.23933600000001,
+          "min_ms": 81.392484,
+          "max_ms": 84.380847,
+          "relative_to_skif": 0.016301097581268947,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -974,12 +932,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 36.6784964,
-          "stddev_ms": 1.031703793882623,
-          "median_ms": 36.027305000000005,
-          "min_ms": 35.849002000000006,
-          "max_ms": 37.947725,
-          "relative_to_skif": 0.2814014461018308,
+          "mean_ms": 29.730434,
+          "stddev_ms": 2.164280404070483,
+          "median_ms": 29.353333999999997,
+          "min_ms": 27.957976,
+          "max_ms": 33.442315,
+          "relative_to_skif": 0.36006660076369285,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -987,12 +945,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 232.05481759999998,
-          "stddev_ms": 1.110266083270038,
-          "median_ms": 231.306541,
-          "min_ms": 231.238804,
-          "max_ms": 233.634171,
-          "relative_to_skif": 1.7803500049564893,
+          "mean_ms": 137.5080498,
+          "stddev_ms": 1.037245215961583,
+          "median_ms": 136.969898,
+          "min_ms": 136.55149600000001,
+          "max_ms": 139.049943,
+          "relative_to_skif": 1.6653660713170415,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -1000,12 +958,12 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 29724.5806436,
-          "stddev_ms": 77.02906763671665,
-          "median_ms": 29735.28039,
-          "min_ms": 29613.946741,
-          "max_ms": 29798.436433,
-          "relative_to_skif": 4.736078639189228,
+          "mean_ms": 21572.380037,
+          "stddev_ms": 253.4730606444357,
+          "median_ms": 21703.31608,
+          "min_ms": 21147.645796,
+          "max_ms": 21773.446772,
+          "relative_to_skif": 4.258890748967916,
           "error_runs": 5,
           "error_output": "ERROR: Error loading packages/@n8n/nodes-langchain/vite.config.ts (Cannot find module 'packages/@n8n/nodes-langchain/node_modules/n8n-workflow/dist/cjs/index.js",
           "failure": {
@@ -1015,7 +973,16 @@
           },
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 3898.5479827999998,
+        "stddev_ms": 36.20773743734357,
+        "median_ms": 3891.813552,
+        "min_ms": 3853.0494360000002,
+        "max_ms": 3947.774672,
+        "speedup": 1.3050078132314393,
+        "cache_hits": 25813
+      }
     },
     {
       "target": "corpus: next-js (pnpm)",
@@ -1033,38 +1000,25 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 1070.9622639999998,
-          "stddev_ms": 5.719177507965793,
-          "median_ms": 1069.97504,
-          "min_ms": 1065.5548939999999,
-          "max_ms": 1079.7648319999998,
+          "mean_ms": 793.1429474,
+          "stddev_ms": 11.966649572942604,
+          "median_ms": 794.7339460000001,
+          "min_ms": 774.3601600000001,
+          "max_ms": 807.5295460000001,
           "relative_to_skif": 1.0,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
-          "peak_rss_bytes": 202743808
-        },
-        {
-          "tool": "skif --type-aware",
-          "mean_ms": 3277.146192,
-          "stddev_ms": 31.593208386535483,
-          "median_ms": 3279.249054,
-          "min_ms": 3239.980707,
-          "max_ms": 3322.8450390000003,
-          "relative_to_skif": 3.060001553892286,
-          "error_runs": 0,
-          "error_output": null,
-          "failure": null,
-          "peak_rss_bytes": 580988928
+          "peak_rss_bytes": 196456448
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 95.3834378,
-          "stddev_ms": 1.2528624821452652,
-          "median_ms": 95.519302,
-          "min_ms": 94.03406,
-          "max_ms": 97.28317200000001,
-          "relative_to_skif": 0.08906330410162801,
+          "mean_ms": 57.81021420000001,
+          "stddev_ms": 0.4111004644143558,
+          "median_ms": 57.898911,
+          "min_ms": 57.27771800000001,
+          "max_ms": 58.374884,
+          "relative_to_skif": 0.07288750960909068,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -1072,11 +1026,11 @@
         },
         {
           "tool": "skif --recursive",
-          "mean_ms": 3326.4597856,
-          "stddev_ms": 11.314438995250605,
-          "median_ms": 3324.1025409999997,
-          "min_ms": 3313.123999,
-          "max_ms": 3344.36797,
+          "mean_ms": 2441.5386172,
+          "stddev_ms": 13.664200659448415,
+          "median_ms": 2439.872488,
+          "min_ms": 2422.4072969999997,
+          "max_ms": 2458.941947,
           "relative_to_skif": null,
           "error_runs": 0,
           "error_output": null,
@@ -1085,12 +1039,12 @@
         },
         {
           "tool": "sherif",
-          "mean_ms": 34.682145000000006,
-          "stddev_ms": 0.9740077155479848,
-          "median_ms": 34.294069,
-          "min_ms": 33.514294,
-          "max_ms": 35.882552000000004,
-          "relative_to_skif": 0.36360762203519575,
+          "mean_ms": 25.713081200000005,
+          "stddev_ms": 1.9759590204310165,
+          "median_ms": 25.509912000000003,
+          "min_ms": 23.160608999999997,
+          "max_ms": 28.477572000000002,
+          "relative_to_skif": 0.4447843959035184,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -1098,12 +1052,12 @@
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 435.8191898,
-          "stddev_ms": 1.509591826368872,
-          "median_ms": 436.051732,
-          "min_ms": 434.045995,
-          "max_ms": 437.540743,
-          "relative_to_skif": 4.56912855996893,
+          "mean_ms": 241.96584579999998,
+          "stddev_ms": 0.7039476730678867,
+          "median_ms": 241.91050500000006,
+          "min_ms": 241.32734200000002,
+          "max_ms": 243.137764,
+          "relative_to_skif": 4.185520658389119,
           "error_runs": 0,
           "error_output": null,
           "failure": null,
@@ -1111,12 +1065,12 @@
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 7524.295087199999,
-          "stddev_ms": 52.82445699348988,
-          "median_ms": 7530.621268,
-          "min_ms": 7465.900982,
-          "max_ms": 7587.004135,
-          "relative_to_skif": 7.025733156177761,
+          "mean_ms": 4705.2800542,
+          "stddev_ms": 43.93430221986169,
+          "median_ms": 4694.600635999999,
+          "min_ms": 4667.417659,
+          "max_ms": 4780.8817579999995,
+          "relative_to_skif": 5.932448960965192,
           "error_runs": 5,
           "error_output": "ERROR: Error loading jest.config.js (Cannot find module './dist/build/jest/jest')",
           "failure": {
@@ -1126,18 +1080,27 @@
           },
           "peak_rss_bytes": null
         }
-      ]
+      ],
+      "warm_cache": {
+        "mean_ms": 613.790353,
+        "stddev_ms": 7.058380997344201,
+        "median_ms": 609.958657,
+        "min_ms": 609.673889,
+        "max_ms": 626.109311,
+        "speedup": 1.302930841097973,
+        "cache_hits": 4374
+      }
     }
   ],
   "adr_0001_checks": [
     {
       "target": "generated: 500 packages (pnpm)",
-      "description": "manifest and policy rules < 50 ms (measured 29.3 ms)",
+      "description": "manifest and policy rules < 50 ms (measured 19.0 ms)",
       "status": "pass"
     },
     {
       "target": "graph: 10000 files in 100 packages",
-      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 347.3 ms)",
+      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 203.1 ms)",
       "status": "pass"
     },
     {
@@ -1152,150 +1115,38 @@
     },
     {
       "target": "corpus: tanstack-query (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 8.4x)",
+      "description": "JS analysis >= 5x faster than knip (measured 8.0x)",
       "status": "pass"
     },
     {
       "target": "corpus: babel (yarn)",
-      "description": "JS analysis >= 5x faster than knip (measured 5.9x)",
+      "description": "JS analysis >= 5x faster than knip (measured 5.5x)",
       "status": "pass"
     },
     {
       "target": "corpus: npm-cli (npm)",
-      "description": "JS analysis >= 5x faster than knip (measured 6.8x)",
+      "description": "JS analysis >= 5x faster than knip (measured 6.5x)",
       "status": "pass"
     },
     {
       "target": "corpus: angular (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 4.2x)",
+      "description": "JS analysis >= 5x faster than knip (measured 4.1x)",
       "status": "fail"
     },
     {
       "target": "corpus: vscode (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 5.0x)",
+      "description": "JS analysis >= 5x faster than knip (measured 5.1x)",
       "status": "pass"
     },
     {
       "target": "corpus: n8n (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 4.7x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries)",
+      "description": "JS analysis >= 5x faster than knip (measured 4.3x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries)",
       "status": "fail"
     },
     {
       "target": "corpus: next-js (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 7.0x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries)",
+      "description": "JS analysis >= 5x faster than knip (measured 5.9x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries)",
       "status": "pass"
-    }
-  ],
-  "type_aware_budget_checks": [
-    {
-      "target": "graph: 10000 files in 100 packages",
-      "description": "peak RSS with types <= 4096 MiB (measured 119 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "graph: 10000 files in 100 packages",
-      "description": "whole run with types < 5000 ms (measured 437.4 ms)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: create-t3-turbo (pnpm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 250 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: create-t3-turbo (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide)",
-      "status": "not-measured"
-    },
-    {
-      "target": "corpus: vue-core (pnpm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 147 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: vue-core (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines)",
-      "status": "not-measured"
-    },
-    {
-      "target": "corpus: tanstack-query (pnpm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 403 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: tanstack-query (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 1.1x)",
-      "status": "fail"
-    },
-    {
-      "target": "corpus: babel (yarn)",
-      "description": "peak RSS with types <= 4096 MiB (measured 462 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: babel (yarn)",
-      "description": "JS analysis >= 5x faster than knip (measured 0.5x)",
-      "status": "fail"
-    },
-    {
-      "target": "corpus: npm-cli (npm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 50 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: npm-cli (npm)",
-      "description": "JS analysis >= 5x faster than knip (measured 5.3x)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: angular (pnpm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 619 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: angular (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 1.0x)",
-      "status": "fail"
-    },
-    {
-      "target": "corpus: vscode (pnpm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 2964 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: vscode (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 1.2x)",
-      "status": "fail"
-    },
-    {
-      "target": "corpus: n8n (pnpm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 3661 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: n8n (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 1.1x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries)",
-      "status": "fail"
-    },
-    {
-      "target": "corpus: next-js (pnpm)",
-      "description": "peak RSS with types <= 4096 MiB (measured 554 MiB)",
-      "status": "pass"
-    },
-    {
-      "target": "corpus: next-js (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 2.3x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries)",
-      "status": "fail"
-    },
-    {
-      "target": "corpus: n8n (pnpm)",
-      "description": "types on <= 3x types off on the largest repository, the one whose untyped run takes longest (measured 4.4x: 27676 ms against 6276 ms)",
-      "status": "fail"
-    },
-    {
-      "target": "corpus",
-      "description": "median types on / types off across 9 repositories <= 2x (measured 4.4x)",
-      "status": "fail"
     }
   ]
 }
