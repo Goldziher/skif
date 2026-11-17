@@ -20,7 +20,7 @@ use crate::corpus;
 use crate::diff::{self, BASELINE_SCHEMA, Baseline, CaseSummary, Counts, Entry, Gate, Keys, Known, Samples};
 use crate::evidence::{Evidence, SYNCPACK_DEVIATIONS};
 use crate::parity::normalize;
-use crate::proc::capture;
+use crate::proc::{SKIF_ARGS, capture};
 use crate::run::table_cell;
 use crate::tools_install;
 
@@ -356,6 +356,17 @@ struct Pair {
     read: BTreeSet<String>,
 }
 
+/// skif's policy rules on `workspace` with `config` (or none), without the cache: a store an earlier run left must
+/// not stand in for the analysis.
+fn skif_command(skif: &Path, workspace: &Path, config: Option<&Path>) -> Command {
+    let mut command = Command::new(skif);
+    command.args(SKIF_ARGS).arg("--no-js").current_dir(workspace);
+    if let Some(config) = config {
+        command.arg("--config").arg(config);
+    }
+    command
+}
+
 /// Both tools on one workspace: skif's policy rules with `skif_config` (or none), syncpack with `syncpack_args`.
 /// `Err(reason)` when one of them cannot run.
 fn run_pair(
@@ -366,14 +377,12 @@ fn run_pair(
     syncpack_args: &[String],
     scratch: &Path,
 ) -> Result<Result<Pair, String>> {
-    let mut skif_command = Command::new(skif);
-    skif_command
-        .args([".", "--format", "json", "--no-js", "--no-install"])
-        .current_dir(workspace);
-    if let Some(config) = skif_config {
-        skif_command.arg("--config").arg(config);
-    }
-    let skif_run = capture(&mut skif_command, scratch, "skif-syncpack", options.timeout)?;
+    let skif_run = capture(
+        &mut skif_command(skif, workspace, skif_config),
+        scratch,
+        "skif-syncpack",
+        options.timeout,
+    )?;
     if skif_run.timed_out {
         return Ok(Err("skif timed out".to_owned()));
     }
@@ -715,6 +724,28 @@ pub fn run(options: &Options) -> Result<()> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_skif_run_turns_the_cache_off() {
+        let command = skif_command(Path::new("/s/skif"), Path::new("/w"), Some(Path::new("/c/skif.toml")));
+        let arguments: Vec<_> = command.get_args().map(|argument| argument.to_string_lossy()).collect();
+        assert_eq!(
+            arguments,
+            [
+                ".",
+                "--format",
+                "json",
+                "--no-install",
+                "--no-cache",
+                "--no-js",
+                "--config",
+                "/c/skif.toml"
+            ]
+        );
+        let bare = skif_command(Path::new("/s/skif"), Path::new("/w"), None);
+        assert!(bare.get_args().any(|argument| argument == "--no-cache"));
+        assert!(!bare.get_args().any(|argument| argument == "--config"));
+    }
 
     #[test]
     fn an_empty_skif_toml_means_syncpack_defaults() {

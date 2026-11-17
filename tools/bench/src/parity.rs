@@ -38,7 +38,7 @@ use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, SCRATCH_ROOT_MARK, is_scratch_ro
 use crate::diff::{
     self, BASELINE_SCHEMA, Baseline, COMPARED, CategorySet, Counts, Deviation, Entry, Gate, Keys, Samples, Side,
 };
-use crate::proc::{Captured, capture, find_on_path};
+use crate::proc::{Captured, SKIF_ARGS, capture, find_on_path};
 use crate::provenance;
 use crate::run::table_cell;
 use crate::tools_install;
@@ -6152,6 +6152,19 @@ const fn skif_recursive(options: &Options, repo: &Repo) -> bool {
     options.recursive || repo.recursive
 }
 
+/// skif on the checkout at `root`, without the cache: a store an earlier run left must not stand in for the analysis.
+fn skif_command(skif: &Path, root: &Path, recursive: bool, config: Option<&Path>) -> Command {
+    let mut command = Command::new(skif);
+    command.args(SKIF_ARGS).current_dir(root);
+    if recursive {
+        command.arg("--recursive");
+    }
+    if let Some(config) = config {
+        command.arg("--config").arg(config);
+    }
+    command
+}
+
 /// Runs skif on a checkout (`root`, with its `scratch` directory) and reads its JSON report; `Ok(Err(reason))` when it produced none.
 fn run_skif(
     options: &Options,
@@ -6159,16 +6172,8 @@ fn run_skif(
     repo: &Repo,
     (root, scratch): (&Path, &Path),
 ) -> Result<Result<(Value, Captured), String>> {
-    let mut command = Command::new(skif);
-    command
-        .args([".", "--format", "json", "--no-install"])
-        .current_dir(root);
-    if skif_recursive(options, repo) {
-        command.arg("--recursive");
-    }
-    if let Some(config) = write_skif_entry_config(&repo.entry, scratch)? {
-        command.arg("--config").arg(config);
-    }
+    let config = write_skif_entry_config(&repo.entry, scratch)?;
+    let mut command = skif_command(skif, root, skif_recursive(options, repo), config.as_deref());
     let run = capture(&mut command, scratch, "skif-parity", options.timeout)?;
     if run.timed_out {
         return Ok(Err("skif timed out".to_owned()));

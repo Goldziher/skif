@@ -9,6 +9,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
+/// The arguments every skif run that is timed or compared starts with: the workspace in the working directory, the
+/// JSON report, no install and no cache. skif's cache is on by default, so without `--no-cache` a run reads the store
+/// an earlier run left and the harness would time and compare warm runs. Only `cache-diff` turns the cache on.
+pub const SKIF_ARGS: [&str; 5] = [".", "--format", "json", "--no-install", "--no-cache"];
+
 /// The outcome of a captured command.
 pub struct Captured {
     /// Exit code; `None` when the command was killed (timeout) or ended by a signal.

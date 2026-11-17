@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::corpus;
 use crate::parity;
-use crate::proc::capture;
+use crate::proc::{SKIF_ARGS, capture};
 use crate::provenance::{self, GithubRunner, Machine, Toolchain};
 use crate::sources;
 use crate::tools_install;
@@ -367,7 +367,7 @@ fn quote(argument: &str) -> String {
 fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> Vec<String> {
     let mut argv = vec![program.to_string_lossy().into_owned()];
     let fixed: &[&str] = match tool {
-        Tool::Skif | Tool::SkifManifest | Tool::SkifRecursive => &[".", "--format", "json", "--no-install"],
+        Tool::Skif | Tool::SkifManifest | Tool::SkifRecursive => &SKIF_ARGS,
         Tool::Sherif => &["."],
         Tool::Syncpack => &["lint"],
         Tool::Knip => &["--reporter", "json"],
@@ -1962,6 +1962,7 @@ mod tests {
                     "--format",
                     "json",
                     "--no-install",
+                    "--no-cache",
                     "--recursive",
                 ],
             ),
@@ -1973,6 +1974,7 @@ mod tests {
                     "--format",
                     "json",
                     "--no-install",
+                    "--no-cache",
                     "--no-js",
                     "--recursive",
                 ],
@@ -2023,15 +2025,15 @@ mod tests {
         let program = Path::new("/s/skif");
         assert_eq!(
             tool_command(Tool::Skif, program, &[], &[]),
-            "/s/skif . --format json --no-install"
+            "/s/skif . --format json --no-install --no-cache"
         );
         assert_eq!(
             tool_command(Tool::SkifManifest, program, &[], &[]),
-            "/s/skif . --format json --no-install --no-js"
+            "/s/skif . --format json --no-install --no-cache --no-js"
         );
         assert_eq!(
             tool_command(Tool::SkifRecursive, program, &[], &[]),
-            "/s/skif . --format json --no-install --recursive"
+            "/s/skif . --format json --no-install --no-cache --recursive"
         );
         assert_eq!(Tool::SkifRecursive.label(), "skif --recursive");
         let vue = bench.iter().find(|repo| repo.name == "vue-core").unwrap();
@@ -2356,6 +2358,28 @@ mod tests {
     }
 
     #[test]
+    fn every_skif_row_and_its_reruns_turn_the_cache_off() {
+        let extra = ["--config".to_owned(), "skif.toml".to_owned()];
+        for tool in [Tool::Skif, Tool::SkifManifest, Tool::SkifRecursive] {
+            // The error rerun runs this argv as it is, the peak RSS run under `/usr/bin/time`, hyperfine its quoted form.
+            let argv = tool_argv(tool, Path::new("/s/skif"), &extra, &[]);
+            assert_eq!(argv.iter().filter(|arg| *arg == "--no-cache").count(), 1, "{tool:?}");
+            assert!(
+                peak_rss_argv("-v", &argv).iter().any(|arg| arg == "--no-cache"),
+                "{tool:?}"
+            );
+            assert!(
+                tool_command(tool, Path::new("/s/skif"), &extra, &[]).contains(" --no-cache"),
+                "{tool:?}"
+            );
+        }
+        for tool in [Tool::Sherif, Tool::Syncpack, Tool::Knip] {
+            let argv = tool_argv(tool, Path::new("/t/x"), &extra, &[]);
+            assert!(!argv.iter().any(|arg| arg == "--no-cache"), "{tool:?}");
+        }
+    }
+
+    #[test]
     fn the_peak_rss_run_is_the_timed_command_under_time() {
         let argv = tool_argv(Tool::Skif, Path::new("/s/skif"), &[], &[]);
         assert_eq!(
@@ -2367,7 +2391,8 @@ mod tests {
                 ".",
                 "--format",
                 "json",
-                "--no-install"
+                "--no-install",
+                "--no-cache"
             ]
         );
         assert_eq!(mib(3_447_717_888), 3288);

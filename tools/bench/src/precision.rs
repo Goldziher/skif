@@ -15,7 +15,7 @@ use skif_bench::generate;
 use crate::corpus;
 use crate::diff::Keys;
 use crate::parity::{empty_knip_config, knip_keys, normalize, parse_knip_report, skif_keys};
-use crate::proc::capture;
+use crate::proc::{SKIF_ARGS, capture};
 use crate::tools_install;
 
 pub struct Options {
@@ -74,15 +74,15 @@ fn skif_findings(document: &Value, root: &Path) -> Keys {
     keys
 }
 
+/// skif on the workspace at `root`, without the cache: a store an earlier run left must not stand in for the analysis.
+fn skif_command(skif: &Path, root: &Path) -> Command {
+    let mut command = Command::new(skif);
+    command.args(SKIF_ARGS).current_dir(root);
+    command
+}
+
 fn run_skif(skif: &Path, root: &Path, scratch: &Path, timeout: Duration) -> Result<Value> {
-    let run = capture(
-        Command::new(skif)
-            .args([".", "--format", "json", "--no-install"])
-            .current_dir(root),
-        scratch,
-        "skif",
-        timeout,
-    )?;
+    let run = capture(&mut skif_command(skif, root), scratch, "skif", timeout)?;
     if run.timed_out {
         bail!("skif timed out");
     }
@@ -317,6 +317,14 @@ mod tests {
     use super::*;
 
     const ROOT: &str = "/repo";
+
+    #[test]
+    fn the_skif_run_turns_the_cache_off() {
+        let command = skif_command(Path::new("/s/skif"), Path::new(ROOT));
+        let arguments: Vec<_> = command.get_args().map(|argument| argument.to_string_lossy()).collect();
+        assert_eq!(arguments, [".", "--format", "json", "--no-install", "--no-cache"]);
+        assert_eq!(command.get_current_dir(), Some(Path::new(ROOT)));
+    }
 
     /// skif's report on a generated workspace, run in process, as the CLI's JSON report.
     fn skif_in_process(generated: &DeadCode) -> Value {

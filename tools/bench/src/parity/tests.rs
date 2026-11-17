@@ -7,6 +7,40 @@ fn set(keys: &Keys, category: &str) -> Vec<String> {
 }
 
 #[test]
+fn the_skif_run_turns_the_cache_off() {
+    let arguments = |command: &Command| -> Vec<String> {
+        command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect()
+    };
+    let plain = skif_command(Path::new("/s/skif"), Path::new("/r"), false, None);
+    assert_eq!(
+        arguments(&plain),
+        [".", "--format", "json", "--no-install", "--no-cache"]
+    );
+    let full = skif_command(
+        Path::new("/s/skif"),
+        Path::new("/r"),
+        true,
+        Some(Path::new("/c/entry.toml")),
+    );
+    assert_eq!(
+        arguments(&full),
+        [
+            ".",
+            "--format",
+            "json",
+            "--no-install",
+            "--no-cache",
+            "--recursive",
+            "--config",
+            "/c/entry.toml"
+        ]
+    );
+}
+
+#[test]
 fn normalizes_absolute_and_relative_paths() {
     let root = Path::new("/work/repo");
     assert_eq!(normalize("/work/repo/a/b.ts", root), "a/b.ts");
