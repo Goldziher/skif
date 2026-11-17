@@ -4,7 +4,7 @@ The built-in manifest, workspace, policy and catalog rules: sherif-derived manif
 and TypeScript with first-class monorepo support.
 
 `skif_rules::providers()` returns the rule providers, the rules over version files, Dockerfiles, CI workflows and
-shell scripts included; rules that read files read them through the run's `FileSystem`. Rule ids are a stable public
-contract.
+shell scripts included; rules that read files read them through the run's `FileSystem`. The `update` module plans
+`skif update`. Rule ids are a stable public contract.
 Most users want the `skif` command (`cargo install skif-cli`, `npm install -D @polylint/skif`) or the `skif` facade crate;
 this crate is an implementation detail of them and follows their version.

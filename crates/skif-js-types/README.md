@@ -18,8 +18,10 @@ on); see ADR 0010.
 
 Programs are built a few at a time (a quarter of the threads, the rest shared out as checkers; one thread runs tsrs
 single-threaded), each program's memory is freed as soon as its walk ends, and a panic inside the checker leaves that
-program's packages untyped with the reason `checker-failed`. The bundled lib files and the declaration files below
-`node_modules` are parsed and bound once and shared by every program that reads them: those of one analysis, or of
-every analysis of a run that shares `TypePrograms`, which keeps them until the run's last program is freed. The `plain-ptrs` feature builds tsrs with plain pointers
+program's packages untyped with the reason `checker-failed`. Every file a program reads is parsed and bound once and
+shared by every program that reads it: the programs of one analysis, or of every analysis of a run that shares
+`TypePrograms`, which also builds a program the judged files of several nested roots go to only once. A bundled lib
+file or a declaration file below `node_modules` is kept until the run's last program is freed, a project file until
+the last program that read it is. The `plain-ptrs` feature builds tsrs with plain pointers
 instead of its compressed handles and their fixed address reservation, for hosts such as Node.js that cannot give up
 that range (ADR 0010).

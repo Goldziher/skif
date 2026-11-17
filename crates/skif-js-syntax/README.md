@@ -9,6 +9,9 @@ The oxc boundary of [skif](https://github.com/polylint/skif): one JavaScript or 
   also follows the modules it imports through a `ModuleLoader`. `extract_config` returns an `ExtractedConfig`, the
   value with the evaluated arguments of the calls the evaluator cannot follow (a factory of an installed package) that
   the file exports, returns from its config function, merges or nests in the config; the loader is optional. Nothing is ever executed.
+- Besides `.js`, `.ts` and their variants, it reads the script blocks and template uses of `.vue`, `.svelte` and
+  `.astro` files, the imports and exports of `.mdx`, and the imports of `.marko` and `.tsrx`; `parse_stylesheet`
+  lists what a stylesheet imports.
 - `parse_cached` parses through a `ModuleCache` (`MemoryModuleCache` in memory) under a `ModuleKey` of the file name,
   its text, the parse options and the crate version, so an unchanged file is not parsed again.
 
