@@ -18,10 +18,6 @@ import { Steps } from '@astrojs/starlight/components';
    A package needs no workspace to be linted. Run `skif` at the top of a repository of independent projects, or
    pass `-r`, to lint all of them in one run.
 
-   The JS analysis credits member reads by name by default. `skif --type-aware` resolves them with the TypeScript
-   type checker instead, for more accurate member findings; it is slower and uses more memory, and a `types:` line
-   before the summary names the packages it did not fully cover.
-
 2. **Write a starter configuration**
 
    ```bash

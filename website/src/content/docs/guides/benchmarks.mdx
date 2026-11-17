@@ -12,9 +12,8 @@ measured is under [Methodology](#methodology).
 
 ## Speed
 
-Full skif runs are timed against knip, as skif runs by default, without type-aware analysis ("types off"), and
-again with `--type-aware` ("types on"), each with its peak memory. `skif --no-js`, which skips the JS analysis, is timed
-against sherif and syncpack. All of them run on the [pinned public repositories](https://github.com/polylint/skif/blob/main/tools/bench/corpus.toml) with their
+Full skif runs are timed against knip. `skif --no-js`, which skips the JS analysis, is timed against sherif and
+syncpack. All of them run on the [pinned public repositories](https://github.com/polylint/skif/blob/main/tools/bench/corpus.toml) with their
 dependencies installed and on generated workspaces. Absolute times depend on the machine; the ratios are the result.
 On npm-cli knip runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it. On the
 large repositories (angular, vscode, n8n and next-js) both tools run with the configuration of the
@@ -80,13 +79,7 @@ Mean and median of every timed command on every target of the same run, with the
 skif's, and the speed targets that [ADR 0001](https://github.com/polylint/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md)
 sets: manifest and policy rules on 500 packages in under 50 ms, the JS analysis at least 5x faster than knip on the same
 tree, and parsing and building the module graph of 10,000 files in under 2 s. The graph target times a whole `skif`
-run, which also runs every JS rule, so it is an upper bound. The same tables check the type-aware budget of
-[ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md):
-`--type-aware` never slower than knip on a repository where knip completes, at most 4 GiB of peak memory with types on
-every target, and at most 5 s with types on the 10,000-file graph. Each knip check gives the measured multiple; being
-well ahead of knip is the goal, but only the floor is enforced. The time against the default run without types is
-published in the tables, not limited. The budget is the bar types must meet to become the default; until then a broken
-budget shows in the tables without failing the run.
+run, which also runs every JS rule, so it is an upper bound.
 
 {/* bench:numbers:start */}
 **generated: 50 packages (pnpm)**
@@ -327,25 +320,23 @@ and 40 members. skif 0.8.0 (commit `4d3bdd7f`) and knip 6.45.1, measured on 2026
 
 | Tool | Precision | Recall | Precision, 33 non-member findings | Recall, 33 non-member findings |
 | --- | ---: | ---: | ---: | ---: |
-| skif (types off) | 100% | 79% | 100% | 100% |
-| skif `--type-aware` | 81% | 86% | 100% | 100% |
+| skif | 100% | 79% | 100% | 100% |
 | knip | 74% | 59% | 69% | 100% |
 
 On members alone (20 class, 15 enum and 5 namespace members seeded):
 
 | Tool | Class members | Enum members | Namespace members |
 | --- | --- | --- | --- |
-| skif (types off) | 15 of 20 found, no false finding | 5 of 15 found, no false finding | 5 of 5 found, no false finding |
-| skif `--type-aware` | 20 of 20 found, 15 false findings (3 live members in each package) | 5 of 15 found, no false finding | 5 of 5 found, no false finding |
+| skif | 15 of 20 found, no false finding | 5 of 15 found, no false finding | 5 of 5 found, no false finding |
 | knip | no check (dropped in knip 6) | 5 of 15 found, no false finding | 5 of 5 found, no false finding |
 
-Types on is not more precise on this workspace; it trades precision for recall on class members. It finds the unused
-`area` of one class that another class's `area` hides from matching by name, and reports three live class members
-that types off keeps, read through an interface the class
-satisfies without `implements`, through a generic constraint (`T extends HasWeight`) and through a key of literal type
-(`frame[axis]`, `axis: "height"`). Enum and namespace findings are the same with and without types, since types only
-add uses; both skif runs and knip miss the unused members of an enum that is assigned to a variable or indexed by a
-`keyof typeof` key, which counts as using the whole enum. knip's false findings are exports read only through
+skif matches member reads by name, without a type checker
+([ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md)). The class members it
+misses are unused members whose name another class's member shares: a read of `area` on one class also credits the
+unused `area` of another. It reports no live member, including those read through an interface the class satisfies
+without `implements`, through a generic constraint (`T extends HasWeight`) and through a key of literal type
+(`frame[axis]`, `axis: "height"`). skif and knip both miss the unused members of an enum that is assigned to a
+variable or indexed by a `keyof typeof` key, which counts as using the whole enum. knip's false findings are exports read only through
 `typeof import("./m")["name"]`, files in `fixtures` directories and a devDependency whose binary only `vercel.json`
 runs. Per issue type and pattern: the
 [benchmark harness](https://github.com/polylint/skif/blob/main/tools/bench/README.md#dead-code-precision-and-recall).
@@ -393,10 +384,7 @@ discovery skips, and TypeScript sources whose built path a package publishes, al
 the node and credential files an n8n node package lists), which skif makes entries, together with their exports and
 the files they import that only knip reports as unused. An import one tool reports as unlisted and the other as
 unresolved counts as agreement. A repository whose knip run is not a valid comparison is named and left out of the
-sums. skif is compared with `--type-aware`, and runs a second time with `--no-type-aware`: a finding
-only one mode reports, where knip does not side with the typed run, is counted apart as `type-resolved`
-([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-benchmarks-and-the-comparison-harness.md)), and the findings of each
-mode per rule are recorded in `tools/bench/baselines/type-aware.json`. Reading the disagreements found false findings on both sides
+sums. Reading the disagreements found false findings on both sides
 ([ADR 0007](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md)).
 The remaining differences, and what each tool reports differently, are in the
 [comparison guide](../comparison/#parity-with-knip).
@@ -411,8 +399,8 @@ command-line invocations, process start-up included, on three kinds of targets:
 | Target | Contents | Tools timed |
 | --- | --- | --- |
 | Generated workspaces | 50, 500 and 2000 packages, pnpm layout, 5% issue rate, seed 1 | `skif --no-js`, `sherif`, `syncpack lint` |
-| Module graph | 10,000 TypeScript files in 100 packages | `skif`, `skif --type-aware` |
-| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --type-aware`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json`, and `skif --recursive` where a repository holds nested roots (informational) |
+| Module graph | 10,000 TypeScript files in 100 packages | `skif` |
+| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json`, and `skif --recursive` where a repository holds nested roots (informational) |
 
 skif runs as `skif . --format json --no-install`, with `--no-js` for the manifest and policy rows and, where a
 repository sets `bench-knip-config = "parity"`, with a `--config` that adds the entry files the agreement comparison gives both tools,
@@ -421,7 +409,7 @@ target. Each compared row is timed on the scope its comparison tool reads, so no
 ([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-benchmarks-and-the-comparison-harness.md)):
 a recursive run also lints the nested projects that are not workspace members (403 in next-js), which sherif, syncpack
 and knip do not read. Where a repository holds such projects (babel, vscode, next-js), a recursive run is timed as an
-informational row that is part of no ratio, claim or check. Both skif modes then run once more under `/usr/bin/time` for their peak resident set size. Non-zero exits are
+informational row that is part of no ratio, claim or check. skif then runs once more under `/usr/bin/time` for its peak resident set size. Non-zero exits are
 ignored, since a linter exits 1 when it finds something; a run that exits above 1 or by a signal is an error, since its
 time may be that of a partial run.
 

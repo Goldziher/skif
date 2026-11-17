@@ -24,7 +24,6 @@ direction.
 | `skif-js` | JavaScript and TypeScript module graph and dependency rules, built on oxc. |
 | `skif-js-syntax` | oxc-based module facts and static config extraction; never executes code. |
 | `skif-js-plugins` | `package.json` script parsing and the declarative plugin table. |
-| `skif-js-types` | Type-aware facts from the TypeScript checker of tsrs: which member a read reaches. The only crate that depends on tsrs. |
 | `skif-migrate` | The translation behind `skif migrate`: sherif, syncpack and knip configuration to `skif.toml`. |
 | `skif-node` | The Node-API addon behind the npm package. |
 
@@ -39,7 +38,7 @@ direction.
 - [JS analysis core on oxc](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md): module graph, resolution, file discovery and the parse cache
 - [Plugins, config evaluation and commands](https://github.com/polylint/skif/blob/main/adrs/0008-plugins-config-evaluation-and-commands.md): the declarative plugin table, static config evaluation and script parsing
 - [What counts as a use](https://github.com/polylint/skif/blob/main/adrs/0009-what-counts-as-a-use.md): export, member, dependency and template usage
-- [Type-aware analysis on tsrs](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md): opt-in typed member reads, their boundary and budget
+- [No type-aware analysis](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md): why skif has no type checker, and what was measured
 - [Nx, Lerna and Bazel](https://github.com/polylint/skif/blob/main/adrs/0011-nx-lerna-and-bazel.md): projects, task layouts and Starlark read as text
 - [CLI contract and reporting](https://github.com/polylint/skif/blob/main/adrs/0012-cli-contract-and-reporting.md): commands, flags, output formats, JSON contract and exit codes
 - [Editors, agents and git hooks](https://github.com/polylint/skif/blob/main/adrs/0013-editors-agents-and-git-hooks.md): `skif lsp`, `skif mcp`, `--watch` and hook launchers
@@ -57,9 +56,6 @@ The full list is the [ADR index](https://github.com/polylint/skif/blob/main/adrs
 3. `skif-lint` builds a registry from the rule providers, validates every rule's options, and runs the providers
    concurrently. Rules emit diagnostics, optionally with fixes.
 4. The JS analysis (`skif-js`, with `skif-js-syntax` and `skif-js-plugins`) is one of those providers. It parses the
-   sources, builds the module graph, applies the plugin table and emits the `js` rules. With type-aware analysis on,
-   `skif-js-types` builds one TypeScript program per `tsconfig.json` or `jsconfig.json` that holds a judged file,
-   starting while the graph is built, answers which members the typed reads reach, and frees every program before the
-   rules run.
+   sources, builds the module graph, applies the plugin table and emits the `js` rules.
 5. `skif-edit` turns fixes into a `FixPlan` of format-preserving edits; the CLI writes the plan.
 6. `skif-report` renders the report as human, JSON, TOON, SARIF, GitHub, Code Climate, compact, Markdown or CODEOWNERS output.

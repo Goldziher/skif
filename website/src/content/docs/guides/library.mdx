@@ -35,19 +35,8 @@ let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
 | `report` | no | the renderers (human, JSON, TOON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 | `schema` | no | `config_schema` |
 | `update` | no | `skif::update`: newer published versions through a registry the host supplies (implies `manifest` and `fix`) |
-| `type-aware` | no | type-aware analysis with the TypeScript checker of tsrs (implies `js-analysis`) |
-| `plain-ptrs` | no | plain pointers in tsrs instead of its fixed address-space reservation, for hosts such as Node.js; only has an effect with `type-aware` |
 
-`js-analysis` is off by default so a host that already embeds oxc keeps its own copy, and `type-aware` for the same
-reason. Without `type-aware`, `[js] type-aware` has no effect and the report lists every package as untyped with the
-reason `not-built`. With the feature, `[js] type-aware` is still off by default, as in the CLI. The `skif-cli`
-binary enables the `type-aware` feature by default, so `--type-aware` needs no rebuild, and the npm addon enables it with
-`plain-ptrs`, since tsrs's fixed reservation of 32 GiB of address space can collide with the one of Node.js. A panic
-inside the checker is caught and leaves the packages of that program untyped (`checker-failed`); the build must
-unwind on panic for that, as the release binaries do. Roots linted at once take the cores of their TypeScript
-programs from one budget; a host that runs several analyses at once shares a `TypeBudget` between them with
-`TypeBuild::with_budget` and `TypeInput::with_budget` of `skif-js-types`
-([ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md)). No `oxc` or `rayon` type
+`js-analysis` is off by default so a host that already embeds oxc keeps its own copy. No `oxc` or `rayon` type
 appears in a public signature; a host that lints often passes an `Executor` (a reusable thread pool) in
 `RunOptions`. The data model is part of the contract: `serde` (the derives of the data model), `serde_json` (fix
 values and manifest values), `toml` (rule options), `indexmap` (the ordered maps of `Config`) and `nodejs_semver` (parsed specifier ranges). A major release of

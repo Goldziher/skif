@@ -456,7 +456,6 @@ tsconfig = "tsconfig.app.json"
 use-tsconfig-files = false
 include-fixtures = false
 use-public-hoisting = false
-type-aware = true
 discovery = "auto"
 
 [js.cycles]
@@ -470,7 +469,6 @@ ignore-dependencies = ["rimraf"]
 entry = ["src/main.tsx"]
 ignore-unresolved = ["virtual:*"]
 include-entry-exports = true
-type-aware = false
 paths = { "@/*" = ["./src/*"] }
 
 [js.workspaces."packages/web".plugins]
@@ -489,7 +487,7 @@ page = { as = "mdx" }
 tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
 workspace; `*` stops at `/`, so `packages/*` does not select `packages/a/nested`, and when several glob keys select a
 directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
-`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `type-aware`, `paths` and `plugins`,
+`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`,
 plus `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` and `extend-ignore-unresolved`, which
 append to the list the table inherits through `extends`. A plugin entry is
 `true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
@@ -737,17 +735,12 @@ member is also exempt when its own JSDoc carries a tag that exempts an export (`
 **`include-entry-exports`** may be set per workspace.
 
 **`unused-class-members`** (a warning) reports the methods, fields and accessors of a used exported class that no
-module reads, like knip 5's `classMembers` (knip 6 dropped the issue type). With `type-aware` (off by default), in a file
-the TypeScript checker covers a member counts as read when a typed read reaches it: through its own class, a union, a
-base class it overrides or an interface it implements (also by inheriting the member: a read through `ICell` reaches
-`BaseCell.getRange` when `CodeCell extends BaseCell implements ICell`), or when the class is used as a whole. A read
-the checker cannot settle (a receiver of type `any`, an unresolved module, a dependency that is not installed) and
-every read in a file it does not cover (a Vue, Svelte or Astro template, a file in no program) still credits every
-member of that name, so missing types never add a finding. Without types (the default), in a package with no `tsconfig.json`, or
-with `type-aware = false`, a member counts as read when any module of the graph reads a property of its name on any
-object: `x.name`,
+module reads, like knip 5's `classMembers` (knip 6 dropped the issue type). skif has no type checker
+([ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md)): a member counts as
+read when any module of the graph reads a property of its name on any object: `x.name`,
 `x?.name`, `x['name']`, a destructured key, `this.name`, `super.name`, a string literal type or call argument
-(`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. An element access whose key is a
+(`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. An unused member whose name another
+class's member shares is therefore not reported when that name is read. An element access whose key is a
 constant reads the string the constant holds: `x[KEY]` with `const KEY = '__v_skip'`, `x[Flags.SKIP]` with
 `enum Flags { SKIP = '__v_skip' }` or `const Flags = { SKIP: '__v_skip' } as const`, declared in the same module or
 imported (also through a namespace import or a barrel); a `let`, a plain object's property or a parameter can hold
@@ -764,13 +757,8 @@ a named one, through a default import, `ns.default` or a re-export as `default`;
 (`export class C` beside `export default C`) is judged and reported once, and is public API when an entry file exposes
 any of them, also through `export default` of an import. A finding names a default-exported class by its declaration
 (`Foo` of `export default class Foo`), or `default` when it is anonymous. `skif explain-usage FILE#Class.member`
-shows the typed read that reaches the member and the files that read its name (with types, those the checker did not
-cover or could not settle), or why the member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an
+shows the files that read the member's name, or why the member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an
 enum or namespace member the same way.
-
-With types, `unused-enum-members` and `unused-namespace-members` also count a typed read (an enum read through an
-alias, a namespace member read through `this`) and a typed use of the whole declaration; types only add uses, so these
-findings with types are a subset of those without.
 
 **`ignore-files`** lists globs of files that `unused-files` never reports, at the top level (relative to the workspace
 root) and per workspace (relative to its directory), like knip's `ignoreFiles`. Unlike `ignore`, every other rule still
@@ -963,36 +951,6 @@ which implies it) ignores it, since every package there uses only its own manife
 counted: they make every installed package resolvable everywhere, so counting them would amount to turning
 `unlisted-dependencies` off. Binaries are not affected: a hoisted package's binary is still credited only to a
 package that lists it.
-
-**`type-aware`** (default `false`; per workspace too, where unset inherits the top level) resolves member reads with
-the TypeScript type checker: slower, more accurate member findings. `type-aware = true`, or `skif --type-aware`, which
-also overrides every `[js.workspaces]` table, turns it on. A read through a typed receiver
-(`this.x`, a parameter or variable of a class type) then counts for the member it reaches instead of every member of
-that name. Each file is checked with the program of its nearest `tsconfig.json` (or `jsconfig.json`). A package
-without usable types (no `tsconfig.json`, plain JavaScript, a `tsconfig.json` that does not parse, dependencies not
-installed) keeps the name-based analysis for the files concerned and loses no finding; the report names it and the
-reason (see [output formats](../cli/#output-formats)). With it off, the default, skif runs no type checker at all, which is
-faster and less accurate for member findings; `skif --no-type-aware` keeps types off over the file and every
-`[js.workspaces]` table. The language server, `skif mcp` and `--watch` run without types
-([ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md)).
-
-Types cost time and memory: each TypeScript program reads and binds its files a second time, beside the module
-graph. The TypeScript lib files and the declaration files below `node_modules` (`@types` included) are parsed once
-per run and shared by its programs, and so is each `tsconfig.json` or `jsconfig.json` that finding the programs or
-following their project references reads, with the configs it extends. The [benchmarks](../../guides/benchmarks/#speed)
-time every repository with and without types and publish the peak memory of both; types stay off by default until
-typed runs meet the time and memory budget of
-[ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md). The programs of a run, also of several roots, share one budget of the machine's cores, which
-also bounds how many are in memory at once. A build of the `skif` crate without its `type-aware` feature, or of `skif-cli` with
-`--no-default-features`, has no type checker and reports every package untyped (`not-built`).
-
-```toml
-[js]
-type-aware = true
-
-[js.workspaces."packages/legacy"]
-type-aware = false
-```
 
 `discovery` chooses how source files are found. `auto` (the default) and `walk` walk the directories, which finds
 every untracked file. `git` lists the files from the git index when the analysed root is in a git work tree and checks

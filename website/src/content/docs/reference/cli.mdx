@@ -98,8 +98,6 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
-| `--type-aware` | Resolve member reads with the TypeScript type checker: slower, more accurate member findings. Type-aware analysis is off by default, so each read of a name counts for every member of that name. Overrides `[js] type-aware`, also where a `[js.workspaces]` table sets it. Conflicts with `--no-type-aware` and `--watch`. |
-| `--no-type-aware` | Resolve member reads without the TypeScript type checker, as by default. Overrides `[js] type-aware`, also where a `[js.workspaces]` table sets it. `--watch` always runs without types. |
 | `--no-gitignore` | Also analyse the source files that `.gitignore` files hide; `.ignore` files and the directories skif always skips (`node_modules`, `dist`, ...) still apply. Files are then listed by walking the directories, not from the git index. The search for roots of a multi-root run still honours `.gitignore`. |
 | `--tsconfig <FILE>`, `--tsConfig`, `-t` | The TypeScript configuration of the root package, relative to the workspace root, used instead of its `tsconfig.json` for path aliases and compiler options. Overrides `[js] tsconfig`. Other packages keep their own `tsconfig.json`. With `-r` it applies to the roots that have the file and the others keep their own setting; a file that no root has, or a path that is absolute or leaves the root, exits `2`. Roots without JavaScript analysis (`--no-js`, `[js] enabled = false`) are skipped. |
 | `--use-tsconfig-files` | Take the project files of each package from its `tsconfig.json` (`files`, and `include` minus `exclude`) instead of the `project` globs. Same as `[js] use-tsconfig-files = true`. A `tsconfig` that selects no file of its package is reported on stderr. |
@@ -153,24 +151,18 @@ which names the import brings in), and shows the shortest chain of imports from 
 `#EXPORT` it lists the modules that import that export by name or as a whole, follows re-exports (`export { x } from`,
 `export *`) into the modules that use them, and ends with a verdict (`public`, `used` or `unused`) computed from the
 same facts as the lines above it. With `#Class.member` (a member of an exported class) it explains the class export
-and then the member: with types, the typed read that reaches it and the declaration it reaches (`read with types`), a
-typed use of the whole class, and the reads credited by name, either because the checker could not type the receiver
-or because the reading file has no types; without types, the files that read a property of its name and why types
-were off (`judged without types`); then the reason it is not judged when it is not (decorated, inherited from a
-library base, implementing an interface, public API), and the verdict of `unused-class-members`. `#Enum.member` and
-`#Namespace.member` explain an enum or namespace member the same way, with the verdict of `unused-enum-members` or
-`unused-namespace-members`. In JSON these are the `class-member` member: `class`, `member`, `of` (`enum` or
-`namespace`; omitted for a class), `verdict`, `exemption`, `readers`, `used-without-types`, `typed` (`declaration`
-as `file#Name`, `read`, `whole`, `unresolved-readers`) and `untyped-because` (`disabled`, `not-built`,
-`tsconfig-error`, `checker-failed`, `cancelled`, `file-untyped` or `not-asked`). Types only add uses, so an enum or
-namespace member used without types is not asked of the checker, and its `typed` `read` is `false`. An export of a file that may be an unknown entry of its package (a package whose
+and then the member: the files that read a property of its name, the reason it is not judged when it is not
+(decorated, inherited from a library base, implementing an interface, public API), and the verdict of
+`unused-class-members`. `#Enum.member` and `#Namespace.member` explain an enum or namespace member the same way, with
+the verdict of `unused-enum-members` or `unused-namespace-members`. In JSON these are the `class-member` member:
+`class`, `member`, `of` (`enum` or `namespace`; omitted for a class), `verdict`, `exemption` and `readers`. An export of a file that may be an unknown entry of its package (a package whose
 entry files are not fully known, or a file in the narrowed scope of such a package) is `not-judged` instead of
 `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
 as the JavaScript part of a lint run.
 
 | Flag | Meaning |
 | --- | --- |
-| `--production`, `--type-aware`, `--no-type-aware`, `--config <FILE>`, `--no-config` | Analyse as the lint run with the same flag does. |
+| `--production`, `--config <FILE>`, `--no-config` | Analyse as the lint run with the same flag does. |
 | `--dependency <NAME>` | Explain the dependency `NAME` instead of a file (see below); the one positional argument is then `PATH`. |
 | `--package <NAME\|DIR>` | With `--dependency`, explain it in this package only: its name, or its directory relative to the current directory. Exits `2` when no package of the workspace has that name or directory. |
 | `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry: `entry-glob`, `config-file`, `script` (also for the source of a build output a script runs), `published`, `bin-stub` for a file an extensionless `bin` stub loads, `incomplete-scope`, `external-entry-glob` for a glob of another package that points outside it, `enclosing-entry-glob` for a plugin glob of a package that contains the file's package, `enclosing-incomplete-scope` for the narrowed incomplete scope of such a package, with its directory in `scope-package` and its globs in `incomplete-scope`, or `unknown`), `build-source` when the file is one, `imported-by` (`file`, `line`, `kind`, `names`, `reachable`; `line` is 0 for the use of a registered Vue component in a template, which has no location), `chain-from-entry`, `chain-from-build-source` when that chain starts at a build source and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`, `entries-incomplete` when it is true and, for a custom element, `registered`). |
@@ -266,7 +258,7 @@ comment written inside it is not kept, while an edited `reason` is.
 | --- | --- |
 | `-r`, `--recursive` | Cover every workspace and standalone package at or below `PATH`, as `skif -r` does, each with the baseline file `skif.baseline.toml` in its root. A `PATH` without a `package.json` at or above it covers every root below it as well. |
 | `--file <FILE>` | The baseline file. Default `skif.baseline.toml` in the workspace root. Only for a single root: with several, it is a usage error. |
-| Lint flags | `write` and `prune` only: `--config`, `--rule`, `--ignore-rule`, `--ignore-package`, `--ignore-dependency`, `--ignore-rule-for-package`, `--no-js`, `--type-aware`, `--no-type-aware`, `--production`, `--isolate-workspaces`, `--strict`, `--no-gitignore`, `--include-entry-exports`, `--tsconfig`, `--use-tsconfig-files`, `--select`, `-W`, `--include`, `--exclude`, `--dependencies`, `--exports`, `--files`, `--cycles`, `--tags` and the instance filters (`--dependency`, `--dependency-types`, `--specifier-types`, `--source`) mean what they mean for a lint run, so the baseline is recorded and pruned against the findings of the run it is for: give `write` and `prune` the flags the CI run uses. A filter that narrows the report (`-W`, `--include`) makes `prune` remove the entries of the findings it leaves out. |
+| Lint flags | `write` and `prune` only: `--config`, `--rule`, `--ignore-rule`, `--ignore-package`, `--ignore-dependency`, `--ignore-rule-for-package`, `--no-js`, `--production`, `--isolate-workspaces`, `--strict`, `--no-gitignore`, `--include-entry-exports`, `--tsconfig`, `--use-tsconfig-files`, `--select`, `-W`, `--include`, `--exclude`, `--dependencies`, `--exports`, `--files`, `--cycles`, `--tags` and the instance filters (`--dependency`, `--dependency-types`, `--specifier-types`, `--source`) mean what they mean for a lint run, so the baseline is recorded and pruned against the findings of the run it is for: give `write` and `prune` the flags the CI run uses. A filter that narrows the report (`-W`, `--include`) makes `prune` remove the entries of the findings it leaves out. |
 | `--reason <TEXT>` | `write` only: the `reason` of the entries it adds. Default `baseline`. |
 | `--base <REF>` | `check` only: compare with the baseline file at this git revision (`origin/main`), read with `git show`. A file that did not exist at the revision is an empty baseline. A revision that is not a commit is a usage error. |
 | `--base-file <FILE>` | `check` only: compare with this file instead, for runs without git. One of `--base` and `--base-file` is required. |
@@ -416,10 +408,10 @@ formatting in every lint instead, set `package-json-format = "error"` in `[rules
 
 | Format | Output |
 | --- | --- |
-| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. A note before the summary names the packages whose unused files and dependencies were not fully checked, and a `types:` line counts the packages the type checker did not fully cover, by reason. |
-| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. `incomplete-packages` (omitted when empty) lists the packages whose unused files and dependencies were not fully checked, and `type-aware` the type checker's coverage of each package, see below. |
+| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. A note before the summary names the packages whose unused files and dependencies were not fully checked. |
+| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. `incomplete-packages` (omitted when empty) lists the packages whose unused files and dependencies were not fully checked, see below. |
 | `toon` | The `json` document encoded as [TOON](https://toonformat.dev) (Token-Oriented Object Notation): the same data, error documents included, without JSON's quotes and braces. `json` stays the contract. |
-| `sarif` | SARIF 2.1.0 for code scanning. The run's `properties` carry the `type-aware` object of the JSON report. |
+| `sarif` | SARIF 2.1.0 for code scanning. |
 | `github` | GitHub Actions workflow-command annotations. |
 | `codeclimate` | A Code Climate JSON array for GitLab Code Quality: one issue per diagnostic with `description`, `check_name` (the rule), `fingerprint`, `severity` and `location` (`path`, `lines.begin`). Errors are `major`, warnings `minor` and infos `info`. The fingerprint is a hash of the rule, path, package, dependency, specifier and message text (not the line), so an issue keeps its identity when code above it moves; a release that rewords a message changes the fingerprints of its issues. Paths are relative to the repository top-level. |
 | `compact` | One line per diagnostic, `path:line:col rule message` (`path rule message` without a position), and nothing else. |
@@ -435,16 +427,6 @@ unreadable config could make entries (see [incomplete entries](../configuration/
 `"package"` when no file of the package was judged unused, or `{"within": [...]}` with the globs, relative to `dir`, of
 the only files left unjudged (the files the unreadable config can make entries); the human output names those globs
 after the package. Paths are relative to the run's base. The fields are additive, so `version` stays `1`.
-
-When the run has a JavaScript analysis, the JSON report carries a `type-aware` object: `enabled` (whether
-`[js] type-aware` and the flags asked for types), `engine` (the type checker that ran, omitted when none did) and
-`packages`, sorted by directory, each with its `dir` (`.` for the root package), `name`, `state` (`typed`, `partial` or
-`untyped`), `reason` when it is not typed (`disabled`, `not-built`, `no-tsconfig`, `tsconfig-error`, `not-typescript`,
-`unresolved-modules: N`, `files-outside-programs: N`, `checker-failed` or `cancelled`) and `untyped-files`, the number
-of its files that kept the name-based analysis. A package without usable types is no finding: its member reads are
-credited by name, as without types. The human output prints one line before the summary when a package is partial or
-untyped, such as `types: 3 of 41 packages untyped (no-tsconfig 2, unresolved-modules 1); run with --no-type-aware to
-skip types`, and nothing when every package is typed or types are off.
 
 In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
 `error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,
