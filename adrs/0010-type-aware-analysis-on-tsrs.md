@@ -59,8 +59,8 @@ analysis and its speed everywhere else, and confines tsrs and its process-level 
 
 ### The boundary
 
-* `skif-js-types` is the only crate that depends on tsrs, and `skif-js` depends on it only behind its `type-aware`
-  feature. Its API takes the judged files per package and a query (the declarations whose member reads skif judges)
+* `skif-tsrs` and `skif-js-types` (on top of it) are the only crates that depend on tsrs, and `skif-js` depends on
+  `skif-js-types` only behind its `type-aware` feature. Its API takes the judged files per package and a query (the declarations whose member reads skif judges)
   and returns owned facts: typed member reads, whole uses, reads it could not settle, and the coverage of every
   package. No tsrs type crosses it.
 * Declarations are joined on (file, UTF-8 byte offset of the declaration's name), the key oxc's spans give.
@@ -140,6 +140,41 @@ analysis and its speed everywhere else, and confines tsrs and its process-level 
 * The checker count comes from skif's `threads` setting, and a single-threaded run uses tsrs's single-threaded mode.
 * tsrs's NOTICE, with the TypeScript and DefinitelyTyped notices, ships in every artefact through `ATTRIBUTIONS.md`.
 
+### Caching typed facts
+
+* Typed facts are layer L2 of the cache ([ADR 0007](0007-js-analysis-core-on-oxc.md)): stored through the host's
+  `CacheStore` under their own namespaces (`types.program` first), keyed and enveloped as every entry is. They follow
+  once the analysis has a run-wide engine.
+* Program replay (T2): the per-program host (`SharingHost`, `ConfigReader`) records each program's observation log:
+  file reads with content hashes, exists, stat and realpath answers, hashed directory listings and the config chain. A
+  later run that revalidates the log, and whose query (the declarations asked whose files are in the program) matches,
+  builds no program and replays the stored per-file facts. A cancelled or `checker-failed` outcome is never stored.
+* Per-file reuse (T3): inside a program that is rebuilt, the affected files are the changed files and their transitive
+  reverse dependents over the program's reference graph (imports, type-only imports, `import()` types, JSDoc imports,
+  triple-slash path references). Every file is affected when a file that contributes to the global scope changes (a
+  script, `declare global`, `declare module "x"` or another augmentation, `export as namespace`,
+  `/// <reference types|lib|path>`, an auto-included `@types` package), or when the compiler options, the config chain
+  or a recorded listing change. An unaffected file's facts are reused only if its digest of the asked declarations
+  within its reach is unchanged.
+* A typed entry is valid only while its observation log revalidates; stat records are never trusted across checkouts,
+  and the host salt carries the `TSRS_*` values a run reads.
+* `skif-tsrs`, extracted from `skif-js-types` and published with skif's release train on the same lock-step tsrs pin,
+  holds program construction over a host file system (`SharingHost`, the virtual file system, `ConfigReader`, the lib
+  path), the program owner and arena freeing, the run-wide content-keyed parse registry (shared lib and `node_modules`
+  declaration files and project sources), each file's closure and global inputs with a `closure_key` (host salt,
+  relative paths), and `CacheStore` helpers. It depends on tsrs and `skif-core` only, never on oxc, because poly's
+  tsrs components build in a separate workspace for tsrs's `icu_normalizer` pin. It reads no environment and offers
+  `plain-ptrs`. `skif-js-types` keeps `TypeQuery` and `TypeFacts` on top, and poly's tsrs engine adopts it for
+  per-file diagnostics. For that engine it lends the host the built program (`&Program`, or a diagnostics entry point
+  taking a file filter) within the owner's lifetime, and gives the host the parsed command line between configuration
+  parse and program build, so a host can downgrade configuration errors and override options per run.
+* Module names resolve without building a program (`tsrs_module::DefaultResolver::resolve_module_name`), so a warm run
+  in which every entry hits skips the checker entirely.
+* Typed unit tests require the facts after a cold run, a warm run and each edit kind (leaf body, a dependency's
+  exported type, `declare global`, an augmentation, an include added or removed, a `tsconfig` or `extends` base change,
+  a new `@types` package, a BOM toggle, a class newly judged elsewhere, a project-reference source edit, a cancelled
+  run) to equal uncached facts at one and eight threads.
+
 ### Cost and budget
 
 * Types off costs nothing against an untyped release: nothing of tsrs runs.
@@ -184,6 +219,6 @@ analysis and its speed everywhere else, and confines tsrs and its process-level 
   one and eight threads, and `arenas.rs` holds that repeated analyses free their arenas; `retire.rs` holds that only a process that opts
   in retires freed sources.
 * `scripts/check-pins.sh` fails unless every tsrs crate is pinned with `=` to one version;
-  `scripts/check-dependency-tree.sh` fails when a crate other than `skif-js-types` reaches tsrs or `skif` without
+  `scripts/check-dependency-tree.sh` fails when a crate other than `skif-tsrs` and `skif-js-types` reaches tsrs or `skif` without
   default features does; `scripts/npm-smoke.sh` runs the addon with `typeAware` and with `noTypeAware`.
 * `tools/bench/src/run.rs` holds `TYPE_AWARE_BUDGET` and its checks, and `.github/workflows/bench.yml` publishes them.

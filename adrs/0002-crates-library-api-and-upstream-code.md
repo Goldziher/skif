@@ -52,8 +52,9 @@ every release ships.
   parser, so every crate can name its types without pulling in a parser.
 * Only `skif-js-syntax`, `skif-js` and the unpublished benchmark harness depend on an oxc crate directly; every other
   crate reaches oxc only through `skif-js-syntax`.
-* `skif-js-types` is the only crate that depends on tsrs, and `skif-js` reaches it only behind its `type-aware`
-  feature ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).
+* `skif-tsrs` (the tsrs layer skif and poly's tsrs engine share) and `skif-js-types` are the only crates that depend
+  on tsrs; `skif-tsrs` depends on tsrs and `skif-core` only, never on oxc, and `skif-js` reaches `skif-js-types` only
+  behind its `type-aware` feature ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).
 * Terminal concerns (clap, colour, prompts, file writes, exit codes) live only in `skif-cli`. `skif-node` calls into
   `skif-cli` to run the same command line in process.
 * `unsafe_code` is forbidden in `[workspace.lints]`. `skif-js-types` and `skif-node` deny it instead: `skif-node` for the

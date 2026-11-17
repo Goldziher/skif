@@ -9,7 +9,7 @@ blake3 = "84f57a1e0d8c63fdbdca153ef9e53b95d409a467d6269a142971c5225d0a7518"
 [adrs."adrs/0002-crates-library-api-and-upstream-code.md"]
 number = 2
 status = "accepted"
-blake3 = "272f23ed7cdc5a2b775f3c08acf73d1206508c9be579b4bc77d56caac0731fc0"
+blake3 = "76c42fec38dd1253b2a819e79118e0a12f6fe1522f9607af3b3ec400b6f080e2"
 
 [adrs."adrs/0003-configuration-suppressions-baselines-and-migration.md"]
 number = 3
@@ -49,7 +49,7 @@ blake3 = "bfd906987b833c5989957a738efe9ff6e4911263f6999a11947f19bd174478e0"
 [adrs."adrs/0010-type-aware-analysis-on-tsrs.md"]
 number = 10
 status = "accepted"
-blake3 = "6823e2971c601e74d113dba0251b28c613cf9fbc3d1dda65a86cb5569a4328eb"
+blake3 = "29046ce3eae1a64ad94eff135d481d51f9db26ab097c15d461a110e55932767d"
 
 [adrs."adrs/0011-nx-lerna-and-bazel.md"]
 number = 11
