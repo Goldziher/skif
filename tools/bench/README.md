@@ -30,16 +30,18 @@ tools from `--tools-dir` (default `target/bench-generated/tools`, the directory 
 against the same dependency versions; they fail when the tools cannot be installed. A tool that cannot be installed (no `npm`, a failed
 install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
 `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks),
-`summary.json` (schema 9: skif version, the commit of the skif source it was built from with a `-dirty` flag
+`summary.json` (schema 10: skif version, the commit of the skif source it was built from with a `-dirty` flag
 (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record and the one line
 `machine_text` that `summary.md` and the published tables print, the toolchain, the load average before and after the
 run, hyperfine version, each comparison tool's `--version`, the corpus repositories of an `--only` run, every target
 with its warmup and measured runs and, per tool, mean, stddev, median, min and max in ms and the number of runs that
-exited with an error, on the row of the whole skif run `peak_rss_bytes`, and for an installed
+exited with an error, on the row of the whole skif run `peak_rss_bytes`, beside the rows `warm_cache` (see
+"Warm cache" below), and for an installed
 corpus repository `installed_with`, the package manager and the `--version` it reports in the checkout (where corepack
 resolves the repository's `packageManager`) or the repository's `install-command`, its `declared_knip_failure` and, on a
 knip row that failed that way, `failure` (the reason, the error line and `timed`), the skipped tools, and the ADR 0001
-checks, each `pass`, `fail`, `invalid` or `not-measured`), and one raw hyperfine export per target under `raw/`. The machine record holds the
+checks, each `pass`, `fail`, `invalid` or `not-measured`), and the raw hyperfine exports under `raw/`: `NN.json` per
+target and `NN-warm.json` for its warm-cache run. The machine record holds the
 operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the architecture,
 the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process may use and the
 physical cores, the total memory, the cgroup CPU limit (the smallest `cpu.max` of the process's cgroup and its
@@ -89,6 +91,33 @@ configuration or a cap of 0 runs. hyperfine 1.x and 2.x exports are both read.
 The whole run (`skif`) of each corpus and module graph target then runs once more under `/usr/bin/time` (`-v`, GNU
 time, on Linux; `-l` on macOS) for its peak RSS; where neither is available the RSS is `null`. `summary.md` and the
 published tables show it per target.
+
+### Warm cache
+
+skif's cache is on by default, and every compared row turns it off. What it saves is measured apart from them
+([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md), "Cache rows and the cache-diff gate"): on
+every target that times the whole `skif` run (the corpus repositories and the module graph), after the compared rows
+and the peak RSS run,
+
+1. the store `<generated-dir>/warm-cache/NN` (outside the checkout) is emptied and one untimed run writes it. The
+   command is the target's `skif` row with `--no-cache` replaced by `--cache-location <store>`, so the two differ in
+   nothing else. A location given by a flag is written with `CI` set too (`crates/skif-cli/src/cache.rs`);
+2. one run without the cache and one run on the store with `--debug` are compared outside hyperfine: the warm run
+   must print the same JSON report and exit with the same code (the comparison of `cache-diff`, which leaves out the
+   version stamp), and its `skif debug: cache <namespace>: H hits, ...` lines must count at least one hit;
+3. hyperfine times the warm command with the target's warmup and measured runs into `raw/NN-warm.json`.
+
+A warm run whose report differs, that counts no hit, or that exits with an error in a measured run fails `run` with the
+reason, before any summary is written: a time that may be that of a run of misses is worth nothing. The captured
+output of the three runs outside hyperfine is in `<generated-dir>/errors/NN/warm-*.{out,err}`. The cache settings of
+the caller's environment apply as they do to the timed command, so `SKIF_CACHE=0` fails the check instead of
+publishing an uncached time as warm.
+
+The result is `warm_cache` of the target in `summary.json` (mean, stddev, median, min and max in ms, `speedup`, the
+median of the `skif` row over the warm median, and the `cache_hits` of the checked run), never a row of `results`: no
+ratio to another tool, ADR 0001 check, compact table or claim reads it. `summary.md` ends with a "Warm cache" table of
+the uncached median, the warm median and the speed-up per target, and `refresh-numbers.mjs` writes the same table into
+the `bench:warm` block of the benchmarks page.
 
 ## Running
 
@@ -700,7 +729,8 @@ refuses to edit while a journal is there.
 
 After the comparisons it prints, per repository, the wall time of the uncached, cold, warm and first-edit
 cached runs and the store size after the cold run. These are single runs, labelled informational: they answer roughly
-what a warm cache saves, and are not a benchmark or a published row.
+what a warm cache saves, and are not a benchmark or a published row; `run` measures that ("Warm cache" under "What
+it measures").
 
 Every `bench.yml` run also runs the gate with `--require-counters`, on the checkouts the benchmark installed, after
 it uploads the results; run it by hand with `mise run cache:diff` before merging a change to the cache.
@@ -795,7 +825,8 @@ pinned tool is behind its latest npm release.
 `mise run bench:import -- <run-id>` (`scripts/bench-import.sh`, needs `gh`, `git`, `jq` and Node) imports only a
 successful `workflow_dispatch` run of `bench` whose commit is on `origin/main` (it runs `git fetch origin main` first)
 and whose summary names that commit as the harness's; it refuses any other run, naming its branch. It downloads that
-artifact, refreshes the speed tables of the benchmarks page (`website/src/content/docs/guides/benchmarks.mdx`) and the
+artifact, refreshes the speed tables and the warm-cache table (`bench:warm`) of the benchmarks page
+(`website/src/content/docs/guides/benchmarks.mdx`) and the
 speed claims (`bench:claims`) of the comparison guide and the README, where each claim links to the benchmarks page,
 with `refresh-numbers.mjs --bench`,
 then puts the summary into `tools/bench/results` for a commit made locally. The claims give, for each tool, the range of
@@ -806,7 +837,8 @@ speed tables names the skif version, source commit and the `rustc` that built it
 harness commit when it differs, the runner image and the machine, its load, the date and the workflow run attempt.
 `refresh-numbers.mjs` writes nothing and exits non-zero when a comparison tool was not timed, a corpus repository has no
 row for one of the tools, the run was narrowed with `only`, a tool exited with an error in a measured run that is not a
-declared knip failure the run matched, an ADR 0001 check is `invalid`, the summary is of an older schema, its tool
+declared knip failure the run matched, an ADR 0001 check is `invalid`, a target with a whole skif run has no
+`warm_cache`, the summary is of an older schema, its tool
 versions differ from the `[tools]` pins of `corpus.toml`, it records no GitHub-hosted runner or no workflow run, or the
 measured or the harness checkout had local changes (`-dirty`); the import then changes nothing either.
 `mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement table of the benchmarks page from
@@ -987,8 +1019,8 @@ in-process part.
 - The skif command line is `skif . --format json --no-install --no-cache [--no-js] [--config <entry files>]`, plus
   `--recursive` on the informational `skif --recursive` row alone (ADR 0014); the working directory is the target.
   skif's cache is on by default, so every skif run that `run`, `parity`, `syncpack-diff` and `deadcode` time or
-  compare passes `--no-cache`: no number or finding comes from a store an earlier run left. Only `cache-diff` runs
-  with the cache.
+  compare passes `--no-cache`: no number or finding comes from a store an earlier run left. Only `cache-diff` and the
+  warm-cache measurement of `run`, which is compared with no other tool, run with the cache.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
   mean over many `--runs`.
 - The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each

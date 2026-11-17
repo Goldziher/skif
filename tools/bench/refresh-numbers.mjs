@@ -1,13 +1,14 @@
 // Rewrites the generated number blocks of the docs from the committed results:
 //   --bench   tools/bench/results/summary.json (a bench workflow run's, which `mise run bench:import` downloads) into
-//             the speed tables of the benchmarks page and the headline claims of the comparison guide and the README;
+//             the speed tables and the warm-cache table of the benchmarks page and the headline claims of the
+//             comparison guide and the README;
 //   --parity  tools/bench/baselines/parity.json (written by `skif-bench parity --write-baseline`) into the agreement
 //             table of the benchmarks page.
 // Without either flag both are refreshed, and the speed blocks are left as they are while no run has been imported
 // (tools/bench/results/summary.json does not exist and no --summary is given). It fails, and writes nothing, when the
 // input does not hold every number the blocks show: a tool that was not timed, a corpus repository without a knip row,
-// a tool error that corpus.toml does not declare, an invalid ADR 0001 check, a full skif run without its peak RSS, a
-// stale baseline. A knip failure that corpus.toml declares and the run matched is
+// a tool error that corpus.toml does not declare, an invalid ADR 0001 check, a full skif run without its peak RSS or its
+// warm-cache measurement, a stale baseline. A knip failure that corpus.toml declares and the run matched is
 // published as `fails: <reason>`, without a ratio, and left out of the claims; one it declares `timed` (knip printed
 // its whole report first) is published with its time and ratio and the reason beside them. A target whose runs
 // corpus.toml caps names its own run counts.
@@ -20,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
-export const SUMMARY_SCHEMA = 9;
+export const SUMMARY_SCHEMA = 10;
 const SKIF = "skif";
 const SKIF_MANIFEST = "skif --no-js";
 const SKIF_RECURSIVE = "skif --recursive";
@@ -206,6 +207,9 @@ export function summaryProblems(summary, pinned = null) {
     for (const row of target.results.filter((r) => r.tool === SKIF && r.peak_rss_bytes == null)) {
       problems.push(`${target.target}: ${row.tool} has no peak RSS`);
     }
+    if (timed.has(SKIF) && target.warm_cache == null) {
+      problems.push(`${target.target} has no warm-cache measurement`);
+    }
     for (const row of target.results.filter((r) => r.error_runs > 0 && r.failure == null)) {
       const cause = row.error_output == null ? "" : ` (${row.error_output})`;
       problems.push(
@@ -333,6 +337,22 @@ export function benchSummary(summary) {
     const name = target.kind === "corpus" ? repoName(target) : generatedName(target);
     lines.push(
       `| ${name} | ${duration(median(target, SKIF_MANIFEST))} | ${duration(median(target, SHERIF))} | ${duration(median(target, SYNCPACK))} |`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * The warm-cache table of the benchmarks page: per target, the median of the full skif run without the cache, its
+ * median on a warm cache and the first over the second. The warm run is skif against itself and joins no other table
+ * or claim.
+ */
+export function benchWarm(summary) {
+  const lines = ["| Target | skif, no cache | skif, warm cache | Speed-up |", "| --- | ---: | ---: | ---: |"];
+  for (const target of summary.targets.filter((t) => t.warm_cache != null)) {
+    const warm = target.warm_cache;
+    lines.push(
+      `| ${targetName(target)} | ${duration(median(target, SKIF))} | ${duration(warm.median_ms)} | ${warm.speedup.toFixed(1)}x |`,
     );
   }
   return lines.join("\n");
@@ -542,6 +562,7 @@ function main() {
       update(comparison, "bench:claims", benchClaims(summary), true);
       update(readme, "bench:claims", readmeClaims(summary));
       update(benchmarks, "bench:summary", benchSummary(summary), true);
+      update(benchmarks, "bench:warm", benchWarm(summary), true);
       update(benchmarks, "bench:numbers", benchDetail(summary), true);
     }
   }

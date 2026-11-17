@@ -69,7 +69,7 @@ blake3 = "7afc7f66025442bd1b1c2ec2fc51e149eb8071a5d29132efb7001dd36829d6a8"
 [adrs."adrs/0014-benchmarks-and-the-comparison-harness.md"]
 number = 14
 status = "accepted"
-blake3 = "22ca7a484856aae13391fd475e2f19e00a93e05cba9b472fe5b3e0e07879ae1a"
+blake3 = "08fd82365c7e9596a60f8dcb6719ce4d017453f89c8084bfa90db804ff27fa2d"
 
 [adrs."adrs/0015-distribution-release-and-supported-versions.md"]
 number = 15

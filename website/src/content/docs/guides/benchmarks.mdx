@@ -73,6 +73,25 @@ knip exits with an error after its report on n8n (two Vite configs do not load o
 | Generated, 2000 packages | 121 ms | 144 ms | 786 ms |
 {/* bench:summary:end */}
 
+### Warm cache
+
+skif keeps the parse result of every source file in a [cache](../editors-and-agents/#the-module-cache) that is on by
+default, so a second run on a checkout parses only the files that changed. Every number above is measured with
+`--no-cache`. This table shows what the cache saves when nothing changed: the same full `skif` run, timed the same way
+in the same workflow run, once without the cache and once warm, on the store a first run of the same checkout wrote.
+
+{/* bench:warm:start */}
+Not measured yet: the table is written by the next imported run of the `bench` workflow.
+{/* bench:warm:end */}
+
+An entry is found under a key of the file's name, its text, the parse options and the versions of skif and of the
+cache format, never its modification time or absolute path, so on an unchanged checkout every file is a hit. Reading
+and hashing every file, the configuration, the manifests, the module graph and the rules still run, and that is what a
+warm run costs. The warm run is skif against itself: it is compared with no other tool, enters no ratio against knip,
+sherif or syncpack and no headline claim, and the speed targets are checked on the run without the cache. In CI a
+pull-request run starts warm when the [GitHub Action](../integrations/#github-action) restores the store, which its
+`cache` input does by default; a file the pull request changed is parsed again.
+
 ### All measurements
 
 Mean and median of every timed command on every target of the same run, with the ratio of each tool's median to
@@ -409,7 +428,11 @@ target. Each compared row is timed on the scope its comparison tool reads, so no
 ([ADR 0014](https://github.com/polylint/skif/blob/main/adrs/0014-benchmarks-and-the-comparison-harness.md)):
 a recursive run also lints the nested projects that are not workspace members (403 in next-js), which sherif, syncpack
 and knip do not read. Where a repository holds such projects (babel, vscode, next-js), a recursive run is timed as an
-informational row that is part of no ratio, claim or check. skif then runs once more under `/usr/bin/time` for its peak resident set size. Non-zero exits are
+informational row that is part of no ratio, claim or check. skif then runs once more under `/usr/bin/time` for its peak resident set size.
+The [warm-cache](#warm-cache) run replaces `--no-cache` in the full `skif` command with `--cache-location <dir>`, a
+store outside the checkout that is emptied and then written by one untimed run. Before it is timed, one run on that
+store has to print the report and exit code of a run without the cache and count at least one cache hit under
+`--debug`; otherwise the whole benchmark run fails, so a published warm time is never that of a run that missed. Non-zero exits are
 ignored, since a linter exits 1 when it finds something; a run that exits above 1 or by a signal is an error, since its
 time may be that of a partial run.
 

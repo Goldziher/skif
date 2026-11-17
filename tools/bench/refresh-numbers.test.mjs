@@ -13,6 +13,7 @@ import {
   benchClaims,
   benchDetail,
   benchSummary,
+  benchWarm,
   duration,
   markers,
   mdxText,
@@ -47,6 +48,17 @@ const MIB = 1024 * 1024;
 /** The peak RSS of the full skif run's row, in mebibytes. */
 const rss = (mebibytes) => ({ peak_rss_bytes: mebibytes * MIB });
 
+/** The warm-cache measurement of a target whose full skif run takes `uncached_ms` without the cache. */
+const warm = (median_ms, uncached_ms) => ({
+  mean_ms: median_ms,
+  stddev_ms: null,
+  median_ms,
+  min_ms: median_ms,
+  max_ms: median_ms,
+  speedup: uncached_ms / median_ms,
+  cache_hits: 12,
+});
+
 /** The machine of a GitHub-hosted x86 runner, as the harness records it there. */
 function machine() {
   return {
@@ -75,7 +87,7 @@ function machine() {
 
 function summary() {
   return {
-    schema: 9,
+    schema: 10,
     skif: "skif 0.3.0",
     source_rev: "0123456789ab",
     harness_rev: "0123456789ab",
@@ -125,6 +137,7 @@ function summary() {
           row("syncpack lint", 280),
           row("knip --reporter json", 7200, { relative_to_skif: 8.1 }),
         ],
+        warm_cache: warm(221, 884),
       },
     ],
     adr_0001_checks: [{ target: "corpus: babel (yarn)", description: "d", status: "pass" }],
@@ -222,6 +235,7 @@ function withT3({ errorRuns, failure, check }) {
         failure,
       }),
     ],
+    warm_cache: warm(11, 33),
   });
   result.adr_0001_checks.push({ target: "corpus: create-t3-turbo (pnpm)", ...check });
   return result;
@@ -314,6 +328,7 @@ function withNextJs() {
         failure: { reason: JEST_REASON, error: JEST_ERROR, timed: true },
       }),
     ],
+    warm_cache: warm(2500, 6000),
   });
   result.adr_0001_checks.push({ target: "corpus: next-js (pnpm)", description: "d", status: "pass" });
   return result;
@@ -462,7 +477,7 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
   assert.deepEqual(summaryProblems({ ...summary(), schema: 8 }), [
-    "summary schema 8 is not 9; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+    "summary schema 8 is not 10; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
   ]);
   assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
     "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",
@@ -485,6 +500,7 @@ test("a summary without the full skif run, or without its peak RSS, is refused",
     warmup: 3,
     runs: 15,
     results: [row("skif", 4000, rss(2048))],
+    warm_cache: warm(1600, 4000),
   });
   assert.deepEqual(summaryProblems(graph), []);
   graph.targets.at(-1).results = [];
@@ -497,7 +513,7 @@ test("a summary of the harness that timed two skif modes is refused by its schem
   old.targets[1].results.push(row("skif --type-aware", 1326, rss(1200)));
   old.type_aware_budget_checks = [{ target: "corpus: babel (yarn)", description: "b", status: "pass" }];
   assert.deepEqual(summaryProblems(old), [
-    "summary schema 8 is not 9; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+    "summary schema 8 is not 10; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
   ]);
 });
 
@@ -511,6 +527,7 @@ test("the compact tables show the full skif run with its peak RSS and no type-aw
     warmup: 3,
     runs: 15,
     results: [row("skif", 4000, rss(2048))],
+    warm_cache: warm(1600, 4000),
   });
   const text = benchSummary(withGraph);
   assert.ok(
@@ -528,6 +545,50 @@ test("the compact tables show the full skif run with its peak RSS and no type-aw
     assert.doesNotMatch(published, /type[- ]aware|types on|ADR 0010/iu);
   }
   assert.equal(mebibytes(3_447_717_888), "3,288 MiB");
+});
+
+test("a summary of the harness without the warm-cache measurement is refused by its schema", () => {
+  const old = summary();
+  old.schema = 9;
+  for (const target of old.targets) delete target.warm_cache;
+  assert.deepEqual(summaryProblems(old), [
+    "summary schema 9 is not 10; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+  ]);
+});
+
+test("a full skif run without its warm-cache measurement is refused", () => {
+  const unmeasured = summary();
+  unmeasured.targets[1].warm_cache = null;
+  assert.deepEqual(summaryProblems(unmeasured), ["corpus: babel (yarn) has no warm-cache measurement"]);
+  assert.equal(summary().targets[0].warm_cache, undefined, "a target without a full skif run needs none");
+});
+
+test("the warm-cache table gives both skif medians and their ratio, and no other table or claim reads it", () => {
+  const withGraph = withNextJs();
+  withGraph.targets.push({
+    target: "graph: 10000 files in 100 packages",
+    kind: "graph",
+    packages: 100,
+    files: 10000,
+    warmup: 3,
+    runs: 15,
+    results: [row("skif", 4000, rss(2048))],
+    warm_cache: warm(1600, 4000),
+  });
+  assert.equal(
+    benchWarm(withGraph),
+    "| Target | skif, no cache | skif, warm cache | Speed-up |\n" +
+      "| --- | ---: | ---: | ---: |\n" +
+      "| babel | 884 ms | 221 ms | 4.0x |\n" +
+      "| next-js | 6.0 s | 2.5 s | 2.4x |\n" +
+      "| graph: 10000 files in 100 packages | 4.0 s | 1.6 s | 2.5x |",
+  );
+  const faster = withNextJs();
+  for (const target of faster.targets.filter((t) => t.warm_cache != null)) target.warm_cache = warm(1, 1000);
+  for (const render of [benchSummary, benchDetail, benchClaims, readmeClaims]) {
+    assert.equal(render(faster), render(withNextJs()), render.name);
+    assert.doesNotMatch(render(faster), /warm cache/iu, render.name);
+  }
 });
 
 test("the compact tables use medians and the knip to skif ratio", () => {
@@ -813,6 +874,13 @@ test("a summary with a matched knip failure is written into every speed block", 
   assert.ok(page.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), page);
   assert.ok(page.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), page);
   assert.ok(page.includes("| create-t3-turbo | 33 ms | 200 MiB |\n"), page);
+  assert.ok(
+    page.includes(
+      "{/* bench:warm:start */}\n| Target | skif, no cache | skif, warm cache | Speed-up |\n| --- | ---: | ---: | ---: |\n" +
+        "| babel | 884 ms | 221 ms | 4.0x |\n| create-t3-turbo | 33 ms | 11 ms | 3.0x |\n{/* bench:warm:end */}",
+    ),
+    page,
+  );
   const claim = "\n- **8.1x faster than knip** for dead-code analysis";
   assert.ok(comparison.includes(`{/* bench:claims:start */}${claim}`), comparison);
   assert.ok(comparison.includes("it fails on create-t3-turbo.\n"), comparison);

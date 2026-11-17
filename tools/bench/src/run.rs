@@ -10,10 +10,12 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::cache_diff::{self, DEBUG_FLAG, NO_CACHE_FLAG, Outcome};
 use crate::corpus;
 use crate::parity;
-use crate::proc::{SKIF_ARGS, capture};
+use crate::proc::{Captured, SKIF_ARGS, capture};
 use crate::provenance::{self, GithubRunner, Machine, Toolchain};
+use crate::report_diff::{read_report, render_diff};
 use crate::sources;
 use crate::tools_install;
 use skif_bench::generate::{self, Options, PackageManager};
@@ -27,7 +29,7 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
 /// Version of the `summary.json` layout.
-const SUMMARY_SCHEMA: u32 = 9;
+const SUMMARY_SCHEMA: u32 = 10;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
@@ -40,6 +42,12 @@ const ERROR_LOG_LINES: usize = 40;
 const TIME_PROGRAM: &str = "/usr/bin/time";
 /// How long the run under [`TIME_PROGRAM`] that measures a command's peak RSS may take.
 const PEAK_RSS_TIMEOUT: Duration = Duration::from_mins(10);
+/// The name of a target's warm-cache command in its own hyperfine export ([`measure_warm_cache`]).
+const WARM_CACHE_LABEL: &str = "skif, warm cache";
+/// The flag that names the store of the warm-cache runs. A location given by a flag is written with `CI` set too.
+const CACHE_LOCATION_FLAG: &str = "--cache-location";
+/// How long each run outside hyperfine around the warm-cache measurement may take.
+const WARM_CACHE_TIMEOUT: Duration = Duration::from_mins(10);
 
 // Independent switches, one per command-line flag.
 #[allow(clippy::struct_excessive_bools)]
@@ -268,6 +276,23 @@ struct TargetResult {
     warmup: u32,
     runs: u32,
     results: Vec<ToolResult>,
+    /// The whole skif run on a warm cache ([`measure_warm_cache`]); `None` where no whole skif run is timed. It is
+    /// kept out of `results`, so no ratio, check or compared table reads it (ADR 0014).
+    warm_cache: Option<WarmCache>,
+}
+
+/// The whole skif run of a target ([`Tool::Skif`]) on a warm cache: the store a run of the same tree wrote.
+#[derive(Debug, Serialize)]
+struct WarmCache {
+    mean_ms: f64,
+    stddev_ms: Option<f64>,
+    median_ms: f64,
+    min_ms: f64,
+    max_ms: f64,
+    /// The median of the uncached row over this median; above 1 means the warm cache is faster.
+    speedup: f64,
+    /// The cache hits the run outside hyperfine counted on the same store.
+    cache_hits: u64,
 }
 
 /// The outcome of an ADR 0001 target check.
@@ -462,7 +487,7 @@ struct Target {
     runs: u32,
 }
 
-fn hyperfine(target: &Target, commands: &[(Tool, String)], export: &Path) -> Result<()> {
+fn hyperfine(target: &Target, commands: &[(&str, String)], export: &Path) -> Result<()> {
     let mut command = Command::new("hyperfine");
     command
         .current_dir(&target.dir)
@@ -472,10 +497,10 @@ fn hyperfine(target: &Target, commands: &[(Tool, String)], export: &Path) -> Res
         .arg(target.runs.to_string())
         .arg("--export-json")
         .arg(export);
-    for (tool, line) in commands {
-        command.arg("--command-name").arg(tool.label()).arg(line);
+    for (name, line) in commands {
+        command.arg("--command-name").arg(name).arg(line);
     }
-    eprintln!("bench: {} ({} tools)", target.name, commands.len());
+    eprintln!("bench: {} ({} commands)", target.name, commands.len());
     let status = command.status().context("running hyperfine")?;
     if !status.success() {
         bail!("hyperfine failed on {} ({status})", target.name);
@@ -707,6 +732,120 @@ fn measure_peak_rss(
     Ok(())
 }
 
+/// The command of a target's warm-cache run: `uncached`, the command of its whole skif run, with `--no-cache`
+/// replaced by the location of `store`, so the two differ in nothing else.
+fn warm_argv(uncached: &[String], store: &Path) -> Vec<String> {
+    uncached
+        .iter()
+        .flat_map(|arg| {
+            if arg == NO_CACHE_FLAG {
+                vec![CACHE_LOCATION_FLAG.to_owned(), store.to_string_lossy().into_owned()]
+            } else {
+                vec![arg.clone()]
+            }
+        })
+        .collect()
+}
+
+/// The cache hits of `warm`, a run with `--debug` on a primed store, when it is a warm run worth timing: its report
+/// and exit code are those of `uncached`, the run of the same tree without the cache, and it counts at least one hit.
+///
+/// # Errors
+/// Fails with the reason when the reports differ, a run has no report, or nothing shows that the cache was read.
+fn warm_check(uncached: &Captured, warm: &Captured) -> Result<u64, String> {
+    match cache_diff::compare(&read_report(uncached), &read_report(warm)) {
+        Outcome::Identical => {}
+        Outcome::Different(diff) => {
+            let mut text = String::from("its report differs from the uncached run's:\n");
+            render_diff(&mut text, &diff);
+            return Err(text.trim_end().to_owned());
+        }
+        Outcome::Failed(reason) => return Err(reason),
+    }
+    match cache_diff::cache_hits(&warm.stderr) {
+        Some(0) => Err("it counts zero cache hits, so it read nothing from the store".to_owned()),
+        Some(hits) => Ok(hits),
+        None => Err(format!(
+            "it printed no cache counter under {DEBUG_FLAG}, so nothing shows that it read the store"
+        )),
+    }
+}
+
+/// The warm-cache measurement from its hyperfine result, `uncached_median_ms` being the median of the uncached row.
+fn warm_cache_result(timed: &HyperfineResult, uncached_median_ms: f64, cache_hits: u64) -> WarmCache {
+    let median_ms = timed.median * 1000.0;
+    WarmCache {
+        mean_ms: timed.mean * 1000.0,
+        stddev_ms: timed.stddev.map(|s| s * 1000.0),
+        median_ms,
+        min_ms: timed.min * 1000.0,
+        max_ms: timed.max * 1000.0,
+        speedup: uncached_median_ms / median_ms,
+        cache_hits,
+    }
+}
+
+/// Times the whole skif run of `target` ([`Tool::Skif`]) on a warm cache, with the target's warmup and measured runs,
+/// into `export`: an untimed run first writes the emptied `store`, then [`warm_check`] compares one run on it with
+/// one without the cache, and hyperfine times the command of [`warm_argv`]. `None` for a target that times no whole
+/// skif run.
+///
+/// # Errors
+/// Fails when the warm run is not one ([`warm_check`]) or exits with an error in a measured run: a time that may be
+/// that of a run without cache hits is not recorded.
+fn measure_warm_cache(
+    target: &Target,
+    argvs: &[(Tool, Vec<String>)],
+    rows: &[ToolResult],
+    store: &Path,
+    scratch: &Path,
+    export: &Path,
+) -> Result<Option<WarmCache>> {
+    let (Some((_, uncached)), Some(row)) = (
+        argvs.iter().find(|(tool, _)| *tool == Tool::Skif),
+        rows.iter().find(|row| row.tool == Tool::Skif.label()),
+    ) else {
+        return Ok(None);
+    };
+    if store.exists() {
+        fs::remove_dir_all(store).with_context(|| format!("emptying {}", store.display()))?;
+    }
+    fs::create_dir_all(store).with_context(|| format!("creating {}", store.display()))?;
+    let warm = warm_argv(uncached, store);
+    let run = |argv: &[String], label: &str| -> Result<Captured> {
+        let (program, arguments) = argv.split_first().context("an empty skif command")?;
+        capture(
+            Command::new(program).args(arguments).current_dir(&target.dir),
+            scratch,
+            label,
+            WARM_CACHE_TIMEOUT,
+        )
+    };
+    run(&warm, "warm-prime")?;
+    let reference = run(uncached, "warm-uncached")?;
+    let debug: Vec<String> = warm.iter().cloned().chain([DEBUG_FLAG.to_owned()]).collect();
+    let cache_hits = warm_check(&reference, &run(&debug, "warm-check")?).map_err(|reason| {
+        anyhow::anyhow!(
+            "the warm-cache run of skif on {} cannot be measured: {reason}",
+            target.name
+        )
+    })?;
+    hyperfine(target, &[(WARM_CACHE_LABEL, command_line(&warm))], export)?;
+    let timed = read_results(export)?
+        .into_iter()
+        .next()
+        .with_context(|| format!("no result in {}", export.display()))?;
+    if timed.error_runs > 0 {
+        bail!(
+            "skif with a warm cache exited with an error in {} of {} measured runs on {}",
+            timed.error_runs,
+            target.runs,
+            target.name
+        );
+    }
+    Ok(Some(warm_cache_result(&timed, row.median_ms, cache_hits)))
+}
+
 /// `bytes` in mebibytes, rounded to the nearest one.
 const fn mib(bytes: u64) -> u64 {
     bytes.saturating_add(1 << 19) >> 20
@@ -858,6 +997,7 @@ fn markdown(summary: &Summary) -> String {
         out.push('\n');
     }
     peak_rss_markdown(summary, &mut out);
+    warm_cache_markdown(summary, &mut out);
     // Every section above ends in a blank line; the file ends in exactly one newline, as `poly fmt` writes it.
     let end = out.trim_end().len();
     out.truncate(end);
@@ -882,6 +1022,36 @@ fn peak_rss_markdown(summary: &Summary, out: &mut String) {
     out.push_str("## Peak RSS\n\n| Target | skif, peak RSS (MiB) |\n| --- | ---: |\n");
     for (target, bytes) in measured {
         let _ = writeln!(out, "| {} | {} |", target.target, mib(bytes));
+    }
+    out.push('\n');
+}
+
+/// The section of `summary.md` on the whole skif run with a warm cache, for every target that measured it: the
+/// median of the uncached row, the warm median and the first over the second. Nothing when none did.
+fn warm_cache_markdown(summary: &Summary, out: &mut String) {
+    let measured: Vec<(&TargetResult, &ToolResult, &WarmCache)> = summary
+        .targets
+        .iter()
+        .filter_map(|target| {
+            let row = target.results.iter().find(|row| row.tool == Tool::Skif.label())?;
+            Some((target, row, target.warm_cache.as_ref()?))
+        })
+        .collect();
+    if measured.is_empty() {
+        return;
+    }
+    out.push_str(
+        "## Warm cache\n\nThe whole skif run with its cache on (`--cache-location`), on the store a run of the same tree wrote. It is compared with no other tool and is part of no check.\n\n| Target | skif, uncached, median (ms) | skif, warm cache, median (ms) | Speed-up |\n| --- | ---: | ---: | ---: |\n",
+    );
+    for (target, row, warm) in measured {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {:.1}x |",
+            target.target,
+            format_ms(row.median_ms),
+            format_ms(warm.median_ms),
+            warm.speedup
+        );
     }
     out.push('\n');
 }
@@ -1310,7 +1480,10 @@ pub fn run(options: &RunOptions) -> Result<()> {
             .iter()
             .map(|&tool| (tool, tool_argv(tool, &program_of(tool), &skif_args, &target.knip_args)))
             .collect();
-        let commands: Vec<(Tool, String)> = argvs.iter().map(|(tool, argv)| (*tool, command_line(argv))).collect();
+        let commands: Vec<(&str, String)> = argvs
+            .iter()
+            .map(|(tool, argv)| (tool.label(), command_line(argv)))
+            .collect();
         let export = raw.join(format!("{index:02}.json"));
         hyperfine(target, &commands, &export)?;
         let mut results = tool_results(&read_results(&export)?);
@@ -1318,6 +1491,10 @@ pub fn run(options: &RunOptions) -> Result<()> {
             .context("resolving the error output directory")?;
         explain_errors(target, &argvs, &mut results, &scratch)?;
         measure_peak_rss(target, &argvs, &mut results, &scratch)?;
+        let store = std::path::absolute(options.generated_dir.join("warm-cache").join(format!("{index:02}")))
+            .context("resolving the warm-cache store directory")?;
+        let warm_export = raw.join(format!("{index:02}-warm.json"));
+        let warm_cache = measure_warm_cache(target, &argvs, &results, &store, &scratch, &warm_export)?;
         measured.push(TargetResult {
             target: target.name.clone(),
             kind: target.kind,
@@ -1328,6 +1505,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
             warmup: target.warmup,
             runs: target.runs,
             results,
+            warm_cache,
         });
     }
 
@@ -1473,6 +1651,7 @@ mod tests {
                     files: None,
                     installed_with: Some("pnpm 9.15.0".into()),
                     declared_knip_failure: None,
+                    warm_cache: None,
                     warmup: 1,
                     runs: 2,
                     results: vec![
@@ -1706,6 +1885,7 @@ mod tests {
                 files: None,
                 installed_with: None,
                 declared_knip_failure: None,
+                warm_cache: None,
                 warmup: 1,
                 runs: 2,
                 results: tool_results(&[result("skif", 0.1), knip]),
@@ -1767,6 +1947,7 @@ mod tests {
             files: None,
             installed_with: None,
             declared_knip_failure: declared,
+            warm_cache: None,
             warmup: 1,
             runs: 2,
             results,
@@ -2276,6 +2457,7 @@ mod tests {
             files: None,
             installed_with: None,
             declared_knip_failure: None,
+            warm_cache: None,
             warmup: 1,
             runs: 2,
             results: vec![ToolResult {
@@ -2305,6 +2487,7 @@ mod tests {
             files: Some(files),
             installed_with: None,
             declared_knip_failure: None,
+            warm_cache: None,
             warmup: 1,
             runs: 2,
             results: vec![ToolResult {
@@ -2408,6 +2591,7 @@ mod tests {
             files: None,
             installed_with: None,
             declared_knip_failure: None,
+            warm_cache: None,
             warmup: 1,
             runs: 2,
             results: vec![
@@ -2429,5 +2613,117 @@ mod tests {
         assert!(!text.contains("\n\n\n"), "{text}");
         let unmeasured = markdown(&summary_of(vec![target("b", None)], Vec::new()));
         assert!(!unmeasured.contains("Peak RSS"), "{unmeasured}");
+    }
+
+    #[test]
+    fn the_warm_run_is_the_timed_skif_command_with_the_store_in_place_of_no_cache() {
+        let extra = ["--config".to_owned(), "skif.toml".to_owned()];
+        let uncached = tool_argv(Tool::Skif, Path::new("/s/skif"), &extra, &[]);
+        let warm = warm_argv(&uncached, Path::new("/work/warm cache/00"));
+        assert_eq!(
+            warm,
+            [
+                "/s/skif",
+                ".",
+                "--format",
+                "json",
+                "--no-install",
+                "--cache-location",
+                "/work/warm cache/00",
+                "--config",
+                "skif.toml"
+            ]
+        );
+        assert!(!warm.iter().any(|arg| arg == "--no-cache"), "{warm:?}");
+        assert_eq!(
+            command_line(&warm),
+            "/s/skif . --format json --no-install --cache-location \"/work/warm cache/00\" --config skif.toml"
+        );
+    }
+
+    /// A finished skif run that printed `report` and, on stderr, `stderr`.
+    fn skif_run(report: &str, stderr: &str) -> Captured {
+        Captured {
+            code: Some(1),
+            timed_out: false,
+            stdout: report.as_bytes().to_vec(),
+            stderr: stderr.to_owned(),
+            elapsed: Duration::ZERO,
+        }
+    }
+
+    #[test]
+    fn a_warm_run_is_timed_only_with_the_uncached_report_and_a_cache_hit() {
+        const REPORT: &str = r#"{"diagnostics":[{"rule":"unused-file","file":"a.ts","message":"m"}]}"#;
+        const HITS: &str =
+            "skif debug: cache store /w/00\nskif debug: cache modules: 7 hits, 0 misses, 0 bytes written\n";
+        let uncached = skif_run(REPORT, "");
+        assert_eq!(warm_check(&uncached, &skif_run(REPORT, HITS)), Ok(7));
+        let misses = "skif debug: cache modules: 0 hits, 7 misses, 90 bytes written\n";
+        assert_eq!(
+            warm_check(&uncached, &skif_run(REPORT, misses)),
+            Err("it counts zero cache hits, so it read nothing from the store".to_owned())
+        );
+        assert_eq!(
+            warm_check(&uncached, &skif_run(REPORT, "skif debug: 3 packages\n")),
+            Err("it printed no cache counter under --debug, so nothing shows that it read the store".to_owned())
+        );
+        let other = warm_check(&uncached, &skif_run(r#"{"diagnostics":[]}"#, HITS)).unwrap_err();
+        assert!(
+            other.starts_with("its report differs from the uncached run's:\n") && other.contains("- unused-file"),
+            "{other}"
+        );
+        let exit = Captured {
+            code: Some(0),
+            ..skif_run(REPORT, HITS)
+        };
+        assert!(warm_check(&uncached, &exit).unwrap_err().contains("exit-code"));
+        let failed = warm_check(&uncached, &skif_run("", HITS)).unwrap_err();
+        assert!(failed.starts_with("cached run output is not JSON"), "{failed}");
+    }
+
+    #[test]
+    fn the_summary_shows_the_warm_cache_apart_from_the_compared_rows() {
+        let warm = warm_cache_result(&result(WARM_CACHE_LABEL, 0.05), 200.0, 7);
+        assert!((warm.speedup - 4.0).abs() < 1e-9, "{warm:?}");
+        let target = |name: &str, warm_cache: Option<WarmCache>| TargetResult {
+            target: name.into(),
+            kind: "corpus",
+            packages: None,
+            files: None,
+            installed_with: None,
+            declared_knip_failure: None,
+            warmup: 1,
+            runs: 2,
+            results: vec![tool_row("skif", 200.0), tool_row("knip --reporter json", 1000.0)],
+            warm_cache,
+        };
+        let summary = summary_of(vec![target("a", Some(warm)), target("b", None)], Vec::new());
+        let text = markdown(&summary);
+        assert!(
+            text.ends_with(
+                "part of no check.\n\n| Target | skif, uncached, median (ms) | skif, warm cache, median (ms) | Speed-up |\n| --- | ---: | ---: | ---: |\n| a | 200 | 50.0 | 4.0x |\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("\n\n## Warm cache\n\nThe whole skif run with its cache on"),
+            "{text}"
+        );
+        assert!(!text.contains("\n\n\n"), "{text}");
+        assert!(!text.contains(&format!("| {WARM_CACHE_LABEL} |")), "{text}");
+        let json = serde_json::to_value(&summary).unwrap();
+        assert_eq!(json["schema"], 10);
+        assert_eq!(
+            json["targets"][0]["warm_cache"],
+            serde_json::json!({
+                "mean_ms": 50.0, "stddev_ms": 1.0, "median_ms": 50.0, "min_ms": 50.0, "max_ms": 50.0,
+                "speedup": 4.0, "cache_hits": 7
+            })
+        );
+        assert!(json["targets"][1]["warm_cache"].is_null());
+        assert_eq!(json["targets"][0]["results"].as_array().unwrap().len(), 2);
+        let unmeasured = markdown(&summary_of(vec![target("b", None)], Vec::new()));
+        assert!(!unmeasured.contains("Warm cache"), "{unmeasured}");
     }
 }

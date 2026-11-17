@@ -103,7 +103,7 @@ counted.
 * Everything timed is pinned: the corpus by commit, the tools by the lock above, the Rust toolchain by the measured
   ref's `rust-version`, hyperfine and Node through `mise.lock`, and package managers through a pinned corepack. An
   unpinned input fails the run before anything is timed. Every timed row passes `--no-cache`, so no timed input comes
-  from a cache, except the labelled cache rows below.
+  from a cache, except the labelled warm-cache row below.
 * The summary records the machine, runner, toolchain, measured and harness commits and how each repository was
   installed, and the published tables print that record. `mise run bench:import` takes only a complete, successful
   dispatched run of a commit on `main`, refuses a partial, dirty, outdated or invalid run, and the maintainer commits
@@ -115,9 +115,16 @@ counted.
 
 ### Cache rows and the cache-diff gate
 
-* Labelled cache rows time skif's own cache ([ADR 0007](0007-js-analysis-core-on-oxc.md)): cold with the write
-  (overhead target at most 5% over `--no-cache`), warm, and one edit. They are outside the targets of
-  [ADR 0001](0001-mission-scope-and-non-goals.md), so a warm number never stands in for a compared one.
+* A labelled warm-cache row times skif's own cache ([ADR 0007](0007-js-analysis-core-on-oxc.md)) on every target
+  that times the whole skif run: the same command with a store in place of `--no-cache`, on the store one untimed run
+  of the same tree wrote outside the checkout, with the same warmup and measured runs.
+* It is timed only after one run on that store printed the report and exit code of a run without the cache and counted
+  at least one cache hit; otherwise the run fails, because a warm time measured on misses says nothing.
+* It is recorded beside the compared rows, never among them, and published in its own table with the uncached median
+  and their ratio. It is outside the targets of [ADR 0001](0001-mission-scope-and-non-goals.md) and enters no ratio
+  against another tool and no claim, so a warm number never stands in for a compared one. A cold run with the write
+  (overhead target at most 5% over `--no-cache`) and a run after one edit are not timed yet; `cache-diff` prints
+  single informational runs of both.
 * `skif-bench cache-diff` lints the corpus uncached, cold, warm and after seeded edits, and fails on any difference
   between the reports, because a cache that changes a finding is a correctness defect, not a measurement. It is run
   with `mise run cache:diff`, and by every `bench.yml` run after its results are uploaded.
@@ -160,5 +167,6 @@ counted.
 * `tools/bench/src/diff.rs` covers the drift check and its tolerance.
 * `skif-bench cache-diff`, run with `mise run cache:diff` before a release, confirms that caching changes no report.
 * `tools/bench/src/run.rs`, `tools/bench/src/provenance.rs` and `tools/bench/refresh-numbers.test.mjs` cover the timing
-  scope, the informational recursive row, peak RSS, declared knip failures and the published record;
+  scope, the informational recursive row, the warm-cache row, peak RSS, declared knip failures and the published
+  record;
   `scripts/test-check-scripts.sh` covers the import.

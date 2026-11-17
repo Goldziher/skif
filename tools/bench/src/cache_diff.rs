@@ -31,13 +31,13 @@ const SUITE: &str = "bench";
 /// timing a report may come to carry.
 const IGNORED_SECTIONS: &[&str] = &["skif", "cache", "timing"];
 /// The flag that turns a default-on cache off.
-const NO_CACHE_FLAG: &str = "--no-cache";
+pub const NO_CACHE_FLAG: &str = "--no-cache";
 /// The environment variables of the cache settings: on or off (`0`, `1`), the location and the size cap.
 const ENV_ENABLED: &str = "SKIF_CACHE";
 const ENV_LOCATION: &str = "SKIF_CACHE_DIR";
 const ENV_MAX_SIZE: &str = "SKIF_CACHE_MAX_SIZE";
 /// The flag every run passes, so that a run with a store prints its counters on stderr; stdout is the same with it.
-const DEBUG_FLAG: &str = "--debug";
+pub const DEBUG_FLAG: &str = "--debug";
 /// What a counter line of `--debug` starts with; the namespace follows.
 const COUNTER_PREFIX: &str = "skif debug: cache ";
 

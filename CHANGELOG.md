@@ -79,6 +79,9 @@ All notable changes to this project are documented here. The format follows
 - GitHub Action: the inputs `cache`, `cache-key`, `cache-max-size` and `cache-save` and the output `cache-hit`
   restore and save skif's cache around the run. Unless `cache-save` says otherwise, only a `push` or `schedule` run of
   the default branch saves; pull requests restore only.
+- Benchmarks: the `bench` workflow also times the full skif run on a warm cache, on every corpus repository and the
+  module graph, and the [benchmarks page](https://polylint.github.io/skif/guides/benchmarks/#warm-cache) shows it
+  beside the uncached run. It is compared with no other tool; the compared rows still run with `--no-cache`.
 
 ### Changed
 

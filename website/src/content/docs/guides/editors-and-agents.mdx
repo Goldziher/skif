@@ -132,7 +132,8 @@ or absolute path, so an unchanged file is not parsed again and a changed file al
 report or an exit code. Everything else (configuration, manifests, the module graph, the rules) is computed on every
 run. A store that is damaged, written by another version or unreadable is empty, and an entry that does not verify is
 a miss. The design is recorded in
-[ADR 0007](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md).
+[ADR 0007](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md), and what a warm cache
+saves on real repositories is measured on the [benchmarks page](../benchmarks/#warm-cache).
 
 The cache is on by default for `skif`, `skif -r` and `--watch`. Turn it off with `--no-cache`, `SKIF_CACHE=0` or
 `[cache] enabled = false`. A setting comes from the first of these that sets it: the flags (`--no-cache`, `--cache`,
