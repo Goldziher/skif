@@ -17,7 +17,7 @@ old one.
 | 0007 | [JS Analysis Core on oxc](0007-js-analysis-core-on-oxc.md) | accepted |
 | 0008 | [Plugins, Config Evaluation and Commands](0008-plugins-config-evaluation-and-commands.md) | accepted |
 | 0009 | [What Counts as a Use](0009-what-counts-as-a-use.md) | accepted |
-| 0010 | [Type-Aware Analysis on tsrs](0010-type-aware-analysis-on-tsrs.md) | accepted |
+| 0010 | [No Type-Aware Analysis](0010-type-aware-analysis-on-tsrs.md) | accepted |
 | 0011 | [Nx, Lerna and Bazel](0011-nx-lerna-and-bazel.md) | accepted |
 | 0012 | [CLI Contract and Reporting](0012-cli-contract-and-reporting.md) | accepted |
 | 0013 | [Editors, Agents and Git Hooks](0013-editors-agents-and-git-hooks.md) | accepted |

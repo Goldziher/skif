@@ -90,8 +90,7 @@ version from one build, and ties the support statement to facts someone else mai
 
 ### Build profiles
 
-* The CLI binaries use `[profile.release]`, which unwinds, so a panic inside the type checker is caught and the affected
-  packages fall back to the untyped analysis ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).
+* The CLI binaries use `[profile.release]`, which unwinds.
 * The addon uses `[profile.node]`, which inherits it and unwinds too, so a panic becomes a JavaScript exception instead
   of ending the host process.
 

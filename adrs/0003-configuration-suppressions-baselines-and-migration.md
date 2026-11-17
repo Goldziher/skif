@@ -97,8 +97,6 @@ explicit key, and baselines and migrations reuse the same model instead of addin
   root package), plus skif's own keys owned by the records of their topic.
 * `enabled` defaults to `true`, so JS analysis runs wherever the `js-analysis` feature is compiled in; `--no-js` turns it
   off.
-* `type-aware` turns type-aware analysis on, at the top level or per workspace and never in an override; its default
-  and switches are in [ADR 0010](0010-type-aware-analysis-on-tsrs.md).
 * The name lists (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-members`, `ignore-workspaces`,
   `ignore-files`) take exact names, globs and regular expressions, with these stated deviations from knip: an entry is a
   regular expression when written between slashes or when it holds regex-only syntax, but `*` and `{` keep it a glob, so
@@ -194,7 +192,7 @@ explicit key, and baselines and migrations reuse the same model instead of addin
 ### Confirmation
 
 * `crates/skif-config/tests/layers.rs` and `crates/skif-config/tests/config.rs` cover each merge rule, the cascade
-  ceilings, `extends`, scope errors, anchors, provenance, the reason tables and the `type-aware` default and flags.
+  ceilings, `extends`, scope errors, anchors, provenance and the reason tables.
 * `crates/skif/tests/inheritance.rs` and `crates/skif-cli/tests/multi.rs` cover equal configuration however a project is
   reached and the judging of shared files across roots; `crates/skif/src/shared_config.rs` covers the settling.
 * `crates/skif-js/tests/js_config.rs` and `crates/skif-js/tests/isolate_workspaces.rs` cover the name lists, the

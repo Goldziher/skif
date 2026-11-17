@@ -90,12 +90,10 @@ launcher brings the binary without Rust or Node.
 * `--watch` conflicts with fixing, exit codes have no meaning while it runs, and an unreadable configuration is
   reported while the loop keeps watching.
 
-### Long-lived hosts run untyped
+### Long-lived hosts and the cache
 
-`skif mcp`, `skif lsp` and `--watch` analyse without types, for the reason
-[ADR 0010](0010-type-aware-analysis-on-tsrs.md) states, so their member findings are name-based. How each uses the
-cache store (`--watch` writes it after each round; the servers seed per-root memory caches from it read-only and never
-write it) is [ADR 0007](0007-js-analysis-core-on-oxc.md)'s.
+How `skif mcp`, `skif lsp` and `--watch` use the cache store (`--watch` writes it after each round; the servers seed
+per-root memory caches from it read-only and never write it) is [ADR 0007](0007-js-analysis-core-on-oxc.md)'s.
 
 ### No editor extension
 
@@ -140,7 +138,6 @@ client, as the editor guide shows.
   other version surface.
 * Bad, because hand-rolled protocol code follows the specifications by hand; a new MCP revision or LSP feature is
   skif's work.
-* Bad, because member findings in the editor, the agent server and watch mode can differ from those of a typed run.
 * Bad, because polling scans the tree every interval, and the language server lints the whole root after each burst of
   typing.
 * Bad, because the plugin's server needs Node and npm, and the hook launcher a POSIX shell and the network on first use;
@@ -155,7 +152,6 @@ client, as the editor guide shows.
   tools against the clap definition (every command and every flag of a tool's command has an argument or a reason, and
   each argument parses as its flag), and `crates/skif-cli/tests/mcp.rs` compares each tool's result with the CLI's
   JSON output for the same input.
-* `crates/skif-cli/src/lint.rs` checks that `--watch` and the servers analyse without types.
 * `crates/skif/tests/module_cache.rs` checks that a buffer overlay reports like the saved file.
 * `scripts/check-versions.sh` and `scripts/test-release-scripts.sh` cover the plugin manifest versions, the server pin
   and the poly hook channel; `scripts/test-check-scripts.sh` covers the drift checks for files under `skills/`.

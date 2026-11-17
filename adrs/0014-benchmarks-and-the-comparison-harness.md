@@ -62,12 +62,6 @@ ratios that divide the times of equal work measured where anyone can repeat them
 * `skif-bench parity` (`mise run parity`) runs skif and knip with JSON output in each checkout and keys both reports
   per knip issue type; only issue types both tools have are compared, so class members are not. knip runs with an
   empty configuration in skif's scope, so a repository's own ignores hide nothing. The harness reads skif's incomplete packages and knip's load errors.
-* The compared run is skif with `--type-aware`. A second pass with `--no-type-aware` classifies the findings types
-  settle: a one-sided finding no other deviation explains is `type-resolved` when skif reports it only with types, or
-  when knip reports it and only skif's untyped run does too. `--no-untyped-pass` skips the second pass, and then no
-  baseline can be recorded.
-* `tools/bench/baselines/type-aware.json` records per repository and rule the counts of both runs, and the parity
-  baseline header records the mode skif ran in; a baseline of another mode is not comparable.
 
 ### Agreement with syncpack
 
@@ -117,27 +111,23 @@ counted.
 * Large repositories may cap their measured and warmup runs in `corpus.toml`, and the published tables name a capped
   target's counts. A known knip failure is declared and matched; a declaration the run does not match makes the run
   unpublishable.
-* Each target is timed without types and with `--type-aware`, and each mode runs once more for its peak RSS. The
-  summary and the published tables show both modes; the type-aware budget checked against them is
-  [ADR 0010](0010-type-aware-analysis-on-tsrs.md)'s.
+* Each target runs once more for its peak RSS, which the summary and the published tables show.
 
 ### Cache rows and the cache-diff gate
 
 * Labelled cache rows time skif's own cache ([ADR 0007](0007-js-analysis-core-on-oxc.md)): cold with the write
-  (overhead target at most 5% over `--no-cache`), warm, warm typed, and one edit untyped and typed. They are outside
-  the targets of [ADR 0001](0001-mission-scope-and-non-goals.md) and the budget of
-  [ADR 0010](0010-type-aware-analysis-on-tsrs.md), so a warm number never stands in for a compared one.
-* `skif-bench cache-diff` lints the corpus uncached, cold, warm and after seeded edits, untyped and typed, and fails on
-  any difference between the reports. It runs in CI next to the typed-versus-untyped diff, because a cache that changes
-  a finding is a correctness defect, not a measurement.
+  (overhead target at most 5% over `--no-cache`), warm, and one edit. They are outside the targets of
+  [ADR 0001](0001-mission-scope-and-non-goals.md), so a warm number never stands in for a compared one.
+* `skif-bench cache-diff` lints the corpus uncached, cold, warm and after seeded edits, and fails on any difference
+  between the reports. It runs in CI, because a cache that changes a finding is a correctness defect, not a
+  measurement.
 
 ### Timing scope
 
 * Each compared row is timed on the scope the compared tool reads, so every published ratio divides the times of two
   runs over the same projects. `skif --no-js`, compared with sherif and syncpack, runs on the root workspace.
-* The full `skif` row, compared with knip and checked by the targets and the budget, runs on the scope knip reads:
-  without `--recursive` unless the repository configures knip itself to read nested projects that are not workspace
-  members. `skif --type-aware` runs on the scope of the full row.
+* The full `skif` row, compared with knip and checked by the targets, runs on the scope knip reads: without
+  `--recursive` unless the repository configures knip itself to read nested projects that are not workspace members.
 * Where a repository sets `recursive`, a full recursive run is timed as an informational row: it has no ratio and no
   check, and enters no published claim. `recursive` keeps its meaning for `parity`, which compares findings, not time.
 * A repository's knip timing configuration and arguments make knip read the files skif reads, written by the same code
@@ -164,11 +154,11 @@ counted.
 
 * `tools/bench/src/corpus.rs` checks the pins, the tool lock, the run caps and the checkout locks;
   `tools/bench/src/tools.rs` covers `tools update` and `tools check`.
-* `tools/bench/src/parity.rs`, `tools/bench/src/evidence.rs`, `tools/bench/src/type_aware.rs` and
-  `tools/bench/src/main.rs` cover the compared run, the untyped pass and every deviation's positive and near-miss case;
+* `tools/bench/src/parity.rs`, `tools/bench/src/evidence.rs` and `tools/bench/src/main.rs` cover the compared run and
+  every deviation's positive and near-miss case;
   `tools/bench/src/syncpack.rs` covers the translation for syncpack.
 * `tools/bench/src/diff.rs` covers the drift check and its tolerance.
 * `skif-bench cache-diff`, run in CI, confirms that caching changes no report.
 * `tools/bench/src/run.rs`, `tools/bench/src/provenance.rs` and `tools/bench/refresh-numbers.test.mjs` cover the timing
-  scope, the informational recursive row, both modes, peak RSS, declared knip failures and the published record;
+  scope, the informational recursive row, peak RSS, declared knip failures and the published record;
   `scripts/test-check-scripts.sh` covers the import.

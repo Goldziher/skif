@@ -52,8 +52,8 @@ and it can promise never to execute user code.
   * sherif-style manifest and workspace rules;
   * syncpack-style version, semver-range and catalog policies
     ([ADR 0006](0006-version-policies-lockfiles-toolchains-and-updates.md));
-  * knip-style JavaScript and TypeScript analysis on oxc ([ADR 0007](0007-js-analysis-core-on-oxc.md)), with member
-    usage optionally resolved by the tsrs type checker ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).
+  * knip-style JavaScript and TypeScript analysis on oxc ([ADR 0007](0007-js-analysis-core-on-oxc.md)), without a
+    type checker ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).
 * All three share one configuration file
   ([ADR 0003](0003-configuration-suppressions-baselines-and-migration.md)), one workspace model
   ([ADR 0004](0004-workspaces-roots-and-package-managers.md)) and one diagnostic model
@@ -94,9 +94,6 @@ Measured by the benchmark harness ([ADR 0014](0014-benchmarks-and-the-comparison
 * JS analysis at least 5x faster than knip on the same corpus repository;
 * parsing and building a module graph of 10,000 files in under 2 s.
 
-These are targets of the untyped analysis. The budget of a run with types is in
-[ADR 0010](0010-type-aware-analysis-on-tsrs.md).
-
 Parity with knip and syncpack is measured as drift on a pinned corpus and is never a release gate
 ([ADR 0014](0014-benchmarks-and-the-comparison-harness.md)).
 
@@ -123,5 +120,5 @@ later release ([ADR 0015](0015-distribution-release-and-supported-versions.md)).
 * `skif-bench run` (`mise run bench`) measures every target above and exits non-zero when one fails.
 * `crates/skif-cli/tests/cli.rs` runs the CLI with a recording package-manager shim on `PATH` and asserts that the
   install runs only after a fix that changed files.
-* `scripts/check-dependency-tree.sh` keeps oxc and tsrs, the parsers of user JavaScript and TypeScript, behind the JS
-  analysis crates.
+* `scripts/check-dependency-tree.sh` keeps oxc, the parser of user JavaScript and TypeScript, behind the JS analysis
+  crates.

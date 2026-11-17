@@ -13,7 +13,7 @@ on its flags; hooks run it with `--fix`; a fix that changes manifests leaves the
 manager installs. Its findings reach terminals, code-scanning services, CI annotations, merge-request widgets and pull
 request comments, each wanting another shape, and a pipeline often wants several from one run. Scripts need one
 machine-readable contract on success and on failure, and some facts about a run are not findings on a line: packages
-skif could not fully judge, the roots a multi-root run covered, and how far the type checker covered each package.
+skif could not fully judge and the roots a multi-root run covered.
 
 What does the CLI accept, what does a fix run do, how are reports rendered, and what is stable?
 
@@ -58,9 +58,8 @@ means what it says.
 * Flags form the `ConfigOverrides` layer, the last layer of the configuration
   ([ADR 0003](0003-configuration-suppressions-baselines-and-migration.md)). An array flag replaces the configured
   array, except `--ignore-dependency`, which adds an ignore entry.
-* A mode flag turns a mode on, never off, except type-aware analysis: `--type-aware` and `--no-type-aware` both exist
-  and conflict ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)). The baseline commands and `skif explain-usage` take
-  them too, so they judge as the lint run they stand for.
+* A mode flag turns a mode on, never off. The baseline commands and `skif explain-usage` take the mode flags too, so
+  they judge as the lint run they stand for.
 * Report selection flags narrow the report, not the analysis. Diagnostics of the run itself (`--debug`,
   `--performance` and their kin) go to stderr.
 * `--color auto` colours only when stdout is a TTY, `NO_COLOR` is unset and there is no `--output`. `--no-prompt` never
@@ -120,10 +119,6 @@ case. A dry run is allowed, and linting is never affected.
 * `incomplete-packages` lists the packages whose unused files and dependencies skif could not fully judge, with their
   unjudged scope and the causes ([ADR 0008](0008-plugins-config-evaluation-and-commands.md)). The human renderer
   prints a note naming them and pointing at `skif explain-usage`.
-* `type-aware` describes the type-aware analysis of the run: whether it was on, the checker, and each package's
-  coverage with the reason when not typed. Type coverage is never a diagnostic and never changes the exit code; the
-  human renderer prints one footer line when packages were partly or not typed, and SARIF carries the object in its
-  run properties.
 * Formats with no place for a fact that is not a finding (SARIF results, GitHub annotations) leave these facts out.
 
 ### Exit codes and stability
@@ -140,7 +135,7 @@ case. A dry run is allowed, and linting is never affected.
 * Good, because scripts branch on three outcomes, and one `JSON.parse` handles success and failure.
 * Good, because the CI guard does not fire on `CI=false`, and the fix path does not depend on the current directory.
 * Good, because one analysis produces every report, and hosts reuse the renderers into their own buffers.
-* Good, because a consumer can tell why a package was not fully judged or typed without a diagnostic for it.
+* Good, because a consumer can tell why a package was not fully judged without a diagnostic for it.
 * Bad, because every flag and JSON member is a compatibility commitment.
 * Bad, because the install step makes `--fix` slower and dependent on the user's toolchain, and a failed install
   returns `2` although the manifests were fixed.
@@ -152,8 +147,7 @@ case. A dry run is allowed, and linting is never affected.
 
 ### Confirmation
 
-* `crates/skif-cli/src/args.rs` checks that every long flag is in the CLI reference page and that both type-aware flags
-  parse on lint, baseline and explain-usage; `crates/skif-cli/src/lint.rs` checks that they reach the overrides.
+* `crates/skif-cli/src/args.rs` checks that every long flag is in the CLI reference page.
 * `crates/skif-cli/src/env.rs` holds the CI truthiness table.
 * `crates/skif-cli/tests/cli.rs` covers exit codes, the fix and install pipeline, CI refusal and `--dry-run`;
   `crates/skif-cli/tests/formats.rs` covers several reports in one run; `crates/skif-cli/tests/update.rs` and

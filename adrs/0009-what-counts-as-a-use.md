@@ -34,7 +34,7 @@ element registrations?
   the advice differs
 * Follow knip's reading everywhere, which depends on executed configs skif does not have
 * Count every name match as a use, which hides most dead exports and members
-* Require type information for member and export uses, which makes the untyped default blind
+* Require type information for member and export uses, which needs a type checker skif does not have
 
 ## Decision Outcome
 
@@ -72,10 +72,9 @@ configuration, and a finding gets advice that fixes it in the package that must 
 * Excluded from the declarations: decorated members and classes (a framework may read them by reflection), members of
   a class whose superclass chain leaves the project (except the members a known library base declares), members an
   implemented interface declares, members of classes an entry file exposes, and type-only fields.
-* The rule asks a member-usage source behind one internal interface which modules use a member. Where type-aware
-  analysis covers a file the source is typed ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)); elsewhere, and in
-  template markup, it is name-based: any read of a property of that name on any object credits it, including an
-  element access through a provably constant key resolved across the graph. A plain assignment is no read.
+* Member usage is name-based, without types ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)): any read of a
+  property of that name on any object, in a module or in template markup, credits the member, including an element
+  access through a provably constant key resolved across the graph. A plain assignment is no read.
 * The fix deletes the member and is unsafe, because a dynamic access may read it; it is withheld where the class
   mentions the name elsewhere, for overloads and for decorated members.
 
@@ -141,8 +140,8 @@ and the verdict. Every new shape of use changes the parse output, so it raises t
   into generated code needs no ignore entry.
 * Good, because a template local named like an import hides no unused import, and web component libraries do not see
   every element class reported.
-* Bad, because in untyped files common member names are read somewhere in most projects, so unused members with such
-  names are missed, and classes of decorator frameworks and unknown bases are not judged.
+* Bad, because common member names are read somewhere in most projects, so unused members with such names are
+  missed, and classes of decorator frameworks and unknown bases are not judged.
 * Bad, because skif departs from knip where it follows the compiler or the bundler, and a project relying on knip's
   merged `paths` gets findings knip does not report.
 * Bad, because an import into a gitignored path that is never generated is not reported, and component registrations

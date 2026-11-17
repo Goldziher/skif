@@ -13,7 +13,7 @@ projects. It runs on Node, executes every tool's configuration, and is slow on l
 issue types inside one Rust process, next to its manifest rules. That needs a parser, a resolver that behaves as Node,
 TypeScript and the bundlers do, a module graph, a listing of the files to read, and a way to keep the fast-moving oxc
 crates from spreading through the code base. poly, a host that embeds skif, patches the oxc crates to a git copy, so
-both must resolve to the same oxc release. Most of an untyped run is oxc's parse of every source file, and long-lived
+both must resolve to the same oxc release. Most of a run is oxc's parse of every source file, and long-lived
 hosts and multi-root runs parse the same unchanged files again and again. An opt-in cache helps only users who ask for
 it, and poly, which runs skif in process over an in-memory file system and caches only the whole verdict, runs skif
 cold again after any edit.
@@ -131,7 +131,7 @@ lets every host, poly included, keep warm results in a store it owns while the l
 
 * `skif-core` defines `CacheStore` beside `FileSystem`, with `get(namespace, key)` and `put(namespace, key, value)`.
   Any failure of `get` is a miss; a failed `put` is the host's to log. A `CacheNamespace` is a name and a schema number
-  (`modules`, later typed namespaces) and stays a separate parameter, so a host lays out and reports entries per
+  (`modules`) and stays a separate parameter, so a host lays out and reports entries per
   namespace.
 * The linter holds the store, not the run options, because a store outlives a run: `Linter::with_cache_store` gives
   it and `Linter::with_cache_salt` adds the host's opaque salt. A linter without a store keeps nothing beyond the run.
@@ -139,7 +139,7 @@ lets every host, poly included, keep warm results in a store it owns while the l
 * Keys are 32-byte blake3 digests skif computes over the cache version, the namespace schema, a digest of the
   configuration the entry depends on, root-relative paths, content digests and the host salt. A key never holds a
   modification time or an absolute path, so hook snapshots and worktrees of one tree share entries. Hosts put a build
-  salt (the executable's stat on non-release builds) and the `TSRS_*` values a typed run reads into the salt.
+  salt (the executable's stat on non-release builds) into the salt.
 * skif wraps every value in an envelope it writes and verifies: magic, namespace, schema, key echo, length and
   checksum. A truncated, flipped or foreign value is a miss, never a wrong result, whatever the host stores. The
   envelope is integrity, not authentication, so who may write a store is host policy
@@ -152,14 +152,13 @@ lets every host, poly included, keep warm results in a store it owns while the l
 ### Cache layers
 
 * L1, per-file module facts: the `ModuleInfo` parsing one file returns, in the `modules` namespace with a binary
-  payload. It saves oxc's parse and semantic pass, most of an untyped run; reading and hashing every file remains.
+  payload. It saves oxc's parse and semantic pass, most of a run; reading and hashing every file remains.
   Everything else (configuration, manifests, lockfiles, plugin configs, resolution, the graph and the rules) is computed
   on every run, so L1 needs no dependency tracking. The `modules` schema, `CACHE_SCHEMA`, is raised whenever parse
   output changes, and a digest of a probe corpus beside it fails until it is.
-* L2, typed facts, follows once the typed analysis has a run-wide engine; its replay and reuse rules are
-  [ADR 0010](0010-type-aware-analysis-on-tsrs.md)'s.
-* L3, lockfile and plugin-config caches, only after a measurement shows they pay.
-* L4, a CLI-only stat fast path (path to stat and content key, with poly's racy-timestamp rule), comes last because it
+* There is no typed layer: skif has no type checker ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).
+* L2, lockfile and plugin-config caches, only after a measurement shows they pay.
+* L3, a CLI-only stat fast path (path to stat and content key, with poly's racy-timestamp rule), comes last because it
   changes the `FileSystem` trait. Stat records are never trusted across checkouts.
 
 ### In-memory caches
@@ -183,9 +182,8 @@ lets every host, poly included, keep warm results in a store it owns while the l
   directory (`$XDG_CACHE_HOME/skif`, `~/Library/Caches/skif`, `%LOCALAPPDATA%\skif`); else memory for the run.
 * One location serves many bases, each in `<location>/<base-key>/`, the key taken from the base path relative to the
   git top level, or absolute outside git. A directory skif creates gets a `CACHEDIR.TAG` and a `.gitignore` of `*`.
-* Each store keeps, per namespace, what its base's last run used, so an untyped run never prunes typed entries. After
-  the write, a location over its cap drops other bases' stores, least recently modified first; a single store over the
-  cap writes module entries first, then typed programs by build cost.
+* Each store keeps, per namespace, what its base's last run used. After the write, a location over its cap drops
+  other bases' stores, least recently modified first.
 * An unreadable, corrupt or foreign store is empty and a bad entry is a miss. A failed write is silent when the cache
   came from the defaults (one line under `--debug`) and a warning when it was asked for. The cache never changes the
   exit code or the findings. A write renames atomically behind a try-lock and is skipped on contention.
@@ -234,5 +232,5 @@ lets every host, poly included, keep warm results in a store it owns while the l
 * Library contract tests run without a store and with a cold, a warm, a corrupted and an adversarial store and require
   the same report apart from the counters; the CLI tests cover the settings' precedence, the location chain, the CI rule
   and `skif cache`.
-* `skif-bench cache-diff` compares uncached, cold, warm and seeded-edit runs on the corpus, untyped and typed, in CI
+* `skif-bench cache-diff` compares uncached, cold, warm and seeded-edit runs on the corpus, in CI
   ([ADR 0014](0014-benchmarks-and-the-comparison-harness.md)).
