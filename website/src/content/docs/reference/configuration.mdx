@@ -494,6 +494,10 @@ append to the list the table inherits through `extends`. A plugin entry is
 misspelt one is a configuration error with the closest name suggested. The `"."` table adds to the top-level ignore
 lists and replaces its `entry` and `project`.
 
+The key `type-aware` was removed in 0.9.0 with type-aware analysis. In `[js]`, a `[js.workspaces."<dir>"]` table or
+the `js` table of an `[[overrides]]` entry it is a configuration error that says so, names the file, line and column
+and exits `2`; delete the key.
+
 **Ignore lists.** `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-members` and
 `ignore-workspaces` take exact names, globs (`@types/*`) and regular expressions. An entry is a regular expression
 when it is written between slashes with optional flags (`/^@org\/.+$/`, `/^vite/i`), or, as in knip, when it contains
@@ -757,8 +761,9 @@ a named one, through a default import, `ns.default` or a re-export as `default`;
 (`export class C` beside `export default C`) is judged and reported once, and is public API when an entry file exposes
 any of them, also through `export default` of an import. A finding names a default-exported class by its declaration
 (`Foo` of `export default class Foo`), or `default` when it is anonymous. `skif explain-usage FILE#Class.member`
-shows the files that read the member's name, or why the member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an
-enum or namespace member the same way.
+shows the files that read a property of that name on any object, or why the member is not judged. For
+`FILE#Enum.member` and `FILE#Namespace.member` it says whether the member is read through an import or in its own
+file, or the whole enum or namespace is used.
 
 **`ignore-files`** lists globs of files that `unused-files` never reports, at the top level (relative to the workspace
 root) and per workspace (relative to its directory), like knip's `ignoreFiles`. Unlike `ignore`, every other rule still

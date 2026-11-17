@@ -119,6 +119,9 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--memory` | Print the peak resident set size of the run to stderr. Linux only; elsewhere a line says it is not measured. |
 | `-W`, `--workspace <NAME\|DIR>` | Report only the findings of these workspace packages, by package name or directory relative to the root (`.` is the root). Globs and `!` exclusions work as in `[workspace] ignore-packages`. Repeatable. The analysis still covers every package, so the findings are those of a full run; `--fix` fixes only what is reported. A finding of no package (the root manifest, `pnpm-workspace.yaml`, a catalog) belongs to the root, so it is reported and fixed only when the root is selected (`-W .`). No matching package exits `2`. |
 
+The flags `--type-aware` and `--no-type-aware` were removed in 0.9.0 with type-aware analysis: either is a usage
+error that says so and exits `2`.
+
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
 then the command line. `--ignore-package` replaces the file's `[workspace] ignore-packages`; `--ignore-dependency` and
 `--ignore-rule-for-package` add `[[ignore]]` entries to those of the files; `--rule` and `--ignore-rule` set the level of
@@ -151,11 +154,14 @@ which names the import brings in), and shows the shortest chain of imports from 
 `#EXPORT` it lists the modules that import that export by name or as a whole, follows re-exports (`export { x } from`,
 `export *`) into the modules that use them, and ends with a verdict (`public`, `used` or `unused`) computed from the
 same facts as the lines above it. With `#Class.member` (a member of an exported class) it explains the class export
-and then the member: the files that read a property of its name, the reason it is not judged when it is not
-(decorated, inherited from a library base, implementing an interface, public API), and the verdict of
-`unused-class-members`. `#Enum.member` and `#Namespace.member` explain an enum or namespace member the same way, with
-the verdict of `unused-enum-members` or `unused-namespace-members`. In JSON these are the `class-member` member:
-`class`, `member`, `of` (`enum` or `namespace`; omitted for a class), `verdict`, `exemption` and `readers`. An export of a file that may be an unknown entry of its package (a package whose
+and then the member: the files that read a property of that name on any object, the reason it is not judged when it
+is not (decorated, inherited from a library base, implementing an interface, public API), and the verdict of
+`unused-class-members`. `#Enum.member` and `#Namespace.member` explain an enum or namespace member with the verdict of
+`unused-enum-members` or `unused-namespace-members`; instead of files, the report says whether the member is read
+through an import or in its own file, or the whole enum or namespace is used. In JSON these are the `class-member`
+member: `class`, `member`, `of` (`enum` or `namespace`; omitted for a class), `verdict`, `exemption`, `readers` (the
+files, for a class member) and `used` (`true` when an enum or namespace member is read through an import or in its
+own file, or the whole enum or namespace is used; omitted otherwise). An export of a file that may be an unknown entry of its package (a package whose
 entry files are not fully known, or a file in the narrowed scope of such a package) is `not-judged` instead of
 `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
 as the JavaScript part of a lint run.

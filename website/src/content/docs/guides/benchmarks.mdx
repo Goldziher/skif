@@ -314,7 +314,7 @@ members, next to live code that is reached only through patterns that caused fal
 (namespace reads, `typeof import()`, `import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures
 and more) and live members that matching by name can get wrong (one member name on two classes, reads through an
 interface, a generic constraint, destructuring, a key of literal type, inheritance and overrides, enum and namespace
-aliases). Every package has a `tsconfig.json`. The answer key lists 73 seeded findings: the 33 of earlier measurements
+aliases). The answer key lists 73 seeded findings: the 33 of earlier measurements
 and 40 members. skif 0.8.0 (commit `4d3bdd7f`) and knip 6.45.1, measured on 2026-11-17; reproduce with
 `mise run bench:deadcode -- --knip`:
 
