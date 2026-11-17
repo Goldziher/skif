@@ -343,7 +343,11 @@ pub fn select(path: &Path, suite: &str, only: &[String]) -> Result<(Tools, Vec<R
     Ok((manifest.tools, repos))
 }
 
-fn git(dir: &Path, args: &[&str]) -> Result<String> {
+/// Runs git in `dir` and returns its trimmed standard output.
+///
+/// # Errors
+/// Fails when git cannot be started or exits unsuccessfully, with its standard error.
+pub fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -430,6 +434,39 @@ pub fn lock_path(dir: &Path) -> PathBuf {
     dir.with_file_name(name)
 }
 
+/// The journal of an edit `skif-bench cache-diff` made in the checkout `dir`: `<name>.edit` beside it, holding the
+/// path of the edited file relative to the checkout, written before the edit and removed once the file is restored.
+#[must_use]
+pub fn edit_journal_path(dir: &Path) -> PathBuf {
+    let mut name = dir.file_name().map_or_default(std::ffi::OsStr::to_os_string);
+    name.push(".edit");
+    dir.with_file_name(name)
+}
+
+/// Restores the file an interrupted `skif-bench cache-diff` run left edited in the checkout `dir` (the one its
+/// [`edit_journal_path`] names) from the index, and removes the journal; a no-op without a journal. Call it with the
+/// checkout locked.
+///
+/// # Errors
+/// Fails when the journal cannot be read or removed, or git cannot restore the file.
+pub fn recover_edit(dir: &Path) -> Result<()> {
+    let journal = edit_journal_path(dir);
+    if !journal.exists() {
+        return Ok(());
+    }
+    let text = fs::read_to_string(&journal).with_context(|| format!("reading {}", journal.display()))?;
+    let path = text.trim();
+    if !path.is_empty() {
+        git(dir, &["checkout", "--", path])
+            .with_context(|| format!("restoring {path} in {}, named by {}", dir.display(), journal.display()))?;
+        eprintln!(
+            "corpus: restored {path} in {}, left edited by an interrupted cache-diff run",
+            dir.display()
+        );
+    }
+    fs::remove_file(&journal).with_context(|| format!("removing {}", journal.display()))
+}
+
 /// Takes the lock of the checkout `dir`, or fails at once when another process holds it.
 ///
 /// # Errors
@@ -505,6 +542,7 @@ pub fn fetch_suite(manifest: &Path, suite: &str, only: &[String], cache: &Path) 
     for repo in selected {
         locks.push(lock_checkout(&cache.join(&repo.name))?);
         let dir = fetch_repo(&repo, cache)?;
+        recover_edit(&dir)?;
         repos.push((repo, dir));
     }
     Ok(Suite {

@@ -144,8 +144,8 @@ cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--se
 cargo run --release -p skif-bench -- tools update|check [--file corpus.toml]
 ```
 
-`corpus fetch`, `run`, `parity`, `syncpack-diff` and `typed-diff` lock each corpus checkout (`<dir>/<name>.lock`, the
-operating system's file lock, holding the process id) from the fetch to the end of their pass over it, so two runs never
+`corpus fetch`, `run`, `parity`, `syncpack-diff`, `typed-diff` and `cache-diff` lock each corpus checkout
+(`<dir>/<name>.lock`, the operating system's file lock, holding the process id) from the fetch to the end of their pass over it, so two runs never
 install into, write into or time the same checkout at once: a second run stops at once and names the lock file and,
 except on Windows, where the lock keeps other processes from reading the file, the process id it holds. A run that
 dies releases its locks with the process, so there is no stale lock to remove. The corpus directory must be writable:
@@ -728,6 +728,61 @@ passes; anything left over fails. A run without `--only` warns about each entry 
 `untyped`), `rule`, `file`, `package` and `section` narrow an entry, and a field left out matches anything. When every
 added and removed finding is covered, the `diagnostics` and `summary` sections count as covered; likewise `type-aware`
 when every package change is covered and nothing else in it differs. Any other section needs a `section` entry.
+
+## Cache diff
+
+`skif-bench cache-diff` is the correctness gate of skif's cache ([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md),
+"Cache rows and the cache-diff gate"). For every repository of the `bench` suite it
+runs the binary under test with `. --format json --no-install` (plus `--recursive` where the repository sets it):
+
+1. without the cache, then with an empty store (cold, writes it), then again on that store (warm);
+2. for each of `--edits` seeded source edits, applied one at a time: once without the cache and once with the store the
+   earlier runs left, on the same edited tree;
+3. once more with the store after the last edit is restored.
+
+Each cached run is compared with the uncached run of the same tree: the whole JSON documents and exit codes, except the
+`skif` version stamp and the `cache` and `timing` sections (counters a cached run may add). Each comparison prints
+`identical`, `DIFFERENT` with the sections that differ and the findings only one side reports (`+` the cached run, `-`
+the uncached one), or `FAILED: <reason>` (a run timed out or printed no report, the cold
+run wrote no store, the warm run shows no use of the cache, the uncached run counts cache hits, or no file accepts an
+edit kind). Each edit line also says whether the edit changed the uncached report. The exit code is non-zero when any
+comparison is not identical or none was made.
+
+Identical reports prove nothing when no run used a cache, so the warm run must show that it did. The gate sums every
+`hits` counter below the report's `cache` section (the counters are per namespace) and fails the warm comparison on a
+sum of zero. A report without the counter fails too when the binary's cache is on by default; from a binary with the
+opt-in cache, which reports no counters, the gate accepts the store the cold run wrote and says so on the warm line.
+`--require-counters` fails that case as well.
+
+```sh
+mise run cache:diff [--only babel] [--edits 5] [--control env] [--require-counters]
+cargo run --release -p skif-bench -- cache-diff [--skif target/release/skif] [--only babel,vue-core] [--edits 5] [--seed 1] [--control flags|env] [--require-counters] [--corpus-dir DIR] [--scratch target/bench-cache-diff] [--timeout-secs 900]
+```
+
+It probes `skif --help` and prints which cache command line it used: the opt-in one (no flag uncached,
+`--cache --cache-location DIR` cached) or, when the help offers `--no-cache`, the default-on one (`--no-cache` uncached,
+`--cache-location DIR` cached). With `--control env` it passes no cache flag and sets `SKIF_CACHE=0` uncached and
+`SKIF_CACHE=1` with `SKIF_CACHE_DIR=DIR` cached, which only a default-on binary reads; it refuses a binary with the
+opt-in cache. Either way `SKIF_CACHE`, `SKIF_CACHE_DIR` and `SKIF_CACHE_MAX_SIZE` of the caller's environment never
+reach a run. The stores live under `<scratch>/store/<repo>`, outside the checkout, and the
+captured output beside them. The checkouts are used as they are, installed or not.
+
+The edits are planned from `--seed` and the repository name, so a run is repeatable. They change tracked `.ts`, `.tsx`,
+`.mts`, `.cts`, `.js`, `.jsx`, `.mjs` and `.cjs` files (not declaration files, nothing over 1 MiB) and rotate through
+five kinds: append a comment, drop the `export` keyword of the first exported declaration, add an unused class property
+or enum member, add a side-effect import of a sibling file, and append a `declare global` block (TypeScript modules).
+Only a file without uncommitted changes is edited. Before the edit the gate writes a journal, `<name>.edit` beside the
+checkout, naming the file; after the two runs it restores the file with `git checkout -- <path>`, checks it byte for
+byte against the original (writing the original bytes back and failing when it differs) and removes the journal. An
+error between edit and restore restores the file too. A run that is killed (Ctrl-C, a cancelled job) cannot restore in
+process; the next skif-bench command that locks the checkout restores the file the journal names, and `cache-diff`
+refuses to edit while a journal is there.
+
+After the comparisons it prints, per repository, the wall time of the uncached, cold, warm and first-edit
+cached runs and the store size after the cold run. These are single runs, labelled informational: they answer roughly
+what a warm cache saves, and are not a benchmark or a published row.
+
+The gate is run by hand before merging a change to the cache; no CI workflow runs it yet.
 
 ## Policy diff against syncpack
 

@@ -1,5 +1,7 @@
 //! Benchmark harness for skif: generates synthetic monorepos, fetches the pinned corpus and runs hyperfine.
 
+mod cache_diff;
+mod cache_edit;
 mod corpus;
 mod diff;
 mod evidence;
@@ -7,6 +9,7 @@ mod parity;
 mod precision;
 mod proc;
 mod provenance;
+mod report_diff;
 mod run;
 mod sources;
 mod syncpack;
@@ -65,6 +68,44 @@ enum Command {
     /// Compare the JSON output of a reference skif binary with the binary under test on the bench corpus, typed and
     /// untyped; fails on any difference the allow list does not cover.
     TypedDiff(TypedDiffArgs),
+    /// Compare skif's JSON output without the cache with its output from a cold store, a warm store and after seeded
+    /// source edits on the bench corpus; fails on any difference.
+    CacheDiff(CacheDiffArgs),
+}
+
+#[derive(Args)]
+struct CacheDiffArgs {
+    /// The skif binary under test.
+    #[arg(long, default_value = "target/release/skif")]
+    skif: PathBuf,
+    /// Only these repositories of the `bench` suite.
+    #[arg(long, value_delimiter = ',')]
+    only: Vec<String>,
+    /// Seeded source edits per repository, each followed by an uncached and a cached run; the kinds rotate, so 5 or
+    /// more use each kind.
+    #[arg(long, default_value_t = 5)]
+    edits: usize,
+    /// Seed of the edit plan.
+    #[arg(long, default_value_t = 1)]
+    seed: u64,
+    /// What turns the cache on and off: the binary's flags, or `SKIF_CACHE` and `SKIF_CACHE_DIR` with no cache flag.
+    #[arg(long, value_enum, default_value_t = cache_diff::Control::Flags)]
+    control: cache_diff::Control,
+    /// Fail when the warm run's report counts no cache hits, also for a binary whose cache is opt-in.
+    #[arg(long)]
+    require_counters: bool,
+    /// Corpus manifest.
+    #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
+    corpus_file: PathBuf,
+    /// Cache directory holding the corpus checkouts (fetched when missing, installed checkouts are used as they are).
+    #[arg(long, default_value = "target/bench-corpus")]
+    corpus_dir: PathBuf,
+    /// Where the captured output of each run and the cache stores are written.
+    #[arg(long, default_value = "target/bench-cache-diff")]
+    scratch: PathBuf,
+    /// Seconds each skif run may take.
+    #[arg(long, default_value_t = 900)]
+    timeout_secs: u64,
 }
 
 #[derive(Args)]
@@ -495,6 +536,18 @@ fn main() -> Result<()> {
             only: args.only,
             allow: args.allow,
             out: args.out,
+            scratch: args.scratch,
+            timeout: Duration::from_secs(args.timeout_secs),
+        }),
+        Command::CacheDiff(args) => cache_diff::run(&cache_diff::Options {
+            skif: args.skif,
+            corpus_file: args.corpus_file,
+            corpus_dir: args.corpus_dir,
+            only: args.only,
+            edits: args.edits,
+            seed: args.seed,
+            control: args.control,
+            require_counters: args.require_counters,
             scratch: args.scratch,
             timeout: Duration::from_secs(args.timeout_secs),
         }),

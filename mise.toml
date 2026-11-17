@@ -58,6 +58,19 @@ run = [
   "cargo run --release --locked -p skif-bench -- typed-diff --skif target/release/skif --reference \"$usage_reference\" ${usage_allow:+--allow \"$usage_allow\"}",
 ]
 
+[tasks."cache:diff"]
+description = "Build skif in release mode and compare its JSON output without the cache, cold, warm and after seeded edits on the bench corpus; fails on any difference"
+usage = '''
+flag "--only <names>" help="Comma-separated bench repositories"
+flag "--edits <count>" help="Seeded source edits per repository (default 5)"
+flag "--control <how>" help="flags (default) or env: turn the cache on and off with SKIF_CACHE and SKIF_CACHE_DIR"
+flag "--require-counters" help="Fail when the warm run's report counts no cache hits"
+'''
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- cache-diff --skif target/release/skif ${usage_only:+--only \"$usage_only\"} ${usage_edits:+--edits \"$usage_edits\"} ${usage_control:+--control \"$usage_control\"} $([ \"${usage_require_counters:-}\" = true ] && echo --require-counters)",
+]
+
 [tasks."bench:local"]
 description = "Run the bench task the way CI does: install the corpus and tools (--install) and do not exit on the ADR targets (--no-enforce). Local numbers are not publishable"
 run = [
