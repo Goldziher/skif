@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-16
+date: 2026-11-17
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -48,17 +48,18 @@ launcher brings the binary without Rust or Node.
 
 * An MCP server on stdio: one JSON-RPC message per line, logs on stderr only. It negotiates the protocol version,
   answering with the client's when it supports it and with its newest otherwise.
-* Its tools are `lint` (which also plans fixes as `--fix --dry-run` does), `explain_usage`, `config` and
-  `list_rules`, each standing for one command. An argument is the flag of the same name: the server writes the
-  arguments as that command line, parses it with the CLI's own clap definition and runs the command's code, so a tool
-  returns exactly the document the command prints with `--format json`, as structured content and as compact JSON
-  text. A command that exits `2` gives `isError: true` with its error document (or its report, when roots of a
+* Its tools are `lint` (which also plans fixes as `--fix --dry-run` does), `explain_usage`, `config`, `list_rules`,
+  `cache_stats` and `cache_clean`, each standing for one command. An argument is the flag of the same name: the server
+  writes the arguments as that command line, parses it with the CLI's own clap definition and runs the command's code,
+  so a tool returns exactly the document the command prints with `--format json`, as structured content and as compact
+  JSON text. A command that exits `2` gives `isError: true` with its error document (or its report, when roots of a
   multi-root run failed); protocol faults are the standard JSON-RPC errors. An oversized line is skipped without being
   buffered.
 * Commands that write files, use the network or describe static data (`init`, `migrate`, `baseline`, `update`,
   `format`, `schema`, `list`, `json`) have no tool, and neither have flags that only change the exit code, colour,
   stderr or configuration overrides; the parity tests name each with its reason.
-* Calls run one at a time and in order. The server never writes a file: fixing stays a CLI action the agent runs.
+* Calls run one at a time and in order. The server never writes a file: fixing stays a CLI action the agent runs, and
+  `cache_clean` only removes the cache store, as `skif cache clean` does.
 * The server is a local process with its user's privileges, and its tools read what the CLI would: the `config` and
   `file` arguments name any file that user can read, and a TOML error quotes a line of the file it is about.
 
@@ -92,7 +93,9 @@ launcher brings the binary without Rust or Node.
 ### Long-lived hosts run untyped
 
 `skif mcp`, `skif lsp` and `--watch` analyse without types, for the reason
-[ADR 0010](0010-type-aware-analysis-on-tsrs.md) states, so their member findings are name-based.
+[ADR 0010](0010-type-aware-analysis-on-tsrs.md) states, so their member findings are name-based. How each uses the
+cache store (`--watch` writes it after each round; the servers seed per-root memory caches from it read-only and never
+write it) is [ADR 0007](0007-js-analysis-core-on-oxc.md)'s.
 
 ### No editor extension
 

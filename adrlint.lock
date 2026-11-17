@@ -9,12 +9,12 @@ blake3 = "84f57a1e0d8c63fdbdca153ef9e53b95d409a467d6269a142971c5225d0a7518"
 [adrs."adrs/0002-crates-library-api-and-upstream-code.md"]
 number = 2
 status = "accepted"
-blake3 = "a90d3a8d1979e1bb6954f64714d9bfc785c674c552d65c9a9d89e73aaab323f5"
+blake3 = "272f23ed7cdc5a2b775f3c08acf73d1206508c9be579b4bc77d56caac0731fc0"
 
 [adrs."adrs/0003-configuration-suppressions-baselines-and-migration.md"]
 number = 3
 status = "accepted"
-blake3 = "6804c54d838b03ae4bae8a9e236786ea066987655a654cbdcac8a8b2bba77fc6"
+blake3 = "e97c712ae12ab6f41c3675570fed1aae6a7b6297a4aa64cca775f96bebd27866"
 
 [adrs."adrs/0004-workspaces-roots-and-package-managers.md"]
 number = 4
@@ -34,7 +34,7 @@ blake3 = "08ebe9729de73ffa29ad86e45309c25d86110d0781c666e2aff12b9a49a3eceb"
 [adrs."adrs/0007-js-analysis-core-on-oxc.md"]
 number = 7
 status = "accepted"
-blake3 = "0fdd4a7ed75f5e6f001f20a4afe5a44a67f36561b9245ee2b9774bc1e18f2536"
+blake3 = "d55fbc81295cd7b3320770fd7ec546ba8ed4f8ab2020638c4205dba9e0b62a77"
 
 [adrs."adrs/0008-plugins-config-evaluation-and-commands.md"]
 number = 8
@@ -54,7 +54,7 @@ blake3 = "01268ecc0698b119d2f0e4945ee66fc27df06acd44d2775a5c055e509c56e886"
 [adrs."adrs/0011-nx-lerna-and-bazel.md"]
 number = 11
 status = "accepted"
-blake3 = "8c783791bffb2bfc832b7a1dc54b97f67914c6c93fddd54b0277c0bb0ddf70ac"
+blake3 = "37e86b55ce25191f61c4396412350d458c4f114e6c6e2ed30bb98c5ba09ea6fa"
 
 [adrs."adrs/0012-cli-contract-and-reporting.md"]
 number = 12
@@ -64,14 +64,14 @@ blake3 = "1259cf48a0b1159b82a5679e50c06eac212a4b95863676e3053e0662810470ec"
 [adrs."adrs/0013-editors-agents-and-git-hooks.md"]
 number = 13
 status = "accepted"
-blake3 = "b8b6ddc29f148a0f09991117ed1985829ed0c6c92ed981c81e78901c33c6f13c"
+blake3 = "82f260d8f6473962dc8c335175821f397bb2020375b24463f71e9504f3839a48"
 
 [adrs."adrs/0014-benchmarks-and-the-comparison-harness.md"]
 number = 14
 status = "accepted"
-blake3 = "08faf587f770a7c5489635bf108c010f544ef7073a6547a73005b269b507d617"
+blake3 = "f739854bc2ea48f0b2332825c0784374be735382fb3b71d7c9d73a1fc488946a"
 
 [adrs."adrs/0015-distribution-release-and-supported-versions.md"]
 number = 15
 status = "accepted"
-blake3 = "c0acb0d7dea35aeb8d274f73d5b5d946026a075782826e60e92145942e38d0b7"
+blake3 = "de28954f661b87afceb9d9f54353b5d1112f0b5d47f0bece8b534ab21285378f"

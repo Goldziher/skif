@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-16
+date: 2026-11-17
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -75,6 +75,19 @@ version from one build, and ties the support statement to facts someone else mai
   `scripts/check-npm-packages-exist.sh` stops a release unless every package exists on the registry, since a trusted
   publisher can only be configured on an existing package.
 
+### The Action's cache
+
+* The Action caches skif's store ([ADR 0007](0007-js-analysis-core-on-oxc.md)) with the inputs `cache` (default
+  `true`), `cache-key` (a suffix for matrix jobs), `cache-max-size` (default `256MiB`) and `cache-save` (default `true`
+  on the default branch, `false` elsewhere), and the output `cache-hit`.
+* It sets `SKIF_CACHE_DIR` to `${{ runner.temp }}/skif-cache` and restores it with `actions/cache/restore` under the
+  key `skif-<os>-<version>-<job><cache-key>-<hash of the lockfiles, skif.toml and tsconfig*.json>-<sha>`, with restore
+  keys that drop the sha, then the hash. After skif runs, `actions/cache/save` saves it under
+  `always() && cache-save`.
+* Pull requests restore only, so a pull request never writes a cache the default branch reads: the store's envelope
+  checks integrity, not authenticity. The documentation gives the manual `actions/cache` snippet and GitLab's
+  `cache:paths` for other setups.
+
 ### Build profiles
 
 * The CLI binaries use `[profile.release]`, which unwinds, so a panic inside the type checker is caught and the affected
@@ -142,6 +155,8 @@ leaves alone.
 * Good, because no personal token takes part in a release, and skif's formula and manifest follow the same templates as
   the other polylint tools.
 * Good, because the support matrix follows upstream, shrinks on a schedule and cannot drift from the documentation.
+* Good, because Action runs start from a warm cache, and a pull request cannot write the cache the default branch
+  reads.
 * Bad, because a bad crate version cannot be unpublished, only yanked, and a single failing target blocks the release
   by design.
 * Bad, because the release depends on the xberg-io actions and on the organization App's installation and permissions.

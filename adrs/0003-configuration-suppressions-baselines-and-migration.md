@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-16
+date: 2026-11-17
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -111,6 +111,15 @@ explicit key, and baselines and migrations reuse the same model instead of addin
   isolation and knip's direct-dependency rules. All three are top level only, and a flag turns a mode on, never off.
 * `ignore-workspaces` takes JS analysis away from the matched directories and the packages above them, as knip does;
   the manifest and policy rules still check those packages, which separates it from `[workspace] ignore-packages`.
+
+### The `[cache]` table
+
+* `[cache]` holds `enabled`, `location` and `max-size` for the cache store
+  ([ADR 0007](0007-js-analysis-core-on-oxc.md)). It is read only from the root configuration; in a file reached through
+  `extends`, a shared file above the root or the configuration of a nested root it is ignored with a warning, because
+  one store serves the whole run and a shared file would set it for every project below.
+* `location` is relative to the configuration file. Flags and the environment beat the table.
+* No cache setting enters any cache key, so changing one never invalidates an entry.
 
 ### Suppressions and reasons
 

@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-16
+date: 2026-11-17
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -48,8 +48,8 @@ every release ships.
 
 * The repository is a Cargo workspace under `crates/` with a virtual root manifest that owns `[workspace.package]`,
   `[workspace.dependencies]`, `[workspace.lints]` and the profiles. The crate graph is acyclic and layered.
-* `skif-core` holds plain data and the `FileSystem` trait, depends on no workspace crate and on no parser, so every
-  crate can name its types without pulling in a parser.
+* `skif-core` holds plain data and the `FileSystem` and `CacheStore` traits, depends on no workspace crate and on no
+  parser, so every crate can name its types without pulling in a parser.
 * Only `skif-js-syntax`, `skif-js` and the unpublished benchmark harness depend on an oxc crate directly; every other
   crate reaches oxc only through `skif-js-syntax`.
 * `skif-js-types` is the only crate that depends on tsrs, and `skif-js` reaches it only behind its `type-aware`
@@ -80,16 +80,25 @@ every release ships.
 
 ### Pure functions
 
-* Every crate except `skif-cli` behaves as a pure function of its inputs. None exits the process, panics on user input,
-  prints, prompts, reads the environment, the working directory or global state, or writes files.
+* Every crate except `skif-cli` and `skif-cache` behaves as a pure function of its inputs. None exits the process,
+  panics on user input, prints, prompts, reads the environment, the working directory or global state, or writes files.
+* `skif-cache`, the disk cache store behind the facade feature `cache-disk`, is the one library crate that reads and
+  writes files outside `FileSystem`, scoped to its own cache directory. Without it the CLI, the npm addon and every
+  embedder that wants skif's own layout would each re-implement the layout, eviction and integrity rules
+  ([ADR 0007](0007-js-analysis-core-on-oxc.md)). It reads no environment: the host passes the location and the
+  platform cache directory.
 * The one exception to "no environment input" is the type checker: the `TSRS_*` and `RAYON_NUM_THREADS` variables a
   user sets reach tsrs. skif passes the lib path and checker count explicitly and never sets or clears these variables.
 * The library prints only into a timing sink the host installs; the CLI installs one for `SKIF_TIMINGS` and
   `--performance`.
 * Every root path is explicit. Every path in a diagnostic or an edit is relative to the workspace root the caller passed.
 * Every fallible boundary returns `Result` with typed errors.
-* All I/O goes through `FileSystem`: `OsFs` on disk (the only library type that touches `std::fs`), `MemoryFs` for
-  tests, and overlays such as `BufferFs` (a host's unsaved buffers) and `CachedFs`.
+* All I/O goes through `FileSystem`: `OsFs` on disk (the only library type outside `skif-cache` that touches
+  `std::fs`), `MemoryFs` for tests, and overlays such as `BufferFs` (a host's unsaved buffers) and `CachedFs`.
+* Cache entries go through the `CacheStore` a host gives the linter (`Linter::with_cache_store`). `CacheStore` and
+  `CacheNamespace` are public API of `skif-core`, re-exported by the facade; keys cross it as `[u8; 32]` and values as
+  `Arc<[u8]>`, so no hashing or storage crate's type is in the API. A linter given no store caches nothing beyond the
+  run, and one given a store writes no file itself. poly implements `CacheStore` over its own cache.
 * Parallel work runs on an `Executor` the host passes, on a dedicated pool of a given size, or on the calling thread
   alone when one thread is asked for.
 * Fixes are data: rules return them, `apply_fixes` returns a `FixPlan`, and writing it is the CLI's or the host's job
@@ -104,6 +113,7 @@ every release ships.
   untyped with the reason `not-built`.
 * `plain-ptrs` makes tsrs use plain pointers instead of its fixed address-space reservation, for hosts whose address
   space holds reservations of their own, such as Node.js; it has an effect only with `type-aware`.
+* `cache-disk` is opt-in and adds `skif-cache` for hosts that want skif's disk store.
 * `fix`, `yaml-fix`, `report`, `schema` and `update` are opt-in and map onto crate boundaries or crate features
   (`schema` is a `skif-config` feature, `update` is `manifest` plus `fix`).
 * The CLI enables every feature except `plain-ptrs`, with `type-aware` behind its own default feature. The npm addon
@@ -177,8 +187,8 @@ licences and advisories.
 
 * Good, because a host that wants only manifest and policy rules compiles no JavaScript parser, and one that wants JS
   analysis without types compiles no type checker.
-* Good, because poly runs skif as an engine with no subprocess and its own cache, and fixes cannot be written relative
-  to the wrong directory.
+* Good, because poly runs skif as an engine with no subprocess and keeps skif's cache entries in its own cache, and
+  fixes cannot be written relative to the wrong directory.
 * Good, because every rule can be tested against `MemoryFs`, and one stable crate is a clear semver surface.
 * Good, because every vendored line can be traced to a source, commit and licence, and every artefact carries the
   notices.
@@ -187,6 +197,7 @@ licences and advisories.
 * Bad, because every host-level concern (an environment variable, a warning) has to be threaded through a type, and
   keeping oxc out of the API costs a conversion pass.
 * Bad, because a user's `TSRS_*` or `RAYON_NUM_THREADS` variable can change a typed run.
+* Bad, because `skif-cache` makes "no file writes" a rule with a scoped exception that review has to keep scoped.
 * Bad, because the shell checks read TOML textually, and the source scan of the allow-list misses a leak behind a type
   alias or macro output, so review stays the backstop.
 

@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-16
+date: 2026-11-17
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -140,8 +140,8 @@ and a text scan finds what rules_js repositories write without running Bazel.
   workspace directory) before parsing arguments, so relative paths mean what they mean in the user's shell, and
   `bazel run //:skif -- --fix` fixes the source tree. A directory it cannot enter exits `2`. The npm package's `skif`
   bin does the same; the addon's programmatic API never changes directory. The library reads no environment.
-* Under `bazel test` (`TEST_TMPDIR` set and not empty), `--cache` without `--cache-location` keeps its store below
-  `$TEST_TMPDIR`, so nothing is written into the output tree.
+* Under `bazel test` (`TEST_TMPDIR` set and not empty), a cache without an explicit location keeps its store below
+  `$TEST_TMPDIR` ([ADR 0007](0007-js-analysis-core-on-oxc.md)), so nothing is written into the output tree.
 
 ### Consequences
 

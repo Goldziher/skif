@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-16
+date: 2026-11-17
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -108,7 +108,8 @@ counted.
   label, never `-latest`, with medians after warmups. It has read-only permissions and commits nothing.
 * Everything timed is pinned: the corpus by commit, the tools by the lock above, the Rust toolchain by the measured
   ref's `rust-version`, hyperfine and Node through `mise.lock`, and package managers through a pinned corepack. An
-  unpinned input fails the run before anything is timed, and no timed input comes from a cache.
+  unpinned input fails the run before anything is timed. Every timed row passes `--no-cache`, so no timed input comes
+  from a cache, except the labelled cache rows below.
 * The summary records the machine, runner, toolchain, measured and harness commits and how each repository was
   installed, and the published tables print that record. `mise run bench:import` takes only a complete, successful
   dispatched run of a commit on `main`, refuses a partial, dirty, outdated or invalid run, and the maintainer commits
@@ -119,6 +120,16 @@ counted.
 * Each target is timed without types and with `--type-aware`, and each mode runs once more for its peak RSS. The
   summary and the published tables show both modes; the type-aware budget checked against them is
   [ADR 0010](0010-type-aware-analysis-on-tsrs.md)'s.
+
+### Cache rows and the cache-diff gate
+
+* Labelled cache rows time skif's own cache ([ADR 0007](0007-js-analysis-core-on-oxc.md)): cold with the write
+  (overhead target at most 5% over `--no-cache`), warm, warm typed, and one edit untyped and typed. They are outside
+  the targets of [ADR 0001](0001-mission-scope-and-non-goals.md) and the budget of
+  [ADR 0010](0010-type-aware-analysis-on-tsrs.md), so a warm number never stands in for a compared one.
+* `skif-bench cache-diff` lints the corpus uncached, cold, warm and after seeded edits, untyped and typed, and fails on
+  any difference between the reports. It runs in CI next to the typed-versus-untyped diff, because a cache that changes
+  a finding is a correctness defect, not a measurement.
 
 ### Timing scope
 
@@ -137,6 +148,8 @@ counted.
 * Good, because agreement and speed are measured, versioned and visible in review when they change, and the committed
   files contain counts only.
 * Good, because every intended difference has a tested rule and a reason in one place.
+* Good, because the cache's speed is published apart from the compared rows, and a cache that changes a finding fails
+  CI.
 * Good, because a published number names the commit, compiler, runner image and machine it came from, can be repeated
   by dispatching the workflow, and compares runs of equal scope.
 * Bad, because the classification is an approximation that can hide a real defect; deviations are therefore counted,
@@ -155,6 +168,7 @@ counted.
   `tools/bench/src/main.rs` cover the compared run, the untyped pass and every deviation's positive and near-miss case;
   `tools/bench/src/syncpack.rs` covers the translation for syncpack.
 * `tools/bench/src/diff.rs` covers the drift check and its tolerance.
+* `skif-bench cache-diff`, run in CI, confirms that caching changes no report.
 * `tools/bench/src/run.rs`, `tools/bench/src/provenance.rs` and `tools/bench/refresh-numbers.test.mjs` cover the timing
   scope, the informational recursive row, both modes, peak RSS, declared knip failures and the published record;
   `scripts/test-check-scripts.sh` covers the import.

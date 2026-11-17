@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-16
+date: 2026-11-17
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
@@ -14,10 +14,12 @@ issue types inside one Rust process, next to its manifest rules. That needs a pa
 TypeScript and the bundlers do, a module graph, a listing of the files to read, and a way to keep the fast-moving oxc
 crates from spreading through the code base. poly, a host that embeds skif, patches the oxc crates to a git copy, so
 both must resolve to the same oxc release. Most of an untyped run is oxc's parse of every source file, and long-lived
-hosts and multi-root runs parse the same unchanged files again and again.
+hosts and multi-root runs parse the same unchanged files again and again. An opt-in cache helps only users who ask for
+it, and poly, which runs skif in process over an in-memory file system and caches only the whole verdict, runs skif
+cold again after any edit.
 
 Which semantics does the JS analysis follow, on which crates, how does it resolve and own files, which files does it
-list, and what does it cache?
+list, and what does it cache, where, and who owns the store?
 
 ## Decision Drivers
 
@@ -25,21 +27,33 @@ list, and what does it cache?
 * No Node and no executed configuration, so the analysis is safe on untrusted pull requests and runs in parallel
 * oxc upgrades touch as few crates as possible and never the public API, and skif and poly share one oxc release
 * Resolution follows the compiler where the compiler and knip disagree
-* A cache never changes output, and its invalidation is correct by construction
+* A cache never changes findings or fixes: a damaged, foreign or stale entry is a miss, and invalidation is correct by
+  construction
+* The host owns where a cache lives; the library caches only when given a store and does no I/O for it
+  ([ADR 0002](0002-crates-library-api-and-upstream-code.md))
+* Every host can keep warm results by default, and a cold run pays little for writing them
 
 ## Considered Options
 
-* knip semantics implemented natively on oxc, confined to the JS crates in lockstep with poly, with a content-keyed
-  parse cache
+* knip semantics implemented natively on oxc, confined to the JS crates in lockstep with poly, with content-keyed
+  caching through a host-owned store
 * Run knip and translate its output, which keeps Node and executes configuration
 * Port knip's code, which inherits its structure and licence obligations without its runtime
 * Another parser stack (swc, tree-sitter), under which poly's oxc patch does not resolve
+* Keep the opt-in, CLI-only parse cache, because default runs, the npm addon and poly would parse every file on every
+  run
+* A host callback that skif calls to read and write entries, because poly's component interface has no host callback
+* A store held in the run options, because a store outlives a run and a long-lived host would hand it over on every
+  call
+* A write-side `CacheDir` trait each host implements, because every host would re-implement skif's layout, eviction and
+  integrity checks
 
 ## Decision Outcome
 
-Chosen option: "knip semantics implemented natively on oxc, confined to the JS crates in lockstep with poly, with a
-content-keyed parse cache", because it removes Node, the binding boundary and config execution, keeps oxc upgrades
-inside the JS crates, and is the only option under which poly's patch of the oxc crates resolves.
+Chosen option: "knip semantics implemented natively on oxc, confined to the JS crates in lockstep with poly, with
+content-keyed caching through a host-owned store", because it removes Node, the binding boundary and config execution,
+keeps oxc upgrades inside the JS crates, is the only option under which poly's patch of the oxc crates resolves, and
+lets every host, poly included, keep warm results in a store it owns while the library does no I/O.
 
 ### knip as the specification
 
@@ -113,26 +127,82 @@ inside the JS crates, and is the only option under which poly's patch of the oxc
   them, but the reporting rules stay silent there, so deliberately broken test data does not bury real findings.
   `[js] include-fixtures` reports them as knip does.
 
-### The parse cache
+### The cache store
 
-* The unit is the `ModuleInfo` parsing one file returns. Everything else (configuration, manifests, lockfiles, plugin
-  configs, resolution, type facts, the graph and the rules) is computed on every run, so invalidation needs no
-  dependency tracking.
-* `ModuleKey` hashes `CACHE_SCHEMA`, the crate version, the parse options, the file name and the text. The directory is
-  not part of the key, so identical files share an entry. `CACHE_SCHEMA` is raised whenever parse output changes, and
-  a digest of a probe corpus beside it fails until it is. A failed lookup or an entry that does not decode is a miss.
+* `skif-core` defines `CacheStore` beside `FileSystem`, with `get(namespace, key)` and `put(namespace, key, value)`.
+  Any failure of `get` is a miss; a failed `put` is the host's to log. A `CacheNamespace` is a name and a schema number
+  (`modules`, later typed namespaces) and stays a separate parameter, so a host lays out and reports entries per
+  namespace.
+* The linter holds the store, not the run options, because a store outlives a run: `Linter::with_cache_store` gives
+  it and `Linter::with_cache_salt` adds the host's opaque salt. A linter without a store keeps nothing beyond the run.
+  Caching by default is host policy, never the library's.
+* Keys are 32-byte blake3 digests skif computes over the cache version, the namespace schema, a digest of the
+  configuration the entry depends on, root-relative paths, content digests and the host salt. A key never holds a
+  modification time or an absolute path, so hook snapshots and worktrees of one tree share entries. Hosts put a build
+  salt (the executable's stat on non-release builds) and the `TSRS_*` values a typed run reads into the salt.
+* skif wraps every value in an envelope it writes and verifies: magic, namespace, schema, key echo, length and
+  checksum. A truncated, flipped or foreign value is a miss, never a wrong result, whatever the host stores. The
+  envelope is integrity, not authentication, so who may write a store is host policy
+  ([ADR 0015](0015-distribution-release-and-supported-versions.md)).
+* With a store supplied, skif writes no file of its own.
+* The report carries per-namespace counters (`hits`, `misses`, `bytes_written`), so a host or a test can assert that a
+  warm run hit every entry without reading the store. Apart from the counters, no store, a cold store, a warm store and
+  a corrupt or adversarial store give the same report.
+
+### Cache layers
+
+* L1, per-file module facts: the `ModuleInfo` parsing one file returns, in the `modules` namespace with a binary
+  payload. It saves oxc's parse and semantic pass, most of an untyped run; reading and hashing every file remains.
+  Everything else (configuration, manifests, lockfiles, plugin configs, resolution, the graph and the rules) is computed
+  on every run, so L1 needs no dependency tracking. The `modules` schema, `CACHE_SCHEMA`, is raised whenever parse
+  output changes, and a digest of a probe corpus beside it fails until it is.
+* L2, typed facts, follows once the typed analysis has a run-wide engine; its replay and reuse rules are
+  [ADR 0010](0010-type-aware-analysis-on-tsrs.md)'s.
+* L3, lockfile and plugin-config caches, only after a measurement shows they pay.
+* L4, a CLI-only stat fast path (path to stat and content key, with poly's racy-timestamp rule), comes last because it
+  changes the `FileSystem` trait. Stat records are never trusted across checkouts.
+
+### In-memory caches
+
 * `skif-js-syntax` owns `ModuleCache` (`get` and `put`), an opaque `CachedModule`, `MemoryModuleCache` and
-  `ParseCoalescer`. The cache is given to the linter, not to the run options. Beside it, the `CachedFs` overlay keeps
-  a run's directory listings, path probes and small configuration files.
+  `ParseCoalescer`; an adapter serves `ModuleCache` from the linter's store. Beside them, the `CachedFs` overlay keeps a
+  run's directory listings, path probes and small configuration files.
 * `SharedModules::for_run` holds the sharing policy: a host cache serves every file; several roots without a host cache
   share an in-memory cache of the files that are not local to the root parsing them, so a run whose roots share no
   code, and every single-root run, pays nothing. `ParseCoalescer` sits beside the cache, so concurrent lookups of one
   key wait for one parse and a wrapping cache cannot drop the coordination.
-* `--cache` is opt-in and has no configuration key, because a cache is not a setting of the project. The store is one
-  deterministic file below `node_modules/.cache/skif/` by default, written atomically after the run only when its
-  entries changed; a failed write is a warning.
-* `--watch`, `skif lsp` and `skif mcp` keep in-memory caches across runs, pruned to what the last run used. The servers
-  never read or write the store.
+
+### Hosts: the CLI, the npm addon and poly
+
+* The settings are `enabled`, `location` and `max-size`. Flags (`--no-cache`, `--cache`, `--cache-location`,
+  `--cache-max-size`) beat the environment (`SKIF_CACHE=0|1`, `SKIF_CACHE_DIR`, `SKIF_CACHE_MAX_SIZE`), which beats
+  `[cache]` in the root configuration ([ADR 0003](0003-configuration-suppressions-baselines-and-migration.md)), which
+  beats the defaults: on, 512 MiB. No cache setting enters a key.
+* The default location is `$TEST_TMPDIR/skif` under `bazel test` ([ADR 0011](0011-nx-lerna-and-bazel.md)); else
+  `<base>/node_modules/.cache/skif` when `node_modules` exists, which skif never creates; else the per-user cache
+  directory (`$XDG_CACHE_HOME/skif`, `~/Library/Caches/skif`, `%LOCALAPPDATA%\skif`); else memory for the run.
+* One location serves many bases, each in `<location>/<base-key>/`, the key taken from the base path relative to the
+  git top level, or absolute outside git. A directory skif creates gets a `CACHEDIR.TAG` and a `.gitignore` of `*`.
+* Each store keeps, per namespace, what its base's last run used, so an untyped run never prunes typed entries. After
+  the write, a location over its cap drops other bases' stores, least recently modified first; a single store over the
+  cap writes module entries first, then typed programs by build cost.
+* An unreadable, corrupt or foreign store is empty and a bad entry is a miss. A failed write is silent when the cache
+  came from the defaults (one line under `--debug`) and a warning when it was asked for. The cache never changes the
+  exit code or the findings. A write renames atomically behind a try-lock and is skipped on contention.
+* With `CI` set and no explicit location, the CLI reads the store and never writes it, since nothing would restore it.
+* `skif cache stats` and `skif cache clean` report and remove the store; the MCP server mirrors them
+  ([ADR 0013](0013-editors-agents-and-git-hooks.md)).
+* `--watch` reads the store once and writes it after each round. `skif lsp` and `skif mcp` keep a memory cache per
+  root, seeded read-only from the store on the first lint and pruned to what the last run used, and never write the
+  store. The npm addon caches by default (`cache?: boolean | { location?, maxSize? }`) and keeps a memory cache per
+  root across calls in a long-lived process.
+* The disk store is the `skif-cache` crate behind the facade feature `cache-disk`: `DiskStore::open`, `finish_run`,
+  `stats`, `clean` and the pure `default_location(base, user_cache_dir)`, which takes the platform directory from its
+  host. The CLI, the addon and any embedder that wants skif's layout share it
+  ([ADR 0002](0002-crates-library-api-and-upstream-code.md)).
+* polylint runs skif in process over its own file system and passes `cache: {dir, salt}` to its component, which
+  implements `CacheStore` over poly-cache. `poly cache stats`, `clean` and `gc` cover skif's entries, so skif needs no
+  stats or clean API for poly.
 
 ### Consequences
 
@@ -140,12 +210,16 @@ inside the JS crates, and is the only option under which poly's patch of the oxc
   running skif on an untrusted pull request reads files and executes nothing.
 * Good, because an oxc upgrade touches only the JS crates, and drift from poly fails skif's scheduled CI first.
 * Good, because `paths` resolve in the compiler's order, and module declaration files have their unused types reported.
-* Good, because no cache, a cold cache and a warm cache give the same report, and long-lived hosts and multi-root runs
-  parse only what changed or what is shared once.
+* Good, because no store, a cold, a warm and a damaged store give the same findings, every host starts warm by
+  default, poly re-runs only what changed instead of all of skif, and long-lived hosts and multi-root runs parse only
+  what changed or what is shared once.
 * Bad, because knip's edge cases are rediscovered through the comparison, not inherited.
 * Bad, because skif's oxc upgrades follow poly's cadence, and the lockstep check needs the network.
 * Bad, because the default walk pays one `opendir` per directory, and `git` has a blind spot by design.
-* Bad, because a warm run still reads and hashes every file, and `CACHE_SCHEMA` relies on a test and review.
+* Bad, because a warm run still reads and hashes every file until the stat fast path, and the namespace schemas rely
+  on tests and review.
+* Bad, because the default writes below `node_modules/.cache` or the user's cache directory, bounded only by the cap,
+  and the envelope does not authenticate, so keeping untrusted writers out of a store is each host's policy.
 
 ### Confirmation
 
@@ -157,3 +231,8 @@ inside the JS crates, and is the only option under which poly's patch of the oxc
   `crates/skif-js/tests/fixtures.rs` cover the listing modes, the index reader and fixture directories.
 * `crates/skif-js-syntax/src/cache.rs` holds the schema digest and the coalescer; `crates/skif/tests/module_cache.rs`
   and `crates/skif-cli/tests/cache.rs` prove that no cache, a cold cache and a warm cache report alike.
+* Library contract tests run without a store and with a cold, a warm, a corrupted and an adversarial store and require
+  the same report apart from the counters; the CLI tests cover the settings' precedence, the location chain, the CI rule
+  and `skif cache`.
+* `skif-bench cache-diff` compares uncached, cold, warm and seeded-edit runs on the corpus, untyped and typed, in CI
+  ([ADR 0014](0014-benchmarks-and-the-comparison-harness.md)).
