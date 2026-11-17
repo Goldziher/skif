@@ -9,12 +9,12 @@ blake3 = "0232789299d0750f680a98ea897a6088eab02062268d102837c5e159c867816f"
 [adrs."adrs/0002-crates-library-api-and-upstream-code.md"]
 number = 2
 status = "accepted"
-blake3 = "fd95d3f73a7f8c7a006b9f0acc11d3269eaaa34a3a3b603df1635fcbe8ce07ef"
+blake3 = "e63c75feb11af844213e3b8a5b93eda53fdb926066151bbdf461968f51211fc5"
 
 [adrs."adrs/0003-configuration-suppressions-baselines-and-migration.md"]
 number = 3
 status = "accepted"
-blake3 = "196ec2c1e3b8433af0165e6209f79bafe61a77a4b21b076a053e38e1ea62a0f3"
+blake3 = "d0e0c4219df3e02a30efe13dea724f24ac33d1f817fa92734dc8686ae675bb08"
 
 [adrs."adrs/0004-workspaces-roots-and-package-managers.md"]
 number = 4
@@ -34,7 +34,7 @@ blake3 = "08ebe9729de73ffa29ad86e45309c25d86110d0781c666e2aff12b9a49a3eceb"
 [adrs."adrs/0007-js-analysis-core-on-oxc.md"]
 number = 7
 status = "accepted"
-blake3 = "1347b94e357087c4c3712ace293b8195181bfdbe2975a3638bb1119b6381fca3"
+blake3 = "6c34937e87fe45dbb3624c33332dbc406b522d8666ae0aeab5a52604be029b87"
 
 [adrs."adrs/0008-plugins-config-evaluation-and-commands.md"]
 number = 8
@@ -74,4 +74,4 @@ blake3 = "785d637f7edc53d03846bd33316f07fbe8917bab409214ce8d2a772629691e5c"
 [adrs."adrs/0015-distribution-release-and-supported-versions.md"]
 number = 15
 status = "accepted"
-blake3 = "1e7152a2e652ab2a04dd0e8990bf0964e4c0aa67befcea17bd44c9d3226f6cf0"
+blake3 = "6c4aae63d0e9016b5fb308da9c6a8e6e038723755ebc473e6d85b1f9e09264fb"

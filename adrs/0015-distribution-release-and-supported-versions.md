@@ -79,7 +79,7 @@ version from one build, and ties the support statement to facts someone else mai
 
 * The Action caches skif's store ([ADR 0007](0007-js-analysis-core-on-oxc.md)) with the inputs `cache` (default
   `true`), `cache-key` (a suffix for matrix jobs), `cache-max-size` (default `256MiB`) and `cache-save` (default `true`
-  on the default branch, `false` elsewhere), and the output `cache-hit`.
+  for a `push` or `schedule` run of the default branch, `false` elsewhere), and the output `cache-hit`.
 * It sets `SKIF_CACHE_DIR` to `${{ runner.temp }}/skif-cache` and restores it with `actions/cache/restore` under the
   key `skif-<os>-<version>-<job><cache-key>-<hash of the lockfiles, skif.toml and tsconfig*.json>-<sha>`, with restore
   keys that drop the sha, then the hash. After skif runs, `actions/cache/save` saves it under

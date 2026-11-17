@@ -136,10 +136,29 @@ lets every host, poly included, keep warm results in a store it owns while the l
 * The linter holds the store, not the run options, because a store outlives a run: `Linter::with_cache_store` gives
   it and `Linter::with_cache_salt` adds the host's opaque salt. A linter without a store keeps nothing beyond the run.
   Caching by default is host policy, never the library's.
-* Keys are 32-byte blake3 digests skif computes over the cache version, the namespace schema, a digest of the
-  configuration the entry depends on, root-relative paths, content digests and the host salt. A key never holds a
-  modification time or an absolute path, so hook snapshots and worktrees of one tree share entries. The host salt
-  carries a build salt: the executable's stat on non-release builds.
+* Keys are 32-byte blake3 digests skif computes over the cache version, the skif version, the namespace schema, the
+  host salt and the inputs the entry depends on, which each namespace names. A `modules` entry depends on the file's
+  name, its text and the parse options and on nothing else, so that is its key: no path, and identical files share an
+  entry wherever they lie. A namespace whose entries depend on configuration or on where a file lies adds a
+  configuration digest and root-relative paths. A key never holds a modification time or an absolute path, so hook
+  snapshots and worktrees of one tree share entries. Hosts put a build salt (the executable's stat on builds with
+  debug assertions) into the salt.
+* What tells one build's entries from another's is the skif version and the namespace schema, nothing finer. The
+  resolved oxc version is not in the key: a crate cannot read the version of a dependency at compile time without a
+  build script that runs `cargo metadata`, and a hand-kept constant would be wrong exactly where it matters, in an
+  install that resolved another oxc than the lockfile. The protection is the schema digest test
+  (`the_cache_schema_matches_the_parse_output` in `crates/skif-js-syntax/src/cache.rs`): it hashes the encoded parse
+  results of a fixed probe corpus under both sets of parse options and fails until `CACHE_SCHEMA` is raised, so a
+  change of the parser, of oxc or of the codec that changes those bytes cannot merge at an unchanged schema. It does
+  not cover output that changes only for sources the corpus lacks, an optimised build of an unreleased commit made
+  between two schema changes, or an install without `--locked` that resolves another oxc patch release inside the
+  caret range; the release archives, the npm addon and `cargo install --locked` build from the lockfile.
+* The payload of a `modules` entry is CBOR, written and read with `ciborium` in `skif-js-syntax`: `ModuleInfo`
+  already derives serde, and a self-describing codec decodes a payload field by field, so one written by another
+  layout fails to decode and is a miss where a positional codec would read wrong fields. `blake3` in `skif-core`
+  hashes keys and checksums. It keeps its default features, which compile its SIMD code with a C compiler: its `pure`
+  feature builds without one but switches the portable implementation on for every crate of the build, and Cargo
+  unifies features, so enabling it here would slow poly's own blake3 cache when it embeds skif.
 * skif wraps every value in an envelope it writes and verifies: magic, namespace, schema, key echo, length and
   checksum. A truncated, flipped or foreign value is a miss, never a wrong result, whatever the host stores. The
   envelope is integrity, not authentication, so who may write a store is host policy
@@ -179,23 +198,43 @@ lets every host, poly included, keep warm results in a store it owns while the l
 * The default location is `$TEST_TMPDIR/skif` under `bazel test` ([ADR 0011](0011-nx-lerna-and-bazel.md)); else
   `<base>/node_modules/.cache/skif` when `node_modules` exists, which skif never creates; else the per-user cache
   directory (`$XDG_CACHE_HOME/skif`, `~/Library/Caches/skif`, `%LOCALAPPDATA%\skif`); else memory for the run.
-* One location serves many bases, each in `<location>/<base-key>/`, the key taken from the base path relative to the
-  git top level, or absolute outside git. A directory skif creates gets a `CACHEDIR.TAG` and a `.gitignore` of `*`.
-* Each store keeps, per namespace, what its base's last run used. The cap (`max-size`) applies to the location,
-  the sum of every base's store. After the write, a location over its cap drops other bases' stores, least recently
-  modified first. A single store that alone would exceed the cap writes only the entries that fit, `modules` first.
+* One location serves many bases, each in `<location>/<base-key>/`. Inside git the key is taken from the canonical
+  path of the git directory the repository's worktrees share and the base path relative to the top level, so the
+  worktrees of one repository share a store and two repositories never do, even linted at their roots in one shared
+  location; outside git it is taken from the absolute base path. Clones of one repository are two repositories, and
+  a store restored in CI is found again only in a checkout at the same path. A directory skif creates gets a
+  `CACHEDIR.TAG` and a `.gitignore` of `*`, each written only where no file is, and an empty location is an error at
+  every boundary (flag, addon option, configuration) and in the store itself.
+* Each store keeps, per namespace, what its base's last complete run used, so a store does not grow with edits. The
+  price is that runs over different file sets in turn (`skif` and `skif --production`) each drop what only the other
+  used; keeping unused entries until the cap would need an age per entry to stop a store growing to the cap, which
+  every run reads whole. A run that failed, or in which a root could not be linted, adds what it computed and drops
+  nothing. After the write, a location over its cap drops other bases' stores, least recently modified first; a
+  single store that alone would exceed the cap writes only the entries that fit, `modules` first. A namespace file
+  larger than the cap is not read.
+* `[cache]` is a file of the project, so it reaches less far than the flags and the environment
+  ([ADR 0003](0003-configuration-suppressions-baselines-and-migration.md)): its `location` stays inside the directory
+  of the file that sets it and never makes a `CI` run write, and its `max-size` caps the project's own store without
+  evicting other bases' stores.
 * An unreadable, corrupt or foreign store is empty and a bad entry is a miss. A failed write is silent when the cache
   came from the defaults (one line under `--debug`) and a warning when it was asked for. The cache never changes the
-  exit code or the findings. A write renames atomically behind a try-lock and is skipped on contention.
-* With `CI` set and no explicit location, the CLI reads the store and never writes it, since nothing would restore it.
+  exit code or the findings. A write renames atomically behind a try-lock and is skipped on contention; its temporary
+  file is created new under a random name, never through a link, and one a killed writer left is removed under the
+  lock by the next write. One store that cannot be read is listed as unreadable and never stops the cap, `stats` or
+  `clean` for the others.
+* With `CI` set and no location from a flag or a variable, the CLI reads the store and never writes it, since nothing
+  would restore it.
 * `skif cache stats` and `skif cache clean` report and remove the store; the MCP server mirrors them
   ([ADR 0013](0013-editors-agents-and-git-hooks.md)).
 * `--watch` reads the store once and writes it after each round. `skif lsp` and `skif mcp` keep a memory cache per
-  root, seeded read-only from the store on the first lint and pruned to what the last run used, and never write the
-  store. The npm addon caches by default (`cache?: boolean | { location?, maxSize? }`) and keeps a memory cache per
-  root across calls in a long-lived process.
+  root, seeded read-only from the store during the root's first lint and pruned to what the last run used, and never
+  write the store; the seed is dropped once that lint has run, so a server does not hold the store's file next to its
+  memory cache for its whole life. The npm addon caches by default (`cache?: boolean | { location?, maxSize? }`) and
+  opens the store for each call, as a run of the command line does: a memory cache per root kept across calls would
+  let concurrent `lintAsync` calls on one store prune each other's entries between runs, and the store's file is read
+  once per call either way.
 * The disk store is the `skif-cache` crate behind the facade feature `cache-disk`: `DiskStore::open`, `finish_run`,
-  `stats`, `clean` and the pure `default_location(base, user_cache_dir)`, which takes the platform directory from its
+  `finish_failed_run`, `stats`, `clean` and the pure `default_location(base, user_cache_dir)`, which takes the platform directory from its
   host. The CLI, the addon and any embedder that wants skif's layout share it
   ([ADR 0002](0002-crates-library-api-and-upstream-code.md)).
 * polylint runs skif in process over its own file system and passes `cache: {dir, salt}` to its component, which
@@ -231,7 +270,8 @@ lets every host, poly included, keep warm results in a store it owns while the l
   and `crates/skif-cli/tests/cache.rs` prove that no cache, a cold cache and a warm cache report alike.
 * Library contract tests run without a store and with a cold, a warm, a corrupted and an adversarial store and require
   the same report apart from the counters; the CLI tests cover the settings' precedence, the location chain, the CI rule
-  and `skif cache`.
+  and `skif cache`. `crates/skif-cache/src/tests.rs` and `crates/skif-cli/tests/cache.rs` cover the store per
+  repository, the failed run, the limits of `[cache]`, temporary files, planted links and unreadable stores.
 * `skif-bench cache-diff` compares uncached, cold, warm and seeded-edit runs on the corpus. It is run with
   `mise run cache:diff` before a release; CI wiring is planned once the cache is on by default
   ([ADR 0014](0014-benchmarks-and-the-comparison-harness.md)).

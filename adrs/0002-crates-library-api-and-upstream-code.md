@@ -48,7 +48,9 @@ every release ships.
 * The repository is a Cargo workspace under `crates/` with a virtual root manifest that owns `[workspace.package]`,
   `[workspace.dependencies]`, `[workspace.lints]` and the profiles. The crate graph is acyclic and layered.
 * `skif-core` holds plain data and the `FileSystem` and `CacheStore` traits, depends on no workspace crate and on no
-  parser, so every crate can name its types without pulling in a parser.
+  parser, so every crate can name its types without pulling in a parser. It depends on `blake3` for cache keys and
+  checksums, with blake3's default features, and `skif-js-syntax` on `ciborium` for the payload of a cached parse
+  result ([ADR 0007](0007-js-analysis-core-on-oxc.md) gives the reasons); neither crate's types are in the API.
 * Only `skif-js-syntax`, `skif-js` and the unpublished benchmark harness depend on an oxc crate directly; every other
   crate reaches oxc only through `skif-js-syntax`.
 * No crate depends on tsrs or another type checker ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).

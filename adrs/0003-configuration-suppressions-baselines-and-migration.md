@@ -116,7 +116,12 @@ explicit key, and baselines and migrations reuse the same model instead of addin
   ([ADR 0007](0007-js-analysis-core-on-oxc.md)). It is read only from the root configuration; in a file reached through
   `extends`, a shared file above the root or the configuration of a nested root it is ignored with a warning, because
   one store serves the whole run and a shared file would set it for every project below.
-* `location` is relative to the configuration file. Flags and the environment beat the table.
+* Flags and the environment beat the table, and reach further than it: a configuration file is part of the project,
+  and linting a checkout nobody has read must be safe. `location` is relative to the configuration file and stays
+  inside its directory: an empty value, an absolute path or a `..` that leaves the directory is a configuration error
+  naming the file and the key, and a location a symbolic link leads out of the directory is ignored with a warning. A
+  `location` from the table never makes a `CI` run write the store, and `max-size` from the table caps the project's
+  own store without evicting the stores of other projects.
 * No cache setting enters any cache key, so changing one never invalidates an entry.
 
 ### Suppressions and reasons
