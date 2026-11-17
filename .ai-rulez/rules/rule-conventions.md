@@ -19,6 +19,6 @@ x-ai-rulez:
 - Fixers keep the original indentation and newline style of the edited file, and a fix applied then re-linted
   leaves no fixable diagnostic.
 - Library crates do no I/O: file access goes through the `FileSystem` trait, and printing, writing and exit
-  codes live in the CLI crate.
+  codes live in the CLI crate. `skif-cache` alone writes files, only below its cache location (ADR 0002).
 - Never panic on malformed user input; return a typed error naming the offending path.
 - Keep output deterministic: sorted iteration and ordered maps, never `HashMap` iteration order.

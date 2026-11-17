@@ -20,7 +20,8 @@ All crates except `skif-node` publish to crates.io as `skif-*`. `skif` is the em
 
 | Crate | Responsibility |
 | --- | --- |
-| `skif-core` | Plain data: diagnostics, spans, fixes, rule metadata, reports, the `FileSystem` trait. No I/O. |
+| `skif-core` | Plain data: diagnostics, spans, fixes, rule metadata, reports, the `FileSystem` and `CacheStore` traits, cache keys and envelope. No I/O. |
+| `skif-cache` | The disk cache store (`DiskStore`) behind the facade feature `cache-disk`: the one library crate that writes files, only below its cache location. |
 | `skif-specifier` | Vendored syncpack-specifier, thread-safe, with attribution headers. |
 | `skif-config` | Typed config (TOML + builder), discovery, per-rule options, JSON Schema. |
 | `skif-edit` | Format-preserving edits from fix operations (package.json, pnpm-workspace.yaml). |
@@ -39,7 +40,7 @@ All crates except `skif-node` publish to crates.io as `skif-*`. `skif` is the em
 Sample monorepos live in the top-level `fixtures/` (`e2e`, `policy`) and in each crate's `tests/fixtures` directory.
 
 Library crates do no I/O beyond the `FileSystem` trait; reading, writing and terminal output belong to
-`skif-cli`.
+`skif-cli`. The one exception is `skif-cache`, which reads and writes only below the cache location it is given.
 
 ## Rules
 

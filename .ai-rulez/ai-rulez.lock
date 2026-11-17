@@ -4,7 +4,7 @@
 version = 1
 ai_rulez_version = '5.13.4'
 scope = 'all'
-tree = 'sha256:ff2104a6428ac44b269d871f01682c44e2238f731d67dd8116b5da12558f2ffb'
+tree = 'sha256:cb1dffdb9bc49c72294e88a25cc7b9387e002257056b7a865810fb6bf3aac609'
 
 [[served]]
 name = 'adr-workflow'
@@ -82,7 +82,7 @@ digest = 'sha256:c57056e3a74a261b3a9d47638726c7d1f64c76b255838b6aaa3e635f3ffa861
 kind = 'context'
 id = 'architecture'
 path = 'context/architecture.md'
-digest = 'sha256:3e8f006f96a202c426918d7a18e81c803216ad63328eaf768f6062c0e958edb5'
+digest = 'sha256:b9c7d57b8eadc138fa469d74a25a06ccd234fb6adfb13bb2729c2611ccb79f1c'
 
 [[item]]
 kind = 'context'
@@ -100,7 +100,7 @@ digest = 'sha256:e9c6df79b2a88560e4f432fdaab739d857fad86e3a536603afdb6537ae90c90
 kind = 'rule'
 id = 'rule-conventions'
 path = 'rules/rule-conventions.md'
-digest = 'sha256:20526e673fad3816eac6b0c6f900a188f039faadba56015fab770b8d539a8125'
+digest = 'sha256:043f03c8469ed580c8070f6b2d3c8a9c0a766b09e4d124ef20b3f1e238088906'
 
 [[item]]
 kind = 'settings'
