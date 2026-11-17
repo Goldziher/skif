@@ -23,21 +23,21 @@ n8n's own knip configuration checks dependencies only, and vscode's workbench is
 bundler script names.
 
 {/* bench:summary:start */}
-Medians of 15 runs after 3 warmup runs (5 runs after 1 warmup run on angular, vscode, n8n and next-js) (hyperfine 1.20.0), skif 0.6.0 at `e591efab18bb` built with rustc 1.100.0 (0ef1bc386 2026-11-09) against knip 6.45.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-16 on a GitHub-hosted runner, image ubuntu24 20261111.127.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1014-aws, x86_64, Intel(R) Xeon(R) 6975P-C, 4 logical CPUs (2 physical cores), 15.3 GiB memory, hypervisor KVM, load average 6.44 / 4.01 / 2.16 before and 2.56 / 2.62 / 2.41 after the run ([workflow run, attempt 1](https://github.com/polylint/skif/actions/runs/43873961099/attempts/1)).
+Medians of 15 runs after 3 warmup runs (5 runs after 1 warmup run on angular, vscode, n8n and next-js) (hyperfine 1.20.0), skif 0.7.0 at `b2a21d3adb74` built with rustc 1.100.0 (0ef1bc386 2026-11-09) (measured by the harness at `27ef55dd0372`) against knip 6.45.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-17 on a GitHub-hosted runner, image ubuntu24 20261111.370.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 5.76 / 3.53 / 2.07 before and 3.24 / 3.01 / 2.82 after the run ([workflow run, attempt 1](https://github.com/polylint/skif/actions/runs/44028742119/attempts/1)).
 
 **Dead-code analysis against knip** (full skif run)
 
 | Repository | skif | knip | knip / skif |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 29 ms | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - |
-| vue-core | 61 ms | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - |
-| tanstack-query | 339 ms | 2.8 s | 8x |
-| babel | 793 ms | 4.3 s | 5x |
-| npm-cli | 81 ms | 518 ms | 6x |
-| angular | 815 ms | 3.3 s | 4x |
-| vscode | 2.5 s | 12.6 s | 5x |
-| n8n | 5.0 s | 21.0 s | 4x |
-| next-js | 818 ms | 4.7 s | 6x |
+| create-t3-turbo | 42 ms | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - |
+| vue-core | 93 ms | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - |
+| tanstack-query | 512 ms | 4.3 s | 8x |
+| babel | 1.1 s | 6.6 s | 6x |
+| npm-cli | 121 ms | 823 ms | 7x |
+| angular | 1.2 s | 4.9 s | 4x |
+| vscode | 3.2 s | 16.3 s | 5x |
+| n8n | 6.3 s | 29.7 s | 5x |
+| next-js | 1.1 s | 7.5 s | 7x |
 
 knip exits with an error after its report on n8n (two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries) and next-js (its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries); its time there is that of a run without the entries of the configurations it could not load.
 
@@ -45,33 +45,33 @@ knip exits with an error after its report on n8n (two Vite configs do not load o
 
 | Target | types on | types off (default) | on / off | peak RSS, types on | peak RSS, types off (default) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| graph: 10000 files in 100 packages | 269 ms | 203 ms | 1.3x | 120 MiB | 111 MiB |
-| create-t3-turbo | 454 ms | 29 ms | 15.7x | 249 MiB | 28 MiB |
-| vue-core | 355 ms | 61 ms | 5.8x | 167 MiB | 35 MiB |
-| tanstack-query | 2.9 s | 339 ms | 8.7x | 428 MiB | 109 MiB |
-| babel | 8.4 s | 793 ms | 10.6x | 493 MiB | 157 MiB |
-| npm-cli | 107 ms | 81 ms | 1.3x | 48 MiB | 47 MiB |
-| angular | 3.2 s | 815 ms | 3.9x | 660 MiB | 217 MiB |
-| vscode | 9.2 s | 2.5 s | 3.7x | 2,965 MiB | 434 MiB |
-| n8n | 20.4 s | 5.0 s | 4.1x | 3,656 MiB | 850 MiB |
-| next-js | 2.4 s | 818 ms | 2.9x | 554 MiB | 191 MiB |
+| graph: 10000 files in 100 packages | 437 ms | 336 ms | 1.3x | 119 MiB | 111 MiB |
+| create-t3-turbo | 656 ms | 42 ms | 15.6x | 250 MiB | 28 MiB |
+| vue-core | 422 ms | 93 ms | 4.6x | 147 MiB | 36 MiB |
+| tanstack-query | 3.9 s | 512 ms | 7.6x | 403 MiB | 109 MiB |
+| babel | 13.0 s | 1.1 s | 11.6x | 462 MiB | 158 MiB |
+| npm-cli | 156 ms | 121 ms | 1.3x | 50 MiB | 45 MiB |
+| angular | 5.1 s | 1.2 s | 4.4x | 619 MiB | 218 MiB |
+| vscode | 13.9 s | 3.2 s | 4.3x | 2,964 MiB | 439 MiB |
+| n8n | 27.6 s | 6.3 s | 4.4x | 3,661 MiB | 829 MiB |
+| next-js | 3.3 s | 1.1 s | 3.1x | 554 MiB | 193 MiB |
 
 **Manifest and policy checks** (`skif --no-js`)
 
 | Target | skif --no-js | sherif | syncpack |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 3.3 ms | 22 ms | 27 ms |
-| vue-core | 3.3 ms | 22 ms | 26 ms |
-| tanstack-query | 8.0 ms | 27 ms | 72 ms |
-| babel | 8.3 ms | 26 ms | 180 ms |
-| npm-cli | 4.9 ms | 23 ms | 46 ms |
-| angular | 5.2 ms | 24 ms | 60 ms |
-| vscode | 35 ms | 27 ms | 101 ms |
-| n8n | 82 ms | 28 ms | 136 ms |
-| next-js | 59 ms | 25 ms | 240 ms |
-| Generated, 50 packages | 4.3 ms | 25 ms | 31 ms |
-| Generated, 500 packages | 19 ms | 38 ms | 113 ms |
-| Generated, 2000 packages | 80 ms | 90 ms | 512 ms |
+| create-t3-turbo | 4.4 ms | 33 ms | 40 ms |
+| vue-core | 4.6 ms | 35 ms | 43 ms |
+| tanstack-query | 12 ms | 41 ms | 122 ms |
+| babel | 12 ms | 37 ms | 342 ms |
+| npm-cli | 7.0 ms | 33 ms | 77 ms |
+| angular | 6.9 ms | 33 ms | 104 ms |
+| vscode | 61 ms | 34 ms | 163 ms |
+| n8n | 130 ms | 36 ms | 231 ms |
+| next-js | 96 ms | 34 ms | 436 ms |
+| Generated, 50 packages | 5.6 ms | 35 ms | 46 ms |
+| Generated, 500 packages | 29 ms | 59 ms | 178 ms |
+| Generated, 2000 packages | 121 ms | 144 ms | 786 ms |
 {/* bench:summary:end */}
 
 ### All measurements
@@ -92,32 +92,32 @@ the run.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 4.2 | 4.3 | - |
-| sherif | 24.7 | 24.6 | 5.8x |
-| syncpack lint | 35.7 | 31.2 | 8.4x |
+| skif --no-js | 5.6 | 5.6 | - |
+| sherif | 35.3 | 35.4 | 6.3x |
+| syncpack lint | 46.1 | 45.9 | 8.2x |
 
 **generated: 500 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 18.7 | 18.7 | - |
-| sherif | 38.3 | 38.4 | 2.0x |
-| syncpack lint | 113 | 113 | 6.0x |
+| skif --no-js | 29.3 | 29.3 | - |
+| sherif | 59.4 | 59.5 | 2.0x |
+| syncpack lint | 178 | 178 | 6.1x |
 
 **generated: 2000 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 79.8 | 80.0 | - |
-| sherif | 90.9 | 90.4 | 1.1x |
-| syncpack lint | 513 | 512 | 6.4x |
+| skif --no-js | 122 | 121 | - |
+| sherif | 144 | 144 | 1.2x |
+| syncpack lint | 792 | 786 | 6.5x |
 
 **graph: 10000 files in 100 packages**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 203 | 203 | - |
-| skif --type-aware | 268 | 269 | - |
+| skif | 347 | 336 | - |
+| skif --type-aware | 437 | 437 | - |
 
 **corpus: create-t3-turbo (pnpm)**
 
@@ -125,11 +125,11 @@ Installed with `pnpm 10.19.0`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 28.8 | 28.9 | - |
-| skif --type-aware | 456 | 454 | - |
-| skif --no-js | 3.2 | 3.3 | - |
-| sherif | 22.2 | 22.4 | 6.9x |
-| syncpack lint | 27.4 | 27.0 | 8.6x |
+| skif | 41.7 | 42.0 | - |
+| skif --type-aware | 672 | 656 | - |
+| skif --no-js | 4.4 | 4.4 | - |
+| sherif | 33.7 | 32.9 | 7.6x |
+| syncpack lint | 40.6 | 39.9 | 9.2x |
 | knip --reporter json | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - | - |
 
 **corpus: vue-core (pnpm)**
@@ -138,11 +138,11 @@ Installed with `pnpm 12.11.2`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 61.6 | 61.4 | - |
-| skif --type-aware | 357 | 355 | - |
-| skif --no-js | 3.3 | 3.3 | - |
-| sherif | 23.0 | 22.2 | 7.0x |
-| syncpack lint | 25.8 | 25.7 | 7.9x |
+| skif | 92.7 | 92.7 | - |
+| skif --type-aware | 421 | 422 | - |
+| skif --no-js | 4.7 | 4.6 | - |
+| sherif | 34.5 | 34.5 | 7.4x |
+| syncpack lint | 43.2 | 43.4 | 9.3x |
 | knip --reporter json | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - | - |
 
 **corpus: tanstack-query (pnpm)**
@@ -151,12 +151,12 @@ Installed with `pnpm 12.4.2`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 340 | 339 | - |
-| skif --type-aware | 2950 | 2946 | - |
-| skif --no-js | 8.0 | 8.0 | - |
-| sherif | 27.1 | 26.8 | 3.4x |
-| syncpack lint | 72.6 | 72.0 | 9.1x |
-| knip --reporter json | 2776 | 2782 | 8.2x |
+| skif | 513 | 512 | - |
+| skif --type-aware | 3904 | 3893 | - |
+| skif --no-js | 12.2 | 12.2 | - |
+| sherif | 40.9 | 41.3 | 3.4x |
+| syncpack lint | 123 | 122 | 10.1x |
+| knip --reporter json | 4327 | 4329 | 8.4x |
 
 **corpus: babel (yarn)**
 
@@ -164,13 +164,13 @@ Installed with `yarn 4.17.0`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 792 | 793 | - |
-| skif --type-aware | 8381 | 8386 | - |
-| skif --no-js | 8.3 | 8.3 | - |
-| skif --recursive | 804 | 804 | - |
-| sherif | 25.6 | 25.8 | 3.1x |
-| syncpack lint | 181 | 180 | 21.7x |
-| knip --reporter json | 4257 | 4268 | 5.4x |
+| skif | 1117 | 1118 | - |
+| skif --type-aware | 12969 | 13004 | - |
+| skif --no-js | 12.2 | 12.2 | - |
+| skif --recursive | 1103 | 1101 | - |
+| sherif | 36.6 | 36.8 | 3.0x |
+| syncpack lint | 343 | 342 | 28.0x |
+| knip --reporter json | 6552 | 6551 | 5.9x |
 
 `skif --recursive` also lints the nested roots that are not workspace members. No comparison tool reads them, so the row has no ratio and is part of no claim.
 
@@ -180,12 +180,12 @@ Installed with `npx --yes npm@11.6.2 ci --ignore-scripts`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 81.0 | 80.7 | - |
-| skif --type-aware | 106 | 107 | - |
-| skif --no-js | 4.9 | 4.9 | - |
-| sherif | 23.1 | 23.0 | 4.7x |
-| syncpack lint | 46.7 | 46.3 | 9.6x |
-| knip --reporter json | 518 | 518 | 6.4x |
+| skif | 121 | 121 | - |
+| skif --type-aware | 156 | 156 | - |
+| skif --no-js | 7.0 | 7.0 | - |
+| sherif | 32.4 | 32.5 | 4.6x |
+| syncpack lint | 77.0 | 76.8 | 11.0x |
+| knip --reporter json | 824 | 823 | 6.8x |
 
 **corpus: angular (pnpm)**
 
@@ -195,12 +195,12 @@ Installed with `pnpm 12.16.1`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 819 | 815 | - |
-| skif --type-aware | 3204 | 3201 | - |
-| skif --no-js | 5.2 | 5.2 | - |
-| sherif | 24.0 | 24.0 | 4.6x |
-| syncpack lint | 59.5 | 60.3 | 11.3x |
-| knip --reporter json | 3318 | 3313 | 4.1x |
+| skif | 1159 | 1161 | - |
+| skif --type-aware | 5087 | 5089 | - |
+| skif --no-js | 6.9 | 6.9 | - |
+| sherif | 33.0 | 32.9 | 4.7x |
+| syncpack lint | 103 | 104 | 14.8x |
+| knip --reporter json | 4862 | 4858 | 4.2x |
 
 **corpus: vscode (pnpm)**
 
@@ -210,13 +210,13 @@ Installed with `pnpm 12.16.0`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 2501 | 2485 | - |
-| skif --type-aware | 9179 | 9192 | - |
-| skif --no-js | 37.1 | 35.3 | - |
-| skif --recursive | 4075 | 4101 | - |
-| sherif | 26.9 | 27.3 | 0.7x |
-| syncpack lint | 101 | 101 | 2.7x |
-| knip --reporter json | 12560 | 12614 | 5.0x |
+| skif | 3249 | 3246 | - |
+| skif --type-aware | 13932 | 13940 | - |
+| skif --no-js | 61.6 | 60.9 | - |
+| skif --recursive | 5137 | 5137 | - |
+| sherif | 34.6 | 34.4 | 0.6x |
+| syncpack lint | 163 | 163 | 2.7x |
+| knip --reporter json | 16369 | 16323 | 5.0x |
 
 `skif --recursive` also lints the nested roots that are not workspace members. No comparison tool reads them, so the row has no ratio and is part of no claim.
 
@@ -228,12 +228,12 @@ Installed with `pnpm 12.4.2`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 5002 | 5004 | - |
-| skif --type-aware | 20461 | 20425 | - |
-| skif --no-js | 82.0 | 82.0 | - |
-| sherif | 28.4 | 28.2 | 0.3x |
-| syncpack lint | 137 | 136 | 1.7x |
-| knip --reporter json | 20992 | 20959 | 4.2x |
+| skif | 6276 | 6284 | - |
+| skif --type-aware | 27676 | 27577 | - |
+| skif --no-js | 130 | 130 | - |
+| sherif | 36.7 | 36.0 | 0.3x |
+| syncpack lint | 232 | 231 | 1.8x |
+| knip --reporter json | 29725 | 29735 | 4.7x |
 
 knip --reporter json exits with an error after its report here, as corpus.toml declares: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries.
 
@@ -245,13 +245,13 @@ Installed with `pnpm 12.9.1`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 818 | 818 | - |
-| skif --type-aware | 2398 | 2399 | - |
-| skif --no-js | 59.1 | 59.1 | - |
-| skif --recursive | 2460 | 2460 | - |
-| sherif | 25.0 | 24.8 | 0.4x |
-| syncpack lint | 239 | 240 | 4.1x |
-| knip --reporter json | 4707 | 4719 | 5.8x |
+| skif | 1071 | 1070 | - |
+| skif --type-aware | 3277 | 3279 | - |
+| skif --no-js | 95.4 | 95.5 | - |
+| skif --recursive | 3326 | 3324 | - |
+| sherif | 34.7 | 34.3 | 0.4x |
+| syncpack lint | 436 | 436 | 4.6x |
+| knip --reporter json | 7524 | 7531 | 7.0x |
 
 `skif --recursive` also lints the nested roots that are not workspace members. No comparison tool reads them, so the row has no ratio and is part of no claim.
 
@@ -259,42 +259,42 @@ knip --reporter json exits with an error after its report here, as corpus.toml d
 
 | ADR 0001 target | Check | Result |
 | --- | --- | --- |
-| generated: 500 packages (pnpm) | manifest and policy rules &lt; 50 ms (measured 18.7 ms) | pass |
-| graph: 10000 files in 100 packages | parse and module graph of 10000 files &lt; 2000 ms, whole run including every JS rule (measured 203.4 ms) | pass |
+| generated: 500 packages (pnpm) | manifest and policy rules &lt; 50 ms (measured 29.3 ms) | pass |
+| graph: 10000 files in 100 packages | parse and module graph of 10000 files &lt; 2000 ms, whole run including every JS rule (measured 347.3 ms) | pass |
 | corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide) | not measured |
 | corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines) | not measured |
-| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 8.2x) | pass |
-| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 5.4x) | pass |
-| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 6.4x) | pass |
-| corpus: angular (pnpm) | JS analysis >= 5x faster than knip (measured 4.1x) | FAIL |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 8.4x) | pass |
+| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 5.9x) | pass |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 6.8x) | pass |
+| corpus: angular (pnpm) | JS analysis >= 5x faster than knip (measured 4.2x) | FAIL |
 | corpus: vscode (pnpm) | JS analysis >= 5x faster than knip (measured 5.0x) | pass |
-| corpus: n8n (pnpm) | JS analysis >= 5x faster than knip (measured 4.2x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries) | FAIL |
-| corpus: next-js (pnpm) | JS analysis >= 5x faster than knip (measured 5.8x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries) | pass |
+| corpus: n8n (pnpm) | JS analysis >= 5x faster than knip (measured 4.7x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries) | FAIL |
+| corpus: next-js (pnpm) | JS analysis >= 5x faster than knip (measured 7.0x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries) | pass |
 
 | Type-aware budget (ADR 0010) | Check | Result |
 | --- | --- | --- |
-| graph: 10000 files in 100 packages | peak RSS with types &lt;= 4096 MiB (measured 120 MiB) | pass |
-| graph: 10000 files in 100 packages | whole run with types &lt; 5000 ms (measured 267.7 ms) | pass |
-| corpus: create-t3-turbo (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 249 MiB) | pass |
+| graph: 10000 files in 100 packages | peak RSS with types &lt;= 4096 MiB (measured 119 MiB) | pass |
+| graph: 10000 files in 100 packages | whole run with types &lt; 5000 ms (measured 437.4 ms) | pass |
+| corpus: create-t3-turbo (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 250 MiB) | pass |
 | corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide) | not measured |
-| corpus: vue-core (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 167 MiB) | pass |
+| corpus: vue-core (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 147 MiB) | pass |
 | corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines) | not measured |
-| corpus: tanstack-query (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 428 MiB) | pass |
-| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 0.9x) | FAIL |
-| corpus: babel (yarn) | peak RSS with types &lt;= 4096 MiB (measured 493 MiB) | pass |
+| corpus: tanstack-query (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 403 MiB) | pass |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 1.1x) | FAIL |
+| corpus: babel (yarn) | peak RSS with types &lt;= 4096 MiB (measured 462 MiB) | pass |
 | corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 0.5x) | FAIL |
-| corpus: npm-cli (npm) | peak RSS with types &lt;= 4096 MiB (measured 48 MiB) | pass |
-| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 4.9x) | FAIL |
-| corpus: angular (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 660 MiB) | pass |
+| corpus: npm-cli (npm) | peak RSS with types &lt;= 4096 MiB (measured 50 MiB) | pass |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 5.3x) | pass |
+| corpus: angular (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 619 MiB) | pass |
 | corpus: angular (pnpm) | JS analysis >= 5x faster than knip (measured 1.0x) | FAIL |
-| corpus: vscode (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 2965 MiB) | pass |
-| corpus: vscode (pnpm) | JS analysis >= 5x faster than knip (measured 1.4x) | FAIL |
-| corpus: n8n (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 3656 MiB) | pass |
-| corpus: n8n (pnpm) | JS analysis >= 5x faster than knip (measured 1.0x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries) | FAIL |
+| corpus: vscode (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 2964 MiB) | pass |
+| corpus: vscode (pnpm) | JS analysis >= 5x faster than knip (measured 1.2x) | FAIL |
+| corpus: n8n (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 3661 MiB) | pass |
+| corpus: n8n (pnpm) | JS analysis >= 5x faster than knip (measured 1.1x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: two Vite configs do not load outside the repository's own build (@n8n/mcp-apps needs an MCP app mode, @n8n/nodes-langchain the unbuilt n8n-workflow); knip reports without their entries) | FAIL |
 | corpus: next-js (pnpm) | peak RSS with types &lt;= 4096 MiB (measured 554 MiB) | pass |
-| corpus: next-js (pnpm) | JS analysis >= 5x faster than knip (measured 2.0x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries) | FAIL |
-| corpus: n8n (pnpm) | types on &lt;= 3x types off on the largest repository, the one whose untyped run takes longest (measured 4.1x: 20461 ms against 5002 ms) | FAIL |
-| corpus | median types on / types off across 9 repositories &lt;= 2x (measured 4.1x) | FAIL |
+| corpus: next-js (pnpm) | JS analysis >= 5x faster than knip (measured 2.3x; knip --reporter json exited with an error in 5 runs, as corpus.toml declares, after its report: its root Jest config requires the built next/jest, which an install without scripts leaves out; knip reports without that config's entries) | FAIL |
+| corpus: n8n (pnpm) | types on &lt;= 3x types off on the largest repository, the one whose untyped run takes longest (measured 4.4x: 27676 ms against 6276 ms) | FAIL |
+| corpus | median types on / types off across 9 repositories &lt;= 2x (measured 4.4x) | FAIL |
 {/* bench:numbers:end */}
 
 ## Accuracy on seeded defects
