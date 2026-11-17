@@ -39,7 +39,7 @@ a mode that changes one rule, costs up to 16 times the run without it and is les
 ### What was measured
 
 Speed is from the release bench of skif 0.7.0. Precision is from skif 0.8.0 (commit `4d3bdd7f`) against knip 6.45.1
-on 73 seeded findings, measured 2026-11-17. Both are reproducible at the tag `pre-tsrs-removal`.
+on 73 seeded findings, measured 2026-11-17. The typed mode is in release `v0.8.0`, the last one with it.
 
 * Types changed the findings of exactly one rule, `unused-class-members`.
 * A typed run cost 1.3x to 16x the untyped run. That is between 0.5x and 5.3x knip's speed on the seven repositories
@@ -71,8 +71,8 @@ on 73 seeded findings, measured 2026-11-17. Both are reproducible at the tag `pr
 * The cache stays, with module facts only ([ADR 0007](0007-js-analysis-core-on-oxc.md)).
 * Nothing in skif replaces the typed mode. The code is being moved to the polylint repository, which owns it from
   there: the tsrs-facing layer (program construction, the shared parse registry) as `polylint-tsrs`, and the typed
-  member analysis as a second crate. skif publishes neither. Until the move is done, the branch `feat/skif-tsrs` and
-  the tag `pre-tsrs-removal` in this repository hold the code; the tag marks the last commit with the typed mode.
+  member analysis as a second crate. skif publishes neither. Release `v0.8.0` is the last with the typed mode and
+  holds its code.
 
 ### Consequences
 

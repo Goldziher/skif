@@ -14,7 +14,7 @@ All notable changes to this project are documented here. The format follows
 - **Type-aware analysis is removed.** It ran the TypeScript checker for the member rules only, was much slower than
   the name-based analysis and measurably less precise on the dead-code benchmark. Every rule now behaves as it did
   with types off, which was the default, so a run that never turned types on reports the same findings. The code
-  stays at tag `pre-tsrs-removal` and moves to the polylint repository. Gone with it:
+  stays in release `v0.8.0` and moves to the polylint repository. Gone with it:
   - the `--type-aware` and `--no-type-aware` flags of `skif`, `skif baseline` and `skif explain-usage`, which now
     fail with a usage error that says so;
   - the `type-aware` key of `[js]`, of `[js.workspaces."<dir>"]` and of the `js` table of an override in
