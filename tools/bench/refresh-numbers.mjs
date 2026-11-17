@@ -348,7 +348,8 @@ export function benchSummary(summary) {
  * or claim.
  */
 export function benchWarm(summary) {
-  const lines = ["| Target | skif, no cache | skif, warm cache | Speed-up |", "| --- | ---: | ---: | ---: |"];
+  // A table right after the block's start marker needs a blank line before it, or the Markdown formatter adds one.
+  const lines = ["", "| Target | skif, no cache | skif, warm cache | Speed-up |", "| --- | ---: | ---: | ---: |"];
   for (const target of summary.targets.filter((t) => t.warm_cache != null)) {
     const warm = target.warm_cache;
     lines.push(

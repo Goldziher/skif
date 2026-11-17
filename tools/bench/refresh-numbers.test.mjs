@@ -577,7 +577,7 @@ test("the warm-cache table gives both skif medians and their ratio, and no other
   });
   assert.equal(
     benchWarm(withGraph),
-    "| Target | skif, no cache | skif, warm cache | Speed-up |\n" +
+    "\n| Target | skif, no cache | skif, warm cache | Speed-up |\n" +
       "| --- | ---: | ---: | ---: |\n" +
       "| babel | 884 ms | 221 ms | 4.0x |\n" +
       "| next-js | 6.0 s | 2.5 s | 2.4x |\n" +
@@ -876,7 +876,7 @@ test("a summary with a matched knip failure is written into every speed block", 
   assert.ok(page.includes("| create-t3-turbo | 33 ms | 200 MiB |\n"), page);
   assert.ok(
     page.includes(
-      "{/* bench:warm:start */}\n| Target | skif, no cache | skif, warm cache | Speed-up |\n| --- | ---: | ---: | ---: |\n" +
+      "{/* bench:warm:start */}\n\n| Target | skif, no cache | skif, warm cache | Speed-up |\n| --- | ---: | ---: | ---: |\n" +
         "| babel | 884 ms | 221 ms | 4.0x |\n| create-t3-turbo | 33 ms | 11 ms | 3.0x |\n{/* bench:warm:end */}",
     ),
     page,
