@@ -83,10 +83,11 @@ fn rules_table(metas: &[&'static RuleMeta]) -> String {
     table
 }
 
-fn list_rules(format: RulesFormat) -> Result<(), CliError> {
+/// What `skif rules` prints on stdout for `args`. `skif mcp` answers its `list_rules` tool with the JSON text.
+pub(crate) fn render(args: &RulesArgs) -> Result<String, CliError> {
     let linter = Linter::new(&Config::default())?;
     let metas: Vec<&'static RuleMeta> = linter.rules().collect();
-    let text = match format {
+    Ok(match args.format {
         RulesFormat::Human => rules_table(&metas),
         RulesFormat::Json => {
             let mut text = serde_json::to_string_pretty(&rules_json(&metas))
@@ -94,8 +95,7 @@ fn list_rules(format: RulesFormat) -> Result<(), CliError> {
             text.push('\n');
             text
         }
-    };
-    write_stdout(text.as_bytes())
+    })
 }
 
 fn rules_json(metas: &[&'static RuleMeta]) -> serde_json::Value {
@@ -106,15 +106,11 @@ fn rules_json(metas: &[&'static RuleMeta]) -> serde_json::Value {
     })
 }
 
-/// The document `skif rules --format json` prints.
-pub fn rules_document() -> Result<serde_json::Value, CliError> {
-    let linter = Linter::new(&Config::default())?;
-    let metas: Vec<&'static RuleMeta> = linter.rules().collect();
-    Ok(rules_json(&metas))
-}
-
 pub fn rules(args: &RulesArgs) -> u8 {
-    finish(list_rules(args.format), args.format.into())
+    finish(
+        render(args).and_then(|text| write_stdout(text.as_bytes())),
+        args.format.into(),
+    )
 }
 
 pub fn schema() -> u8 {

@@ -24,7 +24,6 @@ use serde_json::{Map, Value, json};
 use skif::MemoryModuleCache;
 
 use crate::args::{ConfigArgs, ExplainUsageArgs, Format, LintArgs, RulesArgs};
-use crate::commands::rules_document;
 use crate::error::{CliError, Kind};
 use crate::explain::{self, Failure};
 use crate::lint::{canonical, run_captured};
@@ -696,8 +695,9 @@ fn config(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure
 }
 
 fn list_rules(tool: &Tool, arguments: &Map<String, Value>) -> Result<Answer, Failure> {
-    parse::<RulesCommand>(tool, arguments)?;
-    Ok((rules_document().map_err(plain)?, false))
+    let args = parse::<RulesCommand>(tool, arguments)?.args;
+    let text = crate::commands::render(&args).map_err(plain)?;
+    Ok((parsed(text.as_bytes())?, false))
 }
 
 #[cfg(test)]
