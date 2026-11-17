@@ -3,7 +3,7 @@
 
 <h1 align="center"><img src="docs/media/skif-banner.svg" alt="skif: dependency linter for JavaScript and TypeScript monorepos" width="820"></h1>
 
-npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · type-aware · format-preserving fixes
+npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
 [![npm](https://img.shields.io/npm/v/%40polylint%2Fskif?style=flat-square)](https://www.npmjs.com/package/@polylint/skif)
@@ -19,8 +19,7 @@ npm · pnpm · yarn · bun · **54 rules** · **213 plugins** · type-aware · f
 
 skif is a dependency linter for JavaScript and TypeScript repositories, written in Rust. One binary and one
 `skif.toml` cover what sherif (monorepo and manifest rules), syncpack (version and catalog policies) and knip (unused
-files, exports and dependencies) check. The dead-code analysis parses with [oxc](https://oxc.rs) and, with `--type-aware`,
-resolves member reads with the TypeScript type checker of [tsrs](https://github.com/oxc-project/tsrs). skif reads tool
+files, exports and dependencies) check. The dead-code analysis parses with [oxc](https://oxc.rs). skif reads tool
 configurations statically and runs no project code while linting, its fixes keep key order, indentation and comments,
 and `skif migrate` translates an existing sherif, syncpack and knip setup in one step.
 
@@ -107,13 +106,6 @@ git root, so one organisation file applies to every project below it. See the
   exports; circular imports. Vue, Svelte, Astro, MDX and Marko files are read, and 213 plugins read the configuration
   of common tools.
   `skif explain-usage` says why a file, export, member or dependency counts as used.
-- **Type-aware analysis**: where a package has a `tsconfig.json` or `jsconfig.json`, the TypeScript checker of tsrs
-  resolves each member read to the declaration it reaches, also through a base class or an implemented interface. A
-  read `a.dispose()` then keeps only the `dispose` of `a`'s class out of `unused-class-members`, not every `dispose`
-  of the project, and `unused-enum-members` and `unused-namespace-members` also count reads through an alias or
-  `this`. It is off by default in the CLI and the npm package because it costs time and memory (see the
-  [benchmarks](https://polylint.github.io/skif/guides/benchmarks/#speed)); `--type-aware` or `[js] type-aware = true`
-  turns it on. A package without types keeps the name-based analysis, and the report names it ([type-aware analysis](https://polylint.github.io/skif/reference/configuration/#js)).
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
   roots, Rush, [Turborepo, Nx and Lerna](https://polylint.github.io/skif/guides/turborepo-nx-lerna/), and
   [Bazel with rules_js](https://polylint.github.io/skif/guides/bazel/).
@@ -121,10 +113,10 @@ git root, so one organisation file applies to every project below it. See the
   `package.json` layout.
 - **CI output**: human, JSON, TOON, SARIF, GitHub annotations, GitLab Code Quality, compact, Markdown and
   CODEOWNERS reports, several in one run, with stable rule ids and documented exit codes.
-- **Editors and agents**: watch mode, a language server, an MCP server (all three without types) and an
+- **Editors and agents**: watch mode, a language server, an MCP server and an
   [agent skill](https://polylint.github.io/skif/guides/editors-and-agents/#agent-skill).
-- **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own and puts the JS analysis and the type
-  checker behind its `js-analysis` and `type-aware` features, and the npm package exports `lint`, `lintAsync` and
+- **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own and puts the JS analysis behind its
+  `js-analysis` feature, and the npm package exports `lint`, `lintAsync` and
   `run`. See the [library guide](https://polylint.github.io/skif/guides/library/).
 
 ## Support
@@ -134,7 +126,6 @@ git root, so one organisation file applies to every project below it. See the
 | Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun |
 | Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) |
 | Runtime | Native binary, or through npm on Node.js 22, 24, 26 and Bun 1.x |
-| Type checker | tsrs 7.1.0-beta.tsrs2, a Rust port of the TypeScript 7 checker, for packages with a `tsconfig.json` or `jsconfig.json` |
 | Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 |
 
 Versions per package manager and operating system are under

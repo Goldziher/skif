@@ -44,8 +44,6 @@ Scope of the analysis:
 | `--dependencies`, `--exports`, `--files`, `--cycles` | knip's shortcuts for `--include`. |
 | `--no-js` | Skip the JavaScript analysis (manifest, workspace and policy rules only; what the git hooks run). |
 | `--production` | Analyse production code only. |
-| `--type-aware` | Resolve member reads with the TypeScript type checker: slower, more accurate member findings (`[js] type-aware`, off by default). |
-| `--no-type-aware` | Resolve member reads without the TypeScript type checker, as by default, over a configuration that turns types on. |
 | `--isolate-workspaces` | Each package may use only what its own manifest lists, without production mode (`[js] isolate-workspaces`). |
 | `--strict` | knip's strict mode: `--production` and `--isolate-workspaces`, and only direct dependencies count (`[js] strict`). |
 | `--include-entry-exports` | Also report unused exports of entry files. |
@@ -93,7 +91,7 @@ report), `--color <auto|always|never>`.
 | `skif init [PATH]` | Write a starter `skif.toml` with a `#:schema` directive; refuses to overwrite. |
 | `skif config [PATH] [-r] --show` | The files that apply, in order, then the merged configuration. |
 | `skif config [PATH] --explain <KEY> [--package <NAME>]` | Every assignment of a key (`rules.unused-exports.level`, `js.ignore-dependencies`, `version-groups[0]`) and its final value. |
-| `skif explain-usage <FILE[#EXPORT]> [PATH] [--production] [--type-aware]` | Why a file or export is used: entry rule, importers, the import chain from an entry, a verdict for an export. |
+| `skif explain-usage <FILE[#EXPORT]> [PATH] [--production]` | Why a file or export is used: entry rule, importers, the import chain from an entry, a verdict for an export. |
 | `skif explain-usage --dependency <NAME> [PATH] [--package <NAME\|DIR>]` | Per package, whether a dependency is used and the files, scripts, plugins and configs that use it, or the imports that count for nothing. |
 | `skif migrate [PATH] [--from sherif,syncpack,knip\|auto] [--profile exact\|full] [--merge\|--force] [--output <FILE>] [--dry-run] [--strict]` | See [migrate.md](migrate.md). |
 | `skif baseline write\|prune [PATH] [-r\|--file <FILE>] [LINT FLAGS] [--reason <TEXT>]` | Record / prune findings as `[[ignore]]` entries in `skif.baseline.toml`. |
