@@ -652,6 +652,112 @@ fn explain_usage_names_the_type_only_exemption() {
     assert!(text.contains("=> not judged"), "{text}");
 }
 
+const WIDGETS: (&str, &str) = (
+    "widgets.ts",
+    "export class Widget {\n  render(): void {}\n  paint(): void {}\n}\n\n\
+     export class Gadget {\n  render(): void {}\n}\n",
+);
+
+#[test]
+fn a_read_by_name_counts_for_the_same_named_member_of_every_class() {
+    let typed_receiver = (
+        "index.ts",
+        "import { Gadget, Widget } from './widgets';\n\n\
+         export function draw(widget: Widget): void {\n  widget.render();\n}\n\n\
+         export const gadget = new Gadget();\n",
+    );
+    assert_eq!(
+        found(&[PACKAGE, WIDGETS, typed_receiver]),
+        ["widgets.ts: Widget.paint"],
+        "`widget.render()` reads `render` of `Gadget` too: the receiver's type is not consulted"
+    );
+    let foreign_receiver = (
+        "index.ts",
+        "import { mount } from 'ui-lib';\nimport { Gadget, Widget } from './widgets';\n\n\
+         export const widget = new Widget();\nexport const gadget = new Gadget();\nmount().render();\n",
+    );
+    let package = (
+        "package.json",
+        r#"{"name":"app","private":true,"main":"index.ts","dependencies":{"ui-lib":"1"}}"#,
+    );
+    assert_eq!(
+        found(&[package, WIDGETS, foreign_receiver]),
+        ["widgets.ts: Widget.paint"],
+        "`render` read on a value of a dependency counts for every `render`"
+    );
+}
+
+#[test]
+fn a_read_through_an_interface_counts_for_the_member_an_implementing_class_inherits() {
+    let files = [
+        PACKAGE,
+        (
+            "cell.ts",
+            "export interface ICell {\n  getRange(): number;\n}\n\n\
+             export abstract class BaseCell {\n  getRange(): number {\n    return 1;\n  }\n\n  \
+             getSize(): number {\n    return 2;\n  }\n}\n\n\
+             export class CodeCell extends BaseCell implements ICell {}\n",
+        ),
+        (
+            "index.ts",
+            "import type { ICell } from './cell';\nimport { BaseCell, CodeCell } from './cell';\n\n\
+             export function f(c: ICell): number {\n  return c.getRange();\n}\n\n\
+             export const make = (): BaseCell => new CodeCell();\n",
+        ),
+    ];
+    assert_eq!(
+        found(&files),
+        ["cell.ts: BaseCell.getSize"],
+        "by name, `getRange` is read and `getSize` is not"
+    );
+}
+
+#[test]
+fn a_member_of_a_default_exported_class_counts_as_read_when_another_class_has_the_read_name() {
+    let other = ("other.ts", "export class Other {\n  unused() {}\n}\n");
+    for (_, class) in DEFAULT_CLASSES {
+        for (reader, index, barrel) in DEFAULT_READERS {
+            let index = format!("{index}import {{ Other }} from './other';\nnew Other().unused();\n");
+            let mut files = vec![PACKAGE, other, ("index.ts", index.as_str()), ("lib.ts", class)];
+            files.extend(barrel);
+            assert_eq!(
+                found(&files),
+                none(),
+                "by name, `unused` is read on every class: {reader} of {class:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn enum_and_namespace_members_are_judged_by_name() {
+    let files = [
+        PACKAGE,
+        (
+            "colors.ts",
+            "export enum Color {\n  Red,\n  Green,\n  Blue,\n}\n\n\
+             export namespace Shapes {\n  export const circle = 1;\n  export const square = 2;\n}\n",
+        ),
+        (
+            "index.ts",
+            "import { Color, Shapes } from './colors';\n\n\
+             const Palette = Color;\nexport const red = Palette.Red;\n\
+             export const green = Color.Green;\nexport const circle = Shapes.circle;\n",
+        ),
+    ];
+    let diagnostics = lint_with(&files, "");
+    assert_eq!(
+        found_by(&diagnostics, "unused-enum-members"),
+        none(),
+        "`const Palette = Color` uses the whole enum, so `Blue` counts as used although nothing reads it"
+    );
+    assert_eq!(
+        found_by(&diagnostics, "unused-namespace-members"),
+        ["colors.ts: Shapes.square"],
+        "a member nothing reads is reported"
+    );
+}
+
 #[test]
 fn explain_usage_says_whether_an_enum_member_is_used() {
     let files = [
