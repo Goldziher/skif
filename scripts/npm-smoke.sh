@@ -69,6 +69,25 @@ try {
 }
 if (!thrown) fail("lint() of a missing path did not throw");
 
+// The options of the type-aware analysis, removed in 0.9.0, fail as the removed flags do, whatever their value.
+const removed = "type-aware analysis was removed in skif 0.9.0";
+for (const options of [{ typeAware: true }, { typeAware: false }, { noTypeAware: true }]) {
+  const label = JSON.stringify(options);
+  const rejected = await addon.lintAsync(fixture, options);
+  if (rejected.report || rejected.error?.kind !== "usage" || !rejected.error.message.includes(removed)) {
+    fail("lintAsync accepted the removed option " + label + ": " + JSON.stringify(rejected));
+  }
+  let refused;
+  try {
+    addon.lint(fixture, options);
+  } catch (error) {
+    refused = error;
+  }
+  if (refused?.kind !== "usage" || !String(refused.message).includes(removed)) {
+    fail("lint() accepted the removed option " + label + ": " + String(refused && refused.message));
+  }
+}
+
 if (typeof addon.panicForTest === "function") {
   let panic;
   try {

@@ -17,7 +17,7 @@ use napi::bindgen_prelude::{AsyncTask, Result, panic_to_error};
 use napi::{Env, Status, Task};
 use napi_derive::napi;
 use skif::ConfigOverrides;
-use skif_cli::CliError;
+use skif_cli::{CliError, Kind};
 
 /// Runs the skif command line with `argv` (the arguments after the program name) and returns its exit code.
 ///
@@ -53,11 +53,41 @@ pub struct LintOptions {
     pub config: Option<String>,
     /// Read no configuration file: the defaults plus the other options (`--no-config`).
     pub no_config: Option<bool>,
+    /// @deprecated Removed in skif 0.9.0 with the type-aware analysis: setting it, to either value, fails with a
+    /// `usage` error.
+    pub type_aware: Option<bool>,
+    /// @deprecated Removed in skif 0.9.0 with the type-aware analysis: setting it, to either value, fails with a
+    /// `usage` error.
+    pub no_type_aware: Option<bool>,
 }
 
 impl LintOptions {
-    fn overrides(self) -> ConfigOverrides {
-        ConfigOverrides::default()
+    /// The usage error for a removed option that is set, so that it fails as the removed flag does on the command
+    /// line: a `#[napi(object)]` drops the properties it does not declare, which would accept the option silently.
+    fn removed_option(&self) -> Option<CliError> {
+        [("typeAware", self.type_aware), ("noTypeAware", self.no_type_aware)]
+            .into_iter()
+            .find(|(_, value)| value.is_some())
+            .map(|(option, _)| {
+                CliError::new(
+                    Kind::Usage,
+                    format!(
+                        "`{option}` is no longer an option: type-aware analysis was removed in skif 0.9.0 and every \
+                         member is judged by name, as it was without types; drop the option"
+                    ),
+                )
+            })
+    }
+
+    /// The overrides the options ask for.
+    ///
+    /// # Errors
+    /// The usage error of a removed option that is set.
+    fn overrides(self) -> std::result::Result<ConfigOverrides, CliError> {
+        if let Some(error) = self.removed_option() {
+            return Err(error);
+        }
+        Ok(ConfigOverrides::default()
             .with_ignore_rules(self.ignore_rules.unwrap_or_default())
             .with_ignore_packages(self.ignore_packages.unwrap_or_default())
             .with_ignore_dependencies(self.ignore_dependencies.unwrap_or_default())
@@ -68,7 +98,7 @@ impl LintOptions {
                 let file = PathBuf::from(file);
                 std::path::absolute(&file).unwrap_or(file)
             }))
-            .with_no_config(self.no_config.unwrap_or(false))
+            .with_no_config(self.no_config.unwrap_or(false)))
     }
 }
 
@@ -102,8 +132,8 @@ pub struct LintOutcome {
     pub error: Option<LintFailure>,
 }
 
-fn outcome(path: &str, overrides: &ConfigOverrides, recursive: bool) -> LintOutcome {
-    match skif_cli::lint_to_json(Path::new(path), overrides, recursive) {
+fn outcome(path: &str, overrides: std::result::Result<ConfigOverrides, CliError>, recursive: bool) -> LintOutcome {
+    match overrides.and_then(|overrides| skif_cli::lint_to_json(Path::new(path), &overrides, recursive)) {
         Ok(report) => LintOutcome {
             report: Some(report),
             error: None,
@@ -121,14 +151,13 @@ fn outcome(path: &str, overrides: &ConfigOverrides, recursive: bool) -> LintOutc
 ///
 /// # Errors
 /// Throws an `Error` with the failure's message, and with its `kind` and, when there is one, `path` as properties
-/// (the same fields [`lint_async`] returns in `error`) when no workspace is found, the configuration is invalid or
-/// discovery fails.
+/// (the same fields [`lint_async`] returns in `error`) when no workspace is found, the configuration is invalid,
+/// discovery fails or a removed option is set.
 #[napi(catch_unwind)]
 pub fn lint(env: Env, path: String, options: Option<LintOptions>) -> Result<String> {
     let options = options.unwrap_or_default();
     let recursive = options.recursive.unwrap_or(false);
-    let overrides = options.overrides();
-    match outcome(&path, &overrides, recursive) {
+    match outcome(&path, options.overrides(), recursive) {
         LintOutcome {
             report: Some(report), ..
         } => Ok(report),
@@ -164,7 +193,7 @@ fn throw(env: Env, failure: LintFailure) -> napi::Error {
 /// The work of [`lint_async`], run on the libuv thread pool.
 pub struct LintTask {
     path: String,
-    overrides: ConfigOverrides,
+    overrides: std::result::Result<ConfigOverrides, CliError>,
     recursive: bool,
 }
 
@@ -174,10 +203,10 @@ impl Task for LintTask {
 
     fn compute(&mut self) -> Result<LintOutcome> {
         let path = std::mem::take(&mut self.path);
-        let overrides = std::mem::take(&mut self.overrides);
+        let overrides = std::mem::replace(&mut self.overrides, Ok(ConfigOverrides::default()));
         let recursive = self.recursive;
         Ok(
-            catch_unwind(AssertUnwindSafe(|| outcome(&path, &overrides, recursive))).unwrap_or_else(|payload| {
+            catch_unwind(AssertUnwindSafe(|| outcome(&path, overrides, recursive))).unwrap_or_else(|payload| {
                 LintOutcome {
                     report: None,
                     error: Some(LintFailure {
@@ -220,4 +249,54 @@ pub fn lint_async(path: String, options: Option<LintOptions>) -> AsyncTask<LintT
 #[must_use]
 pub fn panic_for_test() -> u32 {
     panic!("skif test hook: deliberate panic");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_removed_type_aware_option_is_a_usage_error_whatever_its_value() {
+        for (option, options) in [
+            (
+                "typeAware",
+                LintOptions {
+                    type_aware: Some(true),
+                    ..LintOptions::default()
+                },
+            ),
+            (
+                "typeAware",
+                LintOptions {
+                    type_aware: Some(false),
+                    ..LintOptions::default()
+                },
+            ),
+            (
+                "noTypeAware",
+                LintOptions {
+                    no_type_aware: Some(true),
+                    ..LintOptions::default()
+                },
+            ),
+        ] {
+            let failure = LintFailure::from(options.overrides().expect_err(option));
+            assert_eq!(failure.kind, "usage", "{option}");
+            assert!(
+                failure
+                    .message
+                    .starts_with(&format!("`{option}` is no longer an option")),
+                "{}",
+                failure.message
+            );
+            assert!(
+                failure
+                    .message
+                    .contains("type-aware analysis was removed in skif 0.9.0"),
+                "{}",
+                failure.message
+            );
+        }
+        assert!(LintOptions::default().overrides().is_ok());
+    }
 }

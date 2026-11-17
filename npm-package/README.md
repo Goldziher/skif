@@ -67,6 +67,9 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
 | `failOnWarnings` | `--fail-on-warnings` |
 | `ignoreRules`, `ignorePackages`, `ignoreDependencies` | `--ignore-rule`, `--ignore-package`, `--ignore-dependency`, as arrays |
 
+The `typeAware` and `noTypeAware` options were removed in skif 0.9.0 with the type-aware analysis: setting either
+fails with a `usage` error.
+
 Types ship in `index.d.ts`.
 
 ## How the native code gets here
