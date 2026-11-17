@@ -48,9 +48,16 @@ launcher brings the binary without Rust or Node.
 
 * An MCP server on stdio: one JSON-RPC message per line, logs on stderr only. It negotiates the protocol version,
   answering with the client's when it supports it and with its newest otherwise.
-* Its tools lint, explain usage and list rules. Each returns the document the matching command prints with
-  `--format json`, as structured content and as text. A tool that cannot run returns `isError: true` with the error
-  document; protocol faults are the standard JSON-RPC errors. An oversized line is skipped without being buffered.
+* Its tools are `lint` (which also plans fixes as `--fix --dry-run` does), `explain_usage`, `config` and
+  `list_rules`, each standing for one command. An argument is the flag of the same name: the server writes the
+  arguments as that command line, parses it with the CLI's own clap definition and runs the command's code, so a tool
+  returns exactly the document the command prints with `--format json`, as structured content and as compact JSON
+  text. A command that exits `2` gives `isError: true` with its error document (or its report, when roots of a
+  multi-root run failed); protocol faults are the standard JSON-RPC errors. An oversized line is skipped without being
+  buffered.
+* Commands that write files, use the network or describe static data (`init`, `migrate`, `baseline`, `update`,
+  `format`, `schema`, `list`, `json`) have no tool, and neither have flags that only change the exit code, colour,
+  stderr or configuration overrides; the parity tests name each with its reason.
 * Calls run one at a time and in order. The server never writes a file: fixing stays a CLI action the agent runs.
 
 ### `skif lsp`
@@ -139,7 +146,10 @@ client, as the editor guide shows.
 ### Confirmation
 
 * `crates/skif-cli/tests/mcp.rs`, `crates/skif-cli/tests/lsp.rs` and `crates/skif-cli/tests/watch.rs`, with
-  `crates/skif-cli/src/watch.rs`, cover the servers and the watcher.
+  `crates/skif-cli/src/watch.rs`, cover the servers and the watcher. `crates/skif-cli/src/mcp/parity.rs` checks the
+  tools against the clap definition (every command and every flag of a tool's command has an argument or a reason, and
+  each argument parses as its flag), and `crates/skif-cli/tests/mcp.rs` compares each tool's result with the CLI's
+  JSON output for the same input.
 * `crates/skif-cli/src/lint.rs` checks that `--watch` and the servers analyse without types.
 * `crates/skif/tests/module_cache.rs` checks that a buffer overlay reports like the saved file.
 * `scripts/check-versions.sh` and `scripts/test-release-scripts.sh` cover the plugin manifest versions, the server pin

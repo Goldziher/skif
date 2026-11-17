@@ -64,7 +64,7 @@ blake3 = "6bb8c261c2f61be6750a46b856925d47773f3020084d5a67406420bff6dc3e5d"
 [adrs."adrs/0013-editors-agents-and-git-hooks.md"]
 number = 13
 status = "accepted"
-blake3 = "288bcdf7359cb806748426855bb981cc99db6eccc904a81a75ca9cda414f44c0"
+blake3 = "2b2f61a2d9b1195560b64348aecf64f2db1880a2d4dd50d4b8ac817c330b3cd0"
 
 [adrs."adrs/0014-benchmarks-and-the-comparison-harness.md"]
 number = 14
