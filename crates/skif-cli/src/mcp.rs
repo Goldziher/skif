@@ -154,7 +154,7 @@ const TOOLS: &[Tool] = &[
         title: "Lint a monorepo",
         description: "`skif --format json`: the lint report. Findings are not an error.",
         command: LintCommand::command,
-        fixed: &["--format", "json", "--no-type-aware"],
+        fixed: &["--format", "json"],
         params: &[
             PATH,
             RECURSIVE,
@@ -192,7 +192,7 @@ const TOOLS: &[Tool] = &[
         title: "Explain why a file, export or dependency is used",
         description: "`skif explain-usage --format json`: why a file, export or dependency counts as used.",
         command: ExplainCommand::command,
-        fixed: &["--format", "json", "--no-type-aware"],
+        fixed: &["--format", "json"],
         params: &[
             Param {
                 name: "file",

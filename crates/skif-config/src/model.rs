@@ -228,6 +228,7 @@ impl Config {
         path: Option<&Path>,
         resolve_references: bool,
     ) -> Result<Self, ConfigError> {
+        reject_removed_keys(document.get_ref(), source, path)?;
         let config = Self::deserialize(toml::de::Deserializer::from(document))
             .map_err(|err| ConfigError::from_toml(&err, source, path))?;
         config.validate_with(path, resolve_references)?;
@@ -600,16 +601,48 @@ impl Config {
         if overrides.no_js {
             self.js.enabled = false;
         }
-        if let Some(enabled) = overrides.type_aware {
-            self.js.type_aware = enabled;
-            for workspace in self.js.workspaces.values_mut() {
-                if workspace.type_aware.is_some() {
-                    workspace.type_aware = Some(enabled);
-                }
-            }
-        }
         Ok(())
     }
+}
+
+/// The key of the type-aware analysis, which skif 0.9.0 removed.
+const REMOVED_TYPE_AWARE: &str = "type-aware";
+
+/// Rejects the removed `type-aware` key of `[js]`, of a `[js.workspaces."<dir>"]` table and of the `js` table of an
+/// override with an error that says it was removed, where the typed parse would only call it an unknown field.
+fn reject_removed_keys(document: &toml::de::DeTable<'_>, source: &str, path: Option<&Path>) -> Result<(), ConfigError> {
+    use toml::de::{DeTable, DeValue};
+
+    fn table<'a, 'de>(parent: &'a DeTable<'de>, key: &str) -> Option<&'a DeTable<'de>> {
+        parent.get(key).and_then(|value| value.get_ref().as_table())
+    }
+    let removed = |js: &DeTable<'_>, prefix: &str| {
+        js.iter()
+            .find(|(key, _)| key.get_ref() == REMOVED_TYPE_AWARE)
+            .map_or(Ok(()), |(key, _)| {
+                Err(ConfigError::removed(
+                    &format!("{prefix}.{REMOVED_TYPE_AWARE}"),
+                    key.span(),
+                    source,
+                    path,
+                ))
+            })
+    };
+    if let Some(js) = table(document, "js") {
+        removed(js, "js")?;
+        for (dir, workspace) in table(js, "workspaces").into_iter().flatten() {
+            if let DeValue::Table(workspace) = workspace.get_ref() {
+                removed(workspace, &format!("js.workspaces.\"{}\"", dir.get_ref()))?;
+            }
+        }
+    }
+    let overrides = document.get("overrides").and_then(|value| value.get_ref().as_array());
+    for (index, item) in overrides.into_iter().flatten().enumerate() {
+        if let Some(js) = item.get_ref().as_table().and_then(|item| table(item, "js")) {
+            removed(js, &format!("overrides[{index}].js"))?;
+        }
+    }
+    Ok(())
 }
 
 /// The built-in dependency types, as `dependency-types` names them.
@@ -2104,12 +2137,6 @@ pub struct Js {
     /// `shamefully-hoist` (from `pnpm-workspace.yaml`, or the root `.npmrc` before pnpm 11), and `rules_js`'s
     /// `public_hoist_packages`. Off by default, as in knip; strict mode ignores it.
     pub use_public_hoisting: bool,
-    /// Resolve member reads with the TypeScript type checker, so a read through a typed receiver (`this.x`, a
-    /// parameter, a variable of a class type) credits the member it reaches rather than every member of that name.
-    /// Slower, more accurate member findings; off by default (`type-aware = true`, `skif --type-aware` turn it on).
-    /// A package without usable types (no `tsconfig.json`, plain JavaScript, uninstalled dependencies) keeps the
-    /// name-based analysis, and the report says which. Off runs no type checker at all.
-    pub type_aware: bool,
     /// How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the
     /// git index and re-lists from disk every directory modified since the index was written (faster, blind to an
     /// untracked file older than the last write of the index). `git` falls back to the walk when the workspace is not
@@ -2253,13 +2280,6 @@ impl Js {
         self
     }
 
-    /// Resolves member reads with the TypeScript type checker (`type-aware`), or keeps the name-based analysis.
-    #[must_use]
-    pub const fn with_type_aware(mut self, enabled: bool) -> Self {
-        self.type_aware = enabled;
-        self
-    }
-
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -2292,7 +2312,6 @@ impl Default for Js {
             use_tsconfig_files: false,
             include_fixtures: false,
             use_public_hoisting: false,
-            type_aware: false,
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),
             workspaces: IndexMap::new(),
@@ -2495,9 +2514,6 @@ pub struct JsWorkspace {
     /// Report unused exports of entry files of this workspace; unset inherits `[js] include-entry-exports`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_entry_exports: Option<bool>,
-    /// Resolve member reads of this workspace with the TypeScript type checker; unset inherits `[js] type-aware`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub type_aware: Option<bool>,
     /// Exports used in their own file that are not reported in this workspace; unset inherits `[js]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_exports_used_in_file: Option<IgnoreExportsUsedInFile>,

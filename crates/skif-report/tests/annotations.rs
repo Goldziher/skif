@@ -3,7 +3,7 @@
 use serde_json::Value;
 use skif_core::{
     Category, Diagnostic, Fix, FixOp, FixSafety, Fixability, LineIndex, Location, Related, Report, RuleId, RuleMeta,
-    Severity, Span, TypeAwarePackage, TypeAwareState, TypeAwareSummary,
+    Severity, Span,
 };
 use skif_report::{Format, RenderOptions, render};
 
@@ -107,34 +107,6 @@ fn sarif_empty() {
 #[test]
 fn sarif_rich() {
     insta::assert_snapshot!(run(&rich(), Format::Sarif, &options()));
-}
-
-#[test]
-fn sarif_run_properties_carry_the_type_aware_coverage() {
-    let report = rich().with_type_aware(
-        TypeAwareSummary::new(
-            true,
-            vec![
-                TypeAwarePackage::new("packages/web", "web", TypeAwareState::Untyped).with_reason("no-tsconfig"),
-                TypeAwarePackage::new("", "root", TypeAwareState::Typed),
-            ],
-        )
-        .with_engine("tsrs"),
-    );
-    assert_eq!(
-        sarif(&report, &options())["runs"][0]["properties"],
-        serde_json::json!({
-            "type-aware": {
-                "enabled": true,
-                "engine": "tsrs",
-                "packages": [
-                    {"dir": ".", "name": "root", "state": "typed", "untyped-files": 0},
-                    {"dir": "packages/web", "name": "web", "state": "untyped", "reason": "no-tsconfig", "untyped-files": 0}
-                ]
-            }
-        })
-    );
-    assert!(sarif(&rich(), &options())["runs"][0].get("properties").is_none());
 }
 
 #[test]

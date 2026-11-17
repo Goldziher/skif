@@ -369,9 +369,8 @@ mod tests {
         }
         let fs = Arc::new(fs);
         let root = Path::new(ROOT);
-        let overrides = ConfigOverrides::default()
-            .with_type_aware(typed)
-            .with_no_type_aware(!typed);
+        let _ = typed;
+        let overrides = ConfigOverrides::default();
         let config = load_config(root, &*fs, &overrides).unwrap();
         let workspace = Workspace::discover_with_fs(root, &config, &*fs).unwrap();
         let report = Linter::with_fs(&config, fs).unwrap().run(&workspace).unwrap();

@@ -3,9 +3,8 @@
 //! The rule keeps two questions apart. Which members are left alone whatever reads them (decorated, type-only,
 //! inherited from a base class outside the project, implementing an interface, public API, tagged or listed in
 //! `ignore-members`) is decided here from the declarations, by [`exemption`]. Which members are read is asked of a
-//! [`MemberUsage`]: [`NameReads`] credits a member when any module of the graph reads a property of its name, the
-//! approximation that needs no type information, and [`TypedMemberUsage`] takes the uses from the type checker where
-//! it covered the declaring file (ADR 0010).
+//! [`MemberUsage`]: [`NameReads`] credits a member when any module of the graph reads a property of its name, an
+//! approximation that needs no type information.
 
 use std::collections::VecDeque;
 
@@ -17,7 +16,6 @@ use skif_js_syntax::{
 
 use crate::analysis::JsAnalysis;
 use crate::graph::{Module, ModuleGraph, ModuleId, Target};
-use crate::types_bridge::TypeState;
 
 /// Superclass hops followed across modules before the base counts as unknown.
 const MAX_DEPTH: usize = 8;
@@ -94,65 +92,6 @@ impl MemberUsage for NameReads {
         users.sort_by_key(|id| id.index());
         users.dedup();
         users
-    }
-}
-
-/// Member use with types (ADR 0010). In a declaring file the checker covered, a member is used when a typed read
-/// reaches it, its class is used as a whole, a covered file reads its name through a receiver the checker could not
-/// type, or a file the checker did not cover (a Vue, Svelte or Astro template, a file in no program) reads its name.
-/// A declaring file the checker did not cover, a private name and every member without typed facts keep
-/// [`NameReads`] entirely.
-pub(crate) struct TypedMemberUsage<'t> {
-    names: NameReads,
-    types: &'t TypeState,
-}
-
-impl<'t> TypedMemberUsage<'t> {
-    /// The member uses of `analysis`: typed where it has typed facts, by name elsewhere.
-    pub(crate) fn of(analysis: &'t JsAnalysis<'_>) -> Self {
-        Self {
-            names: NameReads::of(&analysis.graph),
-            types: &analysis.types,
-        }
-    }
-
-    /// Whether the uses of `member` of the class behind `export` of `module` come from the type checker.
-    pub(crate) fn is_typed(&self, module: &Module, export: &Export, member: &ClassMember) -> bool {
-        !member.name.starts_with('#') && self.types.judges(module, export)
-    }
-
-    /// Whether a typed read reaches `member`, or its class is used as a whole.
-    pub(crate) fn typed_use(&self, module: &Module, export: &Export, member: &ClassMember) -> bool {
-        self.is_typed(module, export, member)
-            && (self.types.reads(module, export, &member.name) || self.types.whole(module, export))
-    }
-
-    /// The covered modules whose reads of the member's name the checker could not settle, which credit it by name.
-    pub(crate) fn unresolved_users(&self, module: &Module, export: &Export, member: &ClassMember) -> Vec<ModuleId> {
-        if !self.is_typed(module, export, member) {
-            return Vec::new();
-        }
-        self.types.unresolved_readers(&member.name).to_vec()
-    }
-}
-
-impl MemberUsage for TypedMemberUsage<'_> {
-    /// The modules whose reads by name count: every reader without types, else the readers the checker did not
-    /// cover and those whose reads it could not settle.
-    fn users(&self, module: &Module, export: &Export, member: &ClassMember) -> Vec<ModuleId> {
-        let by_name = self.names.users(module, export, member);
-        if !self.is_typed(module, export, member) {
-            return by_name;
-        }
-        let mut users: Vec<ModuleId> = by_name.into_iter().filter(|id| !self.types.covers(*id)).collect();
-        users.extend(self.unresolved_users(module, export, member));
-        users.sort_by_key(|id| id.index());
-        users.dedup();
-        users
-    }
-
-    fn is_used(&self, module: &Module, export: &Export, member: &ClassMember) -> bool {
-        self.typed_use(module, export, member) || !self.users(module, export, member).is_empty()
     }
 }
 

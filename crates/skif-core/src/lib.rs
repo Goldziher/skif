@@ -51,7 +51,6 @@ pub mod rule;
 pub mod shell;
 pub mod span;
 pub mod timing;
-pub mod type_aware;
 
 pub use buffer_fs::BufferFs;
 pub use builder::{DiagnosticBuilder, diagnostic};
@@ -71,7 +70,6 @@ pub use package_id::PackageId;
 pub use report::{ConfigJudgement, Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};
 pub use span::{LineIndex, Location, Related, Span};
-pub use type_aware::{TypeAwarePackage, TypeAwareState, TypeAwareSummary};
 
 const _: () = {
     fn assert_send_sync<T: Send + Sync>() {}
@@ -96,7 +94,6 @@ const _: () = {
     let _ = assert_send_sync::<TextEdit>;
     let _ = assert_send_sync::<DirEntry>;
     let _ = assert_send_sync::<Summary>;
-    let _ = assert_send_sync::<TypeAwareSummary>;
     let _ = assert_send_sync::<RuleId>;
     let _ = assert_send_sync::<DependencyKind>;
     let _ = assert_send_sync::<Severity>;

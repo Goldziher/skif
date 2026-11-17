@@ -157,6 +157,21 @@ impl ConfigError {
         }
     }
 
+    /// The key `key` at `span` of `source` names the type-aware analysis, which skif 0.9.0 removed.
+    pub(crate) fn removed(key: &str, span: Range<usize>, source: &str, path: Option<&Path>) -> Self {
+        let (line, column) = line_column(source, span.start);
+        Self::Parse {
+            path: path.map(Path::to_path_buf),
+            message: format!(
+                "`{key}` is no longer a setting: type-aware analysis was removed in skif 0.9.0 and every member is \
+                 judged by name, as it was with the key off; delete the key"
+            ),
+            span: Some(span),
+            line: Some(line),
+            column: Some(column),
+        }
+    }
+
     pub(crate) fn scope(
         key: impl Into<String>,
         path: Option<&Path>,

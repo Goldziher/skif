@@ -64,12 +64,6 @@ pub trait JsRule: Send + Sync {
     fn runs_last(&self) -> bool {
         false
     }
-
-    /// Whether the rule reads the facts of the type checker (ADR 0010): a run in which no such rule is enabled builds
-    /// no program. The default reads none.
-    fn reads_types(&self) -> bool {
-        false
-    }
 }
 
 /// Every JS rule, in the order their diagnostics are merged.

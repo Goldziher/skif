@@ -5,12 +5,11 @@ use std::collections::BTreeSet;
 
 use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
 use skif_config::Config;
-use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, TypeAwareSummary, timing};
+use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, is_declaration_file, parse_cached};
 use skif_workspace::{IndexCache, IndexedFs, PackageId, TrackedFiles, Workspace, map_ordered};
 
@@ -27,7 +26,6 @@ use crate::resolve::{ModuleResolver, is_installed};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::shared_modules::ModuleParser;
 use crate::specifier::package_name;
-use crate::types_bridge::{self, OffReason, TypeRun, TypeState};
 use crate::usage::ExportUsage;
 
 /// A `JSDoc` tag that exempts an export or member that is used anyway, so the tag does nothing (knip's tag hint).
@@ -106,10 +104,6 @@ pub struct JsAnalysis<'a> {
     /// The positions of the unused exports of each module, by module index, computed once for the rules that ask:
     /// see [`Self::unused_exports`].
     unused_export_memo: Vec<OnceLock<Vec<usize>>>,
-    /// What the type checker found, or why it did not run (ADR 0010).
-    pub(crate) types: TypeState,
-    /// How far the type checker covered each package, for the report; `None` when no rule read types.
-    pub(crate) type_summary: Option<TypeAwareSummary>,
 }
 
 /// The exports of one module by name, each name's exports in source order.
@@ -162,10 +156,6 @@ pub(crate) struct Caches<'c> {
     pub extra_entries: &'c [PathBuf],
     /// Files, relative to the workspace root, that other roots of the run name as build sources.
     pub extra_build_sources: &'c [PathBuf],
-    /// Whether a rule of the run reads the facts of the type checker, which runs only then.
-    pub types: bool,
-    /// The host's cancellation flag, which the type checker checks between programs.
-    pub cancel: Option<&'c AtomicBool>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -578,8 +568,6 @@ impl<'a> JsAnalysis<'a> {
                 modules: None,
                 extra_entries: &[],
                 extra_build_sources: &[],
-                types: true,
-                cancel: None,
             },
         )
     }
@@ -599,8 +587,6 @@ impl<'a> JsAnalysis<'a> {
             modules,
             extra_entries,
             extra_build_sources,
-            types,
-            cancel,
         } = *caches;
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
@@ -633,207 +619,190 @@ impl<'a> JsAnalysis<'a> {
             });
         }
         let links = take_file_links(fs.as_ref(), &workspace.root, &mut candidates);
-        // The checker reads the real file system, as `tsc` would: a gitignored declaration file or an installed
-        // package the git index leaves out still types the program.
-        let run = TypeRun {
-            fs: &disk,
-            sequential,
-            budget: modules.and_then(ModuleParser::type_budget),
-            cancel,
-            wanted: types,
-        };
-        std::thread::scope(|scope| {
-            // The programs build beside the graph; their queries wait for it.
-            let early_types = types_bridge::start(scope, workspace, &setup, &candidates, &run);
-            let entries_of = |setup: &Setup| {
-                timing::phase(phase("entries"), || {
-                    let published = Disk {
-                        fs: disk.as_ref(),
-                        gitignore: !config.js.no_gitignore,
-                    };
-                    entry_files(
-                        fs.as_ref(),
-                        workspace,
-                        setup,
-                        &candidates,
-                        (extra_entries, extra_build_sources, sequential),
-                        published,
-                    )
-                })
-            };
-            let resolver_of = |setup: &Setup| {
-                timing::phase(phase("resolver"), || {
-                    ModuleResolver::new(Arc::clone(fs), workspace, setup)
-                })
-            };
-            // A graph is built again once the reached sources were searched: what reading and parsing gave for each
-            // file is kept for it while a package scans those sources.
-            let graph_of = |setup: &Setup, resolver: &ModuleResolver, found: &EntryFiles, earlier: &graph::Scans| {
-                let inputs = Inputs {
-                    fs: fs.as_ref(),
-                    resolver,
-                    root: &workspace.root,
-                    candidates: &candidates,
-                    links: &links,
-                    setup,
-                    sequential,
-                    modules,
-                    earlier,
-                    keep_scans: setup.scans_reached_sources(),
+        let entries_of = |setup: &Setup| {
+            timing::phase(phase("entries"), || {
+                let published = Disk {
+                    fs: disk.as_ref(),
+                    gitignore: !config.js.no_gitignore,
                 };
-                timing::phase(phase("graph (read, parse, resolve)"), || {
-                    graph::build(&inputs, &found.files, &found.build_sources, &found.declarations)
-                })
-            };
-            let mut found = entries_of(&setup);
-            setup.mark_entries_incomplete(&found.unknown);
-            let mut resolver = resolver_of(&setup);
-            let mut graph = graph_of(&setup, &resolver, &found, &graph::Scans::default());
-            // The plugins that search source files read those the graph reaches, as knip does. The commands they find
-            // can run files that become entries, which the graph is built again to reach; it reaches more files each
-            // time, so the search stops once a graph reaches no new file or what it finds adds no file to the graph.
-            let mut reached: Vec<Option<WorkspaceInputs>> = vec![None; workspace.iter().count()];
-            for _ in 0..MAX_REACHED_ROUNDS {
-                if !setup.scans_reached_sources() {
-                    break;
-                }
-                let found_now = timing::phase(phase("reached sources"), || {
-                    setup.reached_inputs(workspace, fs.as_ref(), sources, &graph, sequential)
-                });
-                if found_now == reached {
-                    break;
-                }
-                let grows = grows_graph(&reached, &found_now);
-                setup = setup.with_reached(workspace, config, fs, sequential, &found_now);
-                reached = found_now;
-                if !grows {
-                    setup.mark_entries_incomplete(&found.unknown);
-                    break;
-                }
-                found = entries_of(&setup);
-                setup.mark_entries_incomplete(&found.unknown);
-                resolver = resolver_of(&setup);
-                // The new setup can change the entries and what the resolver follows, not what a file holds: the files
-                // are not read or parsed again, only resolved. The graph before goes first, as the new one replaces it.
-                let earlier = std::mem::take(&mut graph).into_scans();
-                graph = graph_of(&setup, &resolver, &found, &earlier);
-            }
-            graph.release_texts();
-            let mut entries = found.files;
-            // The declaration files the graph made entries, which apply without being imported.
-            entries.extend(
-                found
-                    .declarations
-                    .iter()
-                    .filter(|path| graph.id_of(path.as_path()).is_some_and(|id| graph.module(id).is_entry))
-                    .cloned(),
-            );
-            let other_root_entries = found.other_root_entries;
-            let other_root_build_sources = found.other_root_build_sources;
-            let entry_origins = found.origins;
-            let config_hints = {
-                let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
-                timing::phase(phase("config hints"), || {
-                    config_hints(&HintInputs {
-                        workspace,
-                        config,
-                        setup: &setup,
-                        candidates: &candidates,
-                        entries: &entry_set,
-                        provided: &found.provided,
-                        disk: disk.as_ref(),
-                    })
-                })
-            };
-            graph::report_timings(&workspace.root);
-            setup.widen_incomplete_scopes(&graph);
-            let exports = timing::phase(phase("exports"), || {
-                ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
-            });
-            let mut dependencies = timing::phase(phase("dependencies"), || {
-                DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref(), sequential)
-            });
-            mark_foreign_paths(&resolver, &graph, &mut dependencies);
-
-            let ambient_modules = timing::phase(phase("ambient modules"), || {
-                collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules))
-            });
-            let outside_graph: HashSet<String> = candidates
-                .iter()
-                .filter(|candidate| graph.id_of(&candidate.abs).is_none())
-                .map(|candidate| candidate.rel.clone())
-                .collect();
-            let unreached: Vec<&Candidate> = candidates
-                .iter()
-                .filter(|candidate| graph.id_of(&candidate.abs).is_none())
-                .filter(|candidate| !is_declaration_file(&candidate.rel))
-                .filter(|candidate| {
-                    let Some(package) = setup.package(candidate.owner) else {
-                        return false;
-                    };
-                    let Some(in_package) = relative(&candidate.abs, &package.dir) else {
-                        return false;
-                    };
-                    package.judges(&in_package)
-                        && package.project.is_match(&in_package)
-                        && !package.ignore.matches_any(&in_package)
-                        && !setup.global_ignore.matches_any(&candidate.rel)
-                        && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))
-                })
-                // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
-                .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
-                .collect();
-            let ignores_file = |candidate: &Candidate| {
-                setup.global_ignore_files.matches_any(&candidate.rel)
-                    || setup.package(candidate.owner).is_some_and(|package| {
-                        relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
-                    })
-            };
-            let judged_patterns = timing::phase(phase("judged patterns"), || {
-                judged_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref())
-            });
-            let judged_ignore_files = judged_ignore_files(workspace, config, &setup, &unreached, disk.as_ref());
-            let unused_files = unreached
-                .iter()
-                .filter(|candidate| !ignores_file(candidate))
-                .map(|candidate| UnusedFile {
-                    path: PathBuf::from(&candidate.rel),
-                    owner: candidate.owner,
-                })
-                .collect();
-            let unused_export_memo = graph.modules().iter().map(|_| OnceLock::new()).collect();
-            let imported_by_other_roots = extra_entries
-                .iter()
-                .filter_map(|entry| graph.id_of(&workspace.root.join(entry)))
-                .map(|id| graph.module(id).owner)
-                .collect();
-            let mut analysis = Self {
-                workspace,
-                graph,
-                exports,
-                dependencies,
-                unused_files,
-                ambient_modules,
-                outside_graph,
+                entry_files(
+                    fs.as_ref(),
+                    workspace,
+                    setup,
+                    &candidates,
+                    (extra_entries, extra_build_sources, sequential),
+                    published,
+                )
+            })
+        };
+        let resolver_of = |setup: &Setup| {
+            timing::phase(phase("resolver"), || {
+                ModuleResolver::new(Arc::clone(fs), workspace, setup)
+            })
+        };
+        // A graph is built again once the reached sources were searched: what reading and parsing gave for each
+        // file is kept for it while a package scans those sources.
+        let graph_of = |setup: &Setup, resolver: &ModuleResolver, found: &EntryFiles, earlier: &graph::Scans| {
+            let inputs = Inputs {
+                fs: fs.as_ref(),
+                resolver,
+                root: &workspace.root,
+                candidates: &candidates,
+                links: &links,
                 setup,
-                enabled_rules: None,
-                config_path: None,
-                judged_patterns,
-                judged_ignore_files,
-                config_hints,
-                other_root_entries,
-                other_root_build_sources,
-                entry_origins,
-                imported_by_other_roots,
-                listed_from_index,
-                task_only_members,
-                unused_export_memo,
-                types: TypeState::Off(OffReason::Unneeded),
-                type_summary: None,
+                sequential,
+                modules,
+                earlier,
+                keep_scans: setup.scans_reached_sources(),
             };
-            (analysis.types, analysis.type_summary) = types_bridge::run(&analysis, &run, early_types);
-            analysis
-        })
+            timing::phase(phase("graph (read, parse, resolve)"), || {
+                graph::build(&inputs, &found.files, &found.build_sources, &found.declarations)
+            })
+        };
+        let mut found = entries_of(&setup);
+        setup.mark_entries_incomplete(&found.unknown);
+        let mut resolver = resolver_of(&setup);
+        let mut graph = graph_of(&setup, &resolver, &found, &graph::Scans::default());
+        // The plugins that search source files read those the graph reaches, as knip does. The commands they find
+        // can run files that become entries, which the graph is built again to reach; it reaches more files each
+        // time, so the search stops once a graph reaches no new file or what it finds adds no file to the graph.
+        let mut reached: Vec<Option<WorkspaceInputs>> = vec![None; workspace.iter().count()];
+        for _ in 0..MAX_REACHED_ROUNDS {
+            if !setup.scans_reached_sources() {
+                break;
+            }
+            let found_now = timing::phase(phase("reached sources"), || {
+                setup.reached_inputs(workspace, fs.as_ref(), sources, &graph, sequential)
+            });
+            if found_now == reached {
+                break;
+            }
+            let grows = grows_graph(&reached, &found_now);
+            setup = setup.with_reached(workspace, config, fs, sequential, &found_now);
+            reached = found_now;
+            if !grows {
+                setup.mark_entries_incomplete(&found.unknown);
+                break;
+            }
+            found = entries_of(&setup);
+            setup.mark_entries_incomplete(&found.unknown);
+            resolver = resolver_of(&setup);
+            // The new setup can change the entries and what the resolver follows, not what a file holds: the files
+            // are not read or parsed again, only resolved. The graph before goes first, as the new one replaces it.
+            let earlier = std::mem::take(&mut graph).into_scans();
+            graph = graph_of(&setup, &resolver, &found, &earlier);
+        }
+        graph.release_texts();
+        let mut entries = found.files;
+        // The declaration files the graph made entries, which apply without being imported.
+        entries.extend(
+            found
+                .declarations
+                .iter()
+                .filter(|path| graph.id_of(path.as_path()).is_some_and(|id| graph.module(id).is_entry))
+                .cloned(),
+        );
+        let other_root_entries = found.other_root_entries;
+        let other_root_build_sources = found.other_root_build_sources;
+        let entry_origins = found.origins;
+        let config_hints = {
+            let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
+            timing::phase(phase("config hints"), || {
+                config_hints(&HintInputs {
+                    workspace,
+                    config,
+                    setup: &setup,
+                    candidates: &candidates,
+                    entries: &entry_set,
+                    provided: &found.provided,
+                    disk: disk.as_ref(),
+                })
+            })
+        };
+        graph::report_timings(&workspace.root);
+        setup.widen_incomplete_scopes(&graph);
+        let exports = timing::phase(phase("exports"), || {
+            ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
+        });
+        let mut dependencies = timing::phase(phase("dependencies"), || {
+            DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref(), sequential)
+        });
+        mark_foreign_paths(&resolver, &graph, &mut dependencies);
+
+        let ambient_modules = timing::phase(phase("ambient modules"), || {
+            collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules))
+        });
+        let outside_graph: HashSet<String> = candidates
+            .iter()
+            .filter(|candidate| graph.id_of(&candidate.abs).is_none())
+            .map(|candidate| candidate.rel.clone())
+            .collect();
+        let unreached: Vec<&Candidate> = candidates
+            .iter()
+            .filter(|candidate| graph.id_of(&candidate.abs).is_none())
+            .filter(|candidate| !is_declaration_file(&candidate.rel))
+            .filter(|candidate| {
+                let Some(package) = setup.package(candidate.owner) else {
+                    return false;
+                };
+                let Some(in_package) = relative(&candidate.abs, &package.dir) else {
+                    return false;
+                };
+                package.judges(&in_package)
+                    && package.project.is_match(&in_package)
+                    && !package.ignore.matches_any(&in_package)
+                    && !setup.global_ignore.matches_any(&candidate.rel)
+                    && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))
+            })
+            // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
+            .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
+            .collect();
+        let ignores_file = |candidate: &Candidate| {
+            setup.global_ignore_files.matches_any(&candidate.rel)
+                || setup.package(candidate.owner).is_some_and(|package| {
+                    relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
+                })
+        };
+        let judged_patterns = timing::phase(phase("judged patterns"), || {
+            judged_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref())
+        });
+        let judged_ignore_files = judged_ignore_files(workspace, config, &setup, &unreached, disk.as_ref());
+        let unused_files = unreached
+            .iter()
+            .filter(|candidate| !ignores_file(candidate))
+            .map(|candidate| UnusedFile {
+                path: PathBuf::from(&candidate.rel),
+                owner: candidate.owner,
+            })
+            .collect();
+        let unused_export_memo = graph.modules().iter().map(|_| OnceLock::new()).collect();
+        let imported_by_other_roots = extra_entries
+            .iter()
+            .filter_map(|entry| graph.id_of(&workspace.root.join(entry)))
+            .map(|id| graph.module(id).owner)
+            .collect();
+        Self {
+            workspace,
+            graph,
+            exports,
+            dependencies,
+            unused_files,
+            ambient_modules,
+            outside_graph,
+            setup,
+            enabled_rules: None,
+            config_path: None,
+            judged_patterns,
+            judged_ignore_files,
+            config_hints,
+            other_root_entries,
+            other_root_build_sources,
+            entry_origins,
+            imported_by_other_roots,
+            listed_from_index,
+            task_only_members,
+            unused_export_memo,
+        }
     }
 
     /// Whether `name` is a workspace member that nothing can import or run: its `package.json` names no `main`,
@@ -1174,17 +1143,8 @@ impl<'a> JsAnalysis<'a> {
         }
     }
 
-    /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`. Types only add
-    /// uses (ADR 0010): a typed read of the member or a typed use of the whole declaration counts beside every
-    /// syntactic use.
+    /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`.
     pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
-        self.member_used_without_types(module, export, member)
-            || self.types.reads(module, export, &member.name)
-            || self.types.whole(module, export)
-    }
-
-    /// Whether `member` of `export` of `module` is used as skif sees it without types, or listed in `ignore-members`.
-    pub(crate) fn member_used_without_types(&self, module: &Module, export: &Export, member: &Member) -> bool {
         self.ignores_member(module.owner, &member.name)
             || export.members_read_in_file.contains(&member.name)
             || export.used_whole_in_file

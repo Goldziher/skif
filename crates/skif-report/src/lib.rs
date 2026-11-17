@@ -19,7 +19,6 @@ mod sarif;
 mod style;
 mod text;
 mod toon;
-mod type_aware;
 
 use std::io::{self, Write};
 

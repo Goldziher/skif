@@ -14,13 +14,6 @@ readme = "README.md"
 include = ["/src/**", "/benches/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 categories = ["development-tools"]
 
-[features]
-# Typed facts from the TypeScript checker of tsrs (`skif-js-types`, ADR 0010).
-type-aware = ["dep:skif-js-types"]
-# Plain pointers in tsrs instead of its fixed address-space reservation (ADR 0010); only has an effect with
-# `type-aware`.
-plain-ptrs = ["skif-js-types?/plain-ptrs"]
-
 [dependencies]
 globset.workspace = true
 ignore.workspace = true
@@ -34,7 +27,6 @@ skif-config.workspace = true
 skif-core.workspace = true
 skif-js-plugins.workspace = true
 skif-js-syntax.workspace = true
-skif-js-types = { workspace = true, optional = true }
 skif-lint.workspace = true
 skif-specifier.workspace = true
 skif-workspace.workspace = true

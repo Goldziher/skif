@@ -63,7 +63,6 @@ skif-edit = { path = "crates/skif-edit", version = "=0.8.0" }
 skif-js = { path = "crates/skif-js", version = "=0.8.0" }
 skif-js-plugins = { path = "crates/skif-js-plugins", version = "=0.8.0" }
 skif-js-syntax = { path = "crates/skif-js-syntax", version = "=0.8.0" }
-skif-js-types = { path = "crates/skif-js-types", version = "=0.8.0" }
 skif-lint = { path = "crates/skif-lint", version = "=0.8.0" }
 skif-migrate = { path = "crates/skif-migrate", version = "=0.8.0" }
 skif-report = { path = "crates/skif-report", version = "=0.8.0" }
@@ -75,18 +74,6 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 toml = { version = "1.2.1", features = ["preserve_order"] }
 toml_edit = "0.25.19"
-# The TypeScript checker behind type-aware analysis (ADR 0010), only through skif-js-types. Pre-release crates move
-# together and only at an exact version (ADR 0010).
-tsrs_ast = "=7.1.0-beta.tsrs2"
-tsrs_binder = "=7.1.0-beta.tsrs2"
-tsrs_checker = "=7.1.0-beta.tsrs2"
-tsrs_compiler = "=7.1.0-beta.tsrs2"
-tsrs_contentmapper = "=7.1.0-beta.tsrs2"
-tsrs_core = "=7.1.0-beta.tsrs2"
-tsrs_diagnostics = "=7.1.0-beta.tsrs2"
-tsrs_scanner = "=7.1.0-beta.tsrs2"
-tsrs_tsoptions = "=7.1.0-beta.tsrs2"
-tsrs_vfs = "=7.1.0-beta.tsrs2"
 unicode-width = "0.2.3"
 # `skif update` only (ADR 0006): blocking HTTP with rustls on ring and gzip; roots from the OS store.
 ureq = { version = "3.5.2", default-features = false, features = ["rustls-no-provider", "gzip"] }
@@ -110,7 +97,7 @@ too_many_lines = "allow"
 # Issues are returned boxed as trait objects by design.
 unnecessary_box_returns = "allow"
 
-# Panics unwind so that a failure inside the type checker falls back to the untyped analysis (ADR 0015).
+# Panics unwind so that one reaching the entry point exits 2 with the `error` document instead of aborting.
 [profile.release]
 lto = "fat"
 codegen-units = 1

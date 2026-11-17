@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use skif_core::{ConfigJudgement, Diagnostic, IncompletePackage, TypeAwareSummary};
+use skif_core::{ConfigJudgement, Diagnostic, IncompletePackage};
 
 use crate::context::{EnabledRules, LintContext};
 use crate::ignore::Suppressions;
@@ -26,7 +26,6 @@ pub struct Emitter<'a> {
     other_project_build_sources: Vec<PathBuf>,
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
     config_judgements: Vec<ConfigJudgement>,
-    type_aware: Vec<TypeAwareSummary>,
 }
 
 impl<'a> Emitter<'a> {
@@ -44,7 +43,6 @@ impl<'a> Emitter<'a> {
             other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
-            type_aware: Vec::new(),
         }
     }
 
@@ -69,12 +67,11 @@ impl<'a> Emitter<'a> {
             other_project_build_sources: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
             config_judgements: Vec::new(),
-            type_aware: Vec::new(),
         }
     }
 
     /// Appends the diagnostics, incomplete packages, files and build sources of other projects, ancestor dependency
-    /// uses, configuration judgements and type-aware summaries collected by `other`.
+    /// uses and configuration judgements collected by `other`.
     pub fn merge(&mut self, other: Self) {
         if self.diagnostics.is_empty() {
             self.diagnostics = other.diagnostics;
@@ -87,7 +84,6 @@ impl<'a> Emitter<'a> {
             .extend(other.other_project_build_sources);
         self.ancestor_dependency_uses.extend(other.ancestor_dependency_uses);
         self.config_judgements.extend(other.config_judgements);
-        self.type_aware.extend(other.type_aware);
     }
 
     /// Merges `parts` in order, with the same result as calling [`merge`](Self::merge) for each.
@@ -121,7 +117,7 @@ impl<'a> Emitter<'a> {
         self.cancel.is_some_and(|flag| flag.load(Ordering::Relaxed))
     }
 
-    /// The host's cancellation flag, for work of a provider that checks it on its own (the type checker).
+    /// The host's cancellation flag, for work of a provider that checks it on its own.
     #[must_use]
     pub const fn cancel_flag(&self) -> Option<&'a AtomicBool> {
         self.cancel
@@ -226,19 +222,6 @@ impl<'a> Emitter<'a> {
     #[must_use]
     pub fn take_config_judgements(&mut self) -> Vec<ConfigJudgement> {
         std::mem::take(&mut self.config_judgements)
-    }
-
-    /// Records how far a provider's type-aware analysis covered its packages (ADR 0010), for
-    /// [`Report::type_aware`](skif_core::Report::type_aware).
-    pub fn report_type_aware(&mut self, summary: TypeAwareSummary) {
-        self.type_aware.push(summary);
-    }
-
-    /// The recorded type-aware summaries as one ([`TypeAwareSummary::merged`]); `None` when no provider recorded one.
-    #[must_use]
-    pub fn take_type_aware(&mut self) -> Option<TypeAwareSummary> {
-        let summaries = std::mem::take(&mut self.type_aware);
-        TypeAwareSummary::merged(&summaries)
     }
 
     /// The kept diagnostics, in emission order.

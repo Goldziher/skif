@@ -62,10 +62,6 @@ const NOT_EXPOSED: &[(&str, &[(&str, &str)])] = &[
                 "require_ignore_reasons",
                 "a policy check for CI; `[lint] require-ignore-reasons` still applies",
             ),
-            (
-                "type_aware",
-                "long-lived hosts analyse without types (ADR 0010, ADR 0013)",
-            ),
             ("no_gitignore", "a configuration override; `[js] no-gitignore`"),
             (
                 "include_entry_exports",
@@ -109,13 +105,7 @@ const NOT_EXPOSED: &[(&str, &[(&str, &str)])] = &[
             ("source", "a version-group filter; use `include` or `workspace`"),
         ],
     ),
-    (
-        "explain_usage",
-        &[(
-            "type_aware",
-            "long-lived hosts analyse without types (ADR 0010, ADR 0013)",
-        )],
-    ),
+    ("explain_usage", &[]),
     ("config", &[]),
     ("list_rules", &[]),
 ];

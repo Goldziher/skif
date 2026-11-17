@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, ConfigError};
-use skif_core::{ConfigJudgement, Diagnostic, FileSystem, IncompletePackage, Report, TypeAwareSummary};
+use skif_core::{ConfigJudgement, Diagnostic, FileSystem, IncompletePackage, Report};
 use skif_workspace::{IndexCache, Workspace, map_ordered};
 
 use crate::context::{FsRef, LintContext, SharedCache};
@@ -165,16 +165,14 @@ pub fn run(
 ) -> Result<Report, LintError> {
     let collected = collect(registry, workspace, config, options)?;
     let root_stand_in = usize::from(!workspace.has_root_manifest());
-    let report = Report::new(collected.diagnostics, workspace.all_packages().count() - root_stand_in)
-        .with_incomplete_packages(collected.incomplete_packages)
-        .with_other_project_files(collected.other_project_files)
-        .with_other_project_build_sources(collected.other_project_build_sources)
-        .with_ancestor_dependency_uses(collected.ancestor_dependency_uses)
-        .with_config_judgements(collected.config_judgements);
-    Ok(match collected.type_aware {
-        Some(summary) => report.with_type_aware(summary),
-        None => report,
-    })
+    Ok(
+        Report::new(collected.diagnostics, workspace.all_packages().count() - root_stand_in)
+            .with_incomplete_packages(collected.incomplete_packages)
+            .with_other_project_files(collected.other_project_files)
+            .with_other_project_build_sources(collected.other_project_build_sources)
+            .with_ancestor_dependency_uses(collected.ancestor_dependency_uses)
+            .with_config_judgements(collected.config_judgements),
+    )
 }
 
 /// Runs every enabled rule and returns the diagnostics in merge order, before [`Report`] sorting: providers in
@@ -207,8 +205,6 @@ struct Collected {
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
     /// The configuration entries the rules judged.
     config_judgements: Vec<ConfigJudgement>,
-    /// How far the type-aware analyses covered their packages; `None` when no provider ran one.
-    type_aware: Option<TypeAwareSummary>,
 }
 
 /// Runs every enabled rule and returns the diagnostics, the incomplete packages, the files and build sources of other
@@ -268,7 +264,6 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
     let other_project_build_sources = root.take_other_project_build_sources();
     let ancestor_dependency_uses = root.take_ancestor_dependency_uses();
     let config_judgements = root.take_config_judgements();
-    let type_aware = root.take_type_aware();
     let (diagnostics, incomplete_packages) = root.into_parts();
     Ok(Collected {
         diagnostics,
@@ -277,6 +272,5 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
         other_project_build_sources,
         ancestor_dependency_uses,
         config_judgements,
-        type_aware,
     })
 }

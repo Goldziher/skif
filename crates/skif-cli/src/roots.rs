@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use serde_json::{Value, json};
 use skif::{
     ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
-    TypeAwareSummary, Workspace, join_lexical, slash,
+    Workspace, join_lexical, slash,
 };
 use skif_core::{HashMap, HashState};
 
@@ -568,18 +568,11 @@ pub fn prefixed<'a>(report: &'a Report, prefix: &Path) -> Cow<'a, Report> {
             package
         })
         .collect();
-    let mut prefixed = Report::new(diagnostics, report.summary.packages).with_incomplete_packages(incomplete);
-    prefixed.type_aware = report.type_aware.clone().map(|mut summary| {
-        for package in &mut summary.packages {
-            package.dir = join_lexical(prefix, &package.dir);
-        }
-        summary
-    });
-    Cow::Owned(prefixed)
+    Cow::Owned(Report::new(diagnostics, report.summary.packages).with_incomplete_packages(incomplete))
 }
 
-/// All roots as one report: diagnostics, incomplete packages and type-aware coverage merged in the usual deterministic
-/// order, package counts summed.
+/// All roots as one report: diagnostics and incomplete packages merged in the usual deterministic order, package
+/// counts summed.
 ///
 /// A single root's report is borrowed: [`Report::new`] already put it in that order, and copying thousands of
 /// diagnostics only to sort them again is a measurable part of a large run.
@@ -587,21 +580,21 @@ pub fn aggregate<'a>(reports: &'a [Cow<'_, Report>]) -> Cow<'a, Report> {
     if let [report] = reports {
         return Cow::Borrowed(report);
     }
-    let mut aggregated = Report::new(
-        reports
-            .iter()
-            .flat_map(|report| report.diagnostics.iter().cloned())
-            .collect(),
-        reports.iter().map(|report| report.summary.packages).sum(),
+    Cow::Owned(
+        Report::new(
+            reports
+                .iter()
+                .flat_map(|report| report.diagnostics.iter().cloned())
+                .collect(),
+            reports.iter().map(|report| report.summary.packages).sum(),
+        )
+        .with_incomplete_packages(
+            reports
+                .iter()
+                .flat_map(|report| report.incomplete_packages.iter().cloned())
+                .collect(),
+        ),
     )
-    .with_incomplete_packages(
-        reports
-            .iter()
-            .flat_map(|report| report.incomplete_packages.iter().cloned())
-            .collect(),
-    );
-    aggregated.type_aware = TypeAwareSummary::merged(reports.iter().filter_map(|report| report.type_aware.as_ref()));
-    Cow::Owned(aggregated)
 }
 
 /// The path of a root for display: `.` for the base itself.
@@ -900,34 +893,6 @@ mod tests {
         assert_eq!(error.describe(), "pkgs/a: boom");
         assert_eq!(error.to_json()["path"], "pkgs/a");
         assert_eq!(error.to_json()["kind"], "workspace");
-    }
-
-    #[test]
-    fn prefixing_and_aggregating_relocate_and_merge_type_aware_coverage() {
-        use skif::{TypeAwarePackage, TypeAwareState};
-
-        let summary = |enabled: bool, dir: &str| {
-            TypeAwareSummary::new(enabled, vec![TypeAwarePackage::new(dir, dir, TypeAwareState::Typed)])
-        };
-        let base = Report::new(Vec::new(), 1).with_type_aware(summary(false, "z"));
-        let nested = Report::new(Vec::new(), 1).with_type_aware(summary(true, ""));
-        let untyped_root = Report::new(Vec::new(), 1);
-        let reports = [
-            prefixed(&base, Path::new("")),
-            prefixed(&nested, Path::new("apps/web")),
-            prefixed(&untyped_root, Path::new("tools")),
-        ];
-        let merged = aggregate(&reports).type_aware.clone().unwrap();
-        assert!(merged.enabled, "enabled when any root is");
-        let dirs: Vec<PathBuf> = merged.packages.iter().map(|package| package.dir.clone()).collect();
-        assert_eq!(dirs, [PathBuf::from("apps/web"), PathBuf::from("z")]);
-        let none = [prefixed(&untyped_root, Path::new(""))];
-        assert!(aggregate(&none).type_aware.is_none());
-        let pair = [
-            prefixed(&untyped_root, Path::new("")),
-            prefixed(&untyped_root, Path::new("b")),
-        ];
-        assert!(aggregate(&pair).type_aware.is_none());
     }
 
     #[test]

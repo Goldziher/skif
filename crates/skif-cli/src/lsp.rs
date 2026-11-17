@@ -19,10 +19,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use skif::{BufferFs, Diagnostic, FileSystem, MemoryModuleCache, ModuleCache, OsFs, Severity, content_hash};
+use skif::{
+    BufferFs, ConfigOverrides, Diagnostic, FileSystem, MemoryModuleCache, ModuleCache, OsFs, Severity, content_hash,
+};
 use skif_core::LineIndex;
 
-use crate::lint::{lint_root, server_overrides};
+use crate::lint::lint_root;
 use crate::module_cache::CacheHost;
 use crate::output::stderr_line;
 use crate::roots::RootRun;
@@ -435,7 +437,7 @@ impl Server {
     /// message when the root cannot be linted.
     fn lint_dir(&mut self, dir: &Path) -> Vec<Value> {
         let fs = self.overlay();
-        let linted = lint_root(dir, &server_overrides(), &fs, Some(&self.modules));
+        let linted = lint_root(dir, &ConfigOverrides::default(), &fs, Some(&self.modules));
         let (base, report, runs) = match linted {
             Ok(linted) => linted,
             Err(error) => {

@@ -8,7 +8,6 @@ use serde_json::{Map, Value};
 use skif_core::{Diagnostic, FixSafety, IncompletePackage, IncompleteScope, Location, Report, Severity, Summary};
 
 use crate::options::RenderOptions;
-use crate::type_aware;
 
 /// A member name of the document as [`Object::key`] takes it: quoted and followed by the colon.
 macro_rules! quoted {
@@ -21,14 +20,7 @@ macro_rules! quoted {
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Top-level members the document owns; `extra` members may not reuse them.
-const RESERVED: [&str; 6] = [
-    "version",
-    "skif",
-    "summary",
-    "diagnostics",
-    "incomplete-packages",
-    "type-aware",
-];
+const RESERVED: [&str; 5] = ["version", "skif", "summary", "diagnostics", "incomplete-packages"];
 
 /// Top-level members of an error document that `extra` members may not reuse.
 const RESERVED_ERROR: [&str; 3] = ["version", "skif", "error"];
@@ -127,7 +119,7 @@ pub fn render_json(report: &Report, options: &RenderOptions, out: &mut dyn Write
 /// # Errors
 ///
 /// Returns an [`io::ErrorKind::InvalidInput`] error when an `extra` member is named `version`, `skif`, `summary`,
-/// `diagnostics`, `incomplete-packages` or `type-aware`, and any error produced by writing to `out`.
+/// `diagnostics` or `incomplete-packages`, and any error produced by writing to `out`.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "a public signature: `extra` was consumed by the serializer this replaced"
@@ -169,9 +161,6 @@ pub fn render_json_with(
             write_incomplete_package(packages.element(), package, options);
         }
         packages.close();
-    }
-    if let Some(summary) = &report.type_aware {
-        write_value(document.key(quoted!("type-aware")), &type_aware::view(summary, options))?;
     }
     for (key, value) in &extra {
         write_value(document.any_key(key), value)?;
@@ -486,9 +475,9 @@ const fn safety(safety: FixSafety) -> &'static str {
     }
 }
 
-/// The value of a member of the top-level object (depth 1) that is written through serde: an `extra` member or the
-/// `type-aware` object. `serde_json` pretty-prints it; a newline in its output is always structural (strings escape
-/// theirs), so indenting after each one nests it at depth 1.
+/// The value of a member of the top-level object (depth 1) that is written through serde: an `extra` member.
+/// `serde_json` pretty-prints it; a newline in its output is always structural (strings escape theirs), so indenting
+/// after each one nests it at depth 1.
 fn write_value(out: &mut Vec<u8>, value: &impl Serialize) -> io::Result<()> {
     let pretty = serde_json::to_vec_pretty(value)?;
     for (index, line) in pretty.split(|&byte| byte == b'\n').enumerate() {
@@ -568,10 +557,7 @@ mod tests {
     //! The hand-written document against the derive-based serialization it replaced.
 
     use serde_json::json;
-    use skif_core::{
-        Fix, FixOp, IncompleteCause, IncompleteEntries, Related, RuleId, Severity, Span, TypeAwarePackage,
-        TypeAwareState, TypeAwareSummary,
-    };
+    use skif_core::{Fix, FixOp, IncompleteCause, IncompleteEntries, Related, RuleId, Severity, Span};
 
     use super::*;
 
@@ -583,8 +569,6 @@ mod tests {
         diagnostics: Vec<JsonDiagnostic<'a>>,
         #[serde(rename = "incomplete-packages", skip_serializing_if = "Vec::is_empty")]
         incomplete_packages: Vec<JsonIncompletePackage<'a>>,
-        #[serde(rename = "type-aware", skip_serializing_if = "Option::is_none")]
-        type_aware: Option<type_aware::TypeAwareView<'a>>,
         #[serde(flatten)]
         extra: Map<String, Value>,
     }
@@ -759,10 +743,6 @@ mod tests {
                 .iter()
                 .map(|package| incomplete_package(package, options))
                 .collect(),
-            type_aware: report
-                .type_aware
-                .as_ref()
-                .map(|summary| type_aware::view(summary, options)),
             extra,
         };
         let mut out = Vec::new();
@@ -811,48 +791,35 @@ mod tests {
             reason.file = file.map(Into::into);
             reason
         };
-        Report::new(vec![full, bare, info], 3)
-            .with_incomplete_packages(vec![
-                IncompletePackage::new(
-                    "web".to_owned(),
-                    "/repo/packages/web".into(),
-                    vec![
-                        reason(
-                            IncompleteCause::UnknownSpread,
-                            Some("vite"),
-                            Some("/repo/packages/web/vite.config.ts"),
-                        ),
-                        reason(IncompleteCause::UnmappedPublished, None, None),
-                    ],
-                )
-                .with_scope(IncompleteScope::Within(vec![
-                    "vite.config.*".to_owned(),
-                    "src/\"q\"/**".to_owned(),
-                ])),
-                IncompletePackage::new(
-                    "none".to_owned(),
-                    "packages/none".into(),
-                    vec![reason(IncompleteCause::NoEntries, None, None)],
-                )
-                .with_scope(IncompleteScope::Within(Vec::new())),
-                IncompletePackage::new(
-                    "root \"q\"".to_owned(),
-                    "".into(),
-                    vec![reason(IncompleteCause::Unspecified, None, None)],
-                ),
-            ])
-            .with_type_aware(
-                TypeAwareSummary::new(
-                    true,
-                    vec![
-                        TypeAwarePackage::new("", "root \"q\"", TypeAwareState::Typed),
-                        TypeAwarePackage::new("/repo/packages/web", "web", TypeAwareState::Partial)
-                            .with_reason("unresolved-modules: 2")
-                            .with_untyped_files(4),
-                    ],
-                )
-                .with_engine("tsrs 7.1.0-beta.tsrs2"),
+        Report::new(vec![full, bare, info], 3).with_incomplete_packages(vec![
+            IncompletePackage::new(
+                "web".to_owned(),
+                "/repo/packages/web".into(),
+                vec![
+                    reason(
+                        IncompleteCause::UnknownSpread,
+                        Some("vite"),
+                        Some("/repo/packages/web/vite.config.ts"),
+                    ),
+                    reason(IncompleteCause::UnmappedPublished, None, None),
+                ],
             )
+            .with_scope(IncompleteScope::Within(vec![
+                "vite.config.*".to_owned(),
+                "src/\"q\"/**".to_owned(),
+            ])),
+            IncompletePackage::new(
+                "none".to_owned(),
+                "packages/none".into(),
+                vec![reason(IncompleteCause::NoEntries, None, None)],
+            )
+            .with_scope(IncompleteScope::Within(Vec::new())),
+            IncompletePackage::new(
+                "root \"q\"".to_owned(),
+                "".into(),
+                vec![reason(IncompleteCause::Unspecified, None, None)],
+            ),
+        ])
     }
 
     #[test]

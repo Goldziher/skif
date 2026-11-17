@@ -241,9 +241,7 @@ impl Filter {
             .filter(|diagnostic| self.reports_rule(diagnostic.rule.as_str()))
             .filter(|diagnostic| self.selects(owner(workspace, diagnostic)))
             .collect();
-        let mut narrowed = Report::new(diagnostics, packages).with_config_judgements(report.config_judgements);
-        narrowed.type_aware = report.type_aware;
-        narrowed
+        Report::new(diagnostics, packages).with_config_judgements(report.config_judgements)
     }
 
     /// Narrows every root's report, after checking that `--workspace` selects a package in at least one of them.
@@ -299,7 +297,6 @@ pub fn truncate_shown(reports: Vec<Cow<'_, Report>>, max: usize) -> (Vec<Cow<'_,
             }
             let mut truncated = Report::new(diagnostics, summary.packages);
             truncated.summary = summary;
-            truncated.type_aware.clone_from(&report.type_aware);
             Cow::Owned(truncated)
         })
         .collect();

@@ -220,6 +220,65 @@ fn usage_errors_exit_two_and_are_json_in_json_mode() {
 }
 
 #[test]
+fn the_removed_type_aware_flags_say_they_were_removed() {
+    let dir = fixture("clean");
+    for flag in ["--type-aware", "--no-type-aware"] {
+        let human = run(skif().arg(flag).arg(dir.path()));
+        assert_eq!(human.code, 2, "{flag}");
+        assert_eq!(human.stdout, "");
+        assert!(
+            human
+                .stderr
+                .starts_with(&format!("error: `{flag}` is no longer a flag")),
+            "{}",
+            human.stderr
+        );
+        assert!(
+            human.stderr.contains("type-aware analysis was removed in skif 0.9.0"),
+            "{}",
+            human.stderr
+        );
+
+        let json = run(skif().args(["--format", "json", flag]).arg(dir.path()));
+        assert_eq!(json.code, 2, "{flag}");
+        let document = json.json();
+        assert_eq!(document["error"]["kind"], "usage");
+        assert!(
+            document["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("type-aware analysis was removed in skif 0.9.0"),
+            "{document}"
+        );
+
+        let explain = run(skif()
+            .args(["explain-usage", "src/index.ts", flag])
+            .current_dir(dir.path()));
+        assert_eq!(explain.code, 2, "{flag}");
+        assert!(explain.stderr.contains("is no longer a flag"), "{}", explain.stderr);
+    }
+}
+
+#[test]
+fn a_removed_type_aware_key_in_skif_toml_says_it_was_removed() {
+    let dir = fixture("clean");
+    std::fs::write(dir.path().join("skif.toml"), "[js]\ntype-aware = true\n").unwrap();
+    let result = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(result.code, 2);
+    let document = result.json();
+    assert_eq!(document["error"]["kind"], "config");
+    let message = document["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("skif.toml:2:1: `js.type-aware` is no longer a setting"),
+        "{message}"
+    );
+    assert!(
+        message.contains("type-aware analysis was removed in skif 0.9.0"),
+        "{message}"
+    );
+}
+
+#[test]
 fn output_requires_a_format() {
     let dir = fixture("clean");
     let result = run(skif().arg("--output").arg(dir.path().join("out.txt")).arg(dir.path()));

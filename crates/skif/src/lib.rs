@@ -93,8 +93,6 @@
 //! | --- | --- | --- |
 //! | `manifest` | yes | the built-in rules: manifest rules, version and semver group policies and catalog rules |
 //! | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table (`Linter` adds it to the built-in rules) |
-//! | `type-aware` | no | type-aware analysis with the TypeScript checker of tsrs (implies `js-analysis`) |
-//! | `plain-ptrs` | no | plain pointers in tsrs instead of its fixed address-space reservation; only with `type-aware` |
 //! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
 //! | `report` | no | the renderers (human, JSON, TOON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
@@ -168,7 +166,7 @@ pub use skif_js::{
     Absence, CachedModule, DependencyCredit, DependencyExplanation, DependencyImport, DependencyListing,
     DependencyReference, DependencyTrace, DependencyUse, DependencyVerdict, EntryReason, ExportReport, ExportUser,
     Importer, MemoryModuleCache, ModuleCache, ModuleKey, PackageDependencyUsage, ReExport, SharedModules, UsageReport,
-    UseKind, Verdict, empty_tsconfig_projects, relative_tsconfig, retire_freed_sources,
+    UseKind, Verdict, empty_tsconfig_projects, relative_tsconfig,
 };
 /// The state of one dependency instance, from [`Linter::instances`].
 #[cfg(feature = "manifest")]
@@ -198,8 +196,7 @@ pub use skif_core::{
     BufferFs, CachedFs, Category, ConfigJudgement, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem,
     Fix, FixOp, FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage,
     IncompleteScope, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId,
-    RuleMeta, Severity, Span, Summary, TextEdit, TypeAwarePackage, TypeAwareState, TypeAwareSummary, YamlAction,
-    diagnostic, slash,
+    RuleMeta, Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,

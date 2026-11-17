@@ -35,9 +35,8 @@ skif-workspace.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
-# The dead-code tests run skif in process on a `MemoryFs`, with and without types, so they need no built binary,
-# network or Node.
-skif = { workspace = true, features = ["js-analysis", "type-aware"] }
+# The dead-code tests run skif in process on a `MemoryFs`, so they need no built binary, network or Node.
+skif = { workspace = true, features = ["js-analysis"] }
 
 [lints]
 workspace = true

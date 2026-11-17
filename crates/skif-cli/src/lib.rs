@@ -57,8 +57,7 @@ use output::{emit_error, emit_error_with};
 ///
 /// A panic in skif that reaches this call is caught and exits 2, as in the binary; the panic hook prints the message
 /// and its location to stderr, and with `--format json` or `toon` stdout also receives the `error` document (kind
-/// `internal`) naming both. A panic that skif catches itself on the way, such as one inside the type checker that falls back to
-/// the untyped analysis (ADR 0010), does not end the run.
+/// `internal`) naming both.
 ///
 /// To learn the location, the first call chains a hook in front of the process's panic hook (`std::panic::set_hook`),
 /// once per process; it records the panic for the thread that raised it and then calls the hook it replaced, so the
@@ -151,8 +150,7 @@ fn internal_error(report: &str) -> CliError {
 /// rather than in the runfiles tree (ADR 0011); a directory it cannot enter exits 2.
 ///
 /// A panic exits 2 as in [`run`]. The release binary unwinds (`panic = "unwind"`) instead of aborting, so the panic
-/// reaches this call, and a panic skif catches on the way, inside the type checker, falls back to the untyped
-/// analysis instead of ending the process (ADR 0010).
+/// reaches this call.
 pub fn run_to_exit(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
     if let Err(error) = env::enter_bazel_run_directory() {
@@ -166,19 +164,17 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
     let raw: Vec<OsString> = args.into_iter().collect();
     configure_global_pool();
     env::enable_timings();
+    if let Some(error) = removed_flag(&raw) {
+        emit_error(&error, error_format(&raw));
+        return 2;
+    }
     let cli = match Cli::try_parse_from(&raw) {
         Ok(cli) => cli,
         Err(error) => return usage(&raw, &error),
     };
     match cli.command {
         None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
-        None => {
-            if teardown == Teardown::Leak {
-                // The process exits after this one run, so the address range retired regions give up costs nothing.
-                skif::retire_freed_sources();
-            }
-            lint::run(&cli.lint, Env::detect(), teardown)
-        }
+        None => lint::run(&cli.lint, Env::detect(), teardown),
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),
         Some(Command::Init(args)) => commands::init(&args),
@@ -193,6 +189,28 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
         Some(Command::Mcp) => mcp::run(),
         Some(Command::Lsp) => lsp::run(),
     }
+}
+
+/// The flags of the type-aware analysis, which skif 0.9.0 removed.
+const REMOVED_FLAGS: [&str; 2] = ["--type-aware", "--no-type-aware"];
+
+/// The usage error for a removed flag among the options of `raw` (before a `--`), so that it says the flag was removed
+/// where clap would only call it unexpected.
+fn removed_flag(raw: &[OsString]) -> Option<CliError> {
+    raw.iter()
+        .skip(1)
+        .take_while(|arg| arg.to_str() != Some("--"))
+        .filter_map(|arg| arg.to_str()?.split('=').next())
+        .find(|flag| REMOVED_FLAGS.contains(flag))
+        .map(|flag| {
+            CliError::new(
+                Kind::Usage,
+                format!(
+                    "`{flag}` is no longer a flag: type-aware analysis was removed in skif 0.9.0 and every member is \
+                     judged by name, as it was without types; drop the flag"
+                ),
+            )
+        })
 }
 
 /// Help and version go to stdout with exit 0; usage errors exit 2, as the `error` document when `--format json` or
@@ -243,6 +261,34 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn a_removed_type_aware_flag_is_named_before_clap_parses() {
+        for flag in REMOVED_FLAGS {
+            for raw in [
+                args(&["skif", flag]),
+                args(&["skif", "explain-usage", "a.ts", flag]),
+                args(&["skif", "baseline", "write", &format!("{flag}=true")]),
+            ] {
+                let error = removed_flag(&raw).unwrap_or_else(|| panic!("{raw:?}"));
+                assert_eq!(error.kind, Kind::Usage);
+                let message = error.to_string();
+                assert!(
+                    message.starts_with(&format!("`{flag}` is no longer a flag")),
+                    "{message}"
+                );
+                assert!(
+                    message.contains("type-aware analysis was removed in skif 0.9.0"),
+                    "{message}"
+                );
+            }
+        }
+        assert!(removed_flag(&args(&["skif", "--no-js", "."])).is_none());
+        assert!(
+            removed_flag(&args(&["skif", "--", "--type-aware"])).is_none(),
+            "a path after `--`"
+        );
     }
 
     #[test]

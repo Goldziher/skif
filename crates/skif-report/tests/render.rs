@@ -2,7 +2,7 @@
 
 use skif_core::{
     Diagnostic, Fix, FixOp, FixSafety, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope,
-    LineIndex, Location, Related, Report, RuleId, Severity, Span, TypeAwarePackage, TypeAwareState, TypeAwareSummary,
+    LineIndex, Location, Related, Report, RuleId, Severity, Span,
 };
 use skif_report::{Format, RenderOptions, render, render_json_error};
 
@@ -121,7 +121,7 @@ fn toon_rich() {
 /// TOON is the JSON document in another notation: decoded, it is the JSON document.
 #[test]
 fn toon_decodes_to_the_json_document() {
-    for report in [Report::new(Vec::new(), 2), rich(), with_incomplete(), with_type_aware()] {
+    for report in [Report::new(Vec::new(), 2), rich(), with_incomplete()] {
         let json: serde_json::Value = serde_json::from_str(&run(&report, Format::Json, &options(false))).unwrap();
         let toon = serde_toon::decode_to_value(&run(&report, Format::Toon, &options(false))).unwrap();
         assert_eq!(toon, json);
@@ -229,132 +229,6 @@ fn human_notes_incomplete_packages() {
         "{rendered}"
     );
     assert!(!run(&rich(), Format::Human, &options(false)).contains("were not fully checked"));
-}
-
-fn untyped(dir: &str, reason: &str) -> TypeAwarePackage {
-    TypeAwarePackage::new(dir, dir, TypeAwareState::Untyped).with_reason(reason)
-}
-
-fn typed(dir: &str) -> TypeAwarePackage {
-    TypeAwarePackage::new(dir, dir, TypeAwareState::Typed)
-}
-
-/// The rich report with five packages: two typed, two without a `tsconfig.json`, one with uninstalled dependencies.
-fn with_type_aware() -> Report {
-    rich().with_type_aware(
-        TypeAwareSummary::new(
-            true,
-            vec![
-                typed(""),
-                untyped("packages/b", "no-tsconfig"),
-                typed("packages/a"),
-                TypeAwarePackage::new("packages/web", "web", TypeAwareState::Partial)
-                    .with_reason("unresolved-modules: 2")
-                    .with_untyped_files(3),
-                untyped("packages/c", "no-tsconfig"),
-            ],
-        )
-        .with_engine("tsrs 7.1.0-beta.tsrs2"),
-    )
-}
-
-#[test]
-fn json_type_aware() {
-    insta::assert_snapshot!(run(&with_type_aware(), Format::Json, &options(false)));
-}
-
-#[test]
-fn json_carries_the_type_aware_object_only_when_the_report_has_one() {
-    let value: serde_json::Value =
-        serde_json::from_str(&run(&with_type_aware(), Format::Json, &options(false))).unwrap();
-    let summary = &value["type-aware"];
-    assert_eq!(summary["enabled"], true);
-    assert_eq!(summary["engine"], "tsrs 7.1.0-beta.tsrs2");
-    let packages = summary["packages"].as_array().unwrap();
-    let dirs: Vec<&str> = packages
-        .iter()
-        .map(|package| package["dir"].as_str().unwrap())
-        .collect();
-    assert_eq!(dirs, [".", "packages/a", "packages/b", "packages/c", "packages/web"]);
-    assert_eq!(
-        packages[4],
-        serde_json::json!({
-            "dir": "packages/web",
-            "name": "web",
-            "state": "partial",
-            "reason": "unresolved-modules: 2",
-            "untyped-files": 3
-        })
-    );
-    let without: serde_json::Value = serde_json::from_str(&run(&rich(), Format::Json, &options(false))).unwrap();
-    assert!(without.get("type-aware").is_none());
-}
-
-#[test]
-fn human_footer_counts_untyped_and_partial_packages_by_reason() {
-    let rendered = run(&with_type_aware(), Format::Human, &options(false));
-    let lines: Vec<&str> = rendered.lines().rev().take(2).collect();
-    assert!(lines[0].starts_with("Found "), "{rendered}");
-    assert_eq!(
-        lines[1],
-        "types: 2 of 5 packages untyped, 1 partially typed (no-tsconfig 2, unresolved-modules 1); run with \
-         --no-type-aware to skip types"
-    );
-}
-
-#[test]
-fn human_footer_names_only_the_states_present() {
-    let footer = |packages: Vec<TypeAwarePackage>| {
-        let report = Report::new(Vec::new(), 1).with_type_aware(TypeAwareSummary::new(true, packages));
-        run(&report, Format::Human, &options(false))
-            .lines()
-            .find(|line| line.starts_with("types: "))
-            .map(str::to_owned)
-    };
-    assert_eq!(
-        footer(vec![typed(""), untyped("a", "no-tsconfig")]).as_deref(),
-        Some("types: 1 of 2 packages untyped (no-tsconfig 1); run with --no-type-aware to skip types")
-    );
-    assert_eq!(
-        footer(vec![
-            TypeAwarePackage::new("", "root", TypeAwareState::Partial).with_reason("files-outside-programs: 4")
-        ])
-        .as_deref(),
-        Some(
-            "types: 1 of 1 package partially typed (files-outside-programs 1); run with --no-type-aware to skip types"
-        )
-    );
-}
-
-#[test]
-fn human_footer_is_absent_when_every_package_is_typed_or_types_are_off() {
-    let without_footer = |report: &Report| !run(report, Format::Human, &options(false)).contains("types: ");
-    assert!(without_footer(&rich()));
-    assert!(without_footer(
-        &rich().with_type_aware(TypeAwareSummary::new(true, vec![typed(""), typed("a")]))
-    ));
-    assert!(without_footer(&rich().with_type_aware(TypeAwareSummary::new(
-        false,
-        vec![untyped("", "disabled")]
-    ))));
-}
-
-#[test]
-fn formats_without_a_type_aware_section_are_unchanged() {
-    for format in [
-        Format::Github,
-        Format::Codeclimate,
-        Format::Compact,
-        Format::Markdown,
-        Format::Disclosure,
-        Format::Codeowners,
-    ] {
-        assert_eq!(
-            run(&with_type_aware(), format, &options(false)),
-            run(&rich(), format, &options(false)),
-            "{format:?}"
-        );
-    }
 }
 
 #[test]

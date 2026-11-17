@@ -23,10 +23,6 @@ impl JsRule for UnusedEnumMembers {
         &META
     }
 
-    fn reads_types(&self) -> bool {
-        true
-    }
-
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         report(
             &META,

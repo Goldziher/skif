@@ -11,14 +11,14 @@ use std::path::Path;
 
 use serde::Serialize;
 use skif_js_syntax::{
-    ClassMember, Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_declaration_file,
+    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_declaration_file,
 };
 use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
 use crate::class_members::{
-    ClassFacts, MemberExemption, MemberUsage, TypedMemberUsage, declaration_name, entry_exposed, exemption,
-    judged_classes, judges_classes_of, same_class,
+    ClassFacts, MemberExemption, MemberUsage, NameReads, declaration_name, entry_exposed, exemption, judged_classes,
+    judges_classes_of, same_class,
 };
 use crate::discover::relative;
 use crate::globs::Globs;
@@ -274,24 +274,6 @@ impl MemberOf {
     }
 }
 
-/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0010).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-#[non_exhaustive]
-pub struct TypedEvidence {
-    /// The declaration the checker answered for, as `file#Name` with the file relative to the workspace root.
-    pub declaration: String,
-    /// A typed read reaches the member, directly or through a base class or an interface the class implements.
-    pub read: bool,
-    /// The declaration is used as a whole (`keyof typeof E`, `Object.values(E)`, a spread, an alias passed on), so
-    /// every member counts as used.
-    pub whole: bool,
-    /// The files that read the member's name through a receiver the checker could not type (`any`, an error type, an
-    /// unresolved module), which credits it by name; relative to the workspace root.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub unresolved_readers: Vec<String>,
-}
-
 /// Why one member of an exported class, enum or namespace counts as used or not (ADR 0009).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -309,23 +291,13 @@ pub struct ClassMemberReport {
     /// Why the member is not judged, when it is [`MemberVerdict::Exempt`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exemption: Option<MemberExemption>,
-    /// The files whose reads of a property of the member's name count, relative to the workspace root. Without types
-    /// every such file counts, any object being read; with types only the files the checker did not cover (a Vue,
-    /// Svelte or Astro template, a file in no program).
+    /// The files that read a property of the member's name, on any object, relative to the workspace root.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub readers: Vec<String>,
-    /// For an enum or namespace member: it is used as skif sees it without types (read through an import or in its
-    /// own file, or the whole enum used).
+    /// For an enum or namespace member: it is read through an import or in its own file, or the whole enum or
+    /// namespace is used.
     #[serde(skip_serializing_if = "is_false")]
     pub used_without_types: bool,
-    /// What the type checker found, when it judged the member.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub typed: Option<TypedEvidence>,
-    /// Why the member is judged without types, when it is judged and the checker did not judge it: `disabled`,
-    /// `not-built`, `tsconfig-error`, `checker-failed`, `cancelled`, `file-untyped` (the checker did not cover the
-    /// declaring file) or `not-asked`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub untyped_because: Option<String>,
 }
 
 /// The explanation [`JsAnalysis::explain_usage`] returns.
@@ -538,10 +510,7 @@ fn render_class_member(report: &ClassMemberReport, out: &mut String) {
     if let Some(exemption) = report.exemption {
         let _ = writeln!(out, "    {}", exemption.describe());
     }
-    match &report.typed {
-        Some(typed) => render_typed_evidence(report, typed, out),
-        None => render_untyped_evidence(report, out),
-    }
+    render_evidence(report, out);
     let verdict = match report.verdict {
         MemberVerdict::NotJudged => format!("not judged: the members of this {noun} are not reported"),
         MemberVerdict::Exempt => "not judged".to_owned(),
@@ -549,49 +518,6 @@ fn render_class_member(report: &ClassMemberReport, out: &mut String) {
         _ => format!("never read: reported by `{}`", report.of.rule()),
     };
     let _ = writeln!(out, "    => {verdict}");
-}
-
-fn render_typed_evidence(report: &ClassMemberReport, typed: &TypedEvidence, out: &mut String) {
-    let readers = &report.readers;
-    if report.used_without_types {
-        render_syntactic_use(report.of, out);
-    }
-    if typed.read {
-        let _ = writeln!(
-            out,
-            "    read with types: a typed read reaches it on `{}`",
-            typed.declaration
-        );
-    }
-    if typed.whole {
-        let _ = writeln!(
-            out,
-            "    used as a whole with types: every member of `{}` counts",
-            typed.declaration
-        );
-    }
-    if !typed.unresolved_readers.is_empty() {
-        let _ = writeln!(
-            out,
-            "    read by name where the checker could not type the receiver, in {}",
-            typed.unresolved_readers.join(", ")
-        );
-    }
-    if !readers.is_empty() {
-        let _ = writeln!(out, "    read by name in files without types: {}", readers.join(", "));
-    }
-    let unused = !report.used_without_types
-        && !typed.read
-        && !typed.whole
-        && typed.unresolved_readers.is_empty()
-        && readers.is_empty();
-    if unused {
-        let _ = writeln!(
-            out,
-            "    no typed read reaches it on `{}` and no file without types reads a property of this name",
-            typed.declaration
-        );
-    }
 }
 
 fn render_syntactic_use(of: MemberOf, out: &mut String) {
@@ -602,7 +528,7 @@ fn render_syntactic_use(of: MemberOf, out: &mut String) {
     );
 }
 
-fn render_untyped_evidence(report: &ClassMemberReport, out: &mut String) {
+fn render_evidence(report: &ClassMemberReport, out: &mut String) {
     if report.of == MemberOf::Class {
         if report.readers.is_empty() {
             let _ = writeln!(out, "    no module reads a property of this name");
@@ -613,9 +539,6 @@ fn render_untyped_evidence(report: &ClassMemberReport, out: &mut String) {
         render_syntactic_use(report.of, out);
     } else {
         let _ = writeln!(out, "    no module reads it");
-    }
-    if let Some(reason) = &report.untyped_because {
-        let _ = writeln!(out, "    judged without types ({reason})");
     }
 }
 
@@ -833,11 +756,6 @@ fn declaration_export<'m>(module: &'m Module, class: &str) -> Option<&'m Export>
         .or_else(|| exports.iter().find(|export| declaration_name(export) == class))
 }
 
-/// The declaration behind `export` of `module` as a report names it: `file#Name`.
-fn declaration_label(module: &Module, export: &Export) -> String {
-    format!("{}#{}", slashed(&module.path), declaration_name(export))
-}
-
 /// What one explanation shares: the modules an entry reaches and the exports already explained.
 struct Walk {
     reachable: HashSet<ModuleId>,
@@ -952,8 +870,6 @@ impl JsAnalysis<'_> {
             exemption: None,
             readers: Vec::new(),
             used_without_types: false,
-            typed: None,
-            untyped_because: None,
         };
         let Some(export) = declaration_export(module, class) else {
             return report;
@@ -979,19 +895,12 @@ impl JsAnalysis<'_> {
         else {
             return report;
         };
-        let usage = TypedMemberUsage::of(self);
-        let typed = usage.is_typed(module, export, declared);
-        let paths = |ids: Vec<ModuleId>| -> Vec<String> {
-            ids.into_iter().map(|id| slashed(&self.graph.module(id).path)).collect()
-        };
-        let unresolved = usage.unresolved_users(module, export, declared);
-        report.readers = paths(
-            usage
-                .users(module, export, declared)
-                .into_iter()
-                .filter(|id| !typed || !self.types.covers(*id))
-                .collect(),
-        );
+        let usage = NameReads::of(&self.graph);
+        report.readers = usage
+            .users(module, export, declared)
+            .into_iter()
+            .map(|id| slashed(&self.graph.module(id).path))
+            .collect();
         let judged = judges_classes_of(self, module)
             .then(|| judged_classes(self, module).find(|(candidate, _)| same_class(candidate, export)))
             .flatten();
@@ -999,11 +908,6 @@ impl JsAnalysis<'_> {
             report.verdict = MemberVerdict::NotJudged;
             return report;
         };
-        if typed {
-            report.typed = Some(self.typed_evidence(module, export, &declared.name, paths(unresolved)));
-        } else {
-            report.untyped_because = self.untyped_because(module, export, declared);
-        }
         let facts = ClassFacts::of(self, module, export, shape, &entry_exposed(self));
         report.exemption = exemption(self, module, shape, &facts, declared);
         report.verdict = if report.exemption.is_some() {
@@ -1016,31 +920,7 @@ impl JsAnalysis<'_> {
         report
     }
 
-    /// Why a member of a class is judged by name: a private name always is, any other as the type facts say.
-    fn untyped_because(&self, module: &Module, export: &Export, member: &ClassMember) -> Option<String> {
-        if member.name.starts_with('#') {
-            return None;
-        }
-        self.types.untyped_because(module, export).map(str::to_owned)
-    }
-
-    fn typed_evidence(
-        &self,
-        module: &Module,
-        export: &Export,
-        member: &str,
-        unresolved_readers: Vec<String>,
-    ) -> TypedEvidence {
-        TypedEvidence {
-            declaration: declaration_label(module, export),
-            read: self.types.reads(module, export, member),
-            whole: self.types.whole(module, export),
-            unresolved_readers,
-        }
-    }
-
-    /// Why `member` of the enum or namespace behind `export` of `module` counts as used or not: the uses without
-    /// types, and the typed reads and whole uses that add to them (ADR 0010).
+    /// Why `member` of the enum or namespace behind `export` of `module` counts as used or not.
     fn explain_enum_member(
         &self,
         module: &Module,
@@ -1065,12 +945,7 @@ impl JsAnalysis<'_> {
             report.verdict = MemberVerdict::NotJudged;
             return report;
         }
-        report.used_without_types = self.member_used_without_types(module, export, declared);
-        if self.types.judges(module, export) {
-            report.typed = Some(self.typed_evidence(module, export, &declared.name, Vec::new()));
-        } else {
-            report.untyped_because = self.types.untyped_because(module, export).map(str::to_owned);
-        }
+        report.used_without_types = self.member_in_use(module, export, declared);
         report.exemption = if self.exempts_tags(&declared.tags) {
             Some(MemberExemption::Tagged)
         } else if self.ignores_member(module.owner, &declared.name) {
