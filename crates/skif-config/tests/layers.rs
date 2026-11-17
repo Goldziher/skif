@@ -905,7 +905,8 @@ fn the_removed_type_aware_key_fails_in_a_layered_file_with_its_position() {
         ],
         "/r",
     )
-    .to_string();
+    .to_string()
+    .replace('\\', "/");
     assert!(
         text.starts_with("/r/skif.toml:3:1: `js.type-aware` is no longer a setting"),
         "{text}"
