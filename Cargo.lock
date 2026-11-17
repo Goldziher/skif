@@ -2290,6 +2290,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_toon_format"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83047917cd35d3cf33b1cfa3085e048546c8fb0f1f86ab90aa8e680196679fc3"
+dependencies = [
+ "itoa",
+ "memchr",
+ "ryu",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "smol_str",
+ "thiserror",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2429,6 +2445,7 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+ "serde_toon_format",
  "similar 3.2.1",
  "skif",
  "skif-core",
@@ -2628,6 +2645,7 @@ dependencies = [
  "insta",
  "serde",
  "serde_json",
+ "serde_toon_format",
  "skif-core",
  "unicode-width",
 ]
@@ -2705,6 +2723,16 @@ name = "smawk"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
+
+[[package]]
+name = "smol_str"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eeb7109d23f319619d4cc0de5464613c8b7b1a09db2774a58101459cf6be2f10"
+dependencies = [
+ "borsh",
+ "serde_core",
+]
 
 [[package]]
 name = "stable_deref_trait"

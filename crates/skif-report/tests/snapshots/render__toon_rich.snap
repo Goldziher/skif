@@ -1,0 +1,55 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&rich(), Format::Toon, &options(false))"
+---
+version: 1
+skif: "0.1.0"
+summary:
+  errors: 1
+  warnings: 1
+  infos: 1
+  fixable: 2
+  packages: 3
+diagnostics[3]:
+  - rule: sorted-keys
+    severity: info
+    message: keys are not sorted
+    location:
+      path: package.json
+    related: []
+    fixes: []
+  - rule: version-mismatch
+    severity: error
+    message: réact is declared with 2 different versions
+    help: align on ^18.3.1
+    location:
+      path: packages/web/package.json
+      span:
+        start: 53
+        end: 62
+        "start-line": 4
+        "start-col": 14
+        "end-line": 4
+        "end-col": 23
+    related[1]{message,location{path,span{start,end,"start-line","start-col","end-line","end-col"}}}:
+      other declaration,packages/api/package.json,78,86,5,15,5,23
+    package: web
+    dependency: réact
+    detail: DiffersToHighestOrLowestSemver
+    fixes[1]{title,safety}:
+      Use ^18.3.1,unsafe
+  - rule: unused-dependency
+    severity: warning
+    message: lodash is never imported 日本語
+    location:
+      path: packages/web/package.json
+      span:
+        start: 68
+        end: 76
+        "start-line": 5
+        "start-col": 5
+        "end-line": 5
+        "end-col": 13
+    related: []
+    fixes[1]{title,safety}:
+      Remove lodash,safe

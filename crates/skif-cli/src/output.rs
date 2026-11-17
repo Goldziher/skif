@@ -10,7 +10,7 @@ use skif::{FileSystem, Report, RuleMeta};
 use skif_report::{
     CODEOWNERS_LOCATIONS, CodeOwners, ErrorInfo, escape_controls, escape_multiline, render_codeclimate,
     render_codeowners, render_compact, render_disclosure, render_json_error_info_with, render_json_with,
-    render_markdown,
+    render_markdown, render_toon_error_info_with, render_toon_with,
 };
 
 use crate::args::Format;
@@ -42,7 +42,7 @@ pub fn stderr_line(text: &str) {
     let _ = err.write_all(text.as_bytes()).and_then(|()| err.write_all(b"\n"));
 }
 
-/// Reports a failure: a JSON `error` document on stdout in JSON mode, `error: ...` on stderr otherwise.
+/// Reports a failure: an `error` document on stdout in JSON (or TOON) mode, `error: ...` on stderr otherwise.
 pub fn emit_error(error: &CliError, format: Format) {
     emit_error_with(error, format, Map::new(), &mut io::stdout().lock());
 }
@@ -55,8 +55,12 @@ pub fn emit_error_with(
     extra: Map<String, serde_json::Value>,
     stdout: &mut dyn Write,
 ) {
-    if format == Format::Json
-        && let Some(buffer) = error_document(error, extra)
+    let document = match format {
+        Format::Json => error_document(error, extra),
+        Format::Toon => toon_error_document(error, extra),
+        _ => None,
+    };
+    if let Some(buffer) = document
         && write_to(stdout, buffer.as_bytes()).is_ok()
     {
         return;
@@ -67,13 +71,24 @@ pub fn emit_error_with(
 /// The JSON `error` document for `error`, with `extra` top-level members; `None` when an `extra` member collides with
 /// a reserved one.
 pub fn error_document(error: &CliError, extra: Map<String, serde_json::Value>) -> Option<String> {
-    let mut info = ErrorInfo::new(error.kind.as_str(), &error.message);
-    if let Some(path) = &error.path {
-        info = info.at(path, error.line, error.column);
-    }
     let mut buffer = Vec::new();
-    render_json_error_info_with(&info, extra, &mut buffer).ok()?;
+    render_json_error_info_with(&error_info(error), extra, &mut buffer).ok()?;
     String::from_utf8(buffer).ok()
+}
+
+/// [`error_document`] encoded as TOON, for `--format toon`.
+fn toon_error_document(error: &CliError, extra: Map<String, serde_json::Value>) -> Option<String> {
+    let mut buffer = Vec::new();
+    render_toon_error_info_with(&error_info(error), extra, &mut buffer).ok()?;
+    String::from_utf8(buffer).ok()
+}
+
+fn error_info(error: &CliError) -> ErrorInfo<'_> {
+    let info = ErrorInfo::new(error.kind.as_str(), &error.message);
+    match &error.path {
+        Some(path) => info.at(path, error.line, error.column),
+        None => info,
+    }
 }
 
 /// Files whose text a code frame or a UTF-16 column conversion may need: every file a diagnostic or related
@@ -275,7 +290,7 @@ fn write_report(
             }
             Ok(())
         }
-        Format::Json => {
+        Format::Json | Format::Toon => {
             let mut extra = Map::new();
             if !fixes.is_empty() {
                 extra.insert("fix".to_owned(), fix::fixes_json(fixes));
@@ -292,7 +307,11 @@ fn write_report(
                     extra.insert("truncated".to_owned(), rendering.truncated.clone());
                 }
             }
-            render_json_with(report, options, extra, out)
+            if rendering.format == Format::Toon {
+                render_toon_with(report, options, extra, out)
+            } else {
+                render_json_with(report, options, extra, out)
+            }
         }
         Format::Sarif => render_sarif(report, options, out),
         Format::Github => render_github(report, options, out),

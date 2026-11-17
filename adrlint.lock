@@ -59,7 +59,7 @@ blake3 = "8c783791bffb2bfc832b7a1dc54b97f67914c6c93fddd54b0277c0bb0ddf70ac"
 [adrs."adrs/0012-cli-contract-and-reporting.md"]
 number = 12
 status = "accepted"
-blake3 = "6bb8c261c2f61be6750a46b856925d47773f3020084d5a67406420bff6dc3e5d"
+blake3 = "1259cf48a0b1159b82a5679e50c06eac212a4b95863676e3053e0662810470ec"
 
 [adrs."adrs/0013-editors-agents-and-git-hooks.md"]
 number = 13

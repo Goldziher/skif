@@ -209,3 +209,26 @@ fn an_unknown_format_or_an_empty_file_is_a_usage_error() {
     assert_eq!(empty.code, 2);
     assert_eq!(empty.json()["error"]["kind"], "usage");
 }
+
+/// `--format toon` prints the document `--format json` prints, in TOON, with the same exit code; the error
+/// document too.
+#[test]
+fn toon_is_the_json_document_in_another_notation() {
+    let dir = fixture("dirty");
+    let missing = dir.path().join("missing");
+    let runs: [(Vec<&str>, &std::path::Path); 4] = [
+        (vec![], dir.path()),
+        (vec!["--max-show-issues", "0"], dir.path()),
+        (vec!["--fix", "--dry-run"], dir.path()),
+        (vec![], &missing),
+    ];
+    for (flags, path) in runs {
+        let json = run(skif().args(["--format", "json"]).args(&flags).arg(path));
+        let toon = run(skif().args(["--format", "toon"]).args(&flags).arg(path));
+        assert_eq!(toon.code, json.code, "{flags:?}: {}", toon.stderr);
+        assert_eq!(toon.stderr, json.stderr, "{flags:?}");
+        let decoded = serde_toon::decode_to_value(&toon.stdout)
+            .unwrap_or_else(|error| panic!("{flags:?}: {error}: {}", toon.stdout));
+        assert_eq!(decoded, json.json(), "{flags:?}");
+    }
+}

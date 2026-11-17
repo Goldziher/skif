@@ -207,14 +207,14 @@ pub use skif_lint::{
 };
 pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError};
 
-/// The renderers of [`Report`]s: human, JSON, SARIF, GitHub annotations, Code Climate, compact, Markdown and
+/// The renderers of [`Report`]s: human, JSON, TOON, SARIF, GitHub annotations, Code Climate, compact, Markdown and
 /// CODEOWNERS groups.
 #[cfg(feature = "report")]
 pub mod render {
     pub use skif_report::{
         CODEOWNERS_LOCATIONS, CodeOwners, ErrorInfo, Format, RenderOptions, SCHEMA_VERSION, render, render_codeclimate,
         render_codeowners, render_compact, render_disclosure, render_github, render_human, render_json,
-        render_json_error, render_json_error_info, render_markdown, render_sarif,
+        render_json_error, render_json_error_info, render_markdown, render_sarif, render_toon,
     };
 }
 

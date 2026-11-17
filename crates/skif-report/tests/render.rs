@@ -113,6 +113,45 @@ fn json_rich() {
     insta::assert_snapshot!(run(&rich(), Format::Json, &options(false)));
 }
 
+#[test]
+fn toon_rich() {
+    insta::assert_snapshot!(run(&rich(), Format::Toon, &options(false)));
+}
+
+/// TOON is the JSON document in another notation: decoded, it is the JSON document.
+#[test]
+fn toon_decodes_to_the_json_document() {
+    for report in [Report::new(Vec::new(), 2), rich(), with_incomplete(), with_type_aware()] {
+        let json: serde_json::Value = serde_json::from_str(&run(&report, Format::Json, &options(false))).unwrap();
+        let toon = serde_toon::decode_to_value(&run(&report, Format::Toon, &options(false))).unwrap();
+        assert_eq!(toon, json);
+    }
+    let mut extra = serde_json::Map::new();
+    extra.insert(
+        "fix".to_owned(),
+        serde_json::json!({ "changed": ["package.json"], "dry-run": true }),
+    );
+    let (mut json, mut toon) = (Vec::new(), Vec::new());
+    skif_report::render_json_with(&rich(), &options(false), extra.clone(), &mut json).unwrap();
+    skif_report::render_toon_with(&rich(), &options(false), extra, &mut toon).unwrap();
+    assert_eq!(
+        serde_toon::decode_to_value(&String::from_utf8(toon).unwrap()).unwrap(),
+        serde_json::from_slice::<serde_json::Value>(&json).unwrap()
+    );
+}
+
+#[test]
+fn toon_error_documents_decode_to_the_json_ones() {
+    let info = skif_report::ErrorInfo::new("config", "bad key").at("skif.toml", Some(3), Some(5));
+    let (mut json, mut toon) = (Vec::new(), Vec::new());
+    skif_report::render_json_error_info_with(&info, serde_json::Map::new(), &mut json).unwrap();
+    skif_report::render_toon_error_info_with(&info, serde_json::Map::new(), &mut toon).unwrap();
+    assert_eq!(
+        serde_toon::decode_to_value(&String::from_utf8(toon).unwrap()).unwrap(),
+        serde_json::from_slice::<serde_json::Value>(&json).unwrap()
+    );
+}
+
 /// The rich report with two packages whose entries are incomplete, given out of order.
 fn with_incomplete() -> Report {
     rich().with_incomplete_packages(vec![

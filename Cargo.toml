@@ -47,6 +47,8 @@ schemars = { version = "1.2.3", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.1.1"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+# `--format toon` (ADR 0012), the crate poly uses; its library is named `serde_toon`.
+serde_toon_format = "0.2"
 simdutf8 = "0.1.5"
 similar = "3.2.1"
 # The module cache key (ADR 0007); already in the tree through phf_shared.

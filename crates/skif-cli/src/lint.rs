@@ -892,7 +892,7 @@ fn execute(
         fs,
         capture,
     )?;
-    if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
+    if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json | Format::Toon) {
         write_summary_to_stderr(&root_fixes);
     }
 
@@ -1063,12 +1063,13 @@ fn warn_nested_roots(args: &LintArgs, root: &Path, runs: &[RootRun], fs: &dyn Fi
     ));
 }
 
-/// `--max-show-issues` shortens the list a person reads: human and JSON output only, and not when fixing, where
+/// `--max-show-issues` shortens the list a person reads: human and JSON output (and TOON, the JSON document in
+/// another notation) only, and not when fixing, where
 /// the list says what is left after the fix. Every other format is rejected rather than silently given the full
 /// list: SARIF and GitHub annotations feed code scanning and checks, which must never miss a finding silently, and
 /// the allowlist keeps a format added later from ignoring the flag. For the same reason the annotations human
 /// output adds under GitHub Actions are rendered from every finding. With several `--format`s, every one must be
-/// human or json.
+/// human, json or toon.
 fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)]) -> Result<(), CliError> {
     if args.max_show_issues.is_none() {
         return Ok(());
@@ -1077,9 +1078,9 @@ fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)])
         "cannot be combined with --fix or --fix-unsafe"
     } else if targets
         .iter()
-        .any(|(format, _)| !matches!(format, Format::Human | Format::Json))
+        .any(|(format, _)| !matches!(format, Format::Human | Format::Json | Format::Toon))
     {
-        "applies to human and json output only; other formats always list every finding"
+        "applies to human, json and toon output only; other formats always list every finding"
     } else {
         return Ok(());
     };
@@ -1115,7 +1116,7 @@ fn render_and_write(
     if let [(format, None)] = targets {
         rendering.format = *format;
         rendering.color = color_enabled(args, env, *format, None);
-        let listed = shown.filter(|_| *format == Format::Json).unwrap_or(report);
+        let listed = shown.filter(|_| lists_shown(*format)).unwrap_or(report);
         return timing::phase("render", || match capture {
             Some(capture) => {
                 capture.extend(output::render(listed, views, &rendering, fs, fixes)?);
@@ -1128,7 +1129,7 @@ fn render_and_write(
     for (format, file) in targets {
         rendering.format = *format;
         rendering.color = color_enabled(args, env, *format, file.as_deref());
-        let listed = shown.filter(|_| *format == Format::Json).unwrap_or(report);
+        let listed = shown.filter(|_| lists_shown(*format)).unwrap_or(report);
         let bytes = timing::phase("render", || output::render(listed, views, &rendering, fs, fixes))?;
         rendered.push((bytes, file.as_deref()));
     }
@@ -1149,6 +1150,11 @@ fn render_and_write(
     Ok(())
 }
 
+/// Whether `format` lists the report `--max-show-issues` cut short: the JSON document and its TOON encoding.
+const fn lists_shown(format: Format) -> bool {
+    matches!(format, Format::Json | Format::Toon)
+}
+
 fn roots_fix<'a>(prefixes: &[&'a Path], fixes: &'a [FixRun]) -> Vec<RootFix<'a>> {
     prefixes
         .iter()
@@ -1167,10 +1173,10 @@ fn fix_incomplete(args: &LintArgs, headline: &str, error: &CliError, fixes: &[Ro
         line: error.line,
         column: error.column,
     };
-    if args.format() == Format::Json {
+    if matches!(args.format(), Format::Json | Format::Toon) {
         let mut extra = Map::new();
         extra.insert("fix".to_owned(), fix::fixes_json(fixes));
-        emit_error_with(&error, Format::Json, extra, &mut std::io::stdout().lock());
+        emit_error_with(&error, args.format(), extra, &mut std::io::stdout().lock());
     } else {
         // Stdout carries the report in every format but `human`, so the summary goes to stderr there.
         if args.format() == Format::Human {

@@ -90,8 +90,13 @@ case. A dry run is allowed, and linting is never affected.
 ### Renderers and several reports
 
 * `skif-report` renders a `Report` to a `Write`. Renderers do no I/O of their own and never read the environment; the
-  CLI resolves TTY, colour and CI and passes them as options. The formats include human, JSON, SARIF, GitHub
+  CLI resolves TTY, colour and CI and passes them as options. The formats include human, JSON, TOON, SARIF, GitHub
   annotations and Code Climate; the CLI reference lists them.
+* `toon` is the JSON document encoded as TOON (Token-Oriented Object Notation) by `serde_toon_format`, the encoder
+  poly uses, for LLM agents that pay per token. It is an encoding of the JSON contract, not a second one: it carries
+  the same members, follows `--max-show-issues` as JSON does, and in TOON mode a failure is the `error` document in
+  TOON. A hand-written encoder or a compact JSON variant would have been a second shape to keep in step; the MCP server
+  stays on JSON ([ADR 0013](0013-editors-agents-and-git-hooks.md)).
 * `--format` is repeatable: `FORMAT` renders to stdout and `FORMAT=FILE` to that file, with at most one format on
   stdout. Without `--format`, the format is `human`, plus `github` annotations when `GITHUB_ACTIONS=true`. `--output
   FILE` is allowed only with exactly one format. Conflicting destinations are usage errors raised before anything is
@@ -142,6 +147,8 @@ case. A dry run is allowed, and linting is never affected.
 * Bad, because report files are not replaced as one transaction: a write that fails midway leaves earlier files updated.
 * Bad, because SARIF consumers differ in which optional fields they read; only what GitHub code scanning uses is
   guaranteed.
+* Bad, because TOON follows a young specification through one crate: its text can change with the crate, while the
+  data it decodes to cannot.
 
 ### Confirmation
 
@@ -152,4 +159,6 @@ case. A dry run is allowed, and linting is never affected.
   `crates/skif-cli/tests/formats.rs` covers several reports in one run; `crates/skif-cli/tests/update.rs` and
   `crates/skif-cli/tests/watch.rs` cover the refusals of `skif update` and `--watch`.
 * `crates/skif-report/tests/render.rs` and `crates/skif-report/tests/annotations.rs` cover the JSON contract, error
-  documents, determinism of every format, incomplete packages and type coverage.
+  documents, determinism of every format, incomplete packages and type coverage; render.rs also checks that TOON
+  reports and error documents decode to the JSON ones, and `crates/skif-cli/tests/formats.rs` that `--format toon`
+  prints the `--format json` document with the same exit code.

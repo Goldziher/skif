@@ -7,16 +7,21 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Human, JSON, SARIF, GitHub, Code Climate, compact, Markdown and CODEOWNERS renderers for skif reports."
+description = "Human, JSON, TOON, SARIF, GitHub, Code Climate, compact, Markdown and CODEOWNERS renderers for skif reports."
 documentation = "https://docs.rs/skif-report"
 keywords = ["linter", "diagnostics", "json", "report", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
 include = ["/src/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
+# `serde_toon_format`'s library is named `serde_toon`, which cargo-machete's name-based scan does not match.
+[package.metadata.cargo-machete]
+ignored = ["serde_toon_format"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+serde_toon_format.workspace = true
 skif-core.workspace = true
 unicode-width.workspace = true
 

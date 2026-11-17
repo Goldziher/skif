@@ -1,4 +1,5 @@
-//! Renderers that turn a [`skif_core::Report`] into human-readable, machine-readable or Markdown output.
+//! Renderers that turn a [`skif_core::Report`] into human-readable, machine-readable (JSON, TOON, SARIF, ...) or
+//! Markdown output.
 //!
 //! Renderers write to a [`std::io::Write`], never read the environment or detect terminals, and take
 //! their configuration from [`RenderOptions`].
@@ -17,6 +18,7 @@ mod path;
 mod sarif;
 mod style;
 mod text;
+mod toon;
 mod type_aware;
 
 use std::io::{self, Write};
@@ -36,6 +38,7 @@ pub use markdown::{render_disclosure, render_markdown};
 pub use options::RenderOptions;
 pub use sarif::render_sarif;
 pub use text::{escape_controls, escape_multiline};
+pub use toon::{render_toon, render_toon_error_info_with, render_toon_with};
 
 /// Output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,6 +62,8 @@ pub enum Format {
     Disclosure,
     /// Compact lines grouped by CODEOWNERS owner.
     Codeowners,
+    /// The JSON document in Token-Oriented Object Notation, for consumers that pay per token.
+    Toon,
 }
 
 /// Renders `report` in `format` to `out`.
@@ -77,6 +82,7 @@ pub fn render(report: &Report, format: Format, options: &RenderOptions, out: &mu
         Format::Markdown => render_markdown(report, options, out),
         Format::Disclosure => render_disclosure(report, options, out),
         Format::Codeowners => render_codeowners(report, options, out),
+        Format::Toon => render_toon(report, options, out),
     }
 }
 
