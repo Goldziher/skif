@@ -6,6 +6,7 @@
 #   gh-action-install.sh     checksum and attestation verification, extraction, outputs, the verified cache-hit path
 #   gh-action-run.sh         argument assembly, lint-only flags, the translated sherif configuration (from-sherif),
 #                            the subcommand list against the CLI's
+#   action.yml               the expressions of the cache steps (scripts/test-action-cache.mjs, needs node)
 #
 # The launcher is served from a file:// release directory (SKIF_RELEASE_URL), the Action from a stub `gh`.
 #
@@ -531,6 +532,10 @@ action_subcommands="$(sed -n 's/^subcommands=" \(.*\) "$/\1/p' scripts/gh-action
 expect "run: an unknown from-sherif value" 2 env PATH="${stubs}:${PATH}" WORKING_DIRECTORY="${work}/sherif" FROM_SHERIF=auto \
   bash scripts/gh-action-run.sh
 expect_in_out "run: unknown from-sherif" 'from-sherif must be "true" or "false"'
+
+# ---------------------------------------------------------------- Action: cache
+expect "action: the expressions of the cache steps" 0 node --test scripts/test-action-cache.mjs
+expect_in_out "action: the cache expression tests ran" "pass 7"
 
 if [[ "$failures" -ne 0 ]]; then
   echo "${failures} case(s) failed" >&2

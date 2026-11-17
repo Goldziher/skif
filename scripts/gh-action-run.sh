@@ -32,7 +32,7 @@ cd "$WORKING_DIRECTORY"
 
 # The subcommands of skif (scripts/test-install-scripts.sh checks this list against the CLI). A run of one of them is
 # not a lint run: it gets neither --fail-on-warnings nor a translated sherif configuration, flags only a lint run takes.
-subcommands=" rules schema init config explain-usage migrate baseline update list json format mcp lsp help "
+subcommands=" rules schema init config explain-usage migrate baseline update list json format cache mcp lsp help "
 
 is_lint_run() {
   [ "${#parsed_args[@]}" -eq 0 ] || [[ "$subcommands" != *" ${parsed_args[0]} "* ]]

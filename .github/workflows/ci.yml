@@ -145,7 +145,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        features: ["", manifest, js-analysis, fix, yaml-fix, report, schema, update]
+        features: ["", manifest, js-analysis, fix, yaml-fix, report, schema, update, cache-disk]
     steps:
       - uses: actions/checkout@v7
       # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
@@ -289,6 +289,38 @@ jobs:
         with:
           version: ${{ steps.release.outputs.tag }}
           args: --version
+      # The cache store is on by default from 0.9.0: the first lint through the Action must leave a store in the
+      # directory the Action restores and saves, and a second lint must run with it there. An older release has no
+      # store to check, which the step says instead of passing silently.
+      - name: Lint a fixture through the Action, cold
+        if: steps.release.outputs.tag != ''
+        uses: ./
+        with:
+          version: ${{ steps.release.outputs.tag }}
+          working-directory: fixtures/e2e/clean/project
+          cache-key: -self-test
+      - name: The first run wrote the cache store
+        if: steps.release.outputs.tag != ''
+        shell: bash
+        env:
+          VERSION: ${{ steps.install.outputs.version }}
+          STORE: ${{ runner.temp }}/skif-cache
+        run: |
+          set -euo pipefail
+          if [ "$(printf '%s\n' 0.9.0 "$VERSION" | sort -V | head -n 1)" != 0.9.0 ]; then
+            echo "::notice::skif ${VERSION} has no cache store; the Action's cache self-test starts with 0.9.0"
+            exit 0
+          fi
+          files="$(find "$STORE" -type f -name '*.bin' | wc -l)"
+          echo "namespace files in ${STORE}: ${files}"
+          [ "$files" -ge 1 ]
+      - name: Lint the fixture through the Action again, warm
+        if: steps.release.outputs.tag != ''
+        uses: ./
+        with:
+          version: ${{ steps.release.outputs.tag }}
+          working-directory: fixtures/e2e/clean/project
+          cache-key: -self-test
 
   consistency:
     name: Version consistency

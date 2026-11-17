@@ -55,6 +55,31 @@ inputs:
     description: Install skif and put it on PATH, but do not run it.
     required: false
     default: "false"
+  cache:
+    description: >-
+      Keep skif's cache store between runs: "true" (default) restores it before skif runs and saves it afterwards
+      (see cache-save); "false" runs skif without a cache. The store lives in `skif-cache` below the runner's temporary directory, which
+      the run is given as `SKIF_CACHE_DIR`. The cache never changes the report or the exit code.
+    required: false
+    default: "true"
+  cache-key:
+    description: >-
+      A suffix for the cache key, for jobs that would otherwise share one: a matrix job passes what tells its legs
+      apart (e.g. the Node version of the leg).
+    required: false
+    default: ""
+  cache-max-size:
+    description: >-
+      The most the cache may hold, in bytes or with a unit such as "256MiB" (the run's `SKIF_CACHE_MAX_SIZE`).
+    required: false
+    default: "256MiB"
+  cache-save:
+    description: >-
+      Save the cache after the run: "true" or "false". Empty (default): save only a `push` or `schedule` run of the
+      default branch, so a run started by a comment, a dispatch or another workflow restores only. A pull request
+      never saves, whatever this says, so it cannot write a cache the default branch reads.
+    required: false
+    default: ""
   token:
     description: >-
       Token used to query the GitHub API and download release assets. Defaults to the workflow's
@@ -73,6 +98,11 @@ outputs:
   path:
     description: Absolute path to the installed skif binary.
     value: ${{ steps.install.outputs.path }}
+  cache-hit:
+    description: >-
+      "true" when a cache saved for this exact commit was restored; "false" when an older one or none was. Empty
+      when the cache is off.
+    value: ${{ steps.store.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -116,6 +146,19 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: bash "$ACTION_PATH/scripts/gh-action-install.sh"
 
+    # skif's cache store (ADR 0007, ADR 0015). The key ends in the commit, so every default-branch run saves a store
+    # of its own and a later run restores the nearest one: same inputs first, then any for this job.
+    - name: Restore the skif cache
+      id: store
+      if: inputs.cache == 'true' && inputs.install-only != 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.temp }}/skif-cache
+        key: skif-${{ runner.os }}-${{ steps.install.outputs.version }}-${{ github.job }}${{ inputs.cache-key }}-${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/bun.lock', '**/bun.lockb', '**/skif.toml', '**/.skif.toml', '**/tsconfig*.json', '!**/node_modules/**') }}-${{ github.sha }}
+        restore-keys: |
+          skif-${{ runner.os }}-${{ steps.install.outputs.version }}-${{ github.job }}${{ inputs.cache-key }}-${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/bun.lock', '**/bun.lockb', '**/skif.toml', '**/.skif.toml', '**/tsconfig*.json', '!**/node_modules/**') }}-
+          skif-${{ runner.os }}-${{ steps.install.outputs.version }}-${{ github.job }}${{ inputs.cache-key }}-
+
     - name: Run skif
       if: inputs.install-only != 'true'
       shell: bash
@@ -125,4 +168,23 @@ runs:
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
         FAIL_ON_WARNINGS: ${{ inputs.fail-on-warnings }}
         FROM_SHERIF: ${{ inputs.from-sherif }}
+        # An explicit location, so the run writes the store although `CI` is set. Empty values are unset to skif.
+        SKIF_CACHE: ${{ inputs.cache != 'true' && '0' || '' }}
+        SKIF_CACHE_DIR: ${{ inputs.cache == 'true' && format('{0}/skif-cache', runner.temp) || '' }}
+        SKIF_CACHE_MAX_SIZE: ${{ inputs.cache == 'true' && inputs.cache-max-size || '' }}
       run: bash "$ACTION_PATH/scripts/gh-action-run.sh"
+
+    # A pull request restores only: the store's envelope checks integrity, not who wrote it. Unless `cache-save` says
+    # otherwise, only a `push` or `schedule` run of the default branch saves (scripts/test-action-cache.mjs).
+    - name: Save the skif cache
+      if: >-
+        always() && inputs.cache == 'true' && inputs.install-only != 'true'
+        && steps.store.outputs.cache-primary-key != '' && steps.store.outputs.cache-hit != 'true'
+        && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+        && (inputs.cache-save == 'true' || (inputs.cache-save == ''
+        && (github.event_name == 'push' || github.event_name == 'schedule')
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ runner.temp }}/skif-cache
+        key: ${{ steps.store.outputs.cache-primary-key }}
