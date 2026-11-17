@@ -4,10 +4,12 @@ Embeddable facade of [skif](https://github.com/polylint/skif), a dependency and 
 JavaScript and TypeScript monorepos (npm, pnpm, yarn and bun).
 
 The crate discovers a workspace, runs the rules and plans fixes. It never prints, prompts, exits, reads the
-environment or the working directory, or writes files: everything is read through a `FileSystem` (`OsFs` on disk, `MemoryFs` for
+environment or the working directory, or writes files (the `cache-disk` feature excepted): everything is read through a `FileSystem` (`OsFs` on disk, `MemoryFs` for
 tests, `BufferFs` for an editor's unsaved buffers over another file system), and fixes come back as a `FixPlan` for the
 caller to show, merge or write. A host that lints repeatedly passes one `ModuleCache` to `Linter::with_module_cache`
-(feature `js-analysis`), so only changed files are parsed again.
+(feature `js-analysis`), so only changed files are parsed again. A host that keeps results between runs gives the linter a
+store with `Linter::with_cache_store` (and, optionally, `Linter::with_cache_salt`); the cache types are in `skif::cache`
+and `Report::cache` counts hits, misses and bytes written per namespace.
 
 ```rust
 use std::path::Path;
@@ -38,6 +40,7 @@ assert_eq!(report.summary.packages, 2);
 | `schema` | The JSON Schema of `skif.toml`, as `skif::config_schema`. |
 | `update` | `skif::update`: newer published versions through a registry the host supplies, planned as a `FixPlan`. |
 | `js-analysis` | JavaScript and TypeScript analysis and the plugin table; `Linter` adds it to the built-in rules. Off by default. |
+| `cache-disk` | skif's disk cache store, `skif::cache::DiskStore` (the `skif-cache` crate): the only part of the facade that writes files. Off by default. |
 
 The command-line tool is the [`skif-cli`](https://crates.io/crates/skif-cli) crate. See the
 [repository](https://github.com/polylint/skif) for the rule reference and the architecture decisions.

@@ -79,8 +79,10 @@ Fixing:
 
 Diagnosing: `--trace-dependency <NAME>` (where a dependency is listed, imported and counted as used), `--debug`
 (roots, configuration files and packages loaded), `--performance`, `--duration`, `--memory`. Running: `--watch` (lint
-again on every change), `--cache` and `--cache-location <DIR>` (keep parse results between runs; never changes the
-report), `--color <auto|always|never>`.
+again on every change), `--color <auto|always|never>`. The cache of parse results is on by default and never changes the
+report: `--no-cache` (or `SKIF_CACHE=0`) turns it off, `--cache-location <DIR>` and `--cache-max-size <SIZE>` place and
+cap it (also `SKIF_CACHE_DIR`, `SKIF_CACHE_MAX_SIZE` and `[cache]` in `skif.toml`, whose `location` stays inside the project); with `CI` set it is read but not written
+unless a location is given.
 
 ## Subcommands
 
@@ -99,7 +101,8 @@ report), `--color <auto|always|never>`.
 | `skif update [PATH] [--check\|--interactive] [--target latest\|minor\|patch] [--dependencies <NAME>] [--no-install]` | Write newer published versions from the npm registry and install (`--check` writes nothing, exit `1` when an update exists); the only command that uses the network. |
 | `skif list [PATH] [-r] [--show ...]`, `skif json [PATH] [-r]` | The dependencies the version groups govern, as text / NDJSON. |
 | `skif format [PATH] [-r] [--check\|--unsafe]` | Format every `package.json` as `[format]` describes. |
-| `skif mcp` | MCP server on stdio with the tools `lint`, `explain_usage`, `config`, `list_rules`; an argument is the flag of the same name, and it never writes files. |
+| `skif cache stats\|clean [PATH] [--cache-location <DIR>] [--all] [--format human\|json]` | Show what the cache location holds, or remove this project's store (`--all`: every store in the location). |
+| `skif mcp` | MCP server on stdio with the tools `lint`, `explain_usage`, `config`, `list_rules`, `cache_stats`, `cache_clean`; an argument is the flag of the same name, and it writes no project file. |
 | `skif lsp` | Language server on stdio: diagnostics as you edit, fixes as code actions. |
 
 `rules`, `config`, `explain-usage`, `migrate`, `baseline` and `update` take `--format human|json`.

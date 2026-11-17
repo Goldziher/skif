@@ -14,7 +14,8 @@ direction.
 | `skif-cli` | The command line: argument parsing, exit codes, install step after fixes. |
 | `skif` | Embeddable facade: discover a workspace, lint it and plan fixes without IO side effects. |
 | `skif-config` | `skif.toml` model, loading, CLI overrides and the JSON Schema. |
-| `skif-core` | Diagnostic, fix, report and filesystem types shared by the other crates. |
+| `skif-core` | Diagnostic, fix, report, filesystem and cache store types shared by the other crates. |
+| `skif-cache` | The disk cache store behind the facade feature `cache-disk`: per-project stores under one location, pruned and capped. |
 | `skif-workspace` | Workspace discovery for npm, pnpm, yarn and bun: packages, manifests and catalogs. |
 | `skif-lint` | Rule engine: rule registry, diagnostic emitter and parallel runner. |
 | `skif-rules` | Built-in manifest, workspace, policy and catalog rules. |

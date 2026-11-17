@@ -20,9 +20,21 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 | `fail-on-warnings` | Exit non-zero on any warning. Not added when `args` starts with a subcommand such as `baseline` or `migrate`. |
 | `from-sherif` | `true` or `false` (default): migration aid that lints with the translated sherif settings of a project that has no skif configuration yet (below). |
 | `install-only` | Put `skif` on `PATH` without running it. |
+| `cache` | `true` (default) or `false`: keep skif's [cache](../editors-and-agents/#the-module-cache) between runs. The store lives in `${{ runner.temp }}/skif-cache`, given to the run as `SKIF_CACHE_DIR`. |
+| `cache-key` | A suffix for the cache key, for jobs that would share one: a matrix job passes what tells its legs apart. |
+| `cache-max-size` | The most the cache may hold (default `256MiB`). |
+| `cache-save` | `true` or `false`: save the cache after the run. Unset, only a `push` or `schedule` run of the default branch saves. A pull request never saves. |
 | `token` | Token for the GitHub API and the release download. Defaults to the workflow's `GITHUB_TOKEN`. |
 | `repository` | Advanced: the `owner/repo` the release assets come from. Defaults to `polylint/skif`. |
 | `verify-attestation` | Verify the archive's build provenance with `gh attestation verify` (default `true`). |
+
+The outputs are `version`, `path` and `cache-hit` (`true` when a cache saved for this exact commit was restored).
+
+The cache is restored under the key `skif-<os>-<version>-<job><cache-key>-<hash>-<sha>`, the hash taken over the
+lockfiles, `skif.toml` and `tsconfig*.json`; without an exact match the newest cache with the same hash is used, then
+the newest of the job. Each `push` or `schedule` run of the default branch saves a store for its commit, whether or
+not skif found problems; a run started another way (a comment, a dispatch, another workflow) restores only unless
+`cache-save` is `true`. Pull requests restore only, so a pull request cannot write a cache the default branch reads.
 
 A job that replaces sherif can keep its settings with `from-sherif: true`, a migration aid that is off by default.
 With it, when no `skif.toml` or `.skif.toml` is found (in the working directory,
@@ -124,7 +136,8 @@ repos:
 Both hooks run `scripts/pre-commit/run-skif.sh`, which needs neither Rust nor Node. It uses, in order,
 `SKIF_BINARY` (an error if it is not executable), `skif` on `PATH`, then the release pinned by the hook revision,
 downloaded once into `~/.cache/skif/pre-commit` and verified against `checksums.txt` (and its build attestation, as the action checks it, when an authenticated `gh` is
-available).
+available). `SKIF_CACHE_DIR` moves the downloads; it is also the location of skif's
+[cache](../editors-and-agents/#the-module-cache), which keeps to its own directories there.
 
 The hooks run when `package.json`, `pnpm-workspace.yaml`, `skif.toml` or `.skif.toml` change. A configuration file
 that is only reached through `extends` can have any name and does not trigger them; add its path to the hook's
@@ -167,7 +180,7 @@ pre-commit:
 
 Wrap the `skif` binary in a `native_binary` target and run `bazel run //:skif`, or `bazel run //:skif -- --fix`.
 Under `bazel run` the binary, and the npm package's `skif` bin, first change to the directory you ran Bazel from, so
-relative paths resolve against the source tree instead of the runfiles tree. Under `bazel test`, `--cache` keeps its
+relative paths resolve against the source tree instead of the runfiles tree. Under `bazel test`, the cache keeps its
 store in `$TEST_TMPDIR/skif/`. The [Bazel guide](../bazel/) covers fetching the release archives, `bazel test`
 inputs, what skif reads from `BUILD` and `MODULE.bazel` files, and its limits.
 

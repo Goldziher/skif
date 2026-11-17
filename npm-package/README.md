@@ -65,6 +65,7 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
 | `production` | `--production` |
 | `noJs` | `--no-js` |
 | `failOnWarnings` | `--fail-on-warnings` |
+| `cache` | `--cache`, `--no-cache`, `--cache-location` and `--cache-max-size`: `false` turns the cache off, `true` turns it on over `SKIF_CACHE` and `[cache]`, and `{ location?: string, maxSize?: number \| string }` names its directory and cap (`maxSize` in bytes or as `"256MiB"`; an empty `location` is an error). The cache is on by default, opened for each call, and never changes the report; the environment, `[cache]` and the defaults apply below the option, and with `CI` set it is read but not written unless a location is given |
 | `ignoreRules`, `ignorePackages`, `ignoreDependencies` | `--ignore-rule`, `--ignore-package`, `--ignore-dependency`, as arrays |
 
 The `typeAware` and `noTypeAware` options were removed in skif 0.9.0 with the type-aware analysis: setting either

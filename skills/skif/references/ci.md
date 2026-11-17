@@ -14,7 +14,9 @@ The full guide is <https://polylint.github.io/skif/guides/integrations/>.
 Inputs: `version` (default: the version the action release was published with), `args` (extra skif arguments; one
 line is split on spaces, several lines are one argument each), `working-directory`, `fail-on-warnings`,
 `from-sherif` (lint with the translated sherif settings while the project has no `skif.toml`), `install-only`,
-`token`, `repository`, `verify-attestation`. Outputs: `version`, `path`.
+`token`, `repository`, `verify-attestation`, and for skif's cache `cache` (default `true`), `cache-key` (a suffix for
+matrix jobs), `cache-max-size` (default `256MiB`) and `cache-save` (default: only `push` and `schedule` runs of the default
+branch; pull requests never save). Outputs: `version`, `path`, `cache-hit`.
 
 A floating tag (`@v0.M` for a 0.x line, `@vN` from 1.0) takes every patch release of its line; a full tag or a commit
 SHA pins one version. On GitHub Actions, with no `--format`, skif prints the human report plus workflow annotations.

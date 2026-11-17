@@ -4,7 +4,7 @@ description: Embed skif in a Rust program through the skif crate.
 ---
 
 The `skif` crate is a facade that never prints, prompts, exits, reads the environment or the working directory,
-or writes files. Everything is read through a `FileSystem`: `OsFs` on disk, `MemoryFs` for tests, `BufferFs` for an
+or writes files (the optional `cache-disk` feature excepted, below). Everything is read through a `FileSystem`: `OsFs` on disk, `MemoryFs` for tests, `BufferFs` for an
 editor's unsaved buffers over another file system. Diagnostics are relative to the workspace root, and fixes come back as a `FixPlan` for the caller to show,
 merge or write. [Poly](https://github.com/polylint/polylint) is the first host.
 
@@ -35,6 +35,7 @@ let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
 | `report` | no | the renderers (human, JSON, TOON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 | `schema` | no | `config_schema` |
 | `update` | no | `skif::update`: newer published versions through a registry the host supplies (implies `manifest` and `fix`) |
+| `cache-disk` | no | skif's disk cache store, `skif::cache::DiskStore` (see [Cache store](#cache-store)); the only part of the facade that writes files |
 
 `js-analysis` is off by default so a host that already embeds oxc keeps its own copy. No `oxc` or `rayon` type
 appears in a public signature; a host that lints often passes an `Executor` (a reusable thread pool) in
@@ -155,6 +156,55 @@ A `Linter` built with `Linter::with_fs` remembers directory listings, existence 
 files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits
 files between runs sees the edits. `discover_targets`, `find_target` and `find_workspace_root` do the same for
 the duration of one call.
+
+## Cache store
+
+The cache is the host's policy: a `Linter` caches nothing beyond a run unless the host gives it a store with
+`Linter::with_cache_store(Arc<dyn CacheStore>)`, and the linter itself writes no file. The types are in `skif::cache`:
+`CacheStore` (the trait the host implements or takes from `skif-cache`), `CacheNamespace`, `MemoryStore`,
+`CacheCounters`, `KeyBuilder`, and `seal` and `open` for the checked envelope. skif computes every key (a blake3 digest
+of content digests, file names, the options that matter and the host's salt, never a modification time or an absolute
+path) and seals every value, so a store only moves opaque bytes and a store that loses, damages or mixes up entries
+costs misses, never a different report. `Linter::with_cache_salt(&[u8])` adds what skif cannot see, such as the host's
+build identity, to every key.
+
+`Report::cache` maps each namespace (`modules`, the parse results of the JS analysis, feature `js-analysis`) to its
+`CacheCounters` (`hits`, `misses`, `bytes_written`). It is empty without a store and is not part of the JSON report.
+
+```rust
+use std::path::Path;
+use std::sync::Arc;
+use skif::cache::MemoryStore;
+use skif::{ConfigOverrides, Linter, MemoryFs, Workspace, find_workspace_root, load_config};
+
+let fs = MemoryFs::new()
+    .with_file("/repo/package.json", r#"{"name": "app", "version": "1.0.0", "main": "index.js"}"#)
+    .with_file("/repo/index.js", "export const answer = 42;\n");
+
+let root = find_workspace_root(Path::new("/repo"), &fs)?;
+let config = load_config(&root, &fs, &ConfigOverrides::default())?;
+let workspace = Workspace::discover_with_fs(&root, &config, &fs)?;
+
+let linter = Linter::with_fs(&config, Arc::new(fs.clone()))?
+    .with_cache_store(Arc::new(MemoryStore::new()))
+    .with_cache_salt(b"my-host 1.0");
+let cold = linter.run(&workspace)?;
+let warm = linter.run(&workspace)?;
+assert!(cold.cache["modules"].misses > 0);
+assert!(warm.cache["modules"].hits > 0);
+# Ok::<(), skif::Error>(())
+```
+
+The feature `cache-disk` adds skif's own store, `skif::cache::DiskStore`, the one part of the facade that writes
+files, and only below the location it is given. `DiskStore::open(location, base, options)` opens the store of the
+project at `base` in a location that holds one store per project; call `finish_run()` once the run is over to write
+what the run used, prune the rest and enforce the cap (`DiskStoreOptions`: `max_size`, default 512 MiB, and `write`).
+`default_location(base, user_cache_dir)` returns `node_modules/.cache/skif` below `base` when `node_modules` exists,
+else `skif` in the per-user cache directory the host passes (the crate reads no environment), `base_key` names a
+project's store, and `stats` and `clean` back `skif cache stats` and `skif cache clean`. The on-disk layout and the
+policy are those of the command line ([editors and agents](../editors-and-agents/#the-module-cache)). A `ModuleKey`
+is 32 bytes (`to_bytes` and `from_bytes`), a blake3 digest, and a store written under another `CACHE_SCHEMA` is
+empty.
 
 ## Writing a rule provider
 

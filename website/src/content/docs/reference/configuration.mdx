@@ -41,6 +41,7 @@ file. Print the schema with `skif schema`.
 | `[update]` | `minimum-release-age`, `max-concurrent-requests` for `skif update` |
 | `[[update-groups]]` | How far `skif update` may move each dependency group |
 | `[format]` | How `package-json-format` and `skif format` lay out `package.json` |
+| `[cache]` | `enabled`, `location`, `max-size` of the cache of the command line and the npm package |
 | `[js]` | JavaScript analysis |
 | `root`, `extends`, `reset` | How files combine |
 | `[[overrides]]` | Rule levels, severity caps, suppressions and JS inputs for selected packages or files |
@@ -431,6 +432,37 @@ with a comment inside is not collapsed, so a comment never ends up beside anothe
 `JSON.stringify(manifest, null, indent)` lays it out, with the file's own line ending and a final newline. A manifest
 that is not strict JSON (comments, trailing commas, single-quoted strings) keeps its layout, because laying it out again
 would drop its comments or write invalid JSON. Only `package.json` files are formatted.
+
+### `[cache]`
+
+The cache of the command line and the npm package ([editors and agents](../../guides/editors-and-agents/#the-module-cache)).
+The library never reads the table, and no cache setting enters a cache key, so none changes a report.
+
+```toml
+[cache]
+enabled = true             # false turns the cache off; unset, it is on
+location = ".cache/skif"   # relative to this file and inside its directory; unset: node_modules/.cache/skif, else the per-user cache directory
+max-size = "256MiB"        # bytes as an integer, or a string with a unit; unset: 512MiB
+```
+
+A configuration file is part of the project, and linting a checkout you have not read must be safe, so the table
+reaches less far than the flags and the variables:
+
+- `location` must stay inside the directory of the file that sets it. An empty value, an absolute path or a `..`
+  that leaves the directory is a configuration error naming the file and `cache.location`; a location that a
+  symbolic link leads out of the directory is ignored with a warning.
+- With `CI` set, a `location` from the table does not make the run write the cache: only `--cache-location` and
+  `SKIF_CACHE_DIR` do.
+- `max-size` caps this project's own store. It never removes the stores of other projects in a shared location;
+  `--cache-max-size` and `SKIF_CACHE_MAX_SIZE` cap the whole location.
+
+`max-size` units `KiB`, `MiB`, `GiB`, `TiB` and the single letters `K`, `M`, `G`, `T` count in 1024s; `KB`, `MB`,
+`GB` and `TB` in 1000s. Each key yields to the flag and the variable of the same setting (`--no-cache` and
+`SKIF_CACHE`, `--cache-location` and `SKIF_CACHE_DIR`, `--cache-max-size` and `SKIF_CACHE_MAX_SIZE`), flags first.
+
+The table is read only from the root's own `skif.toml` or `.skif.toml`, or the `--config` file. In a file reached
+through `extends`, a file above the root or the configuration of a nested root it is ignored, and a run prints a
+warning on stderr naming the file. The table cannot appear in `[[overrides]]` or a package file.
 
 ### `[js]`
 

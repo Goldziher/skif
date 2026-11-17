@@ -195,7 +195,6 @@ native_test(
     name = "skif_test",
     src = ":skif_bin",
     out = "skif_test_bin",
-    args = ["--cache"],
     data = [
         "BUILD.bazel",
         "MODULE.bazel",
@@ -211,9 +210,9 @@ native_test(
 The test fails when skif exits non-zero: with an error finding, or with a warning under `--fail-on-warnings`. The
 runfiles tree has no `.git`, so skif lists the files by walking the directories instead of reading the git index.
 
-Under `bazel test` (`TEST_TMPDIR` is set), `--cache` without `--cache-location` keeps its store in
-`$TEST_TMPDIR/skif/`, not in Bazel's output tree. `TEST_TMPDIR` is cleared between test runs, so the cache saves
-parsing only within one run
+Under `bazel test` (`TEST_TMPDIR` is set), the cache is on and, without `--cache-location`, keeps its store in
+`$TEST_TMPDIR/skif/`, not in Bazel's output tree; no flag is needed. `TEST_TMPDIR` is cleared between test runs, so
+the cache saves parsing only within one run
 ([ADR 0011](https://github.com/polylint/skif/blob/main/adrs/0011-nx-lerna-and-bazel.md)).
 
 Keeping the inputs complete is work: a file missing from `data` changes the findings. `bazel run` and CI read the

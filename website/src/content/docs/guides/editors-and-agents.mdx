@@ -72,11 +72,15 @@ so a bad value gets the command's own message.
 | `explain_usage` | `skif explain-usage` | `file`, `export`, or `dependency` with `package`; `path` (default `.`), `production`, `config`, `no_config` |
 | `config` | `skif config` | `path`, `recursive`, `explain` with `package`, `config`, `no_config`; without `explain` it is `--show` |
 | `list_rules` | `skif rules` | none |
+| `cache_stats` | `skif cache stats` | `path` (default `.`), `cache_location` |
+| `cache_clean` | `skif cache clean` | `path` (default `.`), `cache_location`, `all` |
 
 Paths, `file` included, are relative to the directory the server was started in, so start it in the repository.
 Problems in the project are the report, not an error. A command that exits `2` gives a result flagged `isError`:
 the JSON `error` document with its `kind` and message, or, when roots of a recursive run failed, the report with its
-`errors`. The server never writes a file: to apply fixes, run `skif --fix`.
+`errors`. The server writes no project file: to apply fixes, run `skif --fix`. `cache_clean` removes only skif's own
+[cache](#the-module-cache) stores, and the `lint` tool never writes the cache. The tools' annotations say so:
+`cache_clean` is the one tool not marked read-only, and it is marked destructive.
 
 The server handles one call at a time: a `lint` of a large monorepo holds every later request until it finishes,
 and cancelling a call does not stop it. A message longer than 64 MiB is refused.
@@ -122,30 +126,79 @@ With `--performance` or `SKIF_TIMINGS=1`, the phase timings of each run are writ
 
 ## The module cache
 
-Parsing source files is the largest part of a JavaScript analysis. skif keeps the parse result of each file under
-a key of its file name, its text and the parser's version, so an unchanged file is not parsed again and a changed
-file always is: the cache never changes a report. Everything else (configuration, manifests, the module graph, the
-rules) is computed on every run. The design is recorded in
+Parsing source files is the largest part of a JavaScript analysis. skif keeps the parse result of each file in a cache
+under a key of the file's name, its text, the relevant options and the parser's version, never its modification time
+or absolute path, so an unchanged file is not parsed again and a changed file always is. The cache never changes a
+report or an exit code. Everything else (configuration, manifests, the module graph, the rules) is computed on every
+run. A store that is damaged, written by another version or unreadable is empty, and an entry that does not verify is
+a miss. The design is recorded in
 [ADR 0007](https://github.com/polylint/skif/blob/main/adrs/0007-js-analysis-core-on-oxc.md).
 
-- **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
-  root (or below the invocation directory of a multi-root run, and in `$TEST_TMPDIR/skif/` under `bazel test`);
-  `--cache-location <DIR>` puts the file elsewhere.
-  The file is written after a run only when its entries changed, and it holds exactly the files that run parsed, so
-  it does not grow with edits; a narrower run (`--production`, one root of several) drops the entries it did not
-  use. A damaged file, or one written by another skif version, is ignored and replaced. If the file cannot be
-  written, skif prints a warning and the exit code is unchanged. A warm run still reads every file, so the gain is
-  the parse share of a run, which `--performance` shows as `js parse` beside
-  `js module cache: H hits, M misses, W waits`.
-- **`skif -r`** without `--cache` keeps one cache in memory for the run, shared by its roots, for the files more than
-  one root can reach: files outside the root parsing them (shared code outside every root) and files of a root
-  nested in it. Such a file is parsed once, not once per root; each root parses its own files without the cache, so
-  roots that share no code keep nothing in it. With `--cache` every file is shared the same way. Roots linted in
-  parallel wait for a parse already under way rather than repeating it; `--performance` counts those lookups as
-  waits and reports their time as `js parse wait`.
-- **`--watch`** keeps the cache in memory across its runs (with `--cache` also on disk, written after each run).
-- **`skif lsp`** and **`skif mcp`** keep one in memory per project, for as long as the server runs; they never read
-  or write `modules.bin`.
+The cache is on by default for `skif`, `skif -r` and `--watch`. Turn it off with `--no-cache`, `SKIF_CACHE=0` or
+`[cache] enabled = false`. A setting comes from the first of these that sets it: the flags (`--no-cache`, `--cache`,
+`--cache-location <DIR>`, `--cache-max-size <SIZE>`), the environment (`SKIF_CACHE`, `SKIF_CACHE_DIR`,
+`SKIF_CACHE_MAX_SIZE`), the [`[cache]` table](../../reference/configuration/#cache) of the root configuration, then the
+defaults: on, capped at 512 MiB. `--cache` only forces the cache on over `SKIF_CACHE=0` or `enabled = false`.
+
+- **Location.** The first that applies: `--cache-location`, `SKIF_CACHE_DIR`, `[cache] location`; then
+  `$TEST_TMPDIR/skif` under `bazel test`; then `node_modules/.cache/skif` below the workspace root (or the invocation
+  directory of a multi-root run), only when `node_modules` exists, because skif never creates it; then the per-user
+  cache directory (`$XDG_CACHE_HOME/skif` when set, else `~/Library/Caches/skif` on macOS, `%LOCALAPPDATA%\skif` on
+  Windows, `~/.cache/skif` elsewhere); with none of these, memory for the run. A directory skif creates gets a
+  `CACHEDIR.TAG` and a `.gitignore` of `*`, so version control and backup tools skip it.
+- **Layout.** One location holds one store per project, `<location>/<key>/modules.bin`. Inside a git repository the
+  key comes from the repository (the git directory its worktrees share) and the base directory's path in it, so the
+  worktrees of one repository share a store and two repositories, or two clones of one, never do; outside git it
+  comes from the absolute path. A `modules.bin` that an older skif left directly in the location is ignored and can
+  be deleted.
+- **Eviction.** A store keeps exactly what the project's last complete run used, so it does not grow with edits, and
+  a narrower run (`--production`, one root of several) drops the entries it did not use: alternating `skif` and
+  `skif --production` on one store parses the difference again each time, so give one of them its own
+  `--cache-location`. A run that fails, or in which a root cannot be linted, only adds what it parsed and drops
+  nothing. After a write, a location over its cap drops the stores of other projects, least recently written first;
+  a cap from `[cache] max-size` shrinks only the project's own store.
+- **Failures.** A store that cannot be written is silent when the cache came from the defaults (one `skif debug:` line
+  under `--debug`) and a `warning:` on stderr when you asked for the cache, by turning it on or naming a location. The
+  exit code stays unchanged. A write goes to a new, randomly named temporary file and replaces the store's file
+  atomically behind a try-lock, so a concurrent run skips its write rather than waiting; a temporary file a killed run
+  left is removed by the next write. A store file larger than the cap is not read.
+- **`--debug`** prints `skif debug: cache store <dir>` and `skif debug: cache modules: H hits, M misses, B bytes written`.
+  A warm run still reads every file, so the gain is the parse share of a run, which `--performance` shows as
+  `js parse` beside `js module cache: H hits, M misses, W waits`.
+- **`skif cache stats` and `skif cache clean`** show and remove the stores of a location
+  ([CLI](../../reference/cli/#managing-the-cache)); neither writes a project file.
+- **`skif -r`** shares one cache between its roots for the files more than one root can reach: files outside the root
+  parsing them (shared code outside every root) and files of a root nested in it. Such a file is parsed once, not
+  once per root; roots linted in parallel wait for a parse already under way rather than repeating it, which
+  `--performance` counts as waits and reports as `js parse wait`. With `--no-cache` each root parses its own files
+  without the cache and only these shared files are kept, in memory.
+- **`--watch`** reads the store once and writes it after each run; the cache location is left out of the files it
+  watches. With `--no-cache` it keeps the cache in memory across its runs.
+- **`skif lsp`** and **`skif mcp`** keep one cache in memory per project, for as long as the server runs. The
+  project's first lint is seeded from the store, which is then let go; the servers never write it.
+
+### Caching in CI
+
+With `CI` set and no location given by `--cache-location` or `SKIF_CACHE_DIR`, a run reads the store but does not
+write it: nothing would restore what it wrote. A `[cache] location` in `skif.toml` does not change that, since a
+configuration file is part of the checkout. The store's key includes the path of the repository's git directory,
+so restore the cache into a checkout at the same path, as GitHub-hosted runners give. To cache in CI, name a directory and restore and save
+it with the CI's cache step, keyed on what changes the entries (the lockfile and `skif.toml`):
+
+```yaml
+env:
+  SKIF_CACHE_DIR: ${{ github.workspace }}/.skif-cache
+steps:
+  - uses: actions/cache@v6
+    with:
+      path: .skif-cache
+      key: skif-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml', '**/skif.toml') }}
+      restore-keys: skif-${{ runner.os }}-
+  - run: skif
+```
+
+On GitLab CI, set `SKIF_CACHE_DIR: $CI_PROJECT_DIR/.skif-cache` in `variables:` and add
+`cache: { paths: [.skif-cache] }`. The `npm` package follows the same rule.
 
 ## Language server
 

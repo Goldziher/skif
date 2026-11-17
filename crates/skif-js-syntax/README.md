@@ -12,7 +12,7 @@ The oxc boundary of [skif](https://github.com/polylint/skif): one JavaScript or 
 - Besides `.js`, `.ts` and their variants, it reads the script blocks and template uses of `.vue`, `.svelte` and
   `.astro` files, the imports and exports of `.mdx`, and the imports of `.marko` and `.tsrx`; `parse_stylesheet`
   lists what a stylesheet imports.
-- `parse_cached` parses through a `ModuleCache` (`MemoryModuleCache` in memory) under a `ModuleKey` of the file name,
-  its text, the parse options and the crate version, so an unchanged file is not parsed again.
+- `parse_cached` parses through a `ModuleCache` (`MemoryModuleCache` in memory) under a `ModuleKey` (a 32-byte blake3 digest) of the file
+  name, its text, the parse options and the crate version, so an unchanged file is not parsed again.
 
 No oxc type appears in the public API; the oxc crates are held to one release (see ADR 0007).

@@ -12,5 +12,7 @@ consumed by editors, SARIF and other tooling. Only the `fs` module touches the d
 - `LineIndex`: offset to line/column conversion (Unicode scalar and UTF-16 columns).
 - `FileSystem`: the read-only file access every skif library goes through, with `OsFs` (disk), `MemoryFs` (tests)
   and `BufferFs` (an editor's unsaved buffers over another file system).
+- `CacheStore`, `CacheNamespace`, `KeyBuilder`, `seal` and `open`, `CacheCounters`, `MemoryStore`: the cache store a host
+  gives the linter, with the checked envelope skif wraps each value in; a store only moves opaque bytes.
 
 Enable the `schema` feature to derive `schemars::JsonSchema` for the data types.

@@ -113,11 +113,14 @@ git root, so one organisation file applies to every project below it. See the
   `package.json` layout.
 - **CI output**: human, JSON, TOON, SARIF, GitHub annotations, GitLab Code Quality, compact, Markdown and
   CODEOWNERS reports, several in one run, with stable rule ids and documented exit codes.
+- **Cache**: parse results are kept between runs by default, below `node_modules/.cache/skif` or the per-user cache
+  directory, and never change a report. `--no-cache`, `SKIF_CACHE=0` or `[cache] enabled = false` turns it off, and
+  `skif cache stats` and `skif cache clean` inspect and remove it.
 - **Editors and agents**: watch mode, a language server, an MCP server and an
   [agent skill](https://polylint.github.io/skif/guides/editors-and-agents/#agent-skill).
 - **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own and puts the JS analysis behind its
-  `js-analysis` feature, and the npm package exports `lint`, `lintAsync` and
-  `run`. See the [library guide](https://polylint.github.io/skif/guides/library/).
+  `js-analysis` feature and its disk cache store behind `cache-disk`, and the npm package exports `lint`, `lintAsync`
+  and `run`. See the [library guide](https://polylint.github.io/skif/guides/library/).
 
 ## Support
 
