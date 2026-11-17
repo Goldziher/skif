@@ -286,7 +286,7 @@ pub fn update(
     }
     writeln!(
         out,
-        "re-record the parity, syncpack and type-aware baselines (see tools/bench/README.md)"
+        "re-record the parity and syncpack baselines (see tools/bench/README.md)"
     )?;
     Ok(())
 }

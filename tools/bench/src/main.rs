@@ -15,8 +15,6 @@ mod sources;
 mod syncpack;
 mod tools;
 mod tools_install;
-mod type_aware;
-mod typed_diff;
 
 use std::fs;
 use std::path::PathBuf;
@@ -31,7 +29,6 @@ use skif_bench::generate::{self, Options, PackageManager};
 
 const DEFAULT_CORPUS_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml");
 const DEFAULT_PARITY_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/parity.json");
-const DEFAULT_TYPE_AWARE_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/type-aware.json");
 const DEFAULT_SYNCPACK_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/syncpack.json");
 const DEFAULT_TOOLS_DIR: &str = "target/bench-generated/tools";
 const DEFAULT_POLICY_FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/policy");
@@ -65,9 +62,6 @@ enum Command {
     SyncpackDiff(SyncpackArgs),
     /// Measure dead-code precision and recall of skif (and the pinned knip) against a generated answer key.
     Deadcode(DeadcodeArgs),
-    /// Compare the JSON output of a reference skif binary with the binary under test on the bench corpus, typed and
-    /// untyped; fails on any difference the allow list does not cover.
-    TypedDiff(TypedDiffArgs),
     /// Compare skif's JSON output without the cache with its output from a cold store, a warm store and after seeded
     /// source edits on the bench corpus; fails on any difference.
     CacheDiff(CacheDiffArgs),
@@ -102,38 +96,6 @@ struct CacheDiffArgs {
     corpus_dir: PathBuf,
     /// Where the captured output of each run and the cache stores are written.
     #[arg(long, default_value = "target/bench-cache-diff")]
-    scratch: PathBuf,
-    /// Seconds each skif run may take.
-    #[arg(long, default_value_t = 900)]
-    timeout_secs: u64,
-}
-
-#[derive(Args)]
-struct TypedDiffArgs {
-    /// The reference skif binary (the build before the change).
-    #[arg(long)]
-    reference: PathBuf,
-    /// The skif binary under test.
-    #[arg(long, default_value = "target/release/skif")]
-    skif: PathBuf,
-    /// Only these repositories of the `bench` suite.
-    #[arg(long, value_delimiter = ',')]
-    only: Vec<String>,
-    /// Corpus manifest.
-    #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
-    corpus_file: PathBuf,
-    /// Cache directory holding the corpus checkouts (fetched when missing, installed checkouts are used as they are).
-    #[arg(long, default_value = "target/bench-corpus")]
-    corpus_dir: PathBuf,
-    /// JSON file listing expected differences: `{"allow": [{"kind": "added|removed|package|section", "reason": "...",
-    /// "repo", "mode", "rule", "file", "package", "section"}]}`; fields left out match anything.
-    #[arg(long)]
-    allow: Option<PathBuf>,
-    /// Also write the comparison as JSON to this file.
-    #[arg(long)]
-    out: Option<PathBuf>,
-    /// Where the captured output of each run is written.
-    #[arg(long, default_value = "target/bench-typed-diff")]
     scratch: PathBuf,
     /// Seconds each skif run may take.
     #[arg(long, default_value_t = 900)]
@@ -315,14 +277,6 @@ struct ParityArgs {
     /// Seconds each skif run and knip run may take, and each install unless the corpus manifest sets its own.
     #[arg(long, default_value_t = 1800)]
     timeout_secs: u64,
-    /// Skip the second skif run with `--no-type-aware`. The run is shorter, but the findings only one mode reports
-    /// are not set apart as `type-resolved` and the type-aware baseline is not checked; a baseline cannot be
-    /// recorded this way.
-    #[arg(long)]
-    no_untyped_pass: bool,
-    /// Baseline file of the typed and untyped counts per rule (counts only).
-    #[arg(long, default_value = DEFAULT_TYPE_AWARE_BASELINE)]
-    type_aware_baseline: PathBuf,
     /// Sample findings the full report lists per category, known deviation and side: a count, or `all` to list every
     /// one-sided finding. Baselines hold counts only, so this changes no baseline.
     #[arg(long, default_value_t = diff::SAMPLE_LIMIT, value_parser = diff::parse_sample_limit)]
@@ -425,10 +379,6 @@ struct RunArgs {
     /// Exit 0 even when an ADR 0001 target check fails.
     #[arg(long)]
     no_enforce: bool,
-    /// Exit with an error when a check of the type-aware budget of ADR 0010 fails: peak RSS with types, the module graph
-    /// case with types and types on no slower than knip.
-    #[arg(long)]
-    check_budget: bool,
     /// Install the dependencies of the corpus repositories (`--ignore-scripts`, as `parity --install`) before timing
     /// knip, which fails to load their tool configurations without them.
     #[arg(long)]
@@ -499,8 +449,6 @@ fn main() -> Result<()> {
             include_test_files: args.include_test_files,
             timeout: Duration::from_secs(args.timeout_secs),
             gate: args.gate.gate(args.baseline),
-            untyped_pass: !args.no_untyped_pass,
-            type_aware_baseline: args.type_aware_baseline,
             samples: args.samples,
         }),
         Command::SyncpackDiff(args) => syncpack::run(&syncpack::Options {
@@ -527,17 +475,6 @@ fn main() -> Result<()> {
             json: args.json,
             timeout: Duration::from_secs(args.timeout_secs),
             force: args.force,
-        }),
-        Command::TypedDiff(args) => typed_diff::run(&typed_diff::Options {
-            reference: args.reference,
-            skif: args.skif,
-            corpus_file: args.corpus_file,
-            corpus_dir: args.corpus_dir,
-            only: args.only,
-            allow: args.allow,
-            out: args.out,
-            scratch: args.scratch,
-            timeout: Duration::from_secs(args.timeout_secs),
         }),
         Command::CacheDiff(args) => cache_diff::run(&cache_diff::Options {
             skif: args.skif,
@@ -568,7 +505,6 @@ fn main() -> Result<()> {
             graph_files: args.graph_files,
             graph_packages: args.graph_packages,
             enforce: !args.no_enforce,
-            check_budget: args.check_budget,
             install: args.install,
         }),
     }
@@ -606,19 +542,18 @@ mod tests {
     }
 
     #[test]
-    fn parity_runs_the_untyped_pass_unless_told_not_to() {
-        let parity = |args: &[&str]| {
-            let cli = Cli::try_parse_from(["skif-bench", "parity"].iter().chain(args)).unwrap();
-            let Command::Parity(args) = cli.command else {
-                panic!("not the parity command");
-            };
-            args
-        };
-        let default = parity(&[]);
-        assert!(!default.no_untyped_pass);
-        assert_eq!(default.type_aware_baseline, PathBuf::from(DEFAULT_TYPE_AWARE_BASELINE));
-        let skipped = parity(&["--no-untyped-pass", "--type-aware-baseline", "/tmp/t.json"]);
-        assert!(skipped.no_untyped_pass);
-        assert_eq!(skipped.type_aware_baseline, PathBuf::from("/tmp/t.json"));
+    fn the_type_aware_flags_and_the_typed_diff_command_are_gone() {
+        assert!(Cli::try_parse_from(["skif-bench", "parity"]).is_ok());
+        for removed in [
+            &["parity", "--no-untyped-pass"][..],
+            &["parity", "--type-aware-baseline", "/tmp/t.json"],
+            &["run", "--check-budget"],
+            &["typed-diff", "--reference", "/tmp/skif"],
+        ] {
+            assert!(
+                Cli::try_parse_from(["skif-bench"].iter().chain(removed)).is_err(),
+                "{removed:?}"
+            );
+        }
     }
 }

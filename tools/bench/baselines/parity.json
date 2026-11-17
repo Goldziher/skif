@@ -1,7 +1,6 @@
 {
   "schema": 1,
   "tool": "knip@6.45.1",
-  "mode": "type-aware",
   "installed": false,
   "category_set": {
     "compared": [
@@ -53,7 +52,6 @@
       "whole-enum-use",
       "published-file",
       "uninstalled-project",
-      "type-resolved",
       "knip-dot-ignore",
       "re-export-alias",
       "tsconfig-declaration-file",

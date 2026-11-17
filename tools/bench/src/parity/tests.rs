@@ -851,58 +851,39 @@ fn the_recorded_category_set_holds_every_compared_category_and_deviation() {
         SIGNATURE_TYPE,
         KNIP_CONFIG_ERROR,
         NOT_JUDGED,
-        TYPE_RESOLVED,
     ] {
         assert!(set.known_deviations.iter().any(|known| known == id), "{id}");
     }
     assert_eq!(set.known_deviations.len(), KNIP_DEVIATIONS.len());
 }
 
+/// The committed baseline was recorded under the categories and known deviations this harness compares, so
+/// `parity --check` checks its counts instead of refusing it; a baseline of the harness that had analysis modes
+/// (its `type-resolved` deviation) is refused.
 #[test]
-fn type_resolved_takes_the_one_sided_findings_only_one_mode_has_after_the_other_deviations() {
-    let keys = |items: &[(&str, &[&str])]| -> Keys {
-        items
-            .iter()
-            .map(|(category, names)| ((*category).to_owned(), names.iter().map(|n| (*n).to_owned()).collect()))
-            .collect()
+fn the_committed_baseline_is_comparable_and_one_with_type_resolved_is_refused() {
+    let text = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/parity.json")).unwrap();
+    assert!(!text.contains("\"mode\""), "the baseline header names no analysis mode");
+    let committed: Baseline = serde_json::from_str(&text).unwrap();
+    assert!(!committed.entries.is_empty());
+    let current = Baseline {
+        schema: BASELINE_SCHEMA,
+        tool: committed.tool.clone(),
+        installed: committed.installed,
+        category_set: Some(category_set()),
+        entries: BTreeMap::new(),
     };
-    let typed = keys(&[(
-        "enumMembers",
-        &["a.ts|E.both", "a.ts|E.typed", "test/t.ts|E.typed", "a.ts|E.always"],
-    )]);
-    let untyped = keys(&[("enumMembers", &["a.ts|E.both", "a.ts|E.untyped", "a.ts|E.always"])]);
-    let knip = keys(&[("enumMembers", &["a.ts|E.both", "a.ts|E.untyped", "a.ts|E.knip"])]);
-    let classify = |side, category: &str, key: &str| {
-        let known = key.starts_with("test/").then_some(TEST_FILE);
-        with_type_resolved(known, (side, category, key), Some(&untyped))
-    };
-    let split = diff::split_known(&typed, &knip, &classify);
-    assert_eq!(
-        split.known[TYPE_RESOLVED],
-        diff::KnownCounts {
-            skif_only: 1,
-            tool_only: 1
-        }
-    );
-    assert_eq!(
-        split.samples[TYPE_RESOLVED],
-        ["enumMembers|a.ts|E.typed", "enumMembers|a.ts|E.untyped"]
-    );
-    assert_eq!(
-        split.known[TEST_FILE],
-        diff::KnownCounts {
-            skif_only: 1,
-            tool_only: 0
-        },
-        "another deviation explains a finding first"
-    );
-    assert_eq!(split.skif, keys(&[("enumMembers", &["a.ts|E.always", "a.ts|E.both"])]));
-    assert_eq!(split.tool, keys(&[("enumMembers", &["a.ts|E.both", "a.ts|E.knip"])]));
+    assert_eq!(diff::incomparable(&committed, &current), None);
 
-    let without_pass = diff::split_known(&typed, &knip, &|side, category, key| {
-        with_type_resolved(None, (side, category, key), None)
-    });
-    assert!(without_pass.known.is_empty(), "{:?}", without_pass.known);
+    let mut stale = committed;
+    stale
+        .category_set
+        .as_mut()
+        .unwrap()
+        .known_deviations
+        .push("type-resolved".to_owned());
+    let refusal = diff::incomparable(&stale, &current).unwrap();
+    assert!(refusal.contains("-type-resolved"), "{refusal}");
 }
 
 #[test]

@@ -158,9 +158,6 @@ impl Entry {
     }
 }
 
-/// The [`Baseline::mode`] of a skif run with `--type-aware`, the mode the knip comparison runs in.
-pub const TYPE_AWARE: &str = "type-aware";
-
 pub const COMPARED: &str = "compared";
 pub const SKIPPED: &str = "skipped";
 
@@ -170,10 +167,6 @@ pub struct Baseline {
     pub schema: u32,
     /// The comparison tool and its pinned version, e.g. `knip@6.44.1`.
     pub tool: String,
-    /// The analysis mode skif ran in for the recorded counts, `type-aware` (`--type-aware`) or `no-type-aware`; `None`
-    /// where the mode does not change what skif reports. Counts of another mode are not comparable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<String>,
     /// Whether dependencies were installed in the compared repositories; counts differ a lot between the two. When the
     /// entries record their own `installed`, this is whether every one of them was installed.
     pub installed: bool,
@@ -202,21 +195,13 @@ impl CategorySet {
     }
 }
 
-/// Why `current` cannot be checked against or merged into `baseline` at all, if it cannot: another tool version,
-/// another analysis mode, or another set of categories and known deviations. A baseline that records no mode was
-/// recorded before the header had one and is compared with any mode.
+/// Why `current` cannot be checked against or merged into `baseline` at all, if it cannot: another tool version
+/// or another set of categories and known deviations.
 pub fn incomparable(baseline: &Baseline, current: &Baseline) -> Option<String> {
     if baseline.tool != current.tool {
         return Some(format!(
             "the baseline was recorded with {} and this run uses {}; counts of another version are not comparable, so re-record the baseline with --write-baseline",
             baseline.tool, current.tool
-        ));
-    }
-    if let (Some(recorded), Some(now)) = (&baseline.mode, &current.mode)
-        && recorded != now
-    {
-        return Some(format!(
-            "the baseline was recorded with skif in {recorded} mode and this run uses {now}; counts of another mode are not comparable, so re-record the baseline with --write-baseline"
         ));
     }
     match (&baseline.category_set, &current.category_set) {
@@ -586,7 +571,6 @@ mod tests {
         Baseline {
             schema: BASELINE_SCHEMA,
             tool: "knip@1".to_owned(),
-            mode: None,
             installed: false,
             category_set: None,
             entries: entries.iter().map(|(n, e)| ((*n).to_owned(), e.clone())).collect(),
@@ -755,41 +739,6 @@ mod tests {
         assert_eq!(
             check(&base, &now, TOLERANCE),
             ["r: files skif-only moved from 1 to 900"]
-        );
-    }
-
-    #[test]
-    fn check_refuses_another_analysis_mode_but_not_a_baseline_without_one() {
-        let mut base = baseline(&[("r", Entry::compared(counts(1, 1, 1)))]);
-        let mut now = baseline(&[("r", Entry::compared(counts(1, 1, 1)))]);
-        now.mode = Some(TYPE_AWARE.to_owned());
-        assert_eq!(
-            check(&base, &now, TOLERANCE),
-            [] as [String; 0],
-            "a baseline without a mode predates the header field"
-        );
-        base.mode = Some("no-type-aware".to_owned());
-        assert_eq!(
-            check(&base, &now, TOLERANCE),
-            [
-                "the baseline was recorded with skif in no-type-aware mode and this run uses type-aware; counts of another mode are not comparable, so re-record the baseline with --write-baseline"
-            ]
-        );
-        base.mode.clone_from(&now.mode);
-        assert_eq!(check(&base, &now, TOLERANCE), [] as [String; 0]);
-    }
-
-    #[test]
-    fn a_baseline_without_a_mode_reads_as_none_and_a_mode_is_written() {
-        let read: Baseline =
-            serde_json::from_str(r#"{"schema": 1, "tool": "knip@1", "installed": true, "entries": {}}"#).unwrap();
-        assert_eq!(read.mode, None);
-        let mut written = baseline(&[]);
-        written.mode = Some(TYPE_AWARE.to_owned());
-        let text = serde_json::to_string(&written).unwrap();
-        assert!(
-            text.contains(r#""tool":"knip@1","mode":"type-aware","installed":false"#),
-            "{text}"
         );
     }
 

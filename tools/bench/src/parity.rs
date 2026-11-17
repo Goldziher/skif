@@ -42,7 +42,6 @@ use crate::proc::{Captured, capture, find_on_path};
 use crate::provenance;
 use crate::run::table_cell;
 use crate::tools_install;
-use crate::type_aware;
 
 /// skif rule to knip issue type.
 const RULE_CATEGORIES: [(&str, &str); 14] = [
@@ -121,7 +120,6 @@ pub const PATHS_BEFORE_PACKAGES: &str = "paths-before-packages";
 pub const WHOLE_ENUM_USE: &str = "whole-enum-use";
 pub const PUBLISHED_FILE: &str = "published-file";
 pub const UNINSTALLED_PROJECT: &str = "uninstalled-project";
-pub const TYPE_RESOLVED: &str = "type-resolved";
 pub const KNIP_DOT_IGNORE: &str = "knip-dot-ignore";
 pub const REEXPORT_ALIAS: &str = "re-export-alias";
 pub const TSCONFIG_DECLARATION_FILE: &str = "tsconfig-declaration-file";
@@ -300,7 +298,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 71] = [
+pub const KNIP_DEVIATIONS: [Deviation; 70] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -428,10 +426,6 @@ pub const KNIP_DEVIATIONS: [Deviation; 71] = [
     Deviation {
         id: UNINSTALLED_PROJECT,
         reason: "one tool reports these dependencies, binaries, unlisted dependencies and unresolved imports in a project that has no installed packages at or above it (no `node_modules` directory or `.pnp.cjs`) in a checkout the harness installed, such as a repository root the corpus install leaves out: without the packages neither tool sees their manifests and binaries, and each resolves the imports in its own way",
-    },
-    Deviation {
-        id: TYPE_RESOLVED,
-        reason: "skif with `--type-aware` (the run compared here) and skif with `--no-type-aware` disagree on these findings: skif reports them only with types, or knip reports them and only skif without types does too. Types settle which declaration a read reaches, so a typed read credits only the members TypeScript treats as the same (ADR 0010), while knip credits by name. Counted only where no other deviation explains the finding and only with the untyped pass (`--no-untyped-pass` turns it off); the per-rule counts of both modes are in `type-aware.json`",
     },
     Deviation {
         id: KNIP_DOT_IGNORE,
@@ -624,11 +618,6 @@ pub struct Options {
     pub include_test_files: bool,
     pub timeout: Duration,
     pub gate: Gate,
-    /// Run skif a second time with `--no-type-aware` on each repository, for the `type-resolved` deviation and the
-    /// type-aware baseline.
-    pub untyped_pass: bool,
-    /// The baseline of the typed and untyped counts per rule; recorded and checked with [`Options::gate`]'s flags.
-    pub type_aware_baseline: PathBuf,
     /// Sample findings the full report keeps per category, known deviation and side (`usize::MAX` for all).
     pub samples: usize,
 }
@@ -6080,16 +6069,13 @@ fn installed_summary(entries: &BTreeMap<String, Entry>) -> String {
 struct Outcome {
     entry: Entry,
     detail: Value,
-    /// The typed-versus-untyped entry, when the untyped pass ran.
-    type_aware: Option<Entry>,
 }
 
-fn skipped(reason: impl Into<String>, type_aware: Option<Entry>) -> Outcome {
+fn skipped(reason: impl Into<String>) -> Outcome {
     let reason = reason.into();
     Outcome {
         detail: json!({ "status": diff::SKIPPED, "reason": reason }),
         entry: Entry::skipped(reason),
-        type_aware,
     }
 }
 
@@ -6149,7 +6135,7 @@ fn install_and_run_skif(
     if let Some(reason) = &install_failure {
         eprintln!("parity: {} is compared without a complete install: {reason}", repo.name);
     }
-    let (doc, run) = match run_skif(options, skif, repo, (root, scratch), true)? {
+    let (doc, run) = match run_skif(options, skif, repo, (root, scratch))? {
         Ok(report) => report,
         Err(reason) => return Ok(Err(reason)),
     };
@@ -6166,14 +6152,12 @@ const fn skif_recursive(options: &Options, repo: &Repo) -> bool {
     options.recursive || repo.recursive
 }
 
-/// Runs skif on a checkout (`root`, with its `scratch` directory), with `--type-aware` or with `--no-type-aware`, and
-/// reads its JSON report; `Ok(Err(reason))` when it produced none.
+/// Runs skif on a checkout (`root`, with its `scratch` directory) and reads its JSON report; `Ok(Err(reason))` when it produced none.
 fn run_skif(
     options: &Options,
     skif: &Path,
     repo: &Repo,
     (root, scratch): (&Path, &Path),
-    typed: bool,
 ) -> Result<Result<(Value, Captured), String>> {
     let mut command = Command::new(skif);
     command
@@ -6182,32 +6166,22 @@ fn run_skif(
     if skif_recursive(options, repo) {
         command.arg("--recursive");
     }
-    command.arg(if typed {
-        type_aware::TYPE_AWARE_FLAG
-    } else {
-        type_aware::NO_TYPE_AWARE_FLAG
-    });
     if let Some(config) = write_skif_entry_config(&repo.entry, scratch)? {
         command.arg("--config").arg(config);
     }
-    let (name, label) = if typed {
-        ("skif", "skif-parity")
-    } else {
-        (type_aware::TOOL, "skif-parity-untyped")
-    };
-    let run = capture(&mut command, scratch, label, options.timeout)?;
+    let run = capture(&mut command, scratch, "skif-parity", options.timeout)?;
     if run.timed_out {
-        return Ok(Err(format!("{name} timed out")));
+        return Ok(Err("skif timed out".to_owned()));
     }
     let doc: Value = match serde_json::from_slice(&run.stdout) {
         Ok(doc) => doc,
-        Err(error) => return Ok(Err(format!("{name} output is not JSON: {error}"))),
+        Err(error) => return Ok(Err(format!("skif output is not JSON: {error}"))),
     };
     if doc.get("diagnostics").is_none() {
         let message = doc["error"]["message"]
             .as_str()
             .unwrap_or("no diagnostics in the output");
-        return Ok(Err(format!("{name} failed: {message}")));
+        return Ok(Err(format!("skif failed: {message}")));
     }
     Ok(Ok((doc, run)))
 }
@@ -6706,34 +6680,15 @@ fn parity_repo(options: &Options, skif: &Path, repo: &Repo, dir: &Path, skif_rev
     let scratch = options.out.join("scratch").join(&repo.name);
     let skif_run = match install_and_run_skif(options, skif, repo, &root, &scratch)? {
         Ok(run) => run,
-        Err(reason) => {
-            let type_aware = options.untyped_pass.then(|| Entry::skipped(reason.clone()));
-            return Ok(skipped(reason, type_aware));
-        }
+        Err(reason) => return Ok(skipped(reason)),
     };
     let installed = is_installed(repo, &root);
-    let pass = if options.untyped_pass {
-        Some(untyped_pass(
-            options,
-            skif,
-            repo,
-            (&root, &scratch),
-            &skif_run,
-            (installed, skif_rev),
-        )?)
-    } else {
-        None
-    };
     let knip_run = match run_knip(options, repo, &root, &scratch)? {
         Ok(run) => run,
-        Err(reason) => return Ok(skipped(reason, pass.map(|pass| pass.entry))),
+        Err(reason) => return Ok(skipped(reason)),
     };
     let knip_found = knip_keys(&knip_run.doc, &root);
     let skif_found = compared_skif_keys(&skif_run.doc, &root, &knip_found);
-    let untyped_found = pass
-        .as_ref()
-        .and_then(|pass| pass.doc.as_ref())
-        .map(|doc| compared_skif_keys(doc, &root, &knip_found));
     let manifest = manifest_reader(&root);
     let is_file = |file: &str| root.join(file).is_file();
     let build_dirs = build_dir_reader(&root);
@@ -6749,13 +6704,7 @@ fn parity_repo(options: &Options, skif: &Path, repo: &Repo, dir: &Path, skif_rev
     let split = diff::split_known_sampled(
         &skif_found,
         &knip_found,
-        &|side, category, key| {
-            with_type_resolved(
-                classifier.classify(side, category, key),
-                (side, category, key),
-                untyped_found.as_ref(),
-            )
-        },
+        &|side, category, key| classifier.classify(side, category, key),
         options.samples,
     );
     let (counts, samples) = diff::compare_sampled(&split.skif, &split.tool, options.samples);
@@ -6778,7 +6727,6 @@ fn parity_repo(options: &Options, skif: &Path, repo: &Repo, dir: &Path, skif_rev
         "skif_total": total(&skif_found),
         "knip_total": total(&knip_found),
         "categories": category_detail(&counts, &samples),
-        "type_aware": pass.as_ref().map(|pass| &pass.detail),
     });
     Ok(Outcome {
         entry: Entry::compared(counts)
@@ -6788,21 +6736,6 @@ fn parity_repo(options: &Options, skif: &Path, repo: &Repo, dir: &Path, skif_rev
             .with_installed(installed)
             .with_run(skif_run.recursive, skif_rev),
         detail,
-        type_aware: pass.map(|pass| pass.entry),
-    })
-}
-
-/// The deviation of a one-sided finding (`side`, `category`, `key`): the one the classifier names (`known`), else
-/// `type-resolved` where the untyped run's findings (`untyped`, by knip category) settle it the other way.
-fn with_type_resolved(
-    known: Option<&'static str>,
-    (side, category, key): (Side, &str, &str),
-    untyped: Option<&Keys>,
-) -> Option<&'static str> {
-    known.or_else(|| {
-        untyped
-            .is_some_and(|untyped| type_aware::type_resolved(side, category, key, untyped))
-            .then_some(TYPE_RESOLVED)
     })
 }
 
@@ -6813,54 +6746,6 @@ fn compared_skif_keys(doc: &Value, root: &Path, knip: &Keys) -> Keys {
     align_unlisted_unresolved(&mut keys, knip);
     align_stale_mocks(&mut keys, knip, &stale_mock_keys(doc, root));
     keys
-}
-
-/// The untyped pass of one repository: its entry of the type-aware baseline, its detail in the full report and the
-/// untyped report, when skif produced one.
-struct UntypedPass {
-    entry: Entry,
-    detail: Value,
-    doc: Option<Value>,
-}
-
-/// Runs skif with `--no-type-aware` on a checkout (`root`, with its `scratch` directory) and compares its findings
-/// per rule with those of the typed run.
-fn untyped_pass(
-    options: &Options,
-    skif: &Path,
-    repo: &Repo,
-    dirs: (&Path, &Path),
-    typed: &SkifRun,
-    (installed, skif_rev): (bool, &str),
-) -> Result<UntypedPass> {
-    let (doc, run) = match run_skif(options, skif, repo, dirs, false)? {
-        Ok(report) => report,
-        Err(reason) => {
-            eprintln!("parity: {} has no untyped pass: {reason}", repo.name);
-            return Ok(UntypedPass {
-                detail: json!({ "status": diff::SKIPPED, "reason": reason }),
-                entry: Entry::skipped(reason),
-                doc: None,
-            });
-        }
-    };
-    let (root, _) = dirs;
-    let (counts, samples) = diff::compare_sampled(
-        &type_aware::rule_keys(&typed.doc, root),
-        &type_aware::rule_keys(&doc, root),
-        options.samples,
-    );
-    Ok(UntypedPass {
-        detail: json!({
-            "status": COMPARED,
-            "untyped_ms": run.elapsed.as_millis(),
-            "rules": type_aware::rule_detail(&counts, &samples),
-        }),
-        entry: Entry::compared(counts)
-            .with_installed(installed)
-            .with_run(typed.recursive, skif_rev),
-        doc: Some(doc),
-    })
 }
 
 /// The root `package.json` written into a checkout for the knip run; dropping it removes the file, so skif and the
@@ -7093,21 +6978,15 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
     out + &diff::known_section(tool, &KNIP_DEVIATIONS, entries)
 }
 
-/// Runs the comparison on the parity suite and applies the baseline gate to the knip comparison and, with the untyped
-/// pass, to the typed and untyped counts.
+/// Runs the comparison on the parity suite and applies the baseline gate to the knip comparison.
 ///
 /// # Errors
 /// Fails when the locked knip cannot be installed or skif is missing, the corpus cannot be fetched, a command cannot
-/// start, the report cannot be written, or a gate finds drift.
+/// start, the report cannot be written, or the gate finds drift.
 pub fn run(options: &Options) -> Result<()> {
     if (options.repo_knip_config || options.include_test_files) && (options.gate.write || options.gate.check) {
         bail!(
             "--repo-knip-config and --include-test-files change what is compared: the baselines are recorded without them"
-        );
-    }
-    if !options.untyped_pass && options.gate.write {
-        bail!(
-            "--no-untyped-pass leaves the type-resolved findings in the compared counts: the baselines are recorded with the untyped pass"
         );
     }
     let skif = fs::canonicalize(&options.skif).with_context(|| {
@@ -7122,7 +7001,6 @@ pub fn run(options: &Options) -> Result<()> {
     let tool = format!("knip@{}", tools.knip);
     let skif_rev = provenance::source_rev();
     let mut entries = BTreeMap::new();
-    let mut type_entries = BTreeMap::new();
     let mut details = serde_json::Map::new();
     for (repo, dir) in &suite.repos {
         eprintln!("parity: {}", repo.name);
@@ -7132,19 +7010,14 @@ pub fn run(options: &Options) -> Result<()> {
         }
         details.insert(repo.name.clone(), outcome.detail);
         entries.insert(repo.name.clone(), outcome.entry);
-        if let Some(entry) = outcome.type_aware {
-            type_entries.insert(repo.name.clone(), entry);
-        }
     }
-    let table = markdown(&tool, &entries) + &type_aware::markdown(&type_entries);
+    let table = markdown(&tool, &entries);
     fs::create_dir_all(&options.out).with_context(|| format!("creating {}", options.out.display()))?;
     let full = json!({
         "tool": tool,
         "installed": installed_summary(&entries),
         "install_requested": options.install,
         "skif_rev": skif_rev,
-        "mode": diff::TYPE_AWARE,
-        "untyped_pass": options.untyped_pass,
         "recursive": options.recursive,
         "repo_knip_config": options.repo_knip_config,
         "include_test_files": options.include_test_files,
@@ -7159,27 +7032,11 @@ pub fn run(options: &Options) -> Result<()> {
     let current = Baseline {
         schema: BASELINE_SCHEMA,
         tool,
-        mode: Some(diff::TYPE_AWARE.to_owned()),
         installed: entries.values().all(|entry| entry.installed != Some(false)),
         category_set: Some(category_set()),
         entries,
     };
-    let compared = diff::conclude(&options.gate, &current);
-    if !options.untyped_pass {
-        if options.gate.check {
-            eprintln!(
-                "baseline: no untyped pass, so {} is not checked and type-resolved findings count as one-sided",
-                options.type_aware_baseline.display()
-            );
-        }
-        return compared;
-    }
-    let type_gate = Gate {
-        baseline: options.type_aware_baseline.clone(),
-        ..options.gate.clone()
-    };
-    let typed = diff::conclude(&type_gate, &type_aware::baseline(type_entries));
-    compared.and(typed)
+    diff::conclude(&options.gate, &current)
 }
 
 /// The deviations that follow from how knip reads dependencies, imports and commands where skif reads them otherwise

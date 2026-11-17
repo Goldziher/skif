@@ -16,7 +16,6 @@ use crate::proc::capture;
 use crate::provenance::{self, GithubRunner, Machine, Toolchain};
 use crate::sources;
 use crate::tools_install;
-use crate::type_aware;
 use skif_bench::generate::{self, Options, PackageManager};
 
 /// ADR 0001: manifest and policy rules on 500 packages.
@@ -27,24 +26,8 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 /// ADR 0001: parse and build the module graph of 10,000 files.
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
-/// The type-aware budget of ADR 0010, each limit on the run with `--type-aware`. Its time against the default run
-/// without types is reported, not limited.
-struct TypeAwareBudget {
-    /// Peak RSS of the typed run on any target.
-    peak_rss_bytes: u64,
-    /// Mean of the typed run on the generated module graph of [`GRAPH_TARGET_FILES`] files.
-    graph_ms: f64,
-    /// The least knip's mean over the typed run's may be wherever knip completes: types on is never slower than knip.
-    knip_floor: f64,
-}
-
-const TYPE_AWARE_BUDGET: TypeAwareBudget = TypeAwareBudget {
-    peak_rss_bytes: 4 << 30,
-    graph_ms: 5000.0,
-    knip_floor: 1.0,
-};
 /// Version of the `summary.json` layout.
-const SUMMARY_SCHEMA: u32 = 8;
+const SUMMARY_SCHEMA: u32 = 9;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
@@ -82,18 +65,14 @@ pub struct RunOptions {
     pub graph_packages: usize,
     /// Return an error when an ADR 0001 check fails.
     pub enforce: bool,
-    /// Return an error when a type-aware budget check ([`TYPE_AWARE_BUDGET`]) fails.
-    pub check_budget: bool,
     /// Install the dependencies of the corpus repositories before timing knip, as `parity --install` does.
     pub install: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tool {
-    /// The whole run, without types (the default).
+    /// The whole run.
     Skif,
-    /// The whole run with `--type-aware`.
-    SkifTyped,
     SkifManifest,
     /// The whole run with `--recursive`, timed only where the corpus repository holds nested roots. It lints more
     /// projects than any comparison tool reads, so it has no ratio and is no part of a check (ADR 0014).
@@ -107,7 +86,6 @@ impl Tool {
     const fn label(self) -> &'static str {
         match self {
             Self::Skif => "skif",
-            Self::SkifTyped => type_aware::TYPED_TOOL,
             Self::SkifManifest => "skif --no-js",
             Self::SkifRecursive => RECURSIVE_TOOL,
             Self::Sherif => "sherif",
@@ -119,7 +97,7 @@ impl Tool {
     /// The npm package (and its executable) of a comparison tool, or `None` for skif (given by path).
     const fn package(self) -> Option<&'static str> {
         match self {
-            Self::Skif | Self::SkifTyped | Self::SkifManifest | Self::SkifRecursive => None,
+            Self::Skif | Self::SkifManifest | Self::SkifRecursive => None,
             Self::Sherif => Some("sherif"),
             Self::Syncpack => Some("syncpack"),
             Self::Knip => Some("knip"),
@@ -129,9 +107,6 @@ impl Tool {
 
 /// The label of the informational row of a recursive skif run ([`Tool::SkifRecursive`]).
 const RECURSIVE_TOOL: &str = "skif --recursive";
-
-/// The two modes of the whole skif run, timed and measured on every corpus and graph target.
-const SKIF_MODES: [Tool; 2] = [Tool::Skif, Tool::SkifTyped];
 
 /// The comparison tools, each at the version `corpus.toml` pins.
 const COMPARISON_TOOLS: [Tool; 3] = [Tool::Sherif, Tool::Syncpack, Tool::Knip];
@@ -251,8 +226,8 @@ struct ToolResult {
     /// The failure `corpus.toml` declares for this tool on the target, when that run matched it: the row is shown as
     /// failing, and its times (still recorded) are compared with nothing, unless the failure is `timed`.
     failure: Option<ExpectedFailure>,
-    /// Peak resident set size of one more run under [`TIME_PROGRAM`], for the skif rows of both modes
-    /// ([`SKIF_MODES`]); `None` for the other rows and where it could not be measured.
+    /// Peak resident set size of one more run under [`TIME_PROGRAM`], for the row of the whole skif run
+    /// ([`Tool::Skif`]); `None` for the other rows and where it could not be measured.
     peak_rss_bytes: Option<u64>,
 }
 
@@ -375,8 +350,6 @@ struct Summary {
     skipped_tools: Vec<Skipped>,
     targets: Vec<TargetResult>,
     adr_0001_checks: Vec<TargetCheck>,
-    /// The checks of [`TYPE_AWARE_BUDGET`].
-    type_aware_budget_checks: Vec<TargetCheck>,
 }
 
 /// Quotes one argument for hyperfine's no-shell command splitting, which drops a bare backslash and an empty
@@ -394,9 +367,7 @@ fn quote(argument: &str) -> String {
 fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> Vec<String> {
     let mut argv = vec![program.to_string_lossy().into_owned()];
     let fixed: &[&str] = match tool {
-        Tool::Skif | Tool::SkifTyped | Tool::SkifManifest | Tool::SkifRecursive => {
-            &[".", "--format", "json", "--no-install"]
-        }
+        Tool::Skif | Tool::SkifManifest | Tool::SkifRecursive => &[".", "--format", "json", "--no-install"],
         Tool::Sherif => &["."],
         Tool::Syncpack => &["lint"],
         Tool::Knip => &["--reporter", "json"],
@@ -404,10 +375,6 @@ fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String])
     argv.extend(fixed.iter().map(|arg| (*arg).to_owned()));
     match tool {
         Tool::Skif => argv.extend_from_slice(extra),
-        Tool::SkifTyped => {
-            argv.push(type_aware::TYPE_AWARE_FLAG.to_owned());
-            argv.extend_from_slice(extra);
-        }
         Tool::SkifManifest => {
             argv.push("--no-js".to_owned());
             argv.extend_from_slice(extra);
@@ -604,9 +571,9 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
     out
 }
 
-/// The check that skif is at least `speedup_target` times faster than knip on a corpus target, for ADR 0001 and the
-/// type-aware budget, described as `goal` with knip's mean over skif's put by `measured`. A knip failure the target declares and the run matched leaves it not measured, unless the
-/// failure is `timed` (knip printed its whole report first), which is checked as a clean run with the declared reason
+/// The check that skif is at least `speedup_target` times faster than knip on a corpus target, for ADR 0001,
+/// described as `goal` with knip's mean over skif's put by `measured`. A knip failure the target declares and the run
+/// matched leaves it not measured, unless the failure is `timed` (knip printed its whole report first), which is checked as a clean run with the declared reason
 /// beside it; a declared failure that did not happen (knip ran cleanly, or failed with another error) makes it
 /// invalid, so a changed failure is noticed and the declaration updated.
 fn knip_check(
@@ -661,61 +628,6 @@ fn knip_check(
     }
 }
 
-/// The rows of both skif modes of a target, typed first, when it timed both.
-fn mode_rows(target: &TargetResult) -> Option<(&ToolResult, &ToolResult)> {
-    let find = |tool: Tool| target.results.iter().find(|row| row.tool == tool.label());
-    Some((find(Tool::SkifTyped)?, find(Tool::Skif)?))
-}
-
-/// The checks of [`TYPE_AWARE_BUDGET`] (ADR 0010), per target: the typed run's peak RSS, its time on the module graph
-/// case and, on a corpus repository, that it is no slower than knip. A check of a row that errored is invalid, and a
-/// peak RSS that was not measured is not measured.
-fn budget_checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
-    let budget = &TYPE_AWARE_BUDGET;
-    let mut out = Vec::new();
-    for target in targets {
-        let Some((typed, _)) = mode_rows(target) else {
-            continue;
-        };
-        let limit_mib = mib(budget.peak_rss_bytes);
-        out.push(match typed.peak_rss_bytes {
-            Some(bytes) => TargetCheck {
-                target: target.target.clone(),
-                description: format!("peak RSS with types <= {limit_mib} MiB (measured {} MiB)", mib(bytes)),
-                status: CheckStatus::of(bytes <= budget.peak_rss_bytes, &[typed]),
-            },
-            None => TargetCheck {
-                target: target.target.clone(),
-                description: format!("peak RSS with types <= {limit_mib} MiB (not measured)"),
-                status: CheckStatus::NotMeasured,
-            },
-        });
-        if target.kind == "graph" && target.files.is_some_and(|files| files >= GRAPH_TARGET_FILES) {
-            out.push(TargetCheck {
-                target: target.target.clone(),
-                description: format!(
-                    "whole run with types < {} ms (measured {:.1} ms)",
-                    budget.graph_ms, typed.mean_ms
-                ),
-                status: CheckStatus::of(typed.mean_ms < budget.graph_ms, &[typed]),
-            });
-        }
-        if target.kind == "corpus"
-            && let Some(knip) = target.results.iter().find(|row| row.tool == Tool::Knip.label())
-        {
-            out.push(knip_check(
-                target,
-                typed,
-                knip,
-                budget.knip_floor,
-                "types on no slower than knip",
-                |speedup| format!("knip / skif --type-aware = {speedup:.2}x"),
-            ));
-        }
-    }
-    out
-}
-
 /// The `/usr/bin/time` flag that makes it print the peak RSS of the command it runs: GNU time's `-v` on Linux, BSD
 /// time's `-l` on macOS; `None` elsewhere, where peak RSS is not measured.
 const fn peak_rss_flag() -> Option<&'static str> {
@@ -749,7 +661,7 @@ fn peak_rss_argv(flag: &str, argv: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Runs each skif mode of `target` ([`SKIF_MODES`]) once more, outside hyperfine, under `/usr/bin/time`, and records
+/// Runs the whole skif run of `target` ([`Tool::Skif`]) once more, outside hyperfine, under `/usr/bin/time`, and records
 /// its peak RSS in its row. Where the platform has no flag for it or `/usr/bin/time` is missing, or its output names
 /// no peak RSS, the row keeps none and the log says why.
 fn measure_peak_rss(
@@ -768,7 +680,7 @@ fn measure_peak_rss(
             return Ok(());
         }
     };
-    for (tool, argv) in argvs.iter().filter(|(tool, _)| SKIF_MODES.contains(tool)) {
+    for (tool, argv) in argvs.iter().filter(|(tool, _)| *tool == Tool::Skif) {
         let Some(row) = rows.iter_mut().find(|row| row.tool == tool.label()) else {
             continue;
         };
@@ -945,7 +857,7 @@ fn markdown(summary: &Summary) -> String {
         }
         out.push('\n');
     }
-    type_aware_markdown(summary, &mut out);
+    peak_rss_markdown(summary, &mut out);
     // Every section above ends in a blank line; the file ends in exactly one newline, as `poly fmt` writes it.
     let end = out.trim_end().len();
     out.truncate(end);
@@ -953,54 +865,25 @@ fn markdown(summary: &Summary) -> String {
     out
 }
 
-/// The section of `summary.md` on the two skif modes: both columns of every target that timed both, and the checks of
-/// [`TYPE_AWARE_BUDGET`]. Nothing when there are neither.
-fn type_aware_markdown(summary: &Summary, out: &mut String) {
-    let modes: Vec<(&TargetResult, &ToolResult, &ToolResult)> = summary
+/// The section of `summary.md` on the peak RSS of the whole skif run, for every target that measured it. Nothing when
+/// none did.
+fn peak_rss_markdown(summary: &Summary, out: &mut String) {
+    let measured: Vec<(&TargetResult, u64)> = summary
         .targets
         .iter()
-        .filter_map(|target| mode_rows(target).map(|(typed, untyped)| (target, typed, untyped)))
+        .filter_map(|target| {
+            let row = target.results.iter().find(|row| row.tool == Tool::Skif.label())?;
+            Some((target, row.peak_rss_bytes?))
+        })
         .collect();
-    if modes.is_empty() && summary.type_aware_budget_checks.is_empty() {
+    if measured.is_empty() {
         return;
     }
-    out.push_str("## Type awareness (ADR 0010)\n\n");
-    if !modes.is_empty() {
-        out.push_str(
-            "| Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |\n",
-        );
-        out.push_str("| --- | ---: | ---: | ---: | ---: | ---: |\n");
-        let rss = |row: &ToolResult| {
-            row.peak_rss_bytes
-                .map_or_else(|| "-".to_owned(), |bytes| mib(bytes).to_string())
-        };
-        for (target, typed, untyped) in modes {
-            let _ = writeln!(
-                out,
-                "| {} | {} | {} | {:.1}x | {} | {} |",
-                target.target,
-                format_ms(typed.mean_ms),
-                format_ms(untyped.mean_ms),
-                typed.mean_ms / untyped.mean_ms,
-                rss(typed),
-                rss(untyped)
-            );
-        }
-        out.push('\n');
+    out.push_str("## Peak RSS\n\n| Target | skif, peak RSS (MiB) |\n| --- | ---: |\n");
+    for (target, bytes) in measured {
+        let _ = writeln!(out, "| {} | {} |", target.target, mib(bytes));
     }
-    if !summary.type_aware_budget_checks.is_empty() {
-        out.push_str("| Target | Budget check | Result |\n| --- | --- | --- |\n");
-        for check in &summary.type_aware_budget_checks {
-            let _ = writeln!(
-                out,
-                "| {} | {} | {} |",
-                check.target,
-                table_cell(&check.description),
-                check.status.label()
-            );
-        }
-        out.push('\n');
-    }
+    out.push('\n');
 }
 
 /// `text` with every run of whitespace (tabs, newlines, double spaces) made one space: `poly fmt` collapses them in
@@ -1270,7 +1153,7 @@ fn graph_target(options: &RunOptions) -> Result<Target> {
         packages: Some(packages),
         files: Some(packages * per_package),
         dir: fs::canonicalize(&dir)?,
-        tools: SKIF_MODES.to_vec(),
+        tools: vec![Tool::Skif],
         knip_args: Vec::new(),
         skif_args: Vec::new(),
         installed_with: None,
@@ -1284,8 +1167,7 @@ fn graph_target(options: &RunOptions) -> Result<Target> {
 ///
 /// # Errors
 /// Fails when hyperfine or skif is missing, the corpus cannot be fetched, a measurement fails, (with `options.enforce`)
-/// an ADR 0001 target check fails or (with `options.check_budget`) a type-aware budget check fails; the summary is
-/// written before those last errors.
+/// an ADR 0001 target check fails; the summary is written before that last error.
 pub fn run(options: &RunOptions) -> Result<()> {
     let version = hyperfine_version()?;
     let skif = fs::canonicalize(&options.skif).with_context(|| {
@@ -1370,8 +1252,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
     };
     if let Some(suite) = &suite {
         for (repo, dir) in &suite.repos {
-            let mut tools = SKIF_MODES.to_vec();
-            tools.push(Tool::SkifManifest);
+            let mut tools = vec![Tool::Skif, Tool::SkifManifest];
             if repo.recursive {
                 tools.push(Tool::SkifRecursive);
             }
@@ -1470,7 +1351,6 @@ pub fn run(options: &RunOptions) -> Result<()> {
         corpus_only: options.only.clone(),
         skipped_tools: skipped,
         adr_0001_checks: checks(&measured),
-        type_aware_budget_checks: budget_checks(&measured),
         targets: measured,
     };
     fs::write(
@@ -1484,7 +1364,6 @@ pub fn run(options: &RunOptions) -> Result<()> {
     for check in summary
         .adr_0001_checks
         .iter()
-        .chain(&summary.type_aware_budget_checks)
         .filter(|check| matches!(check.status, CheckStatus::Invalid | CheckStatus::NotMeasured))
     {
         eprintln!(
@@ -1494,20 +1373,10 @@ pub fn run(options: &RunOptions) -> Result<()> {
             check.description
         );
     }
-    let errors: Vec<String> = [
-        (options.enforce, &summary.adr_0001_checks, "ADR 0001 target"),
-        (
-            options.check_budget,
-            &summary.type_aware_budget_checks,
-            "type-aware budget (ADR 0010)",
-        ),
-    ]
-    .into_iter()
-    .filter(|(enforced, _, _)| *enforced)
-    .filter_map(|(_, checks, what)| failed_checks(checks, what))
-    .collect();
-    if !errors.is_empty() {
-        bail!("{}", errors.join("; "));
+    if options.enforce
+        && let Some(error) = failed_checks(&summary.adr_0001_checks, "ADR 0001 target")
+    {
+        bail!("{error}");
     }
     Ok(())
 }
@@ -1574,7 +1443,6 @@ mod tests {
             skipped_tools: Vec::new(),
             targets,
             adr_0001_checks: checks,
-            type_aware_budget_checks: Vec::new(),
         }
     }
 
@@ -2109,18 +1977,6 @@ mod tests {
                     "--recursive",
                 ],
             ),
-            (
-                Tool::SkifTyped,
-                vec![
-                    "/my tools/bin/x",
-                    ".",
-                    "--format",
-                    "json",
-                    "--no-install",
-                    "--type-aware",
-                    "--recursive",
-                ],
-            ),
             (Tool::Sherif, vec!["/my tools/bin/x", "."]),
             (Tool::Syncpack, vec!["/my tools/bin/x", "lint"]),
             (
@@ -2178,7 +2034,6 @@ mod tests {
             "/s/skif . --format json --no-install --recursive"
         );
         assert_eq!(Tool::SkifRecursive.label(), "skif --recursive");
-        assert!(!SKIF_MODES.contains(&Tool::SkifRecursive));
         let vue = bench.iter().find(|repo| repo.name == "vue-core").unwrap();
         assert!(!vue.recursive);
     }
@@ -2486,157 +2341,6 @@ mod tests {
         }
     }
 
-    /// A target `name` of `kind` timing skif with `--type-aware` at `typed_ms` (peaking at `typed_mib` MiB, `None` when
-    /// not measured), the default skif run without types at `untyped_ms` (peaking at 512 MiB) and, on a corpus target,
-    /// knip at `knip_ms`.
-    fn budget_target(
-        name: &str,
-        kind: &'static str,
-        (typed_ms, typed_mib): (f64, Option<u64>),
-        untyped_ms: f64,
-        knip_ms: f64,
-    ) -> TargetResult {
-        let mut results = vec![
-            ToolResult {
-                peak_rss_bytes: typed_mib.map(|megs| megs << 20),
-                ..tool_row("skif --type-aware", typed_ms)
-            },
-            ToolResult {
-                peak_rss_bytes: Some(512 << 20),
-                ..tool_row("skif", untyped_ms)
-            },
-        ];
-        if kind == "corpus" {
-            results.push(tool_row("knip --reporter json", knip_ms));
-        }
-        TargetResult {
-            target: name.into(),
-            kind,
-            packages: None,
-            files: (kind == "graph").then_some(GRAPH_TARGET_FILES),
-            installed_with: None,
-            declared_knip_failure: None,
-            warmup: 1,
-            runs: 2,
-            results,
-        }
-    }
-
-    /// Three corpus targets within the budget, knip at least 10x slower than types on; and a graph target of 10,000
-    /// files at 4 s with types.
-    fn within_budget() -> Vec<TargetResult> {
-        vec![
-            budget_target("a", "corpus", (300.0, Some(1024)), 200.0, 3000.0),
-            budget_target("b", "corpus", (900.0, Some(3000)), 600.0, 30_000.0),
-            budget_target("c", "corpus", (150.0, Some(4096)), 100.0, 3000.0),
-            budget_target("g", "graph", (4000.0, Some(2048)), 3000.0, 0.0),
-        ]
-    }
-
-    /// The target and description of every budget check of `targets` that did not pass, with its status.
-    fn not_passed(targets: &[TargetResult]) -> Vec<(String, String, CheckStatus)> {
-        budget_checks(targets)
-            .into_iter()
-            .filter(|check| check.status != CheckStatus::Pass)
-            .map(|check| (check.target, check.description, check.status))
-            .collect()
-    }
-
-    #[test]
-    fn a_run_within_the_type_aware_budget_passes_every_check() {
-        let checks = budget_checks(&within_budget());
-        let described: Vec<(&str, &str)> = checks
-            .iter()
-            .map(|check| (check.target.as_str(), check.description.as_str()))
-            .collect();
-        assert_eq!(
-            described,
-            [
-                ("a", "peak RSS with types <= 4096 MiB (measured 1024 MiB)"),
-                ("a", "types on no slower than knip (knip / skif --type-aware = 10.00x)"),
-                ("b", "peak RSS with types <= 4096 MiB (measured 3000 MiB)"),
-                ("b", "types on no slower than knip (knip / skif --type-aware = 33.33x)"),
-                ("c", "peak RSS with types <= 4096 MiB (measured 4096 MiB)"),
-                ("c", "types on no slower than knip (knip / skif --type-aware = 20.00x)"),
-                ("g", "peak RSS with types <= 4096 MiB (measured 2048 MiB)"),
-                ("g", "whole run with types < 5000 ms (measured 4000.0 ms)"),
-            ]
-        );
-        assert!(checks.iter().all(|check| check.status == CheckStatus::Pass));
-        assert_eq!(failed_checks(&checks, "type-aware budget (ADR 0010)"), None);
-    }
-
-    #[test]
-    fn each_broken_limit_of_the_type_aware_budget_fails_its_own_check() {
-        let with = |index: usize, target: TargetResult| {
-            let mut targets = within_budget();
-            targets[index] = target;
-            not_passed(&targets)
-        };
-        let fail =
-            |target: &str, description: &str| vec![(target.to_owned(), description.to_owned(), CheckStatus::Fail)];
-        assert_eq!(
-            with(0, budget_target("a", "corpus", (300.0, Some(1024)), 200.0, 270.0)),
-            fail("a", "types on no slower than knip (knip / skif --type-aware = 0.90x)"),
-            "types on slower than knip fails"
-        );
-        assert_eq!(
-            with(0, budget_target("a", "corpus", (300.0, Some(1024)), 200.0, 300.0)),
-            [],
-            "types on exactly as fast as knip passes"
-        );
-        assert_eq!(
-            with(1, budget_target("b", "corpus", (6000.0, Some(3000)), 600.0, 30_000.0)),
-            [],
-            "types on at 10x types off is not limited"
-        );
-        assert_eq!(
-            with(2, budget_target("c", "corpus", (150.0, Some(4097)), 100.0, 3000.0)),
-            fail("c", "peak RSS with types <= 4096 MiB (measured 4097 MiB)")
-        );
-        assert_eq!(
-            with(3, budget_target("g", "graph", (6000.0, Some(2048)), 3000.0, 0.0)),
-            fail("g", "whole run with types < 5000 ms (measured 6000.0 ms)")
-        );
-        let mut broken = within_budget();
-        broken[2] = budget_target("c", "corpus", (150.0, Some(4097)), 100.0, 3000.0);
-        let checks = budget_checks(&broken);
-        assert_eq!(
-            failed_checks(&checks, "type-aware budget (ADR 0010)").as_deref(),
-            Some("1 type-aware budget (ADR 0010) check(s) failed")
-        );
-    }
-
-    #[test]
-    fn an_unmeasured_peak_rss_is_not_measured_and_an_errored_typed_run_makes_its_checks_invalid() {
-        let mut targets = within_budget();
-        targets[0] = budget_target("a", "corpus", (300.0, None), 200.0, 3000.0);
-        targets[1].results[0].error_runs = 2;
-        targets[2].results[1].error_runs = 2;
-        assert_eq!(
-            not_passed(&targets),
-            [
-                (
-                    "a".to_owned(),
-                    "peak RSS with types <= 4096 MiB (not measured)".to_owned(),
-                    CheckStatus::NotMeasured
-                ),
-                (
-                    "b".to_owned(),
-                    "peak RSS with types <= 4096 MiB (measured 3000 MiB)".to_owned(),
-                    CheckStatus::Invalid
-                ),
-                (
-                    "b".to_owned(),
-                    "types on no slower than knip (knip / skif --type-aware = 33.33x; skif --type-aware exited with an error in 2 runs)".to_owned(),
-                    CheckStatus::Invalid
-                ),
-            ],
-            "an errored run without types (on c) checks nothing of the budget"
-        );
-        assert!(budget_checks(&[]).is_empty());
-    }
-
     #[test]
     fn reads_the_peak_rss_that_gnu_and_bsd_time_print() {
         let gnu = "error: 3 unused exports\n\tCommand being timed: \"skif . --format json\"\n\tUser time (seconds): 10.52\n\tMaximum resident set size (kbytes): 3366912\n\tAverage resident set size (kbytes): 0\n\tExit status: 1\n";
@@ -2653,7 +2357,7 @@ mod tests {
 
     #[test]
     fn the_peak_rss_run_is_the_timed_command_under_time() {
-        let argv = tool_argv(Tool::SkifTyped, Path::new("/s/skif"), &[], &[]);
+        let argv = tool_argv(Tool::Skif, Path::new("/s/skif"), &[], &[]);
         assert_eq!(
             peak_rss_argv("-v", &argv),
             [
@@ -2663,8 +2367,7 @@ mod tests {
                 ".",
                 "--format",
                 "json",
-                "--no-install",
-                "--type-aware"
+                "--no-install"
             ]
         );
         assert_eq!(mib(3_447_717_888), 3288);
@@ -2672,26 +2375,34 @@ mod tests {
     }
 
     #[test]
-    fn the_summary_shows_both_modes_and_the_budget_checks() {
-        let targets = within_budget();
-        let summary = Summary {
-            type_aware_budget_checks: budget_checks(&targets),
-            ..summary_of(targets, Vec::new())
+    fn the_summary_shows_the_peak_rss_of_the_whole_skif_run_where_it_was_measured() {
+        let target = |name: &str, peak_rss_bytes: Option<u64>| TargetResult {
+            target: name.into(),
+            kind: "corpus",
+            packages: None,
+            files: None,
+            installed_with: None,
+            declared_knip_failure: None,
+            warmup: 1,
+            runs: 2,
+            results: vec![
+                ToolResult {
+                    peak_rss_bytes,
+                    ..tool_row("skif", 200.0)
+                },
+                tool_row("skif --no-js", 20.0),
+            ],
         };
-        let text = markdown(&summary);
+        let text = markdown(&summary_of(
+            vec![target("a", Some(1024 << 20)), target("b", None)],
+            Vec::new(),
+        ));
         assert!(
-            text.contains(
-                "## Type awareness (ADR 0010)\n\n| Target | types on, mean (ms) | types off (default), mean (ms) | on / off | types on, peak RSS (MiB) | types off (default), peak RSS (MiB) |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| a | 300 | 200 | 1.5x | 1024 | 512 |\n"
-            ),
+            text.ends_with("## Peak RSS\n\n| Target | skif, peak RSS (MiB) |\n| --- | ---: |\n| a | 1024 |\n"),
             "{text}"
         );
-        assert!(text.contains("| g | 4000 | 3000 | 1.3x | 2048 | 512 |\n"), "{text}");
-        assert!(
-            text.contains(
-                "| Target | Budget check | Result |\n| --- | --- | --- |\n| a | peak RSS with types <= 4096 MiB (measured 1024 MiB) | pass |\n"
-            ),
-            "{text}"
-        );
-        assert!(!text.contains("\n\n\n") && text.ends_with("|\n"), "{text}");
+        assert!(!text.contains("\n\n\n"), "{text}");
+        let unmeasured = markdown(&summary_of(vec![target("b", None)], Vec::new()));
+        assert!(!unmeasured.contains("Peak RSS"), "{unmeasured}");
     }
 }
