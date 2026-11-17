@@ -198,39 +198,84 @@ fn explain_fixture() -> tempfile::TempDir {
     dir
 }
 
+/// What a call must return, besides the document of its command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Expect {
+    /// A document that is not the `error` one, not flagged `isError`.
+    Answer,
+    /// The lint report with a non-empty `fix.changes`.
+    Fixes,
+    /// A document that is not the `error` one, flagged `isError`: the command exited 2 after answering.
+    Failed,
+    /// The `error` document, flagged `isError`.
+    Error,
+}
+
 /// Each call answers with exactly the document its command prints with `--format json`, and is an error exactly
 /// when the command exits 2. Every case runs the binary twice in the same directory: as `skif ARGV` and as one
-/// `tools/call` of `skif mcp`.
+/// `tools/call` of `skif mcp`. Each case also names what it must return, so a case where both sides fail alike, or
+/// plan nothing, does not pass as parity.
 #[test]
 fn every_tool_answers_with_the_document_of_its_command() {
+    use Expect::{Answer, Error, Failed, Fixes};
     let dirty = fixture("dirty");
     let multi = fixture("multi");
+    // One root of a recursive run has an unreadable skif.toml; the others are still linted.
+    let broken = fixture("multi");
+    fs::write(broken.path().join("unrelated/skif.toml"), "[lint\n").unwrap();
     let explained = explain_fixture();
-    let cases: Vec<(&Path, &str, Value, Vec<&str>)> = vec![
-        (dirty.path(), "lint", json!({}), vec![]),
-        (dirty.path(), "lint", json!({ "path": "." }), vec!["."]),
+    let cases: Vec<(&Path, &str, Value, Vec<&str>, Expect)> = vec![
+        (dirty.path(), "lint", json!({}), vec![], Answer),
+        (dirty.path(), "lint", json!({ "path": "." }), vec!["."], Answer),
         (
             dirty.path(),
             "lint",
             json!({ "include": ["empty-dependencies", "root-package-private-field"] }),
             vec!["--include", "empty-dependencies,root-package-private-field"],
+            Answer,
         ),
         (
             dirty.path(),
             "lint",
             json!({ "exclude": ["empty-dependencies"], "no_js": true, "production": true }),
             vec!["--exclude", "empty-dependencies", "--no-js", "--production"],
+            Answer,
         ),
         (
             dirty.path(),
             "lint",
             json!({ "max_show_issues": 0 }),
             vec!["--max-show-issues", "0"],
+            Answer,
         ),
-        (dirty.path(), "lint", json!({ "workspace": ["."] }), vec!["-W", "."]),
-        (dirty.path(), "lint", json!({ "strict": true }), vec!["--strict"]),
-        (dirty.path(), "lint", json!({ "no_config": true }), vec!["--no-config"]),
-        (dirty.path(), "lint", json!({ "fix": true }), vec!["--fix", "--dry-run"]),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "workspace": ["."] }),
+            vec!["-W", "."],
+            Answer,
+        ),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "strict": true }),
+            vec!["--strict"],
+            Answer,
+        ),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "no_config": true }),
+            vec!["--no-config"],
+            Answer,
+        ),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "fix": true }),
+            vec!["--fix", "--dry-run"],
+            Fixes,
+        ),
         (
             dirty.path(),
             "lint",
@@ -243,64 +288,84 @@ fn every_tool_answers_with_the_document_of_its_command() {
                 "--fix-type",
                 "empty-dependencies",
             ],
+            Fixes,
         ),
-        (dirty.path(), "lint", json!({ "path": "missing" }), vec!["missing"]),
+        (
+            dirty.path(),
+            "lint",
+            json!({ "path": "missing" }),
+            vec!["missing"],
+            Error,
+        ),
         (
             dirty.path(),
             "lint",
             json!({ "include": ["no-such-rule"] }),
             vec!["--include", "no-such-rule"],
+            Error,
         ),
         (
             dirty.path(),
             "lint",
             json!({ "fix": true, "max_show_issues": 1 }),
             vec!["--fix", "--dry-run", "--max-show-issues", "1"],
+            Error,
         ),
-        (multi.path(), "lint", json!({ "recursive": true }), vec!["-r"]),
-        (dirty.path(), "config", json!({}), vec!["config", "--show"]),
+        (multi.path(), "lint", json!({ "recursive": true }), vec!["-r"], Answer),
+        (broken.path(), "lint", json!({ "recursive": true }), vec!["-r"], Failed),
+        (dirty.path(), "config", json!({}), vec!["config", "--show"], Answer),
         (
             dirty.path(),
             "config",
             json!({ "explain": "lint.fail-on-warnings" }),
             vec!["config", "--explain", "lint.fail-on-warnings"],
+            Answer,
         ),
         (
             multi.path(),
             "config",
             json!({ "recursive": true }),
             vec!["config", "--show", "-r"],
+            Answer,
         ),
-        (dirty.path(), "list_rules", json!({}), vec!["rules"]),
+        (
+            broken.path(),
+            "config",
+            json!({ "recursive": true }),
+            vec!["config", "--show", "-r"],
+            Failed,
+        ),
+        (dirty.path(), "list_rules", json!({}), vec!["rules"], Answer),
         (
             explained.path(),
             "explain_usage",
             json!({ "file": "lib.ts", "export": "idle" }),
             vec!["explain-usage", "lib.ts#idle"],
+            Answer,
         ),
         (
             explained.path(),
             "explain_usage",
             json!({ "file": "orphan.ts" }),
             vec!["explain-usage", "orphan.ts"],
+            Error,
         ),
         (
             explained.path(),
             "explain_usage",
             json!({ "dependency": "left-pad" }),
             vec!["explain-usage", "--dependency", "left-pad"],
+            Answer,
         ),
     ];
-    for (dir, tool, arguments, argv) in cases {
+    for (dir, tool, arguments, argv, expect) in cases {
         let cli = run(skif().current_dir(dir).args(&argv).args(["--format", "json"]));
         let expected: Value = serde_json::from_str(&cli.stdout)
             .unwrap_or_else(|error| panic!("skif {argv:?}: {error}: {}{}", cli.stdout, cli.stderr));
         let replies = session(dir, &[call(1, tool, &arguments)]);
         let result = &replies[0]["result"];
-        assert_eq!(
-            result["structuredContent"], expected,
-            "{tool} {arguments} against skif {argv:?}"
-        );
+        let document = &result["structuredContent"];
+        assert_eq!(document, &expected, "{tool} {arguments} against skif {argv:?}");
         let text: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
         assert_eq!(text, expected, "{tool} {arguments}: the text is the same document");
         assert_eq!(
@@ -309,5 +374,29 @@ fn every_tool_answers_with_the_document_of_its_command() {
             "{tool} {arguments}: isError against exit code {}",
             cli.code
         );
+        assert_eq!(
+            result["isError"],
+            matches!(expect, Failed | Error),
+            "{tool} {arguments}: expected {expect:?}: {document}"
+        );
+        assert_eq!(
+            document["error"].is_object(),
+            expect == Error,
+            "{tool} {arguments}: expected {expect:?}: {document}"
+        );
+        if expect == Fixes {
+            let changes = document["fix"]["changes"].as_array();
+            assert!(
+                changes.is_some_and(|changes| !changes.is_empty()),
+                "{tool} {arguments}: no planned change: {document}"
+            );
+        }
+        if dir == broken.path() {
+            let errors = document["errors"].as_array();
+            assert!(
+                errors.is_some_and(|errors| !errors.is_empty()),
+                "{tool} {arguments}: the failed root is listed: {document}"
+            );
+        }
     }
 }
