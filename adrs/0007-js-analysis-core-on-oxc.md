@@ -138,8 +138,8 @@ lets every host, poly included, keep warm results in a store it owns while the l
   Caching by default is host policy, never the library's.
 * Keys are 32-byte blake3 digests skif computes over the cache version, the namespace schema, a digest of the
   configuration the entry depends on, root-relative paths, content digests and the host salt. A key never holds a
-  modification time or an absolute path, so hook snapshots and worktrees of one tree share entries. Hosts put a build
-  salt (the executable's stat on non-release builds) into the salt.
+  modification time or an absolute path, so hook snapshots and worktrees of one tree share entries. The host salt
+  carries a build salt: the executable's stat on non-release builds.
 * skif wraps every value in an envelope it writes and verifies: magic, namespace, schema, key echo, length and
   checksum. A truncated, flipped or foreign value is a miss, never a wrong result, whatever the host stores. The
   envelope is integrity, not authentication, so who may write a store is host policy
@@ -156,7 +156,6 @@ lets every host, poly included, keep warm results in a store it owns while the l
   Everything else (configuration, manifests, lockfiles, plugin configs, resolution, the graph and the rules) is computed
   on every run, so L1 needs no dependency tracking. The `modules` schema, `CACHE_SCHEMA`, is raised whenever parse
   output changes, and a digest of a probe corpus beside it fails until it is.
-* There is no typed layer: skif has no type checker ([ADR 0010](0010-type-aware-analysis-on-tsrs.md)).
 * L2, lockfile and plugin-config caches, only after a measurement shows they pay.
 * L3, a CLI-only stat fast path (path to stat and content key, with poly's racy-timestamp rule), comes last because it
   changes the `FileSystem` trait. Stat records are never trusted across checkouts.
@@ -182,8 +181,9 @@ lets every host, poly included, keep warm results in a store it owns while the l
   directory (`$XDG_CACHE_HOME/skif`, `~/Library/Caches/skif`, `%LOCALAPPDATA%\skif`); else memory for the run.
 * One location serves many bases, each in `<location>/<base-key>/`, the key taken from the base path relative to the
   git top level, or absolute outside git. A directory skif creates gets a `CACHEDIR.TAG` and a `.gitignore` of `*`.
-* Each store keeps, per namespace, what its base's last run used. After the write, a location over its cap drops
-  other bases' stores, least recently modified first.
+* Each store keeps, per namespace, what its base's last run used. The cap (`max-size`) applies to the location,
+  the sum of every base's store. After the write, a location over its cap drops other bases' stores, least recently
+  modified first. A single store that alone would exceed the cap writes only the entries that fit, `modules` first.
 * An unreadable, corrupt or foreign store is empty and a bad entry is a miss. A failed write is silent when the cache
   came from the defaults (one line under `--debug`) and a warning when it was asked for. The cache never changes the
   exit code or the findings. A write renames atomically behind a try-lock and is skipped on contention.
@@ -232,5 +232,6 @@ lets every host, poly included, keep warm results in a store it owns while the l
 * Library contract tests run without a store and with a cold, a warm, a corrupted and an adversarial store and require
   the same report apart from the counters; the CLI tests cover the settings' precedence, the location chain, the CI rule
   and `skif cache`.
-* `skif-bench cache-diff` compares uncached, cold, warm and seeded-edit runs on the corpus, in CI
+* `skif-bench cache-diff` compares uncached, cold, warm and seeded-edit runs on the corpus. It is run with
+  `mise run cache:diff` before a release; CI wiring is planned once the cache is on by default
   ([ADR 0014](0014-benchmarks-and-the-comparison-harness.md)).

@@ -90,7 +90,8 @@ version from one build, and ties the support statement to facts someone else mai
 
 ### Build profiles
 
-* The CLI binaries use `[profile.release]`, which unwinds.
+* The CLI binaries use `[profile.release]`, which unwinds, so a panic that reaches the entry point exits `2` with the
+  `error` document instead of aborting.
 * The addon uses `[profile.node]`, which inherits it and unwinds too, so a panic becomes a JavaScript exception instead
   of ending the host process.
 

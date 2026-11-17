@@ -58,8 +58,9 @@ means what it says.
 * Flags form the `ConfigOverrides` layer, the last layer of the configuration
   ([ADR 0003](0003-configuration-suppressions-baselines-and-migration.md)). An array flag replaces the configured
   array, except `--ignore-dependency`, which adds an ignore entry.
-* A mode flag turns a mode on, never off. The baseline commands and `skif explain-usage` take the mode flags too, so
-  they judge as the lint run they stand for.
+* A mode flag overrides the configuration in one direction only: `--production`, `--isolate-workspaces` and
+  `--strict` turn their mode on, and `--no-js` turns the JavaScript analysis off. The baseline commands take the lint
+  run's mode flags and `skif explain-usage` takes `--production`, so they judge as the lint run they stand for.
 * Report selection flags narrow the report, not the analysis. Diagnostics of the run itself (`--debug`,
   `--performance` and their kin) go to stderr.
 * `--color auto` colours only when stdout is a TTY, `NO_COLOR` is unset and there is no `--output`. `--no-prompt` never

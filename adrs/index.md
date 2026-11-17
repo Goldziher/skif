@@ -2,9 +2,8 @@
 
 These records capture the design decisions behind skif, a Rust dependency linter for JavaScript and
 TypeScript monorepos, in adrlint's MADR 4 format. Each record states the context, the options
-considered, the decision, its consequences and how compliance is confirmed. Accepted records are
-immutable and locked by `adrlint.lock`; a change of direction gets a new record that supersedes the
-old one.
+considered, the decision, its consequences and how compliance is confirmed. The records are kept
+current: an edit to an accepted record is committed with its reason, and `adrlint.lock` is regenerated.
 
 | ADR | Title | Status |
 | --- | --- | --- |

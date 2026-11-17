@@ -119,8 +119,8 @@ counted.
   (overhead target at most 5% over `--no-cache`), warm, and one edit. They are outside the targets of
   [ADR 0001](0001-mission-scope-and-non-goals.md), so a warm number never stands in for a compared one.
 * `skif-bench cache-diff` lints the corpus uncached, cold, warm and after seeded edits, and fails on any difference
-  between the reports. It runs in CI, because a cache that changes a finding is a correctness defect, not a
-  measurement.
+  between the reports, because a cache that changes a finding is a correctness defect, not a measurement. It is run
+  with `mise run cache:diff` before a release; CI wiring is planned once the cache is on by default.
 
 ### Timing scope
 
@@ -158,7 +158,7 @@ counted.
   every deviation's positive and near-miss case;
   `tools/bench/src/syncpack.rs` covers the translation for syncpack.
 * `tools/bench/src/diff.rs` covers the drift check and its tolerance.
-* `skif-bench cache-diff`, run in CI, confirms that caching changes no report.
+* `skif-bench cache-diff`, run with `mise run cache:diff` before a release, confirms that caching changes no report.
 * `tools/bench/src/run.rs`, `tools/bench/src/provenance.rs` and `tools/bench/refresh-numbers.test.mjs` cover the timing
   scope, the informational recursive row, peak RSS, declared knip failures and the published record;
   `scripts/test-check-scripts.sh` covers the import.

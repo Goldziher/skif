@@ -34,7 +34,7 @@ blake3 = "08ebe9729de73ffa29ad86e45309c25d86110d0781c666e2aff12b9a49a3eceb"
 [adrs."adrs/0007-js-analysis-core-on-oxc.md"]
 number = 7
 status = "accepted"
-blake3 = "3d94ca25a1e24cedc1bcf0a8cdd416c054c39606238d5037f061e7e263f60114"
+blake3 = "1347b94e357087c4c3712ace293b8195181bfdbe2975a3638bb1119b6381fca3"
 
 [adrs."adrs/0008-plugins-config-evaluation-and-commands.md"]
 number = 8
@@ -44,12 +44,12 @@ blake3 = "d43f073adb2f2af6a293d6d4107aa7fbcdaae337cc499675b4d76c9e43cbc8e5"
 [adrs."adrs/0009-what-counts-as-a-use.md"]
 number = 9
 status = "accepted"
-blake3 = "e553f5258e0267bb8c59a0f01e6c9116481d8656ee7c46d190d5711334a25563"
+blake3 = "9d79944812bc10bdff35b7bc884e663405092f757d57afbcb9ac4c3f31faa5bd"
 
 [adrs."adrs/0010-type-aware-analysis-on-tsrs.md"]
 number = 10
 status = "accepted"
-blake3 = "707cbccf2bd73000f56d5ac93d1ec3ee3b767479c142ee599a647e1e8492bca3"
+blake3 = "0acf29d0c0ae8afc2ebfdee3532e45fecbd2c00b795fb0356482899fbc887b72"
 
 [adrs."adrs/0011-nx-lerna-and-bazel.md"]
 number = 11
@@ -59,7 +59,7 @@ blake3 = "37e86b55ce25191f61c4396412350d458c4f114e6c6e2ed30bb98c5ba09ea6fa"
 [adrs."adrs/0012-cli-contract-and-reporting.md"]
 number = 12
 status = "accepted"
-blake3 = "abe5e9e594df47629a4f16a553a4c0bf64ce101167b9dc3037c0ed1979c474e2"
+blake3 = "e6c02febc0aed08e5307c0325dbd83086a197d01a8853bcfafb07aa50e90675b"
 
 [adrs."adrs/0013-editors-agents-and-git-hooks.md"]
 number = 13
@@ -69,9 +69,9 @@ blake3 = "7afc7f66025442bd1b1c2ec2fc51e149eb8071a5d29132efb7001dd36829d6a8"
 [adrs."adrs/0014-benchmarks-and-the-comparison-harness.md"]
 number = 14
 status = "accepted"
-blake3 = "5cdd8a60bd557bddd21447aa25cf68d660d8e8a232348b671d33c473dc17caf3"
+blake3 = "785d637f7edc53d03846bd33316f07fbe8917bab409214ce8d2a772629691e5c"
 
 [adrs."adrs/0015-distribution-release-and-supported-versions.md"]
 number = 15
 status = "accepted"
-blake3 = "cc1f577834d690617291d373901b178ae3770c51788e97915ad6fd4ed149df46"
+blake3 = "1e7152a2e652ab2a04dd0e8990bf0964e4c0aa67befcea17bd44c9d3226f6cf0"

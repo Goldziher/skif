@@ -34,7 +34,8 @@ element registrations?
   the advice differs
 * Follow knip's reading everywhere, which depends on executed configs skif does not have
 * Count every name match as a use, which hides most dead exports and members
-* Require type information for member and export uses, which needs a type checker skif does not have
+* Require type information for member and export uses, which a measured typed mode made slower and less precise
+  ([ADR 0010](0010-type-aware-analysis-on-tsrs.md))
 
 ## Decision Outcome
 
