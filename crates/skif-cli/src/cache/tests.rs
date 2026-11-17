@@ -153,7 +153,7 @@ fn the_watcher_leaves_a_named_location_out_of_its_scan() {
     };
     let written = written_dirs(&flags, &CacheEnv::empty());
     assert!(written.contains(&dir.path().to_path_buf()));
-    assert!(written.contains(&std::fs::canonicalize(dir.path()).unwrap()));
+    assert!(written.contains(&crate::lint::simplified(std::fs::canonicalize(dir.path()).unwrap())));
     let off = CacheFlags {
         no_cache: true,
         ..flags
