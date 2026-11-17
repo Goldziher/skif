@@ -291,13 +291,15 @@ jobs:
           args: --version
       # The cache store is on by default from 0.9.0: the first lint through the Action must leave a store in the
       # directory the Action restores and saves, and a second lint must run with it there. An older release has no
-      # store to check, which the step says instead of passing silently.
+      # store to check, which the step says instead of passing silently. The workspace is one that lints clean as
+      # committed and has TypeScript sources to cache; fixtures/e2e/clean is a template that the e2e scripts finish
+      # (package manager, install) before linting it.
       - name: Lint a fixture through the Action, cold
         if: steps.release.outputs.tag != ''
         uses: ./
         with:
           version: ${{ steps.release.outputs.tag }}
-          working-directory: fixtures/e2e/clean/project
+          working-directory: crates/skif-cli/tests/fixtures/autofix
           cache-key: -self-test
       - name: The first run wrote the cache store
         if: steps.release.outputs.tag != ''
@@ -319,7 +321,7 @@ jobs:
         uses: ./
         with:
           version: ${{ steps.release.outputs.tag }}
-          working-directory: fixtures/e2e/clean/project
+          working-directory: crates/skif-cli/tests/fixtures/autofix
           cache-key: -self-test
 
   consistency:
