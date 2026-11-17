@@ -44,7 +44,7 @@ const row = (tool, median_ms, extra = {}) => ({
 });
 
 const MIB = 1024 * 1024;
-/** The peak RSS of a skif mode's row, in mebibytes. */
+/** The peak RSS of the full skif run's row, in mebibytes. */
 const rss = (mebibytes) => ({ peak_rss_bytes: mebibytes * MIB });
 
 /** The machine of a GitHub-hosted x86 runner, as the harness records it there. */
@@ -75,7 +75,7 @@ function machine() {
 
 function summary() {
   return {
-    schema: 8,
+    schema: 9,
     skif: "skif 0.3.0",
     source_rev: "0123456789ab",
     harness_rev: "0123456789ab",
@@ -124,12 +124,10 @@ function summary() {
           row("sherif", 37),
           row("syncpack lint", 280),
           row("knip --reporter json", 7200, { relative_to_skif: 8.1 }),
-          row("skif --type-aware", 1326, rss(1200)),
         ],
       },
     ],
     adr_0001_checks: [{ target: "corpus: babel (yarn)", description: "d", status: "pass" }],
-    type_aware_budget_checks: [{ target: "corpus: babel (yarn)", description: "b", status: "pass" }],
   };
 }
 
@@ -223,7 +221,6 @@ function withT3({ errorRuns, failure, check }) {
         error_output: errorRuns > 0 ? METRO_ERROR : null,
         failure,
       }),
-      row("skif --type-aware", 36.3, rss(300)),
     ],
   });
   result.adr_0001_checks.push({ target: "corpus: create-t3-turbo (pnpm)", ...check });
@@ -316,7 +313,6 @@ function withNextJs() {
         error_output: JEST_ERROR,
         failure: { reason: JEST_REASON, error: JEST_ERROR, timed: true },
       }),
-      row("skif --type-aware", 18000, rss(3800)),
     ],
   });
   result.adr_0001_checks.push({ target: "corpus: next-js (pnpm)", description: "d", status: "pass" });
@@ -465,8 +461,8 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "sherif was not timed on any target: npm is not installed",
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
-  assert.deepEqual(summaryProblems({ ...summary(), schema: 7 }), [
-    "summary schema 7 is not 8; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+  assert.deepEqual(summaryProblems({ ...summary(), schema: 8 }), [
+    "summary schema 8 is not 9; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
   ]);
   assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
     "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",
@@ -476,17 +472,10 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
   assert.deepEqual(summaryProblems(noCorpus), ["the summary has no corpus target (was it run with --no-corpus?)"]);
 });
 
-test("a summary without both skif modes, or without the peak RSS of one, is refused", () => {
-  const untyped = summary();
-  untyped.targets[1].results = untyped.targets[1].results.filter((r) => r.tool !== "skif --type-aware");
-  assert.deepEqual(summaryProblems(untyped), ["corpus: babel (yarn) has no skif --type-aware row"]);
+test("a summary without the full skif run, or without its peak RSS, is refused", () => {
   const unmeasured = summary();
   unmeasured.targets[1].results[0].peak_rss_bytes = null;
-  delete unmeasured.targets[1].results[5].peak_rss_bytes;
-  assert.deepEqual(summaryProblems(unmeasured), [
-    "corpus: babel (yarn): skif has no peak RSS",
-    "corpus: babel (yarn): skif --type-aware has no peak RSS",
-  ]);
+  assert.deepEqual(summaryProblems(unmeasured), ["corpus: babel (yarn): skif has no peak RSS"]);
   const graph = summary();
   graph.targets.push({
     target: "graph: 10000 files in 100 packages",
@@ -497,41 +486,47 @@ test("a summary without both skif modes, or without the peak RSS of one, is refu
     runs: 15,
     results: [row("skif", 4000, rss(2048))],
   });
-  assert.deepEqual(summaryProblems(graph), ["graph: 10000 files in 100 packages has no skif --type-aware row"]);
+  assert.deepEqual(summaryProblems(graph), []);
+  graph.targets.at(-1).results = [];
+  assert.deepEqual(summaryProblems(graph), ["graph: 10000 files in 100 packages has no skif row"]);
 });
 
-test("an invalid type-aware budget check is refused and a failed one is published", () => {
-  const invalid = summary();
-  invalid.type_aware_budget_checks[0].status = "invalid";
-  assert.deepEqual(summaryProblems(invalid), ["corpus: babel (yarn): the type-aware budget check is invalid: b"]);
-  const failed = summary();
-  failed.type_aware_budget_checks[0] = {
-    target: "corpus: babel (yarn)",
-    description: "peak RSS with types <= 4096 MiB (measured 4200 MiB)",
-    status: "fail",
-  };
-  assert.deepEqual(summaryProblems(failed), []);
-  assert.ok(
-    benchDetail(failed).includes(
-      "| Type-aware budget (ADR 0010) | Check | Result |\n| --- | --- | --- |\n" +
-        "| corpus: babel (yarn) | peak RSS with types <= 4096 MiB (measured 4200 MiB) | FAIL |\n",
-    ),
-    benchDetail(failed),
-  );
+test("a summary of the harness that timed two skif modes is refused by its schema", () => {
+  const old = summary();
+  old.schema = 8;
+  old.targets[1].results.push(row("skif --type-aware", 1326, rss(1200)));
+  old.type_aware_budget_checks = [{ target: "corpus: babel (yarn)", description: "b", status: "pass" }];
+  assert.deepEqual(summaryProblems(old), [
+    "summary schema 8 is not 9; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+  ]);
 });
 
-test("the compact tables show both skif modes with their peak RSS", () => {
-  const text = benchSummary(withNextJs());
+test("the compact tables show the full skif run with its peak RSS and no type-aware table", () => {
+  const withGraph = withNextJs();
+  withGraph.targets.push({
+    target: "graph: 10000 files in 100 packages",
+    kind: "graph",
+    packages: 100,
+    files: 10000,
+    warmup: 3,
+    runs: 15,
+    results: [row("skif", 4000, rss(2048))],
+  });
+  const text = benchSummary(withGraph);
   assert.ok(
     text.includes(
-      "| Target | types on | types off (default) | on / off | peak RSS, types on | peak RSS, types off (default) |\n" +
-        "| --- | ---: | ---: | ---: | ---: | ---: |\n" +
-        "| babel | 1.3 s | 884 ms | 1.5x | 1,200 MiB | 400 MiB |\n" +
-        "| next-js | 18.0 s | 6.0 s | 3.0x | 3,800 MiB | 310 MiB |\n",
+      "**Peak RSS** (full skif run)\n\n" +
+        "| Target | skif | peak RSS |\n" +
+        "| --- | ---: | ---: |\n" +
+        "| babel | 884 ms | 400 MiB |\n" +
+        "| next-js | 6.0 s | 310 MiB |\n" +
+        "| graph: 10000 files in 100 packages | 4.0 s | 2,048 MiB |\n",
     ),
     text,
   );
-  assert.match(benchDetail(summary()), /\| skif --type-aware \| 1326 \| 1326 \| - \|/);
+  for (const published of [text, benchDetail(withGraph)]) {
+    assert.doesNotMatch(published, /type[- ]aware|types on|ADR 0010/iu);
+  }
   assert.equal(mebibytes(3_447_717_888), "3,288 MiB");
 });
 
@@ -817,7 +812,7 @@ test("a summary with a matched knip failure is written into every speed block", 
   const [comparison, page, readme] = contents(root).map((bytes) => bytes.toString("utf8"));
   assert.ok(page.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), page);
   assert.ok(page.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), page);
-  assert.ok(page.includes("| create-t3-turbo | 36 ms | 33 ms | 1.1x | 300 MiB | 200 MiB |\n"), page);
+  assert.ok(page.includes("| create-t3-turbo | 33 ms | 200 MiB |\n"), page);
   const claim = "\n- **8.1x faster than knip** for dead-code analysis";
   assert.ok(comparison.includes(`{/* bench:claims:start */}${claim}`), comparison);
   assert.ok(comparison.includes("it fails on create-t3-turbo.\n"), comparison);
