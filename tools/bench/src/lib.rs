@@ -3,4 +3,4 @@
 pub mod deadcode;
 pub mod generate;
 pub mod ondisk;
-mod rng;
+pub mod rng;

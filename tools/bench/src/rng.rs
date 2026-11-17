@@ -6,11 +6,13 @@ pub struct Rng {
 }
 
 impl Rng {
+    #[must_use]
     pub const fn new(seed: u64) -> Self {
         Self { state: seed }
     }
 
     /// An independent stream for `stream` (e.g. one package), derived from `seed`.
+    #[must_use]
     pub fn for_stream(seed: u64, stream: u64) -> Self {
         let mut mixer = Self::new(seed ^ stream.wrapping_mul(0xD6E8_FEB8_6659_FD93));
         Self::new(mixer.next_u64())
@@ -50,6 +52,7 @@ impl Rng {
 }
 
 /// FNV-1a, used to derive stable per-name properties.
+#[must_use]
 pub fn hash_str(value: &str) -> u64 {
     value.bytes().fold(0xCBF2_9CE4_8422_2325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01B3)
