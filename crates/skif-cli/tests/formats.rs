@@ -208,6 +208,30 @@ fn an_unknown_format_or_an_empty_file_is_a_usage_error() {
     let empty = run(skif().args(["--format", "json="]));
     assert_eq!(empty.code, 2);
     assert_eq!(empty.json()["error"]["kind"], "usage");
+
+    // An error before the lint starts is the TOON `error` document when TOON goes to stdout.
+    let missing = tempfile::tempdir().unwrap().path().join("gone");
+    let toon = [
+        (run(skif().args(["--format", "toon", "--bogus"])), "usage"),
+        (
+            run(skif().args(["--format=toon", "--max-show-issues", "many"])),
+            "usage",
+        ),
+        (run(skif().args(["--format", "toon="])), "usage"),
+        (
+            run(skif()
+                .env("BUILD_WORKSPACE_DIRECTORY", &missing)
+                .env("BUILD_WORKING_DIRECTORY", &missing)
+                .args(["--format", "toon"])),
+            "io",
+        ),
+    ];
+    for (result, kind) in toon {
+        assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+        let document = serde_toon::decode_to_value(&result.stdout)
+            .unwrap_or_else(|error| panic!("{error}: {:?} {}", result.stdout, result.stderr));
+        assert_eq!(document["error"]["kind"], kind, "{document}");
+    }
 }
 
 /// `--format toon` prints the document `--format json` prints, in TOON, with the same exit code; the error

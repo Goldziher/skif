@@ -56,8 +56,8 @@ use output::{emit_error, emit_error_with};
 /// `bazel run` enters that directory itself first, as the npm package's `skif` bin does (ADR 0011).
 ///
 /// A panic in skif that reaches this call is caught and exits 2, as in the binary; the panic hook prints the message
-/// and its location to stderr, and with `--format json` stdout also receives the `error` document (kind `internal`)
-/// naming both. A panic that skif catches itself on the way, such as one inside the type checker that falls back to
+/// and its location to stderr, and with `--format json` or `toon` stdout also receives the `error` document (kind
+/// `internal`) naming both. A panic that skif catches itself on the way, such as one inside the type checker that falls back to
 /// the untyped analysis (ADR 0010), does not end the run.
 ///
 /// To learn the location, the first call chains a hook in front of the process's panic hook (`std::panic::set_hook`),
@@ -107,7 +107,8 @@ pub fn configure_global_pool() {
     });
 }
 
-/// `body`'s exit code, or 2 when it panics, after the `internal` error document on `stdout` when `raw` asks for JSON.
+/// `body`'s exit code, or 2 when it panics, after the `internal` error document on `stdout` when `raw` asks for JSON
+/// or TOON.
 /// The panic hook has already printed the message and location to stderr. The document names the location the hook
 /// recorded on this thread, or only the payload when the hook did not run for this panic: a host replaced it, or the
 /// panic was raised on another thread and resumed here, after a panic `body` caught itself was recorded.
@@ -118,7 +119,8 @@ fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce
     skif_core::timing::flush_stderr();
     outcome.unwrap_or_else(|payload| {
         let recorded = LAST_PANIC.with(Cell::take);
-        if wants_json(raw) {
+        let format = error_format(raw);
+        if matches!(format, Format::Json | Format::Toon) {
             let text = payload
                 .downcast_ref::<&str>()
                 .copied()
@@ -128,7 +130,7 @@ fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce
                 (Some(recorded), _) => recorded,
                 (None, text) => text.unwrap_or("panic").to_owned(),
             };
-            emit_error_with(&internal_error(&report), Format::Json, Map::new(), stdout);
+            emit_error_with(&internal_error(&report), format, Map::new(), stdout);
         }
         2
     })
@@ -154,7 +156,7 @@ fn internal_error(report: &str) -> CliError {
 pub fn run_to_exit(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
     if let Err(error) = env::enter_bazel_run_directory() {
-        emit_error(&error, if wants_json(&raw) { Format::Json } else { Format::Human });
+        emit_error(&error, error_format(&raw));
         return 2;
     }
     exit_two_on_panic(&raw, &mut std::io::stdout(), || run_with(raw.clone(), Teardown::Leak))
@@ -193,25 +195,27 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
     }
 }
 
-/// Help and version go to stdout with exit 0; usage errors exit 2, as a JSON `error` document when `--format json`
-/// is on the command line.
+/// Help and version go to stdout with exit 0; usage errors exit 2, as the `error` document when `--format json` or
+/// `--format toon` is on the command line.
 fn usage(raw: &[OsString], error: &clap::Error) -> u8 {
     if !error.use_stderr() {
         let _ = error.print();
         return 0;
     }
-    if wants_json(raw) {
+    let format = error_format(raw);
+    if matches!(format, Format::Json | Format::Toon) {
         let message = error.to_string();
-        emit_error(&CliError::new(Kind::Usage, message.trim_end()), Format::Json);
+        emit_error(&CliError::new(Kind::Usage, message.trim_end()), format);
     } else {
         let _ = error.print();
     }
     2
 }
 
-/// Whether the command line asks for JSON-mode errors: the format that goes to stdout is `json`, or, when every
-/// `--format` names a file, the first one is (ADR 0012). Read from the raw arguments, before clap has parsed them.
-fn wants_json(raw: &[OsString]) -> bool {
+/// The format of the errors the command line asks for: `json` or `toon` when that is the format that goes to stdout,
+/// or, when every `--format` names a file, the first one (ADR 0012); else human. Read from the raw arguments, before
+/// clap has parsed them.
+fn error_format(raw: &[OsString]) -> Format {
     let args: Vec<&str> = raw.iter().filter_map(|arg| arg.to_str()).collect();
     let mut values = Vec::new();
     for (index, arg) in args.iter().enumerate() {
@@ -221,11 +225,16 @@ fn wants_json(raw: &[OsString]) -> bool {
             values.extend(args.get(index + 1));
         }
     }
-    values
+    let chosen = values
         .iter()
         .find(|value| !value.contains('='))
         .or_else(|| values.first())
-        .is_some_and(|value| value.split('=').next() == Some("json"))
+        .and_then(|value| value.split('=').next());
+    match chosen {
+        Some("json") => Format::Json,
+        Some("toon") => Format::Toon,
+        _ => Format::Human,
+    }
 }
 
 #[cfg(test)]
@@ -238,14 +247,22 @@ mod tests {
 
     #[test]
     fn a_panic_exits_two_in_every_format() {
-        for (raw, json) in [(args(&["skif"]), false), (args(&["skif", "--format", "json"]), true)] {
+        for (raw, format) in [
+            (args(&["skif"]), Format::Human),
+            (args(&["skif", "--format", "json"]), Format::Json),
+            (args(&["skif", "--format", "toon"]), Format::Toon),
+        ] {
             let mut stdout = Vec::new();
             assert_eq!(exit_two_on_panic(&raw, &mut stdout, || panic!("boom")), 2);
-            if !json {
-                assert!(stdout.is_empty(), "{}", String::from_utf8_lossy(&stdout));
-                continue;
-            }
-            let document: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+            let text = String::from_utf8_lossy(&stdout);
+            let document: serde_json::Value = match format {
+                Format::Json => serde_json::from_str(&text).unwrap(),
+                Format::Toon => serde_toon::decode_to_value(&text).unwrap_or_else(|error| panic!("{error}: {text:?}")),
+                _ => {
+                    assert!(stdout.is_empty(), "{text}");
+                    continue;
+                }
+            };
             assert_eq!(document["error"]["kind"], "internal", "{document:#}");
             let message = document["error"]["message"].as_str().unwrap();
             assert!(
