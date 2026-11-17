@@ -8,7 +8,7 @@ hero:
   title: Dependency hygiene for JavaScript and TypeScript monorepos
   tagline: >-
     Manifest and workspace rules, version and catalog policies, and type-aware dead-code analysis in one
-    fast Rust binary, configured by one TOML file.
+    Rust binary, configured by one TOML file.
   image:
     file: ../../assets/mark.svg
   actions:
@@ -24,8 +24,7 @@ hero:
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-skif combines three kinds of checks that are usually spread over separate tools, for npm, pnpm, yarn and
-bun workspaces.
+skif covers what sherif, syncpack and knip check, for npm, pnpm, yarn and bun workspaces.
 
 <CardGrid>
     <Card title="Manifest and workspace rules" icon="document">
@@ -41,9 +40,9 @@ bun workspaces.
         dependencies, unused files and exports.
     </Card>
     <Card title="Type-aware member analysis" icon="puzzle">
-        With `--type-aware`, where a package has a `tsconfig.json`, the TypeScript checker of tsrs resolves each
-        member read, so unused class, enum and namespace members are judged by the declaration a read reaches, not
-        by name.
+        Opt-in with `--type-aware`: where a package has a `tsconfig.json` or `jsconfig.json`, the TypeScript checker
+        of tsrs resolves each member read, so unused class, enum and namespace members are judged by the declaration
+        a read reaches, not by name.
     </Card>
     <Card title="Safe autofixes" icon="approve-check">
         Format-preserving edits keep key order, indentation and comments. skif never executes project code.

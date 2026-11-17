@@ -145,7 +145,7 @@ file brings its policy back. A vendored project with `root = true` and no `exten
 ## Debugging with `skif config`
 
 ```bash
-skif config --show                                   # effective configuration, file and line of every value
+skif config --show                                   # files applied, then the result and where each key was set
 skif config --explain rules.circular-imports.level   # every file that touched the key
 skif --config ci/skif.toml                           # use one file, skip discovery
 skif --no-config                                     # defaults plus flags

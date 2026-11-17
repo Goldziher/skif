@@ -58,7 +58,8 @@ The full list is the [ADR index](https://github.com/polylint/skif/blob/main/adrs
    concurrently. Rules emit diagnostics, optionally with fixes.
 4. The JS analysis (`skif-js`, with `skif-js-syntax` and `skif-js-plugins`) is one of those providers. It parses the
    sources, builds the module graph, applies the plugin table and emits the `js` rules. With type-aware analysis on,
-   `skif-js-types` builds one TypeScript program per `tsconfig.json` that holds a judged file, starting while the
-   graph is built, answers which members the typed reads reach, and frees every program before the rules run.
+   `skif-js-types` builds one TypeScript program per `tsconfig.json` or `jsconfig.json` that holds a judged file,
+   starting while the graph is built, answers which members the typed reads reach, and frees every program before the
+   rules run.
 5. `skif-edit` turns fixes into a `FixPlan` of format-preserving edits; the CLI writes the plan.
 6. `skif-report` renders the report as human, JSON, SARIF, GitHub, Code Climate, compact, Markdown or CODEOWNERS output.

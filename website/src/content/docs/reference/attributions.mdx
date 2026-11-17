@@ -3,7 +3,7 @@ title: Attributions
 description: Projects whose code or knowledge skif builds on.
 ---
 
-skif is released under the MIT licence. Code derived from other projects is credited in
+skif is released under the MIT licence. Code derived from other projects, and code the binaries embed, is credited in
 [`ATTRIBUTIONS.md`](https://github.com/polylint/skif/blob/main/ATTRIBUTIONS.md).
 
 - **[sherif](https://github.com/QuiiBz/sherif)** (MIT, Tom Lienard and contributors). skif began as a fork of
@@ -15,6 +15,9 @@ skif is released under the MIT licence. Code derived from other projects is cred
   follows knip: its issue types, its plugin knowledge (enablers, config files, entry patterns), the plugins
   enabled by ancestor workspaces, and the list of global binaries that scripts may run without a dependency are
   taken from it and re-implemented on [oxc](https://oxc.rs).
+- **[tsrs](https://github.com/oxc-project/tsrs)** (Apache-2.0, Max Schwenk and the tsrs contributors; TypeScript by
+  Microsoft). The type-aware analysis calls its TypeScript checker as an unmodified dependency, and the binaries and
+  the npm addon embed it with TypeScript's `lib.*.d.ts` files.
 
 See [`ATTRIBUTIONS.md`](https://github.com/polylint/skif/blob/main/ATTRIBUTIONS.md) for upstream commits,
 copyright notices and modifications.

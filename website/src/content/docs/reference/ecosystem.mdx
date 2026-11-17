@@ -3,8 +3,8 @@ title: Ecosystem
 description: skif and its sibling tools in the polylint organization.
 ---
 
-skif is part of [polylint](https://github.com/polylint), high-performance Rust linters and formatters built for
-agentic workflows. Each tool is a single binary with its own release, documentation and install channels.
+skif is part of [polylint](https://github.com/polylint), a set of Rust linters and formatters for codebases that
+agents work in. Each tool is a single binary with its own release, documentation and install channels.
 
 | Tool | What it does |
 | --- | --- |
@@ -13,14 +13,11 @@ agentic workflows. Each tool is a single binary with its own release, documentat
 | [adrlint](https://github.com/polylint/adrlint) | Linter and formatter for MADR architecture decision records. |
 | [uncomment](https://github.com/polylint/uncomment) | Comment removal and linting. |
 
-The organization lists every tool, including ones added after this page was written.
-
 ## Installing
 
-Every tool installs from the organization's Homebrew tap and Scoop bucket:
+skif installs from the organization's Homebrew tap and Scoop bucket, which also carry its sibling tools:
 
 ```sh
-brew tap polylint/tap
 brew install polylint/tap/skif
 ```
 

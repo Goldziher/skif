@@ -36,9 +36,10 @@ import { Steps } from '@astrojs/starlight/components';
    ```bash
    skif --fix           # safe fixes, lint again, then run the package manager's install
    skif --fix-unsafe    # also apply unsafe fixes
+   skif --fix --dry-run # print the planned changes as a diff; writes nothing
    ```
 
-   `--fix` is refused when `CI` is truthy. Pass `--no-install` to skip the install step.
+   `--fix` is refused when `CI` is truthy, unless `--dry-run` is set. Pass `--no-install` to skip the install step.
 
 4. **Tune rules**
 

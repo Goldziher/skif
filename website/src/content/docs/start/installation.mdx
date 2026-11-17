@@ -21,9 +21,10 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
     pnpm dlx @polylint/skif     # run without installing; also: npx @polylint/skif / yarn dlx @polylint/skif / bunx @polylint/skif
     ```
 
-    The npm package, `@polylint/skif`, is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS,
-    Linux and Windows, x64 and arm64. Earlier releases were published as `skif-cli`, which is deprecated on npm. See
-    [npm and Bun](../../guides/integrations/#npm-and-bun).
+    The npm package, `@polylint/skif`, is a napi-rs addon for Node.js 22, 24 and 26 and Bun 1.x. The package manager
+    installs the one of its eight platform packages (`@polylint/skif-<platform>`) that matches the machine: macOS,
+    Linux (glibc and musl) and Windows, each x64 and arm64. Releases up to 0.6 were published as `skif-cli`, which is
+    deprecated on npm. See [npm and Bun](../../guides/integrations/#npm-and-bun).
   </TabItem>
   <TabItem label="Homebrew">
     ```bash
