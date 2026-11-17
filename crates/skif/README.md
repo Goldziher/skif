@@ -38,8 +38,6 @@ assert_eq!(report.summary.packages, 2);
 | `schema` | The JSON Schema of `skif.toml`, as `skif::config_schema`. |
 | `update` | `skif::update`: newer published versions through a registry the host supplies, planned as a `FixPlan`. |
 | `js-analysis` | JavaScript and TypeScript analysis and the plugin table; `Linter` adds it to the built-in rules. Off by default. |
-| `type-aware` | Type-aware analysis with the TypeScript checker of tsrs (implies `js-analysis`). Off by default. |
-| `plain-ptrs` | Plain pointers in tsrs instead of its fixed address-space reservation, for hosts such as Node.js. Only has an effect with `type-aware`. |
 
 The command-line tool is the [`skif-cli`](https://crates.io/crates/skif-cli) crate. See the
 [repository](https://github.com/polylint/skif) for the rule reference and the architecture decisions.

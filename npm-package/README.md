@@ -62,8 +62,6 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
 | `recursive` | `--recursive`: lint every workspace and standalone package at or below `path`. The report gains a `roots` array, an `errors` array of the roots that could not be loaded (the others are still linted) and, when the depth limit stopped the search, a `truncated` array of the directories it did not enter. |
 | `config` | `--config`: use this file (and the files it extends) instead of discovering configuration files |
 | `noConfig` | `--no-config`: read no configuration file; wins over `config` |
-| `typeAware` | `--type-aware`: resolve member reads with the TypeScript type checker; more accurate member findings, and slower |
-| `noTypeAware` | `--no-type-aware`: keep types off (the default) over a configuration that turns them on; wins over `typeAware` |
 | `production` | `--production` |
 | `noJs` | `--no-js` |
 | `failOnWarnings` | `--fail-on-warnings` |

@@ -9,12 +9,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
+### Breaking changes
 
-- **The type-aware budget (ADR 0010) holds `--type-aware` to knip instead of to the untyped run**: never slower than
-  knip on any corpus repository where knip completes, with the measured multiple reported. The limits of at most 3x
-  the untyped run on the largest repository and 2x in the median are dropped; the 4 GiB peak RSS and the 5 s limit on
-  the 10,000-file graph stay.
+- **Type-aware analysis is removed.** It ran the TypeScript checker for the member rules only, was much slower than
+  the name-based analysis and measurably less precise on the dead-code benchmark. Every rule now behaves as it did
+  with types off, which was the default, so a run that never turned types on reports the same findings. The code
+  stays at tag `v0.8.0`. Gone with it:
+  - the `--type-aware` and `--no-type-aware` flags of `skif`, `skif baseline` and `skif explain-usage`, which now
+    fail with a usage error that says so;
+  - the `type-aware` key of `[js]` and of `[js.workspaces."<dir>"]` in `skif.toml`, which now fails with a
+    configuration error that says so; delete the key;
+  - the `typeAware` and `noTypeAware` options of `lint` and `lintAsync` in the npm package;
+  - the `type-aware` object of the JSON and TOON reports and of the SARIF run `properties`, the `types:` footer of the
+    human report, and the `typed` and `untyped-because` members and the `judged without types` line of
+    `skif explain-usage`;
+  - the `type-aware` cargo feature of `skif`, `skif-js` and `skif-cli`, the `plain-ptrs` feature of `skif` and
+    `skif-js`, `skif::retire_freed_sources`, `Report::type_aware`, `TypeAwareSummary`, `TypeAwarePackage`,
+    `TypeAwareState`, `TypedEvidence`, `ConfigOverrides::with_type_aware` and `with_no_type_aware`,
+    `Js::type_aware`, `JsWorkspace::type_aware`, `Emitter::report_type_aware`, `Emitter::take_type_aware` and
+    `JsRule::reads_types`;
+  - the `skif-js-types` crate, which is no longer published, and the tsrs dependency.
+- MCP: `lint` and `explain_usage` no longer pass `--no-type-aware`; they never took a type-aware argument, and their
+  results lose the `type-aware` object.
 
 ## [0.8.0] - 2026-11-17
 

@@ -90,25 +90,6 @@ a `reason`. An override that records a skif bug instead of the correct answer na
 (`#<issue> <title>`), which the runner prints as `KNOWN ISSUE`. `bash scripts/test-e2e-scripts.sh` generates every scenario for every manager and
 linker without installing.
 
-## Upgrading tsrs
-
-tsrs, the TypeScript checker behind type-aware analysis, is upgraded on its own, never alongside other work
-([ADR 0010](adrs/0010-type-aware-analysis-on-tsrs.md)):
-
-1. Move every `tsrs_*` entry of `[workspace.dependencies]` to the new version together, each as an exact `=` pin;
-   `scripts/check-pins.sh` fails otherwise. Only `skif-js-types` may depend on them, and `skif` without default
-   features must not (`scripts/check-dependency-tree.sh`; add any new tsrs crate `skif-js-types` uses to its list).
-2. Check that the new `rust-version` of tsrs does not exceed skif's (`scripts/msrv.sh` on a tsrs crate's
-   `Cargo.toml` and on the root one), and that its `unicode-id-start` pin still resolves together with oxc in
-   `Cargo.lock`.
-3. Run `cargo deny check`: a new dependency of tsrs may bring a licence that `deny.toml` does not allow yet.
-4. Update the "tsrs (and TypeScript)" section of `ATTRIBUTIONS.md` (the upstream commit and the full `NOTICE` and
-   `LICENSE` texts of the release), copy it over every other `ATTRIBUTIONS.md`, and run `scripts/check-headers.sh`
-   and `scripts/check-package-contents.sh`.
-5. Attach the evidence to the change: the parity run, the typed-versus-untyped comparison on the corpus, the
-   benchmark against the budget of [ADR 0014](adrs/0014-benchmarks-and-the-comparison-harness.md), and
-   `repeated_analyses_free_their_arenas`.
-
 ## Architecture decisions
 
 Substantive design changes get an ADR in [`adrs/`](adrs/index.md), linted with [adrlint](https://github.com/polylint/adrlint)
