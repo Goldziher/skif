@@ -7,7 +7,7 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: polylint/skif@v0.8
+- uses: polylint/skif@v0.9
   with:
     fail-on-warnings: true
 ```
@@ -63,7 +63,7 @@ attestation made by any other workflow does not pass. A release up to v0.6.0 is 
 Code scanning with SARIF:
 
 ```yaml
-- uses: polylint/skif@v0.8
+- uses: polylint/skif@v0.9
   with:
     args: --format sarif --output skif.sarif
 - uses: github/codeql-action/upload-sarif@v4
@@ -127,7 +127,7 @@ commit never runs a package manager, and it is refused when `CI` is set.
 ```yaml
 repos:
   - repo: https://github.com/polylint/skif
-    rev: v0.8.0 # use the latest release tag
+    rev: v0.9.0 # use the latest release tag
     hooks:
       - id: skif       # skif --no-js
       - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
@@ -151,7 +151,7 @@ Add skif as a managed source in `poly.toml`:
 [[hooks.sources]]
 id = "skif"
 git = "https://github.com/polylint/skif.git"
-revision = "v0.8.0" # use the latest release tag
+revision = "v0.9.0" # use the latest release tag
 hooks = ["skif"]
 ```
 
