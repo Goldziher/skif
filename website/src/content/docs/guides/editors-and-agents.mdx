@@ -117,6 +117,9 @@ costs more in a large repository; the interval stretches to twice the time a sca
 to at most about a third of one core. When the configuration cannot be read, the error is printed and the watcher keeps going,
 so the next save of `skif.toml` runs again. `--watch` cannot be combined with `--fix` or `--fix-unsafe`.
 
+With `--performance` or `SKIF_TIMINGS=1`, the phase timings of each run are written to stderr when the run ends.
+`skif lsp` and `skif mcp` with `SKIF_TIMINGS=1` write them after each message or request.
+
 ## The module cache
 
 Parsing source files is the largest part of a JavaScript analysis. skif keeps the parse result of each file under
