@@ -297,7 +297,8 @@ pub fn plan(
 }
 
 /// The tracked source files of the checkout `root` that exist on disk (a sparse checkout lists others) and are small
-/// enough to edit, sorted.
+/// enough to edit, sorted. A tracked symlink is left out: an edit would go through it to its target, which
+/// `git checkout` of the link does not restore.
 ///
 /// # Errors
 /// Fails when git cannot list the files.
@@ -306,7 +307,9 @@ pub fn candidates(root: &Path) -> Result<Vec<String>> {
     let mut found: Vec<String> = listed
         .lines()
         .filter(|path| is_source(path))
-        .filter(|path| fs::metadata(root.join(path)).is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_FILE_BYTES))
+        .filter(|path| {
+            fs::symlink_metadata(root.join(path)).is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_FILE_BYTES)
+        })
         .map(str::to_owned)
         .collect();
     found.sort_unstable();
@@ -584,6 +587,19 @@ mod tests {
             assert_eq!(fs::read(root.join(path)).unwrap(), files[path].as_bytes(), "{kind:?}");
             assert!(!corpus::edit_journal_path(&root).exists());
         }
+        fs::remove_dir_all(&cache).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_tracked_symlink_is_not_a_candidate() {
+        let (cache, root) = checkout("symlink");
+        std::os::unix::fs::symlink("a.ts", root.join("src/link.ts")).unwrap();
+        git(&root, &["add", "src/link.ts"]);
+        git(&root, &["commit", "--quiet", "-m", "link"]);
+        let candidates = candidates(&root).unwrap();
+        assert!(candidates.iter().any(|path| path == "src/a.ts"), "{candidates:?}");
+        assert!(!candidates.iter().any(|path| path == "src/link.ts"), "{candidates:?}");
         fs::remove_dir_all(&cache).unwrap();
     }
 
