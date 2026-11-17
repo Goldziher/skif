@@ -28,6 +28,9 @@ esac
 # installed, so the npm version of its `packageManager` pin is only test input.
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# The addon and the bin cache by default, in the per-user cache directory for a project without node_modules: keep
+# the store below the temporary directory.
+export SKIF_CACHE_DIR="${work}/skif-cache"
 project="${work}/project"
 fixture="${work}/fixture"
 mkdir "$project"

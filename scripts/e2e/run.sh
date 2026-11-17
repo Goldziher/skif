@@ -53,6 +53,9 @@ fi
 
 work_root="$(mktemp -d)"
 trap 'rm -rf "$work_root"' EXIT
+# skif caches by default, in the per-user cache directory where a project has no node_modules. Every run here keeps
+# its store below the temporary directory instead, so the tests exercise the cache and leave nothing behind.
+export SKIF_CACHE_DIR="${work_root}/skif-cache"
 
 version="${E2E_PM_VERSION:-}"
 if [[ -z "$version" ]]; then
