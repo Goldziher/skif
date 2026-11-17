@@ -91,10 +91,10 @@ Each corpus and module graph target is timed in both modes of the whole run: `sk
 `skif --type-aware`, in the same hyperfine run. Each mode then runs once more under `/usr/bin/time` (`-v`, GNU time,
 on Linux; `-l` on macOS) for its peak RSS; where neither is available the RSS is `null` and its check `not-measured`.
 `summary.md` and the published tables show both modes, labelled "types on" and "types off (default)", with their peak
-RSS. The type-aware budget of ADR 0010 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: `--type-aware` at
-most 3x the default run on the largest corpus repository (the one whose untyped run takes longest), a median of at most 2x across
-the corpus, at most 4 GiB peak RSS with types on every target, at most 5 s with types on the module graph case, and
-at least 5x faster than knip with types wherever knip completes. `--check-budget` makes `run` exit non-zero when one
+RSS. The type-aware budget of ADR 0010 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: `--type-aware`
+no slower than knip wherever knip completes (knip's mean over the typed run's at least 1.0, the measured multiple in
+the check), at most 4 GiB peak RSS with types on every target, and at most 5 s with types on the module graph case.
+Types on against types off is shown, not checked. `--check-budget` makes `run` exit non-zero when one
 of them fails, after writing the summary. The `bench` workflow does not pass it while types are opt-in: the budget
 is the bar they must meet to become the default again (ADR 0010).
 

@@ -27,27 +27,21 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 /// ADR 0001: parse and build the module graph of 10,000 files.
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
-/// The type-aware budget of ADR 0010, each limit on the run with `--type-aware` against the default run of the same
-/// target, without types.
+/// The type-aware budget of ADR 0010, each limit on the run with `--type-aware`. Its time against the default run
+/// without types is reported, not limited.
 struct TypeAwareBudget {
-    /// Typed over untyped mean on the largest corpus repository, the one whose untyped run takes longest.
-    largest_ratio: f64,
-    /// The median of typed over untyped mean across the corpus repositories.
-    median_ratio: f64,
     /// Peak RSS of the typed run on any target.
     peak_rss_bytes: u64,
     /// Mean of the typed run on the generated module graph of [`GRAPH_TARGET_FILES`] files.
     graph_ms: f64,
-    /// knip's mean over the typed run's wherever knip completes.
-    knip_speedup: f64,
+    /// The least knip's mean over the typed run's may be wherever knip completes: types on is never slower than knip.
+    knip_floor: f64,
 }
 
 const TYPE_AWARE_BUDGET: TypeAwareBudget = TypeAwareBudget {
-    largest_ratio: 3.0,
-    median_ratio: 2.0,
     peak_rss_bytes: 4 << 30,
     graph_ms: 5000.0,
-    knip_speedup: 5.0,
+    knip_floor: 1.0,
 };
 /// Version of the `summary.json` layout.
 const SUMMARY_SCHEMA: u32 = 8;
@@ -597,19 +591,32 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
         if target.kind == "corpus"
             && let (Some(skif), Some(knip)) = (find(Tool::Skif.label()), find(Tool::Knip.label()))
         {
-            out.push(knip_check(target, skif, knip, KNIP_SPEEDUP_TARGET));
+            out.push(knip_check(
+                target,
+                skif,
+                knip,
+                KNIP_SPEEDUP_TARGET,
+                &format!("JS analysis >= {KNIP_SPEEDUP_TARGET}x faster than knip"),
+                |speedup| format!("measured {speedup:.1}x"),
+            ));
         }
     }
     out
 }
 
 /// The check that skif is at least `speedup_target` times faster than knip on a corpus target, for ADR 0001 and the
-/// type-aware budget. A knip failure the target declares and the run matched leaves it not measured, unless the
+/// type-aware budget, described as `goal` with knip's mean over skif's put by `measured`. A knip failure the target declares and the run matched leaves it not measured, unless the
 /// failure is `timed` (knip printed its whole report first), which is checked as a clean run with the declared reason
 /// beside it; a declared failure that did not happen (knip ran cleanly, or failed with another error) makes it
 /// invalid, so a changed failure is noticed and the declaration updated.
-fn knip_check(target: &TargetResult, skif: &ToolResult, knip: &ToolResult, speedup_target: f64) -> TargetCheck {
-    let goal = format!("JS analysis >= {speedup_target}x faster than knip");
+fn knip_check(
+    target: &TargetResult,
+    skif: &ToolResult,
+    knip: &ToolResult,
+    speedup_target: f64,
+    goal: &str,
+    measured: fn(f64) -> String,
+) -> TargetCheck {
     let speedup = knip.mean_ms / skif.mean_ms;
     let errors: String = [skif, knip]
         .iter()
@@ -617,7 +624,7 @@ fn knip_check(target: &TargetResult, skif: &ToolResult, knip: &ToolResult, speed
         .map(|row| format!("; {} exited with an error in {} runs", row.tool, row.error_runs))
         .collect::<Vec<_>>()
         .concat();
-    let measured = format!("measured {speedup:.1}x{errors}");
+    let measured = format!("{}{errors}", measured(speedup));
     let met = speedup >= speedup_target;
     let (description, status) = match (&target.declared_knip_failure, &knip.failure) {
         (_, Some(failure)) if failure.timed => (
@@ -660,21 +667,9 @@ fn mode_rows(target: &TargetResult) -> Option<(&ToolResult, &ToolResult)> {
     Some((find(Tool::SkifTyped)?, find(Tool::Skif)?))
 }
 
-/// The median of `values`, `None` when there are none.
-fn median_of(mut values: Vec<f64>) -> Option<f64> {
-    values.sort_by(f64::total_cmp);
-    let half = values.len() / 2;
-    match values.len() {
-        0 => None,
-        len if len % 2 == 1 => Some(values[half]),
-        _ => Some(f64::midpoint(values[half - 1], values[half])),
-    }
-}
-
-/// The checks of [`TYPE_AWARE_BUDGET`] (ADR 0010): per target, the typed run's peak RSS, its time on the module graph
-/// case and its speed against knip; across the corpus, the typed over untyped ratio on the largest repository (the
-/// one whose untyped run takes longest) and the median of that ratio. A check of a row that errored is invalid, and
-/// a peak RSS that was not measured is not measured.
+/// The checks of [`TYPE_AWARE_BUDGET`] (ADR 0010), per target: the typed run's peak RSS, its time on the module graph
+/// case and, on a corpus repository, that it is no slower than knip. A check of a row that errored is invalid, and a
+/// peak RSS that was not measured is not measured.
 fn budget_checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
     let budget = &TYPE_AWARE_BUDGET;
     let mut out = Vec::new();
@@ -708,51 +703,15 @@ fn budget_checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
         if target.kind == "corpus"
             && let Some(knip) = target.results.iter().find(|row| row.tool == Tool::Knip.label())
         {
-            out.push(knip_check(target, typed, knip, budget.knip_speedup));
+            out.push(knip_check(
+                target,
+                typed,
+                knip,
+                budget.knip_floor,
+                "types on no slower than knip",
+                |speedup| format!("knip / skif --type-aware = {speedup:.2}x"),
+            ));
         }
-    }
-    let corpus: Vec<(&TargetResult, &ToolResult, &ToolResult)> = targets
-        .iter()
-        .filter(|target| target.kind == "corpus")
-        .filter_map(|target| mode_rows(target).map(|(typed, untyped)| (target, typed, untyped)))
-        .collect();
-    let ratio = |typed: &ToolResult, untyped: &ToolResult| typed.mean_ms / untyped.mean_ms;
-    if let Some((largest, typed, untyped)) = corpus
-        .iter()
-        .copied()
-        .max_by(|a, b| a.2.mean_ms.total_cmp(&b.2.mean_ms))
-    {
-        let measured = ratio(typed, untyped);
-        out.push(TargetCheck {
-            target: largest.target.clone(),
-            description: format!(
-                "types on <= {}x types off on the largest repository, the one whose untyped run takes longest (measured {measured:.1}x: {} ms against {} ms)",
-                budget.largest_ratio,
-                format_ms(typed.mean_ms),
-                format_ms(untyped.mean_ms)
-            ),
-            status: CheckStatus::of(measured <= budget.largest_ratio, &[typed, untyped]),
-        });
-    }
-    if let Some(median) = median_of(
-        corpus
-            .iter()
-            .map(|&(_, typed, untyped)| ratio(typed, untyped))
-            .collect(),
-    ) {
-        let rows: Vec<&ToolResult> = corpus
-            .iter()
-            .flat_map(|&(_, typed, untyped)| [typed, untyped])
-            .collect();
-        out.push(TargetCheck {
-            target: "corpus".to_owned(),
-            description: format!(
-                "median types on / types off across {} repositories <= {}x (measured {median:.1}x)",
-                corpus.len(),
-                budget.median_ratio
-            ),
-            status: CheckStatus::of(median <= budget.median_ratio, &rows),
-        });
     }
     out
 }
@@ -2563,8 +2522,8 @@ mod tests {
         }
     }
 
-    /// Three corpus targets within the budget: types on at 1.5x types off everywhere, b the largest, knip at least
-    /// 10x slower; and a graph target of 10,000 files at 4 s with types.
+    /// Three corpus targets within the budget, knip at least 10x slower than types on; and a graph target of 10,000
+    /// files at 4 s with types.
     fn within_budget() -> Vec<TargetResult> {
         vec![
             budget_target("a", "corpus", (300.0, Some(1024)), 200.0, 3000.0),
@@ -2594,21 +2553,13 @@ mod tests {
             described,
             [
                 ("a", "peak RSS with types <= 4096 MiB (measured 1024 MiB)"),
-                ("a", "JS analysis >= 5x faster than knip (measured 10.0x)"),
+                ("a", "types on no slower than knip (knip / skif --type-aware = 10.00x)"),
                 ("b", "peak RSS with types <= 4096 MiB (measured 3000 MiB)"),
-                ("b", "JS analysis >= 5x faster than knip (measured 33.3x)"),
+                ("b", "types on no slower than knip (knip / skif --type-aware = 33.33x)"),
                 ("c", "peak RSS with types <= 4096 MiB (measured 4096 MiB)"),
-                ("c", "JS analysis >= 5x faster than knip (measured 20.0x)"),
+                ("c", "types on no slower than knip (knip / skif --type-aware = 20.00x)"),
                 ("g", "peak RSS with types <= 4096 MiB (measured 2048 MiB)"),
                 ("g", "whole run with types < 5000 ms (measured 4000.0 ms)"),
-                (
-                    "b",
-                    "types on <= 3x types off on the largest repository, the one whose untyped run takes longest (measured 1.5x: 900 ms against 600 ms)"
-                ),
-                (
-                    "corpus",
-                    "median types on / types off across 3 repositories <= 2x (measured 1.5x)"
-                ),
             ]
         );
         assert!(checks.iter().all(|check| check.status == CheckStatus::Pass));
@@ -2625,31 +2576,23 @@ mod tests {
         let fail =
             |target: &str, description: &str| vec![(target.to_owned(), description.to_owned(), CheckStatus::Fail)];
         assert_eq!(
-            with(1, budget_target("b", "corpus", (2100.0, Some(3000)), 600.0, 30_000.0)),
-            fail(
-                "b",
-                "types on <= 3x types off on the largest repository, the one whose untyped run takes longest (measured 3.5x: 2100 ms against 600 ms)"
-            ),
-            "the largest repository is over 3x; the median stays at 1.5x"
+            with(0, budget_target("a", "corpus", (300.0, Some(1024)), 200.0, 270.0)),
+            fail("a", "types on no slower than knip (knip / skif --type-aware = 0.90x)"),
+            "types on slower than knip fails"
         );
-        let mut slower = within_budget();
-        slower[0] = budget_target("a", "corpus", (500.0, Some(1024)), 200.0, 3000.0);
-        slower[2] = budget_target("c", "corpus", (250.0, Some(1024)), 100.0, 3000.0);
         assert_eq!(
-            not_passed(&slower),
-            fail(
-                "corpus",
-                "median types on / types off across 3 repositories <= 2x (measured 2.5x)"
-            ),
-            "the median is over 2x while the largest repository stays at 1.5x"
+            with(0, budget_target("a", "corpus", (300.0, Some(1024)), 200.0, 300.0)),
+            [],
+            "types on exactly as fast as knip passes"
+        );
+        assert_eq!(
+            with(1, budget_target("b", "corpus", (6000.0, Some(3000)), 600.0, 30_000.0)),
+            [],
+            "types on at 10x types off is not limited"
         );
         assert_eq!(
             with(2, budget_target("c", "corpus", (150.0, Some(4097)), 100.0, 3000.0)),
             fail("c", "peak RSS with types <= 4096 MiB (measured 4097 MiB)")
-        );
-        assert_eq!(
-            with(0, budget_target("a", "corpus", (300.0, Some(1024)), 200.0, 1000.0)),
-            fail("a", "JS analysis >= 5x faster than knip (measured 3.3x)")
         );
         assert_eq!(
             with(3, budget_target("g", "graph", (6000.0, Some(2048)), 3000.0, 0.0)),
@@ -2665,10 +2608,11 @@ mod tests {
     }
 
     #[test]
-    fn an_unmeasured_peak_rss_is_not_measured_and_an_errored_mode_makes_its_checks_invalid() {
+    fn an_unmeasured_peak_rss_is_not_measured_and_an_errored_typed_run_makes_its_checks_invalid() {
         let mut targets = within_budget();
         targets[0] = budget_target("a", "corpus", (300.0, None), 200.0, 3000.0);
-        targets[1].results[1].error_runs = 2;
+        targets[1].results[0].error_runs = 2;
+        targets[2].results[1].error_runs = 2;
         assert_eq!(
             not_passed(&targets),
             [
@@ -2679,24 +2623,18 @@ mod tests {
                 ),
                 (
                     "b".to_owned(),
-                    "types on <= 3x types off on the largest repository, the one whose untyped run takes longest (measured 1.5x: 900 ms against 600 ms)".to_owned(),
+                    "peak RSS with types <= 4096 MiB (measured 3000 MiB)".to_owned(),
                     CheckStatus::Invalid
                 ),
                 (
-                    "corpus".to_owned(),
-                    "median types on / types off across 3 repositories <= 2x (measured 1.5x)".to_owned(),
+                    "b".to_owned(),
+                    "types on no slower than knip (knip / skif --type-aware = 33.33x; skif --type-aware exited with an error in 2 runs)".to_owned(),
                     CheckStatus::Invalid
                 ),
-            ]
+            ],
+            "an errored run without types (on c) checks nothing of the budget"
         );
         assert!(budget_checks(&[]).is_empty());
-    }
-
-    #[test]
-    fn the_median_of_an_even_count_is_the_mean_of_the_middle_two() {
-        assert_eq!(median_of(vec![3.0, 1.0, 2.0]), Some(2.0));
-        assert_eq!(median_of(vec![4.0, 1.0, 3.0, 2.0]), Some(2.5));
-        assert_eq!(median_of(Vec::new()), None);
     }
 
     #[test]

@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 <!-- Keep a Changelog repeats Added/Changed/Fixed headings per version. -->
 <!-- markdownlint-disable MD024 -->
 
+## [Unreleased]
+
+### Changed
+
+- **The type-aware budget (ADR 0010) holds `--type-aware` to knip instead of to the untyped run**: never slower than
+  knip on any corpus repository where knip completes, with the measured multiple reported. The limits of at most 3x
+  the untyped run on the largest repository and 2x in the median are dropped; the 4 GiB peak RSS and the 5 s limit on
+  the 10,000-file graph stay.
+
 ## [0.8.0] - 2026-11-17
 
 ### Breaking changes

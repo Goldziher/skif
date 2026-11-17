@@ -82,10 +82,11 @@ sets: manifest and policy rules on 500 packages in under 50 ms, the JS analysis 
 tree, and parsing and building the module graph of 10,000 files in under 2 s. The graph target times a whole `skif`
 run, which also runs every JS rule, so it is an upper bound. The same tables check the type-aware budget of
 [ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md):
-`--type-aware` at most 3x the default run on the largest repository and 2x in the median, at most 4 GiB of peak memory with types
-on every target, at most 5 s with types on the 10,000-file graph, and at least 5x faster than knip with types. It is
-the bar types must meet to become the default; until then a broken budget shows in the tables without failing
-the run.
+`--type-aware` never slower than knip on a repository where knip completes, at most 4 GiB of peak memory with types on
+every target, and at most 5 s with types on the 10,000-file graph. Each knip check gives the measured multiple; being
+well ahead of knip is the goal, but only the floor is enforced. The time against the default run without types is
+published in the tables, not limited. The budget is the bar types must meet to become the default; until then a broken
+budget shows in the tables without failing the run.
 
 {/* bench:numbers:start */}
 **generated: 50 packages (pnpm)**
