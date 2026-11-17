@@ -316,19 +316,38 @@ nothing unique to either. `n/a` means the tool does not check for that defect.
 
 ## Precision on seeded dead code
 
-A generated 5-package workspace with seeded unused files, exports, types and dependencies, next to live code that is
-reached only through patterns that caused false findings on real repositories (namespace reads, `typeof import()`,
-`import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures and more). The answer key lists all
-33 seeded findings. skif measured on 2026-11-08 and knip 6.44.1 on 2026-11-07, not re-measured since;
-reproduce with `mise run bench:deadcode -- --knip`:
+A generated 5-package workspace with seeded unused files, exports, types, dependencies and class, enum and namespace
+members, next to live code that is reached only through patterns that caused false findings on real repositories
+(namespace reads, `typeof import()`, `import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures
+and more) and live members that matching by name can get wrong (one member name on two classes, reads through an
+interface, a generic constraint, destructuring, a key of literal type, inheritance and overrides, enum and namespace
+aliases). Every package has a `tsconfig.json`. The answer key lists 73 seeded findings: the 33 of earlier measurements
+and 40 members. skif 0.8.0 (commit `4d3bdd7f`) and knip 6.45.1, measured on 2026-11-17; reproduce with
+`mise run bench:deadcode -- --knip`:
 
-| Tool | Precision | Recall |
-| --- | ---: | ---: |
-| skif | 100% | 100% |
-| knip | 77% | 100% |
+| Tool | Precision | Recall | Precision, 33 non-member findings | Recall, 33 non-member findings |
+| --- | ---: | ---: | ---: | ---: |
+| skif (types off) | 100% | 79% | 100% | 100% |
+| skif `--type-aware` | 81% | 86% | 100% | 100% |
+| knip | 74% | 59% | 69% | 100% |
 
-skif reports no false finding; knip reports exports read only through `typeof import("./m")["name"]` and files in
-`fixtures` directories. Per issue type and pattern: the
+On members alone (20 class, 15 enum and 5 namespace members seeded):
+
+| Tool | Class members | Enum members | Namespace members |
+| --- | --- | --- | --- |
+| skif (types off) | 15 of 20 found, no false finding | 5 of 15 found, no false finding | 5 of 5 found, no false finding |
+| skif `--type-aware` | 20 of 20 found, 15 false findings (3 live members in each package) | 5 of 15 found, no false finding | 5 of 5 found, no false finding |
+| knip | no check (dropped in knip 6) | 5 of 15 found, no false finding | 5 of 5 found, no false finding |
+
+Types on is not more precise on this workspace; it trades precision for recall on class members. It finds the unused
+`area` of one class that another class's `area` hides from matching by name, and reports three live class members
+that types off keeps, read through an interface the class
+satisfies without `implements`, through a generic constraint (`T extends HasWeight`) and through a key of literal type
+(`frame[axis]`, `axis: "height"`). Enum and namespace findings are the same with and without types, since types only
+add uses; both skif runs and knip miss the unused members of an enum that is assigned to a variable or indexed by a
+`keyof typeof` key, which counts as using the whole enum. knip's false findings are exports read only through
+`typeof import("./m")["name"]`, files in `fixtures` directories and a devDependency whose binary only `vercel.json`
+runs. Per issue type and pattern: the
 [benchmark harness](https://github.com/polylint/skif/blob/main/tools/bench/README.md#dead-code-precision-and-recall).
 
 ## Agreement with knip
