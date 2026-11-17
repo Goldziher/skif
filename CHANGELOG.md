@@ -14,23 +14,42 @@ All notable changes to this project are documented here. The format follows
 - **Type-aware analysis is removed.** It ran the TypeScript checker for the member rules only, was much slower than
   the name-based analysis and measurably less precise on the dead-code benchmark. Every rule now behaves as it did
   with types off, which was the default, so a run that never turned types on reports the same findings. The code
-  stays at tag `v0.8.0`. Gone with it:
+  stays at tag `pre-tsrs-removal` and moves to the polylint repository. Gone with it:
   - the `--type-aware` and `--no-type-aware` flags of `skif`, `skif baseline` and `skif explain-usage`, which now
     fail with a usage error that says so;
-  - the `type-aware` key of `[js]` and of `[js.workspaces."<dir>"]` in `skif.toml`, which now fails with a
-    configuration error that says so; delete the key;
-  - the `typeAware` and `noTypeAware` options of `lint` and `lintAsync` in the npm package;
-  - the `type-aware` object of the JSON and TOON reports and of the SARIF run `properties`, the `types:` footer of the
-    human report, and the `typed` and `untyped-because` members and the `judged without types` line of
-    `skif explain-usage`;
+  - the `type-aware` key of `[js]`, of `[js.workspaces."<dir>"]` and of the `js` table of an override in
+    `skif.toml`, which now fails with a configuration error that says so; delete the key. The key also leaves the
+    JSON Schema of `skif.toml`;
+  - the `typeAware` and `noTypeAware` options of `lint` and `lintAsync` in the npm package: setting either, to
+    either value, now fails with a `usage` error that says so (`lint` throws, `lintAsync` resolves with `error`);
+  - the `type-aware` object of the JSON and TOON reports and of the SARIF run `properties`, and the `types:` footer of
+    the human report;
+  - the `typed` member of the `class-member` object of `skif explain-usage` and the lines of the human output that
+    name typed evidence;
   - the `type-aware` cargo feature of `skif`, `skif-js` and `skif-cli`, the `plain-ptrs` feature of `skif` and
-    `skif-js`, `skif::retire_freed_sources`, `Report::type_aware`, `TypeAwareSummary`, `TypeAwarePackage`,
-    `TypeAwareState`, `TypedEvidence`, `ConfigOverrides::with_type_aware` and `with_no_type_aware`,
-    `Js::type_aware`, `JsWorkspace::type_aware`, `Emitter::report_type_aware`, `Emitter::take_type_aware` and
+    `skif-js`, `skif::retire_freed_sources`, the `skif_core::type_aware` module with `TypeAwareSummary`,
+    `TypeAwarePackage` and `TypeAwareState` (also as re-exports of `skif_core` and `skif`), `Report::type_aware` and
+    `Report::with_type_aware`, `TypedEvidence`, `ClassMemberReport::typed` and `untyped_because`,
+    `ConfigOverrides::type_aware`, `with_type_aware` and `with_no_type_aware`, `Js::type_aware` and
+    `Js::with_type_aware`, `JsWorkspace::type_aware`, `Emitter::report_type_aware`, `Emitter::take_type_aware` and
     `JsRule::reads_types`;
   - the `skif-js-types` crate, which is no longer published, and the tsrs dependency.
+- **The JSON report is version 2**: the `version` member of the report and of the `error` document, in JSON and TOON,
+  is `2` (was `1`), and `skif_report::SCHEMA_VERSION` with it, because the `type-aware` object is removed
+  ([ADR 0012](adrs/0012-cli-contract-and-reporting.md)). No other member changes.
+- **`skif explain-usage` changes for every run, also one that never used types**, for a member of a class, enum or
+  namespace:
+  - the `judged without types (<reason>)` line of the human output and the `untyped-because` member of the JSON
+    `class-member` object are gone; a run with types off printed them too, with the reason `disabled`;
+  - the `used-without-types` member of the JSON `class-member` object is renamed `used`, and
+    `ClassMemberReport::used_without_types` is renamed `used`. Its meaning is unchanged: the enum or namespace
+    member is read through an import or in its own file, or the whole enum or namespace is used.
 - MCP: `lint` and `explain_usage` no longer pass `--no-type-aware`; they never took a type-aware argument, and their
-  results lose the `type-aware` object.
+  results lose the `type-aware` object and follow the two changes above.
+
+### Changed
+
+- `Cargo.lock` resolves `unicode-id-start` 1.5.0 (was 1.1.2): the tsrs pin held it back.
 
 ## [0.8.0] - 2026-11-17
 
