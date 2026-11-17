@@ -7,7 +7,7 @@ printed there; notes and timings go to stderr.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "skif": "<skif version>",
   "summary": { "errors": 1, "warnings": 1, "infos": 0, "fixable": 2, "packages": 3 },
   "diagnostics": [
@@ -57,7 +57,7 @@ unified `diff`) instead of writing. The `diagnostics` of a fix run come from the
 When skif cannot run (exit `2`), the document is:
 
 ```json
-{ "version": 1, "skif": "<skif version>", "error": { "kind": "config", "message": "...", "path": "skif.toml", "line": 3, "column": 1 } }
+{ "version": 2, "skif": "<skif version>", "error": { "kind": "config", "message": "...", "path": "skif.toml", "line": 3, "column": 1 } }
 ```
 
 `kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal` (a bug in skif). `path`, `line` and
