@@ -1,6 +1,8 @@
 //! Dead-code precision and recall against an answer key: generates a workspace with seeded dead code
-//! ([`skif_bench::deadcode`]), runs skif and optionally the pinned knip on it, and scores both tools' findings.
+//! ([`skif_bench::deadcode`]), runs skif without and with the type-aware analysis and optionally the pinned knip on it,
+//! and scores each run's findings.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,7 +15,8 @@ use skif_bench::deadcode::{self, AnswerKey, CategoryScore, PATTERNS, Score};
 use skif_bench::generate;
 
 use crate::corpus;
-use crate::parity::{empty_knip_config, knip_keys, parse_knip_report, skif_keys};
+use crate::diff::Keys;
+use crate::parity::{empty_knip_config, knip_keys, normalize, parse_knip_report, skif_keys};
 use crate::proc::capture;
 use crate::tools_install;
 
@@ -52,10 +55,50 @@ fn clear_repo(out: &Path, force: bool) -> Result<()> {
     fs::remove_dir_all(&repo).with_context(|| format!("cleaning {}", repo.display()))
 }
 
-fn run_skif(skif: &Path, root: &Path, scratch: &Path, timeout: Duration) -> Result<Value> {
+/// The rule of the class-member findings, which the parity keys leave out because knip 6 has no class-member check.
+const CLASS_MEMBER_RULE: &str = "unused-class-members";
+
+/// skif's findings keyed as in the parity harness, plus its `unused-class-members` findings under `classMembers` as
+/// `<file>|<Class>.<member>`.
+fn skif_findings(document: &Value, root: &Path) -> Keys {
+    let mut keys = skif_keys(document, root);
+    for diagnostic in document["diagnostics"].as_array().into_iter().flatten() {
+        if diagnostic["rule"].as_str() != Some(CLASS_MEMBER_RULE) {
+            continue;
+        }
+        let path = normalize(diagnostic["location"]["path"].as_str().unwrap_or_default(), root);
+        let message = diagnostic["message"].as_str().unwrap_or_default();
+        let name = message.split('`').nth(1).unwrap_or_default();
+        keys.entry("classMembers".to_owned())
+            .or_default()
+            .insert(format!("{path}|{name}"));
+    }
+    keys
+}
+
+/// The type-aware coverage of a skif report: the checker and the packages per state (`partial 5`). Fails for a
+/// `typed` run in which no package was typed, so the typed row never silently measures the name-based analysis.
+fn coverage(document: &Value, typed: bool) -> Result<String> {
+    let summary = &document["type-aware"];
+    let mut states: BTreeMap<&str, usize> = BTreeMap::new();
+    for package in summary["packages"].as_array().into_iter().flatten() {
+        *states
+            .entry(package["state"].as_str().unwrap_or("unknown"))
+            .or_default() += 1;
+    }
+    if typed && (summary["enabled"].as_bool() != Some(true) || states.keys().all(|state| *state == "untyped")) {
+        bail!("skif --type-aware typed no package (a build without the `type-aware` feature?): {summary}");
+    }
+    let engine = summary["engine"].as_str().unwrap_or("no checker");
+    let states: Vec<String> = states.iter().map(|(state, n)| format!("{state} {n}")).collect();
+    Ok(format!("{engine}: {}", states.join(", ")))
+}
+
+fn run_skif(skif: &Path, root: &Path, scratch: &Path, timeout: Duration, typed: bool) -> Result<Value> {
+    let mode = if typed { "--type-aware" } else { "--no-type-aware" };
     let run = capture(
         Command::new(skif)
-            .args([".", "--format", "json", "--no-install"])
+            .args([".", "--format", "json", "--no-install", mode])
             .current_dir(root),
         scratch,
         "skif",
@@ -121,8 +164,8 @@ fn cell(score: Option<&CategoryScore>) -> String {
     )
 }
 
-/// The report as Markdown: one row per category, one column group per tool, then the false findings by pattern and
-/// every false finding and miss.
+/// The report as Markdown: one row per category, the base and member subtotals and the total, one column group per
+/// tool, then the false findings by pattern and every false finding and miss.
 fn markdown(key: &AnswerKey, tools: &[(String, Score)]) -> String {
     let mut out = format!(
         "# Dead-code precision and recall\n\nSeed {}, {} packages, {} expected findings, {} live items reached through {} patterns.\n\n| Category | Expected |",
@@ -155,6 +198,18 @@ fn markdown(key: &AnswerKey, tools: &[(String, Score)]) -> String {
             .map_or(0, |s| s.expected);
         let _ = writeln!(out, "{}", row(category, expected, &|s| s.categories.get(category)));
     }
+    for (label, members) in [("**base**", false), ("**members**", true)] {
+        let scores: Vec<CategoryScore> = tools
+            .iter()
+            .map(|(_, s)| if members { s.members() } else { s.base() })
+            .collect();
+        let expected = scores.first().map_or(0, |s| s.expected);
+        let mut line = format!("| {label} | {expected} |");
+        for score in &scores {
+            let _ = write!(line, " {} |", cell(Some(score)));
+        }
+        let _ = writeln!(out, "{line}");
+    }
     let _ = writeln!(out, "{}", row("**all**", key.expected.len(), &|s| Some(&s.total)));
     for (tool, score) in tools {
         let _ = writeln!(out, "\n## {tool}\n");
@@ -179,6 +234,38 @@ fn markdown(key: &AnswerKey, tools: &[(String, Score)]) -> String {
         }
     }
     out
+}
+
+/// The type-aware coverage of each skif run ([`coverage`]), by run label.
+type Coverages = BTreeMap<&'static str, String>;
+
+/// A subtotal ([`Score::base`], [`Score::members`]) in the JSON report.
+fn subtotal_json(s: &CategoryScore) -> Value {
+    json!({
+        "expected": s.expected,
+        "reported": s.reported,
+        "true_positives": s.true_positives,
+        "precision": s.precision(),
+        "recall": s.recall(),
+    })
+}
+
+/// The scores of skif without and with types, and the type-aware coverage of each run.
+fn skif_scores(
+    skif: &Path,
+    root: &Path,
+    scratch: &Path,
+    timeout: Duration,
+    key: &AnswerKey,
+) -> Result<(Vec<(String, Score)>, Coverages)> {
+    let mut scores = Vec::new();
+    let mut coverages = BTreeMap::new();
+    for (label, typed) in [("skif", false), ("skif --type-aware", true)] {
+        let document = run_skif(skif, root, scratch, timeout, typed)?;
+        coverages.insert(label, coverage(&document, typed)?);
+        scores.push((label.to_owned(), deadcode::score(key, &skif_findings(&document, root))));
+    }
+    Ok((scores, coverages))
 }
 
 /// Generates the workspace, runs the tools and prints the scores.
@@ -206,10 +293,7 @@ pub fn run(options: &Options) -> Result<()> {
     let root = fs::canonicalize(&repo)?;
     let scratch = options.out.join("scratch");
 
-    let mut scores = Vec::new();
-    let skif_doc = run_skif(&skif, &root, &scratch, options.timeout)?;
-    let skif_found = skif_keys(&skif_doc, &root);
-    scores.push(("skif".to_owned(), deadcode::score(&generated.answer_key, &skif_found)));
+    let (mut scores, coverages) = skif_scores(&skif, &root, &scratch, options.timeout, &generated.answer_key)?;
     if options.knip {
         let manifest = corpus::load_manifest(&options.corpus_file)?;
         let knip = tools_install::require(&options.corpus_file, &options.tools_dir, "knip")?;
@@ -221,12 +305,17 @@ pub fn run(options: &Options) -> Result<()> {
         ));
     }
 
-    let table = markdown(&generated.answer_key, &scores);
+    let mut table = markdown(&generated.answer_key, &scores);
+    table.push_str("\nType-aware coverage:\n\n");
+    for (label, text) in &coverages {
+        let _ = writeln!(table, "- {label}: {text}");
+    }
     fs::write(options.out.join("deadcode.md"), &table)?;
     let report = json!({
         "seed": options.seed,
         "packages": options.packages,
         "expected": generated.answer_key.expected.len(),
+        "type_aware_coverage": coverages,
         "tools": scores.iter().map(|(tool, score)| {
             let categories: serde_json::Map<String, Value> = score.categories.iter().map(|(category, s)| {
                 (category.clone(), json!({
@@ -242,6 +331,8 @@ pub fn run(options: &Options) -> Result<()> {
             (tool.clone(), json!({
                 "precision": score.total.precision(),
                 "recall": score.total.recall(),
+                "base": subtotal_json(&score.base()),
+                "members": subtotal_json(&score.members()),
                 "categories": categories,
                 "false_by_pattern": score.false_by_pattern,
             }))
@@ -267,43 +358,99 @@ mod tests {
     use skif_bench::deadcode::{DeadCode, Options as DeadCodeOptions};
 
     use super::*;
-    use crate::diff::Keys;
 
     const ROOT: &str = "/repo";
 
-    /// skif's findings on a generated workspace, run in process and keyed exactly like the CLI's JSON report.
-    fn skif_in_process(generated: &DeadCode) -> Keys {
+    /// skif's report on a generated workspace, run in process, with or without types, as the CLI's JSON report.
+    fn skif_in_process(generated: &DeadCode, typed: bool) -> Value {
         let mut fs = MemoryFs::new();
         for (path, text) in &generated.files {
             fs.insert(format!("{ROOT}/{}", path.to_string_lossy()), text.clone());
         }
         let fs = Arc::new(fs);
         let root = Path::new(ROOT);
-        let config = load_config(root, &*fs, &ConfigOverrides::default()).unwrap();
+        let overrides = ConfigOverrides::default()
+            .with_type_aware(typed)
+            .with_no_type_aware(!typed);
+        let config = load_config(root, &*fs, &overrides).unwrap();
         let workspace = Workspace::discover_with_fs(root, &config, &*fs).unwrap();
         let report = Linter::with_fs(&config, fs).unwrap().run(&workspace).unwrap();
-        skif_keys(&serde_json::to_value(&report).unwrap(), root)
+        serde_json::to_value(&report).unwrap()
     }
 
-    #[test]
-    fn skif_finds_every_seeded_finding_and_nothing_else() {
+    /// The `<category>:<file>|<name>` keys of `names` in the member files of every package.
+    fn in_every_package(packages: usize, names: &[(&str, &str, &str)]) -> Vec<String> {
+        let mut keys: Vec<String> = (0..packages)
+            .flat_map(|i| {
+                names
+                    .iter()
+                    .map(move |(category, file, name)| format!("{category}:packages/p{i}/src/members/{file}|{name}"))
+            })
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    /// Dead members that both analyses miss: the enum object is assigned to a variable (`Tone.Neon`) or indexed by a
+    /// key that is no literal (`Size.Huge`), which uses the enum as a whole (ADR 0009); types never remove a use
+    /// (ADR 0010).
+    const WHOLE_ENUM_MISSES: [(&str, &str, &str); 2] =
+        [("enumMembers", "enums.ts", "Huge"), ("enumMembers", "enums.ts", "Neon")];
+
+    /// Scores skif on two seeds and asserts its false findings and misses are exactly the given ones in every package.
+    fn assert_scores(typed: bool, false_findings: &[(&str, &str, &str)], misses: &[(&str, &str, &str)]) {
         for seed in [1, 26] {
             let packages = 3;
             let generated = deadcode::build(&DeadCodeOptions { packages, seed }).unwrap();
-            let score = deadcode::score(&generated.answer_key, &skif_in_process(&generated));
+            let document = skif_in_process(&generated, typed);
+            let typed_packages = document["type-aware"]["packages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|package| package["state"] != "untyped")
+                .count();
             assert_eq!(
-                score.total.recall(),
-                Some(1.0),
-                "seed {seed}: missed {:?}",
-                score.total.false_negatives
+                typed_packages,
+                if typed { packages } else { 0 },
+                "seed {seed}: {}",
+                document["type-aware"]
+            );
+            let score = deadcode::score(&generated.answer_key, &skif_findings(&document, Path::new(ROOT)));
+            assert_eq!(
+                score.total.false_negatives,
+                in_every_package(packages, misses),
+                "seed {seed}: misses"
             );
             assert_eq!(
-                score.total.precision(),
-                Some(1.0),
-                "seed {seed}: false findings {:?}",
-                score.total.false_positives
+                score.total.false_positives,
+                in_every_package(packages, false_findings),
+                "seed {seed}: false findings"
             );
+            assert_eq!(score.base().recall(), Some(1.0), "seed {seed}");
+            assert_eq!(score.base().precision(), Some(1.0), "seed {seed}");
         }
+    }
+
+    /// By name, `shape.area()` on a `Circle` keeps `Square.area` used.
+    #[test]
+    fn skif_without_types_finds_every_seeded_finding_but_the_name_and_whole_enum_misses() {
+        let mut misses = vec![("classMembers", "classes.ts", "Square.area")];
+        misses.extend(WHOLE_ENUM_MISSES);
+        misses.sort_unstable();
+        assert_scores(false, &[], &misses);
+    }
+
+    /// Known false findings with types: the checker credits a read through a structurally satisfied interface
+    /// (`Badge.label`), a type parameter's constraint (`Parcel.weight`) or a key of literal type (`Frame.height`) to
+    /// that interface, constraint or nothing, never to the class member the read reaches at runtime.
+    #[test]
+    fn skif_with_types_finds_the_same_named_member_and_misreads_three_live_members() {
+        let false_findings = [
+            ("classMembers", "classes.ts", "Badge.label"),
+            ("classMembers", "classes.ts", "Frame.height"),
+            ("classMembers", "classes.ts", "Parcel.weight"),
+        ];
+        assert_scores(true, &false_findings, &WHOLE_ENUM_MISSES);
     }
 
     #[test]

@@ -881,19 +881,26 @@ Agreement with knip on the corpus is not precision: either tool can be wrong whe
 deadcode` measures both tools against a right answer instead. It generates a pnpm workspace of `--packages` packages
 (default 5) with seeded dead code, deterministic for `--seed`, writes it to `<out>/repo` and the answer key, every
 expected finding as a knip issue type and a parity key, to `<out>/answer-key.json`. It then runs
-`skif . --format json --no-install` and, with `--knip`, the knip pinned in `corpus.toml` with an empty configuration (as
-`parity` does; the locked knip is installed with npm, which needs the npm registry). Both reports are reduced to the parity keys, and each tool gets
-precision (seeded findings among those reported) and recall (reported findings among those seeded) per issue type.
-`nsExports` and `nsTypes` count as `exports` and `types`. A finding in a type the key does not seed (`unlisted`,
-`unresolved`, `binaries`, ...) is false by construction. The report goes to stdout (`--json` for JSON) and to
-`<out>/deadcode.{md,json}`, with every false finding and miss listed. A rerun replaces `<out>/repo` only when `<out>`
+`skif . --format json --no-install` twice, with `--no-type-aware` and with `--type-aware`, and, with `--knip`, the knip
+pinned in `corpus.toml` with an empty configuration (as `parity` does; the locked knip is installed with npm, which
+needs the npm registry). The reports are reduced to the parity keys, plus skif's `unused-class-members` findings as
+`classMembers` keys `<file>|<Class>.<member>` (knip 6 has no class-member check), and each run gets precision (seeded
+findings among those reported) and recall (reported findings among those seeded) per issue type, for the member types
+(`classMembers`, `enumMembers`, `namespaceMembers`), for the rest (`base`, the whole key before the member cases were
+added) and overall. `nsExports` and `nsTypes` count as `exports` and `types`. A finding in a type the key does not seed
+(`unlisted`, `unresolved`, `binaries`, ...) is false by construction. The typed run fails when the report shows no
+package typed, and the report states the type-aware coverage of both runs. The report goes to stdout (`--json` for
+JSON) and to `<out>/deadcode.{md,json}`, with every false finding and miss listed. A rerun replaces `<out>/repo` only when `<out>`
 holds the `answer-key.json` of an earlier run; `--force` replaces it regardless.
 
 Every package holds the dead code: unused dependencies and devDependencies (plain runtime libraries with no knip plugin
 or skif tool mapping), unused files (one standalone, one that imports live code), unused exports and types in a
-module the entry imports, and an unused export behind a re-export chain. Next to it sits live code reached only
-through a pattern that has caused false findings on real repositories. A false finding that names that code is
-attributed to its pattern:
+module the entry imports, an unused export behind a re-export chain, and unused members: `Ledger.archive`,
+`Square.area`, `Frame.depth` and `Dog.fetch` of classes, `Mode.Legacy`, `Tone.Neon` and `Size.Huge` of enums and
+`Geo.pole` of a namespace, in `src/members/`. A member is dead when deleting it still type-checks and no executed code
+reads it. Next to the dead code sits live code reached only through a pattern that has caused false findings on real
+repositories, or that matching members by name can get wrong. A false finding that names that code is attributed to
+its pattern:
 
 | Pattern | Live code |
 | --- | --- |
@@ -912,30 +919,60 @@ attributed to its pattern:
 | `optional-dependency` | an optional dependency loaded with `import()` in a `try` |
 | `subpath-import` | a `#` subpath import mapped by the `imports` field |
 | `vercel-json-command` | a devDependency whose binary only the `buildCommand` of `vercel.json` runs |
+| `member-same-name` | `Circle.area`, read as `shape.area()` with `shape: Circle`, while the dead `Square.area` shares its name |
+| `member-interface` | `Badge.label`, read only through an interface the class satisfies without `implements` |
+| `member-generic` | `Parcel.weight`, read only as `item.weight` with `item: T` and `T extends HasWeight` |
+| `member-destructure` | `Frame.width`, read only by destructuring an instance |
+| `member-computed-literal` | `Frame.height`, read only as `frame[axis]` with `axis: "height"` |
+| `member-inherited` | `Animal.sleep`, read only through a `Dog` instance |
+| `member-override` | `Animal.speak` and its override `Dog.speak`, read only as `animal.speak()` with `animal: Animal` |
+| `enum-typed-alias` | `Tone.Cool`, read only through `const palette: typeof Tone = Tone` |
+| `enum-keyof-typeof` | `Size.Large`, read only as `Size[largest]` with `largest: keyof typeof Size` set to `"Large"` |
+| `namespace-aliased-import` | `Geo.distance` through a renamed import, `Geo.origin` through `import origin = Maps.origin` |
+| `member-cross-package` | class, enum and namespace members the entry re-exports and only the next package reads |
 
 The workspace is not installed, so nothing depends on `node_modules`: the only `package.json` script runs `node`, the
 `vercel.json` command runs a listed devDependency named like its binary, and every import of a dependency names a listed
-package. The `skif-bench` unit tests run skif in process on the same workspace (two seeds, no binary, network or Node)
-and fail when it misses a seeded finding or reports a false one. CI exercises neither the `skif` binary invocation nor
+package. Every package has a `tsconfig.json`; the workspace is not installed, so the checker does not resolve the
+dependencies or the other packages, and the file in `fixtures` lies outside the programs (each package is `partial`).
+The `skif-bench` unit tests run skif in process on the same workspace (two seeds, no binary, network or Node), with
+and without types, and fail when it misses a seeded finding or reports a false one other than the known ones they
+list. CI exercises neither the `skif` binary invocation nor
 the knip side: `skif-bench` cannot depend on the `skif` binary in its tests, and knip needs Node and the npm registry.
 Run `deadcode` with `--knip` by hand to check them.
 
-Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items), last measured with skif after 0.1.1 and
-knip 6.44.1; rerun with `mise run bench:deadcode -- --knip` to refresh it:
+Default run (`--packages 5 --seed 1`: 73 seeded findings, 209 live items), measured on 2026-11-17 with skif 0.8.0
+(commit `4d3bdd7f`) and knip 6.45.1; rerun with `mise run bench:deadcode -- --knip` to refresh it. Precision and recall
+per run, `-` where nothing was reported:
 
-| Issue type | Seeded | skif precision | skif recall | knip precision | knip recall |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `dependencies` | 4 | 1.000 | 1.000 | 1.000 | 1.000 |
-| `devDependencies` | 5 | 1.000 | 1.000 | 1.000 | 1.000 |
-| `exports` | 15 | 1.000 | 1.000 | 0.750 | 1.000 |
-| `files` | 6 | 1.000 | 1.000 | 0.545 | 1.000 |
-| `types` | 3 | 1.000 | 1.000 | 1.000 | 1.000 |
-| All | 33 | 1.000 | 1.000 | 0.767 | 1.000 |
+| Issue type | Seeded | skif | skif `--type-aware` | knip |
+| --- | ---: | --- | --- | --- |
+| `classMembers` | 20 | 1.000, 0.750 | 0.571, 1.000 | -, 0.000 (no check) |
+| `dependencies` | 4 | 1.000, 1.000 | 1.000, 1.000 | 1.000, 1.000 |
+| `devDependencies` | 5 | 1.000, 1.000 | 1.000, 1.000 | 0.500, 1.000 |
+| `enumMembers` | 15 | 1.000, 0.333 | 1.000, 0.333 | 1.000, 0.333 |
+| `exports` | 15 | 1.000, 1.000 | 1.000, 1.000 | 0.750, 1.000 |
+| `files` | 6 | 1.000, 1.000 | 1.000, 1.000 | 0.545, 1.000 |
+| `namespaceMembers` | 5 | 1.000, 1.000 | 1.000, 1.000 | 1.000, 1.000 |
+| `types` | 3 | 1.000, 1.000 | 1.000, 1.000 | 1.000, 1.000 |
+| base | 33 | 1.000, 1.000 | 1.000, 1.000 | 0.688, 1.000 |
+| members | 40 | 1.000, 0.625 | 0.667, 0.750 | 1.000, 0.250 |
+| All | 73 | 1.000, 0.795 | 0.808, 0.863 | 0.741, 0.589 |
 
-Both tools find every seeded finding, and skif reports nothing else: it does not report files in `fixtures`
-directories (ADR 0007) and credits the export `typeof import("./typed")["settings"]` names. knip's false findings are
-those five exports (`typeof-import`) and the five fixture files (`fixture-dir`). The patterns are synthetic and cover
-only these cases, so the numbers say which known traps a tool falls into, not how precise it is on a real repository.
+Both skif runs find every seeded non-member finding and report nothing else there: skif does not report files in
+`fixtures` directories (ADR 0007), credits the export `typeof import("./typed")["settings"]` names and the
+devDependency `vercel.json` runs. knip's false findings are those five exports (`typeof-import`), the five fixture
+files (`fixture-dir`) and the five `dc-build-tool` devDependencies (`vercel-json-command`).
+
+On members, types off misses `Square.area` (`shape.area()` on a `Circle` reads the name) and reports nothing live.
+Types on finds `Square.area` but reports `Badge.label` (`member-interface`), `Parcel.weight` (`member-generic`) and
+`Frame.height` (`member-computed-literal`) in every package: the checker credits those reads to the interface, the
+constraint or nothing rather than to the class member they reach at runtime, and in a typed file the reads by name
+that keep them used without types no longer count. Enum and namespace results are identical with and without types,
+as types only add uses (ADR 0010). Both skif runs and knip miss `Tone.Neon` and `Size.Huge`: assigning the enum to a
+variable and indexing it with a `keyof typeof` key use it as a whole (ADR 0009). knip has no class-member check. The
+patterns are synthetic and cover only these cases, so the numbers say which known traps a tool falls into, not how
+precise it is on a real repository.
 
 ## In-process benchmarks
 

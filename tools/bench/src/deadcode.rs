@@ -8,6 +8,14 @@
 //! directories, an optional dependency loaded in a `try`, `#` subpath imports through the `imports` field, and a
 //! devDependency whose binary only a `vercel.json` command runs.
 //!
+//! Every package also holds member cases: unused class, enum and namespace members, and live members that a name-based
+//! analysis can get wrong (one name on two classes, reads through a structural interface, a generic constraint,
+//! destructuring, a key of literal type, inheritance and overrides, an enum aliased or indexed by `keyof typeof`, a
+//! namespace read through import aliases, and declarations read only by the next package). A member is dead when
+//! deleting it still type-checks and no executed code reads it. The member categories (`classMembers`, `enumMembers`,
+//! `namespaceMembers`) are seeded only by these cases, so the [`BASE_CATEGORIES`] keep the numbers of the answer key
+//! before they were added.
+//!
 //! [`build`] is pure and deterministic for a seed. Findings are keyed as in the knip parity harness: `<file>` for an
 //! unused file and `<file>|<name>` otherwise, within a knip issue type (`files`, `exports`, `types`, `dependencies`,
 //! `devDependencies`, ...). [`score`] compares a tool's keys with the key.
@@ -22,10 +30,26 @@ use serde_json::{Value, json};
 
 use crate::rng::Rng;
 
+mod members;
+
 /// Version of the answer-key format.
 pub const ANSWER_KEY_SCHEMA: u32 = 1;
 /// The categories the answer key seeds; findings in any other category are false by construction.
-pub const SEEDED_CATEGORIES: [&str; 5] = ["files", "exports", "types", "dependencies", "devDependencies"];
+pub const SEEDED_CATEGORIES: [&str; 8] = [
+    "files",
+    "exports",
+    "types",
+    "dependencies",
+    "devDependencies",
+    "classMembers",
+    "enumMembers",
+    "namespaceMembers",
+];
+/// The categories seeded before the member cases were added.
+pub const BASE_CATEGORIES: [&str; 5] = ["files", "exports", "types", "dependencies", "devDependencies"];
+/// The member categories. A `classMembers` key is `<file>|<Class>.<member>`; enum and namespace member keys name the
+/// member alone, as in the knip parity harness.
+pub const MEMBER_CATEGORIES: [&str; 3] = ["classMembers", "enumMembers", "namespaceMembers"];
 
 /// Options of [`build`].
 #[derive(Debug, Clone)]
@@ -98,7 +122,7 @@ pub struct DeadCode {
 }
 
 /// The live patterns, by id, with what they exercise.
-pub const PATTERNS: [(&str, &str); 15] = [
+pub const PATTERNS: [(&str, &str); 26] = [
     (
         "namespace-member",
         "exports read as members of a namespace import (`ns.member`)",
@@ -146,6 +170,50 @@ pub const PATTERNS: [(&str, &str); 15] = [
     (
         "vercel-json-command",
         "a devDependency whose binary only the `buildCommand` of `vercel.json` runs",
+    ),
+    (
+        "member-same-name",
+        "a class member read through a typed receiver while another class has a member of the same name",
+    ),
+    (
+        "member-interface",
+        "a class member read only through an interface the class satisfies structurally",
+    ),
+    (
+        "member-generic",
+        "a class member read only through a type parameter's constraint (`T extends HasX`, `t.x`)",
+    ),
+    (
+        "member-destructure",
+        "a class member read only by destructuring an instance",
+    ),
+    (
+        "member-computed-literal",
+        "a class member read only through an element access whose key has a literal type",
+    ),
+    (
+        "member-inherited",
+        "a base class member read only through a subclass instance",
+    ),
+    (
+        "member-override",
+        "a method and its override read only through the base class type",
+    ),
+    (
+        "enum-typed-alias",
+        "an enum member read only through a variable of type `typeof Enum`",
+    ),
+    (
+        "enum-keyof-typeof",
+        "an enum member read only as `Enum[key]` with `key: keyof typeof Enum`",
+    ),
+    (
+        "namespace-aliased-import",
+        "namespace members read only through a renamed import and an `import x = Ns.member` alias",
+    ),
+    (
+        "member-cross-package",
+        "class, enum and namespace members read only by another workspace package through its entry",
     ),
 ];
 
@@ -486,7 +554,7 @@ impl Package {
     }
 
     /// The entry, `src/index.ts`: reaches everything live and nothing dead.
-    fn entry(&mut self, used_deps: &[&str], optional: &str) {
+    fn entry(&mut self, used_deps: &[&str], optional: &str, reexports: &str) {
         let i = self.index;
         let mut entry = String::new();
         for (k, name) in used_deps.iter().enumerate() {
@@ -507,6 +575,7 @@ impl Package {
             "import { fetchRemote } from \"./client\";\n",
             "import { aliased } from \"~/aliased\";\n",
             "import { internalHelper } from \"#internal/helper\";\n",
+            "import { exerciseMembers } from \"./members/use\";\n",
             "\n",
             "type Settings = typeof import(\"./typed\")[\"settings\"];\n",
             "\n",
@@ -553,7 +622,8 @@ impl Package {
         if i > 0 {
             entry.push_str("    previous(),\n");
         }
-        entry.push_str("  ];\n  return parts.join(\",\");\n}\n");
+        entry.push_str("    exerciseMembers(),\n  ];\n  return parts.join(\",\");\n}\n");
+        entry.push_str(reexports);
         self.file("src/index.ts", entry);
         // The specifiers of the entry that only resolve through a pattern: an unlisted or unresolved finding on them is a
         // false finding caused by that pattern.
@@ -578,7 +648,8 @@ fn package(index: usize, options: &Options) -> Package {
     let (used_deps, optional) = package.manifests();
     package.dead_code();
     package.live_code();
-    package.entry(&used_deps, optional);
+    let reexports = package.members(options.packages);
+    package.entry(&used_deps, optional, reexports);
     package
 }
 
@@ -722,6 +793,38 @@ pub fn score(key: &AnswerKey, found: &BTreeMap<String, BTreeSet<String>>) -> Sco
     score
 }
 
+impl Score {
+    /// The categories `include` accepts summed into one score, false findings and misses prefixed with their category
+    /// as in [`Score::total`].
+    #[must_use]
+    pub fn subtotal(&self, include: impl Fn(&str) -> bool) -> CategoryScore {
+        let mut sum = CategoryScore::default();
+        for (category, entry) in self.categories.iter().filter(|(category, _)| include(category)) {
+            sum.expected += entry.expected;
+            sum.reported += entry.reported;
+            sum.true_positives += entry.true_positives;
+            sum.false_positives
+                .extend(entry.false_positives.iter().map(|k| format!("{category}:{k}")));
+            sum.false_negatives
+                .extend(entry.false_negatives.iter().map(|k| format!("{category}:{k}")));
+        }
+        sum
+    }
+
+    /// The member categories ([`MEMBER_CATEGORIES`]) summed.
+    #[must_use]
+    pub fn members(&self) -> CategoryScore {
+        self.subtotal(|category| MEMBER_CATEGORIES.contains(&category))
+    }
+
+    /// Every other category summed: the [`BASE_CATEGORIES`] and the unseeded ones (`unlisted`, `unresolved`, ...),
+    /// which made up the whole score before the member cases were added.
+    #[must_use]
+    pub fn base(&self) -> CategoryScore {
+        self.subtotal(|category| !MEMBER_CATEGORIES.contains(&category))
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -742,7 +845,8 @@ mod tests {
 
     #[test]
     fn seeds_every_category_and_every_pattern() {
-        let key = build(&options(1, 3)).unwrap().answer_key;
+        // Two packages: the cross-package members need a package that reads the first one.
+        let key = build(&options(2, 3)).unwrap().answer_key;
         let keys = key.keys();
         for category in SEEDED_CATEGORIES {
             assert!(!keys[category].is_empty(), "{category} not seeded");
@@ -752,6 +856,19 @@ mod tests {
             assert!(patterns.contains(pattern), "{pattern} missing");
         }
         assert_eq!(patterns.len(), PATTERNS.len());
+    }
+
+    #[test]
+    fn the_member_cases_leave_the_base_categories_unchanged() {
+        // The default run seeded 33 findings before the member cases; they add 8 member findings per package.
+        let key = build(&options(5, 1)).unwrap().answer_key;
+        let base = key
+            .expected
+            .iter()
+            .filter(|e| BASE_CATEGORIES.contains(&e.category.as_str()))
+            .count();
+        assert_eq!(base, 33);
+        assert_eq!(key.expected.len() - base, 5 * 8);
     }
 
     #[test]
