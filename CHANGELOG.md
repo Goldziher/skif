@@ -37,8 +37,9 @@ All notable changes to this project are documented here. The format follows
 - **The JSON report is version 2**: the `version` member of the report and of the `error` document, in JSON and TOON,
   is `2` (was `1`), and `skif_report::SCHEMA_VERSION` with it, because the `type-aware` object is removed
   ([ADR 0012](adrs/0012-cli-contract-and-reporting.md)). No other member changes.
-- **`skif explain-usage` changes for every run, also one that never used types**, for a member of a class, enum or
-  namespace:
+- **`skif explain-usage` changes for every run, also one that never used types**, and its JSON document is
+  version 2: `version` is `2` (was `1`) for a file, for `--dependency` and for `--trace-dependency`, which change in
+  nothing else. For a member of a class, enum or namespace:
   - the `judged without types (<reason>)` line of the human output and the `untyped-because` member of the JSON
     `class-member` object are gone; a run with types off printed them too, with the reason `disabled`;
   - the `used-without-types` member of the JSON `class-member` object is renamed `used`, and

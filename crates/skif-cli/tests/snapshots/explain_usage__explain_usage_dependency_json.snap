@@ -3,7 +3,7 @@ source: crates/skif-cli/tests/explain_usage.rs
 expression: "redact(&json.stdout, dir.path())"
 ---
 {
-  "version": 1,
+  "version": 2,
   "skif": "[VERSION]",
   "report": {
     "dependency": "zod",

@@ -256,9 +256,14 @@ fn show_human(views: &[RootView<'_>], base: &Path) -> Result<String, CliError> {
     Ok(out)
 }
 
-pub(crate) fn document(mut members: Map<String, Value>) -> Result<String, CliError> {
+pub(crate) fn document(members: Map<String, Value>) -> Result<String, CliError> {
+    versioned_document(1, members)
+}
+
+/// The JSON document of a command whose `version` is `version`: the version, the tool version, then `members`.
+pub(crate) fn versioned_document(version: u32, mut members: Map<String, Value>) -> Result<String, CliError> {
     let mut document = Map::new();
-    document.insert("version".to_owned(), json!(1));
+    document.insert("version".to_owned(), json!(version));
     document.insert("skif".to_owned(), json!(env!("CARGO_PKG_VERSION")));
     document.append(&mut members);
     let mut text = serde_json::to_string_pretty(&Value::Object(document))

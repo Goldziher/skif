@@ -8,11 +8,19 @@ use skif::{CachedFs, ConfigOverrides, FileSystem, OsFs, PackageId, Target, Usage
 use skif_report::escape_multiline;
 
 use crate::args::{ExplainUsageArgs, Format, LintArgs};
-use crate::config::document;
+use crate::config::versioned_document;
 use crate::error::{CliError, Kind};
 use crate::lint::{self, canonical};
 use crate::output::{emit_error_with, write_stdout};
 use crate::roots::{self, Resolved};
+
+/// The `version` of the JSON document of `skif explain-usage`, in each of its forms; bumped only on breaking changes
+/// (ADR 0012). Version 2 dropped `typed` and `untyped-because` and renamed `used-without-types` to `used`.
+const DOCUMENT_VERSION: u32 = 2;
+
+fn document(members: Map<String, Value>) -> Result<String, CliError> {
+    versioned_document(DOCUMENT_VERSION, members)
+}
 
 const CLEAN: u8 = 0;
 const COULD_NOT_RUN: u8 = 2;
