@@ -54,7 +54,8 @@ by `dir`, each reason a `{ "cause", "plugin", "file" }` object whose `plugin` an
 `"package"` when no file of the package was judged, or `{ "within": [globs] }` with the globs, relative to `dir`, of
 the only files left unjudged.
 
-`type-aware`, present when the JS analysis ran, gives the type coverage: `{ "enabled", "engine", "packages" }`,
+`type-aware`, present when a rule that reads types (`unused-class-members`, `unused-enum-members`,
+`unused-namespace-members`) ran, gives the type coverage: `{ "enabled", "engine", "packages" }`,
 with one `{ "dir", "name", "state", "reason", "untyped-files" }` object per package, `state` being `typed`,
 `partial` or `untyped`; `engine` and `reason` are omitted when absent. SARIF carries the same object in the run's
 `properties`.

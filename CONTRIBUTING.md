@@ -159,8 +159,9 @@ publishing; the steps around it are by hand.
 
 `action.yml` `BAKED_VERSION` is what makes a SHA-pinned `polylint/skif@<sha>` install that release instead of the
 latest one. The release archives carry a build-provenance attestation
-(`gh attestation verify skif-<target>.tar.gz --repo polylint/skif`; releases up to v0.6.0 were attested by
-`Goldziher/skif`).
+(`gh attestation verify skif-<target>.tar.gz --repo polylint/skif`, `.zip` for Windows). Releases up to v0.6.0 were
+attested by `Goldziher/skif` before the move, and their attestations are found by owner:
+`gh attestation verify <archive> --owner Goldziher --signer-workflow Goldziher/skif/.github/workflows/publish.yaml`.
 
 ## AI governance
 

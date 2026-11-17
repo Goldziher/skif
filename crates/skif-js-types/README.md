@@ -20,7 +20,7 @@ Programs are built a few at a time (a quarter of the threads, the rest shared ou
 single-threaded), each program's memory is freed as soon as its walk ends, and a panic inside the checker leaves that
 program's packages untyped with the reason `checker-failed`. Every file a program reads is parsed and bound once and
 shared by every program that reads it: the programs of one analysis, or of every analysis of a run that shares
-`TypePrograms`, which also builds a program the judged files of several nested roots go to only once. A bundled lib
+`TypePrograms`, which also builds only once a program that the judged files of several nested roots go to. A bundled lib
 file or a declaration file below `node_modules` is kept until the run's last program is freed, a project file until
 the last program that read it is. The `plain-ptrs` feature builds tsrs with plain pointers
 instead of its compressed handles and their fixed address reservation, for hosts such as Node.js that cannot give up
