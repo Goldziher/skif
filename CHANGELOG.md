@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **MCP `lint` takes `include` instead of `rules`**, with the meaning of `--include` (rule IDs or knip issue types).
+- **MCP `explain_usage` resolves `file` against the server's working directory**, as `skif explain-usage` does, not
+  against `path`.
+
 ### Added
 
 - `--format toon`: the JSON report encoded as TOON (Token-Oriented Object Notation), with the same data.
@@ -16,18 +22,23 @@ All notable changes to this project are documented here. The format follows
 - MCP: `lint` with `fix` or `fix_unsafe` (plus `fix_type`, `select`, `allow_remove_files`) returns the dry-run fix plan.
 - MCP: `explain_usage` explains a dependency (`dependency`, `package`) and takes `config` and `no_config`.
 - MCP: a `config` tool returns the effective configuration, as `skif config --format json` does.
+- `skif::render` re-exports the TOON error renderers beside the JSON ones.
 
 ### Changed
 
 - The type checker is tsrs 7.1.0-beta.tsrs2 (was tsrs1), and the parser oxc 0.159; the `type-aware.engine` field of
   the JSON report names the new checker.
-- MCP: each tool argument is the `skif` flag of the same name, and the `lint` tool's `rules` argument is now `include`.
+- MCP: each tool argument is the `skif` flag of the same name, parsed by the command line itself.
+- npm: `lint` and `lintAsync` print the CLI's warnings to stderr, as `skif` does.
 - MCP: tool results carry compact JSON text instead of pretty-printed JSON, and tool descriptions are shorter.
 
 ### Fixed
 
 - MCP: `lint` now honours `[lint] require-ignore-reasons` and the tsconfig checks, and sets `isError` when roots fail.
-- MCP: `explain_usage` resolves `file` against the working directory, as `skif explain-usage` does, not against `path`.
+- npm: `lint` and `lintAsync` now apply `[lint] require-ignore-reasons` and the tsconfig checks, as the CLI does.
+- `--format toon`: a usage error, an early error or a panic prints the `error` document in TOON, not nothing.
+- `skif migrate`: knip's `--treat-tag-hints-as-errors` is noted as approximate (tag hints are part of
+  `stale-js-config`), as its `treatTagHintsAsErrors` key already was.
 
 ## [0.7.0] - 2026-11-17
 
