@@ -17,7 +17,7 @@ macro_rules! quoted {
 }
 
 /// Current JSON schema version; bumped only on breaking changes.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Top-level members the document owns; `extra` members may not reuse them.
 const RESERVED: [&str; 5] = ["version", "skif", "summary", "diagnostics", "incomplete-packages"];
@@ -489,7 +489,7 @@ fn write_value(out: &mut Vec<u8>, value: &impl Serialize) -> io::Result<()> {
     Ok(())
 }
 
-/// Renders a failure as `{"version": 1, "error": {"message": ...}}`.
+/// Renders a failure as `{"version": 2, "error": {"message": ...}}`.
 ///
 /// # Errors
 ///
@@ -512,7 +512,7 @@ pub fn render_json_error(message: &str, out: &mut dyn Write) -> io::Result<()> {
     )
 }
 
-/// Renders a failure as `{"version": 1, "error": {"kind", "message", "path"?, "line"?, "column"?}}`.
+/// Renders a failure as `{"version": 2, "error": {"kind", "message", "path"?, "line"?, "column"?}}`.
 ///
 /// # Errors
 ///

@@ -45,7 +45,7 @@ if (typeof addon.run !== "function") fail("run is not exported");
 if (addon.run(["--version"]) !== 0) fail("run(['--version']) did not exit 0");
 
 const report = JSON.parse(addon.lint(fixture));
-if (report.version !== 1) fail("unexpected report: " + JSON.stringify(report));
+if (report.version !== 2) fail("unexpected report: " + JSON.stringify(report));
 if (report.summary.errors !== 0) fail("the clean fixture reported errors: " + JSON.stringify(report.diagnostics));
 
 const asyncOutcome = await addon.lintAsync(fixture, { noJs: false });

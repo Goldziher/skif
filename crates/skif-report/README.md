@@ -16,11 +16,11 @@ render(report, Format::Json, &RenderOptions::default(), &mut out)?;
 # }
 ```
 
-## JSON schema (version 1)
+## JSON schema (version 2)
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "skif": "<skif version>",
   "summary": { "errors": 1, "warnings": 0, "infos": 0, "fixable": 1, "packages": 3 },
   "diagnostics": [
@@ -45,7 +45,7 @@ render(report, Format::Json, &RenderOptions::default(), &mut out)?;
 `help`, `span`, `package`, `dependency`, `specifier` and `detail` are omitted when absent; `related` and
 `fixes` are always arrays. Paths are relative with `/` separators. Adding a field is not a breaking
 change; removing or renaming one, or changing its type or meaning, bumps `version`. Failures are
-reported as `{"version": 1, "error": {"kind": "...", "message": "...", "path": "...", "line": 1, "column": 1}}`;
+reported as `{"version": 2, "error": {"kind": "...", "message": "...", "path": "...", "line": 1, "column": 1}}`;
 `kind` and `message` are always present and `path`, `line` and `column` only when the failure has a location.
 
 `incomplete-packages`, omitted when empty, lists the packages whose entry files are not all known, so their unused

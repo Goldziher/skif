@@ -2,7 +2,7 @@
 source: crates/skif-report/tests/render.rs
 expression: "run(&rich(), Format::Toon, &options(false))"
 ---
-version: 1
+version: 2
 skif: "0.1.0"
 summary:
   errors: 1

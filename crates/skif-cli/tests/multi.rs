@@ -99,7 +99,7 @@ fn recursive_reports_roots_with_their_own_summaries_and_an_aggregate() {
     assert_eq!(by_path("ws-two")["summary"]["errors"], 0);
     assert_eq!(by_path("ws-two")["summary"]["warnings"], 0);
     assert!(by_path("ws-one")["summary"]["errors"].as_u64().unwrap() > 0);
-    assert_eq!(report["version"], 1);
+    assert_eq!(report["version"], 2);
 }
 
 #[test]

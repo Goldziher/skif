@@ -237,7 +237,7 @@ fn json_is_valid_relative_and_color_independent() {
     assert!(!rendered.contains('\x1b'));
     assert!(!rendered.contains('\\'));
     let value: serde_json::Value = serde_json::from_str(&rendered).unwrap();
-    assert_eq!(value["version"], 1);
+    assert_eq!(value["version"], 2);
     assert_eq!(value["summary"]["errors"], 1);
     assert_eq!(value["diagnostics"].as_array().unwrap().len(), 3);
 }
@@ -284,7 +284,7 @@ fn detailed_error_document_carries_kind_and_location() {
     assert_eq!(
         value,
         serde_json::json!({
-            "version": 1,
+            "version": 2,
             "skif": env!("CARGO_PKG_VERSION"),
             "error": {"kind": "config", "message": "bad key", "path": "skif.toml", "line": 3, "column": 5}
         })

@@ -212,7 +212,7 @@ fn usage_errors_exit_two_and_are_json_in_json_mode() {
     assert_eq!(json.code, 2);
     let document = json.json();
     assert_eq!(document["error"]["kind"], "usage");
-    assert_eq!(document["version"], 1);
+    assert_eq!(document["version"], 2);
 
     let equals_form = run(skif().args(["--format=json", "--select", "middle"]));
     assert_eq!(equals_form.code, 2);
@@ -321,7 +321,7 @@ fn output_writes_the_file_and_keeps_stdout_empty() {
     assert_eq!(result.code, 1);
     assert!(result.stdout.is_empty(), "{}", result.stdout);
     let document: Value = serde_json::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
-    assert_eq!(document["version"], 1);
+    assert_eq!(document["version"], 2);
 }
 
 #[test]
@@ -1320,7 +1320,7 @@ fn lint_to_json_returns_the_report_without_printing() {
     let dir = fixture("dirty");
     let text = skif_cli::lint_to_json(dir.path(), &skif::ConfigOverrides::default(), false).unwrap();
     let report: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(report["version"], 1);
+    assert_eq!(report["version"], 2);
     assert!(report["summary"]["errors"].as_u64().unwrap() > 0);
 }
 
