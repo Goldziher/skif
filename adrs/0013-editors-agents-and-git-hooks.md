@@ -59,6 +59,8 @@ launcher brings the binary without Rust or Node.
   `format`, `schema`, `list`, `json`) have no tool, and neither have flags that only change the exit code, colour,
   stderr or configuration overrides; the parity tests name each with its reason.
 * Calls run one at a time and in order. The server never writes a file: fixing stays a CLI action the agent runs.
+* The server is a local process with its user's privileges, and its tools read what the CLI would: the `config` and
+  `file` arguments name any file that user can read, and a TOML error quotes a line of the file it is about.
 
 ### `skif lsp`
 
