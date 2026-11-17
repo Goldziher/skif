@@ -464,13 +464,7 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
             }
             "treatTagHintsAsErrors" => {
                 if boolean(state, src, &path, item) == Some(true) {
-                    state.note_with(
-                        src,
-                        NoteClass::Approximate,
-                        path,
-                        "skif reports tag hints through `stale-js-config`, together with the configuration hints",
-                        "run `skif migrate --strict-hints` to make `stale-js-config` an error",
-                    );
+                    state.note_with(src, NoteClass::Approximate, path, TAG_HINTS, STRICT_HINTS);
                 }
             }
             "cycles" => cycles(state, src, &path, item),
@@ -1170,15 +1164,19 @@ fn note_differing_flags(state: &mut State<'_>, src: &Src, invocations: &[Invocat
     }
 }
 
+/// What `treatTagHintsAsErrors` and `--treat-tag-hints-as-errors` become, and how to get them.
+const TAG_HINTS: &str = "skif reports tag hints through `stale-js-config`, together with the configuration hints";
+const STRICT_HINTS: &str = "run `skif migrate --strict-hints` to make `stale-js-config` an error";
+
 /// The flags that need a note and nothing else.
 fn other_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation) {
     let path = invocation.path();
     let notes: [(&str, NoteClass, &str, &str); 7] = [
         (
             "--treat-tag-hints-as-errors",
-            NoteClass::Unsupported,
-            "skif has no tag hints to turn into errors",
-            "",
+            NoteClass::Approximate,
+            TAG_HINTS,
+            STRICT_HINTS,
         ),
         (
             "--workspace",

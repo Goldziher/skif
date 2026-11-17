@@ -372,6 +372,21 @@ fn syncpack(config: &str, profile: Profile) -> Migration {
     migrate(&[input], &options(profile)).unwrap()
 }
 
+/// knip's tag hints are part of `stale-js-config`, whether the config key or the flag turns them into errors.
+#[test]
+fn treating_tag_hints_as_errors_is_approximate_by_key_and_by_flag() {
+    let by_key = knip(Some(r#"{ "treatTagHintsAsErrors": true }"#), &[]);
+    let by_flag = knip(None, &[("knip", "knip --treat-tag-hints-as-errors")]);
+    for (migration, path) in [
+        (&by_key, "treatTagHintsAsErrors"),
+        (&by_flag, "scripts.knip: --treat-tag-hints-as-errors"),
+    ] {
+        let note = note(migration, path);
+        assert_eq!(note.class, NoteClass::Approximate, "{note:#?}");
+        assert!(note.message.contains("stale-js-config"), "{note:#?}");
+    }
+}
+
 fn knip(config: Option<&str>, scripts: &[(&str, &str)]) -> Migration {
     let mut input = ToolInput::new(Tool::Knip);
     input.config = config.map(|config| text("knip.json", config));
