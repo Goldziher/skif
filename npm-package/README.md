@@ -45,8 +45,8 @@ else console.log(JSON.parse(outcome.report).summary);
 const exitCode = run(["--format", "json", "./my-monorepo"]);
 ```
 
-- `lint(path, options?)` lints the project containing `path` and returns the JSON report as a string. It prints
-  nothing and writes no files. When the lint cannot run it throws an `Error` with `kind` and, when there is one,
+- `lint(path, options?)` lints the project containing `path` and returns the JSON report as a string. It applies
+  the CLI's configuration checks, writes no files, and prints only the CLI's warnings, to stderr. When the lint cannot run it throws an `Error` with `kind` and, when there is one,
   `path` properties. It blocks the event loop, so use `lintAsync` in a server.
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
   cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or

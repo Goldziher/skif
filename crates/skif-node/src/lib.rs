@@ -124,8 +124,8 @@ fn outcome(path: &str, overrides: &ConfigOverrides, recursive: bool) -> LintOutc
 }
 
 /// Lints the workspace containing `path` (or, with `recursive`, every root at or below it) and returns the report as
-/// the versioned JSON document the CLI prints for `--format json`. Nothing is printed and no file is written. The
-/// call blocks the event loop; use [`lint_async`] in a server.
+/// the versioned JSON document the CLI prints for `--format json`, with the CLI's configuration checks. No file is
+/// written; the warnings the CLI prints go to stderr. The call blocks the event loop; use [`lint_async`] in a server.
 ///
 /// # Errors
 /// Throws an `Error` with the failure's message, and with its `kind` and, when there is one, `path` as properties

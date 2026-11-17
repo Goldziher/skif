@@ -1257,6 +1257,31 @@ fn lint_to_json_classifies_its_errors() {
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }
 
+/// The embedding API applies the configuration checks the command line does: `[lint] require-ignore-reasons` and a
+/// `[js] tsconfig` that must exist.
+#[test]
+fn lint_to_json_applies_the_checks_of_the_command_line() {
+    let dir = fixture("dirty");
+    let lint = || skif_cli::lint_to_json(dir.path(), &skif::ConfigOverrides::default(), false);
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[lint]\nrequire-ignore-reasons = true\n[js]\nignore-binaries = [\"docker\"]\n",
+    )
+    .unwrap();
+    let unreasoned = lint().unwrap_err();
+    assert_eq!(unreasoned.kind, skif_cli::Kind::Config, "{}", unreasoned.message);
+    assert!(
+        unreasoned.message.contains("[lint] require-ignore-reasons requires"),
+        "{}",
+        unreasoned.message
+    );
+
+    fs::write(dir.path().join("skif.toml"), "[js]\ntsconfig = \"missing.json\"\n").unwrap();
+    let missing = lint().unwrap_err();
+    assert_eq!(missing.kind, skif_cli::Kind::Config, "{}", missing.message);
+    assert!(missing.message.contains("missing.json"), "{}", missing.message);
+}
+
 #[test]
 fn list_shows_every_instance_by_version_group_and_exits_one_on_errors() {
     let dir = fixture("mismatch");

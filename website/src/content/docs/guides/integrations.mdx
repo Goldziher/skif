@@ -197,8 +197,8 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
 
 - `lint(path, options?)` lints the project containing `path` and returns the JSON report as a string. With
   `{ recursive: true }` it lints every workspace and standalone package at or below `path`, like `skif -r`, and
-  the report gains a `roots` array. It prints
-  nothing and writes no files. It blocks the event loop, so use `lintAsync` in a server.
+  the report gains a `roots` array. It applies the CLI's configuration checks (`[lint] require-ignore-reasons`,
+  `[js] tsconfig`), writes no files and prints only the CLI's warnings, to stderr. It blocks the event loop, so use `lintAsync` in a server.
   The options mirror the flags of the same name: `noJs`, `production`, `typeAware` (resolve member reads with
   the TypeScript type checker: slower, more accurate member findings; off by default), `noTypeAware` (keep types off
   over a configuration that turns them on, winning over `typeAware`), `failOnWarnings`, `ignoreRules`,

@@ -8,13 +8,12 @@ use std::sync::Arc;
 use clap::ColorChoice;
 use rayon::prelude::*;
 use serde_json::{Map, Value};
-use skif::render::RenderOptions;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IdleReason, IgnoreEntry, Linter, OsFs,
     Prefer, Report, Selector, Target, Workspace, join_lexical, relative_tsconfig,
 };
 use skif_core::timing;
-use skif_report::{escape_controls, render_json_with};
+use skif_report::escape_controls;
 
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
@@ -623,53 +622,37 @@ fn plan_roots(
 }
 
 /// Lints the workspace containing `path`, or with `recursive` every root at or below it, and returns the report as
-/// the JSON document `--format json` prints.
+/// the JSON document `skif --format json [-r] PATH` prints, with `overrides` in place of the flags that set
+/// configuration.
 ///
-/// Nothing is printed, no file is written and the environment is not consulted, so an embedding host (the npm
-/// addon) gets the same discovery, configuration and report as the command line, with the same classified errors.
+/// The lint runs the command line's own code, so an embedding host (the npm addon) gets the same discovery,
+/// configuration checks (`[lint] require-ignore-reasons`, a `[js] tsconfig` that must exist) and report, with the
+/// same classified errors. No file is written and the environment is not consulted; the warnings the command prints
+/// on stderr (patterns that match nothing, roots that failed in a recursive run) go to the process's stderr. A
+/// recursive run where some roots failed returns the report, whose `errors` lists them.
 ///
 /// # Errors
 /// A [`CliError`] when `path` cannot be resolved, no workspace is found there, the configuration is invalid or
 /// the lint cannot run.
 pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -> Result<String, CliError> {
-    let fs = Arc::new(CachedFs::new(OsFs));
-    let start = canonical(path)?;
-    let Resolved {
-        base,
-        targets,
-        multi,
-        failures,
-        truncated,
-        ..
-    } = timing::phase("root discovery (roots, configs, workspaces)", || {
-        roots::resolve(&start, recursive, &*fs, overrides)
-    })?;
-    let linters = Linters::build_with(&targets, Some(&(fs as Arc<dyn FileSystem>)), None)?;
-    let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
-    roots::settle_shared_config(&mut runs);
-    let reports: Vec<Cow<'_, Report>> = runs
-        .iter()
-        .map(|run| roots::prefixed(&run.report, &run.prefix))
-        .collect();
-    let aggregate = roots::aggregate(&reports);
-    let options = RenderOptions::default()
-        .with_root(&base)
-        .with_tool_version(env!("CARGO_PKG_VERSION"));
-    let mut extra = Map::new();
-    if multi {
-        extra.insert("roots".to_owned(), roots_json(&runs, &reports));
-        if !failures.is_empty() {
-            extra.insert("errors".to_owned(), errors_json(&failures));
-        }
-        if !truncated.is_empty() {
-            extra.insert("truncated".to_owned(), truncated_json(&truncated));
-        }
+    let args = json_args(path, recursive)?;
+    let (stdout, _) = capture(&args, overrides, None)?;
+    String::from_utf8(stdout).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
+}
+
+/// The flags of `skif --format json [-r] PATH`.
+fn json_args(path: &Path, recursive: bool) -> Result<LintArgs, CliError> {
+    use clap::{Args as _, FromArgMatches as _};
+    let mut argv: Vec<std::ffi::OsString> = vec!["--format".into(), "json".into()];
+    if recursive {
+        argv.push("--recursive".into());
     }
-    // The document becomes the host's string as a whole, so it is rendered into a buffer reserved for it at once.
-    let mut buffer = Vec::with_capacity(aggregate.diagnostics.len() * output::JSON_BYTES_PER_DIAGNOSTIC);
-    render_json_with(&aggregate, &options, extra, &mut buffer)
-        .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
-    String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
+    argv.extend(["--".into(), path.as_os_str().to_owned()]);
+    let command = LintArgs::augment_args(clap::Command::new("skif").no_binary_name(true));
+    command
+        .try_get_matches_from(argv)
+        .and_then(|matches| LintArgs::from_arg_matches(&matches))
+        .map_err(|error| CliError::new(Kind::Internal, error.to_string()))
 }
 
 /// Lints the root containing `path`, reading every file through `fs`, and returns the directory the report's paths
@@ -695,10 +678,6 @@ pub fn lint_root(
         .collect();
     let report = roots::aggregate(&reports).into_owned();
     Ok((base, report, runs))
-}
-
-fn errors_json(failures: &[RootError]) -> Value {
-    Value::Array(failures.iter().map(RootError::to_json).collect())
 }
 
 /// The directories the search for roots did not enter, as the JSON `truncated` array.
@@ -730,15 +709,6 @@ fn note_truncated(truncated: &[PathBuf]) {
     ));
 }
 
-fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
-    Value::Array(
-        runs.iter()
-            .zip(reports)
-            .map(|(run, report)| roots::root_json(run, report))
-            .collect(),
-    )
-}
-
 /// The environment of a host that runs lints on a client's behalf (`skif mcp`): not CI, no terminal, so nothing is
 /// coloured and no fix is put to a prompt.
 const HOST: Env = Env {
@@ -756,8 +726,17 @@ const HOST: Env = Env {
 /// # Errors
 /// The [`CliError`] the command line reports as its error document (exit code 2).
 pub(crate) fn run_captured(args: &LintArgs, modules: Option<&dyn CacheHost>) -> Result<(Vec<u8>, u8), CliError> {
+    capture(args, &overrides(args), modules)
+}
+
+/// [`run_captured`] with `overrides` in place of the ones `args` sets.
+fn capture(
+    args: &LintArgs,
+    overrides: &ConfigOverrides,
+    modules: Option<&dyn CacheHost>,
+) -> Result<(Vec<u8>, u8), CliError> {
     let mut stdout = Vec::new();
-    let result = execute(args, HOST, Teardown::Free, modules, Some(&mut stdout));
+    let result = execute_with(args, overrides, HOST, Teardown::Free, modules, Some(&mut stdout));
     if let Some(modules) = modules {
         modules.finish();
     }
@@ -767,6 +746,18 @@ pub(crate) fn run_captured(args: &LintArgs, modules: Option<&dyn CacheHost>) -> 
 /// The lint run: `capture`, when given, receives what would go to stdout.
 fn execute(
     args: &LintArgs,
+    env: Env,
+    teardown: Teardown,
+    modules: Option<&dyn CacheHost>,
+    capture: Option<&mut Vec<u8>>,
+) -> Result<u8, CliError> {
+    execute_with(args, &overrides(args), env, teardown, modules, capture)
+}
+
+/// [`execute`] with the configuration overrides given rather than read from `args`.
+fn execute_with(
+    args: &LintArgs,
+    overrides: &ConfigOverrides,
     env: Env,
     teardown: Teardown,
     modules: Option<&dyn CacheHost>,
@@ -794,7 +785,7 @@ fn execute(
         failures: root_errors,
         truncated,
     } = timing::phase("root discovery (roots, configs, workspaces)", || {
-        roots::resolve(&start, args.recursive, fs, &overrides(args))
+        roots::resolve(&start, args.recursive, fs, overrides)
     })?;
     note_truncated(&truncated);
     warn_unanchored_patterns(&targets);
