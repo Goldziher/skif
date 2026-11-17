@@ -143,6 +143,11 @@ impl ModuleCache for Layered<'_> {
         self.back.put(key, module.clone());
         self.front.put(key, module);
     }
+
+    fn served_after_miss(&self, key: ModuleKey) {
+        self.front.served_after_miss(key);
+        self.back.served_after_miss(key);
+    }
 }
 
 /// The files local to the root a run lints: below it and below none of the other roots of the run nested in it.
@@ -236,6 +241,10 @@ impl ModuleCache for Probe<'_> {
     fn put(&self, key: ModuleKey, module: CachedModule) {
         self.stored.store(true, Ordering::Relaxed);
         self.cache.put(key, module);
+    }
+
+    fn served_after_miss(&self, key: ModuleKey) {
+        self.cache.served_after_miss(key);
     }
 }
 

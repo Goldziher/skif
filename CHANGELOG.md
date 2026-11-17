@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 <!-- Keep a Changelog repeats Added/Changed/Fixed headings per version. -->
 <!-- markdownlint-disable MD024 -->
 
+## [Unreleased]
+
+### Fixed
+
+- `--debug` with `-r` no longer counts a cache miss for a root that waited for another root's parse of a shared
+  file; that lookup is a hit.
+
 ## [0.9.0] - 2026-11-17
 
 ### Breaking changes

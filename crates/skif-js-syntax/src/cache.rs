@@ -128,6 +128,10 @@ pub trait ModuleCache: Send + Sync {
     fn get_again(&self, key: ModuleKey) -> Option<CachedModule> {
         self.get(key)
     }
+    /// Says that a lookup whose [`get`](Self::get) missed `key` was served after all, by the parse another thread
+    /// ran while it waited ([`ParseCoalescer`]). A cache that counts its lookups counts a hit in place of that miss.
+    /// By default nothing; a cache that wraps another forwards it.
+    fn served_after_miss(&self, _key: ModuleKey) {}
 }
 
 /// An in-process [`ModuleCache`] for long-lived hosts (watch mode, the language server, the MCP server).
@@ -262,6 +266,10 @@ impl ModuleCache for StoreModuleCache {
         found
     }
 
+    fn served_after_miss(&self, _key: ModuleKey) {
+        self.tally.hit_after_miss();
+    }
+
     fn put(&self, key: ModuleKey, module: CachedModule) {
         if self.read_only {
             return;
@@ -379,7 +387,10 @@ impl ParseCoalescer {
                 Turn::Inline => return parse(),
             };
             match slot.wait() {
-                Outcome::Parsed(module) => return Ok(Arc::unwrap_or_clone(module)),
+                Outcome::Parsed(module) => {
+                    cache.served_after_miss(key);
+                    return Ok(Arc::unwrap_or_clone(module));
+                }
                 Outcome::Failed(error) => return Err(error),
                 Outcome::Abandoned => {}
             }
@@ -760,6 +771,37 @@ mod tests {
         lint();
         let warm = cache.counters();
         assert_eq!((warm.hits, warm.misses), (FILES, FILES));
+    }
+
+    /// A lookup that waits for another thread's parse of its key is served by it: a hit, not a miss.
+    #[test]
+    fn a_lookup_served_by_another_threads_parse_is_a_hit() {
+        let store = Arc::new(skif_core::MemoryStore::new());
+        let cache = StoreModuleCache::new(CacheHandle::new(store, skif_core::cache::salt_digest(b"host")));
+        let coalescer = ParseCoalescer::new();
+        let source = "export const a = 1;";
+        let key = key("a.ts", source, ParseOptions::default());
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                coalescer
+                    .get_or_parse(&cache, key, &mut || {
+                        // Holds the key until the other lookup has missed, so it waits for this parse or, if it
+                        // claims the key after this release, finds the stored result on its second look.
+                        while cache.counters().misses < 2 {
+                            std::thread::yield_now();
+                        }
+                        Ok(module(source))
+                    })
+                    .unwrap();
+            });
+            while cache.counters().misses < 1 {
+                std::thread::yield_now();
+            }
+            coalescer
+                .get_or_parse(&cache, key, &mut || panic!("parsed a key another thread parses"))
+                .unwrap();
+        });
+        assert_eq!((cache.counters().hits, cache.counters().misses), (1, 1));
     }
 
     /// An entry that arrives between the two looks of one lookup is a hit, and the miss of the first look is not
