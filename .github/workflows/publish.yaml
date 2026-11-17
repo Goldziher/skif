@@ -1057,9 +1057,12 @@ jobs:
           # npm processes a publish before serving it, which has taken over two minutes, and the registry has served a
           # tarball bun asked for as missing for over seven minutes after npm installed it, so the attempts span 15
           # minutes. An attempt that ran before a platform package was served leaves an install without it in the npx
-          # and bun caches, so each retry starts from empty caches.
+          # and bun caches, so each retry starts from empty caches. npm's cache is not under HOME on every runner
+          # (C:\npm\cache on Windows), so its location is asked of npm.
+          npx_cache=""
+          if [ "$RUNTIME" != bun ]; then npx_cache="$(npm config get cache)/_npx"; fi
           for attempt in {1..60}; do
-            rm -rf "${HOME}/.npm/_npx" "${HOME}/.bun/install/cache"
+            rm -rf "${HOME}/.npm/_npx" "${HOME}/.bun/install/cache" ${npx_cache:+"$npx_cache"}
             if out="$(run_published 2>&1)" && grep -qF "$VERSION" <<<"$out"; then
               echo "$out"
               exit 0
