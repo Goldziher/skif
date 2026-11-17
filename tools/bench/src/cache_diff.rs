@@ -676,7 +676,7 @@ mod tests {
         assert_eq!(cache_hits(&json!({"cache": {"hits": 0, "misses": 4}})), Some(0));
         let per_namespace = json!({"cache": {
             "modules": {"hits": 7, "misses": 1, "bytes_written": 10},
-            "types.program": {"hits": 2, "misses": 0, "bytes_written": 0},
+            "manifests": {"hits": 2, "misses": 0, "bytes_written": 0},
         }});
         assert_eq!(cache_hits(&per_namespace), Some(9));
         let listed = json!({"cache": {"namespaces": [{"name": "modules", "hits": 3}]}});
