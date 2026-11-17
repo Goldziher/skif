@@ -189,11 +189,11 @@ A Rust port of the TypeScript 7 type checker, itself a derivative work of TypeSc
 asks it for the types and symbols behind member accesses; no tsrs or TypeScript source is copied into skif.
 
 - **Source**: <https://github.com/oxc-project/tsrs>
-- **Upstream commit**: `2903e168561c7f709cc7825c7ca91705d2e2316d`
+- **Upstream commit**: `3a5af259fc9833ea527b1605ef65066873767f4f`
 - **License**: Apache-2.0
 - **Authors**: Max Schwenk and the tsrs contributors; TypeScript by Microsoft Corporation
 - **Copyright**: Copyright 2026 Max Schwenk and the tsrs contributors; Copyright (c) Microsoft Corporation
-- **Location**: depended on as the crates `tsrs_*` (`=7.1.0-beta.tsrs1`), only through `crates/skif-js-types`; the
+- **Location**: depended on as the crates `tsrs_*` (`=7.1.0-beta.tsrs2`), only through `crates/skif-js-types`; the
   binaries and the npm addon built with type-aware analysis embed it, including the `lib.*.d.ts` files of TypeScript
 - **Purpose**: Type-aware analysis: resolving the types and symbols of member accesses, for example for
   `unused-class-members`.

@@ -54,7 +54,7 @@ done
 
 # The tsrs section records the commit, the licence and the NOTICE of the checker (ADR 0002).
 tsrs_section="$(sed -n '/^## tsrs (and TypeScript)$/,$p' ATTRIBUTIONS.md)"
-for needle in "2903e168561c7f709cc7825c7ca91705d2e2316d" "Copyright 2026 Max Schwenk and the tsrs contributors" "NOTICES AND INFORMATION" "Apache License"; do
+for needle in "3a5af259fc9833ea527b1605ef65066873767f4f" "Copyright 2026 Max Schwenk and the tsrs contributors" "NOTICES AND INFORMATION" "Apache License"; do
   if ! grep -qF "$needle" <<<"$tsrs_section"; then
     echo "::error file=ATTRIBUTIONS.md::the tsrs section is missing '${needle}'"
     failures=$((failures + 1))

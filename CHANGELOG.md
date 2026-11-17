@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 <!-- Keep a Changelog repeats Added/Changed/Fixed headings per version. -->
 <!-- markdownlint-disable MD024 -->
 
+## [Unreleased]
+
+### Changed
+
+- The type checker is tsrs 7.1.0-beta.tsrs2 (was tsrs1), and the parser oxc 0.159; the `type-aware.engine` field of
+  the JSON report names the new checker.
+
 ## [0.7.0] - 2026-11-17
 
 ### Breaking changes

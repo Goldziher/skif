@@ -91,7 +91,7 @@ expression: "run(&with_type_aware(), Format::Json, &options(false))"
   ],
   "type-aware": {
     "enabled": true,
-    "engine": "tsrs 7.1.0-beta.tsrs1",
+    "engine": "tsrs 7.1.0-beta.tsrs2",
     "packages": [
       {
         "dir": ".",

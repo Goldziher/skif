@@ -851,7 +851,7 @@ mod tests {
                             .with_untyped_files(4),
                     ],
                 )
-                .with_engine("tsrs 7.1.0-beta.tsrs1"),
+                .with_engine("tsrs 7.1.0-beta.tsrs2"),
             )
     }
 

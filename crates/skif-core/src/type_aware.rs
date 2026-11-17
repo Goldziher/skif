@@ -38,7 +38,7 @@ impl TypeAwareSummary {
         }
     }
 
-    /// Names the type checker that ran (`tsrs 7.1.0-beta.tsrs1`).
+    /// Names the type checker that ran (`tsrs 7.1.0-beta.tsrs2`).
     #[must_use]
     pub fn with_engine(mut self, engine: impl Into<String>) -> Self {
         self.engine = Some(engine.into());
@@ -183,12 +183,12 @@ mod tests {
                     .with_untyped_files(3),
             ],
         )
-        .with_engine("tsrs 7.1.0-beta.tsrs1");
+        .with_engine("tsrs 7.1.0-beta.tsrs2");
         assert_eq!(
             serde_json::to_value(&summary).unwrap(),
             serde_json::json!({
                 "enabled": true,
-                "engine": "tsrs 7.1.0-beta.tsrs1",
+                "engine": "tsrs 7.1.0-beta.tsrs2",
                 "packages": [
                     {"dir": "", "name": "root", "state": "typed", "untyped-files": 0},
                     {

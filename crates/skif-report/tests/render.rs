@@ -195,7 +195,7 @@ fn with_type_aware() -> Report {
                 untyped("packages/c", "no-tsconfig"),
             ],
         )
-        .with_engine("tsrs 7.1.0-beta.tsrs1"),
+        .with_engine("tsrs 7.1.0-beta.tsrs2"),
     )
 }
 
@@ -210,7 +210,7 @@ fn json_carries_the_type_aware_object_only_when_the_report_has_one() {
         serde_json::from_str(&run(&with_type_aware(), Format::Json, &options(false))).unwrap();
     let summary = &value["type-aware"];
     assert_eq!(summary["enabled"], true);
-    assert_eq!(summary["engine"], "tsrs 7.1.0-beta.tsrs1");
+    assert_eq!(summary["engine"], "tsrs 7.1.0-beta.tsrs2");
     let packages = summary["packages"].as_array().unwrap();
     let dirs: Vec<&str> = packages
         .iter()

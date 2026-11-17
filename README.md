@@ -134,7 +134,7 @@ git root, so one organisation file applies to every project below it. See the
 | Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun |
 | Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) |
 | Runtime | Native binary, or through npm on Node.js 22, 24, 26 and Bun 1.x |
-| Type checker | tsrs 7.1.0-beta.tsrs1, a Rust port of the TypeScript 7 checker, for packages with a `tsconfig.json` or `jsconfig.json` |
+| Type checker | tsrs 7.1.0-beta.tsrs2, a Rust port of the TypeScript 7 checker, for packages with a `tsconfig.json` or `jsconfig.json` |
 | Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 |
 
 Versions per package manager and operating system are under

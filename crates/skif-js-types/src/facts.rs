@@ -46,7 +46,7 @@ pub struct DeclId(pub u32);
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TypeFacts {
-    /// The engine that produced the facts, with its version (`tsrs 7.1.0-beta.tsrs1`).
+    /// The engine that produced the facts, with its version (`tsrs 7.1.0-beta.tsrs2`).
     pub engine: &'static str,
     /// The members of each declaration that a typed read reaches, directly or through a base class or an interface
     /// the declaration implements, or that a subclass inheriting the member implements.

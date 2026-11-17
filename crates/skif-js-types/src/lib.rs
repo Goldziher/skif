@@ -34,7 +34,7 @@ pub use resident::TypePrograms;
 pub use session::{PendingTypes, TypeBudget};
 
 /// The engine and version recorded in [`TypeFacts::engine`].
-pub const ENGINE: &str = "tsrs 7.1.0-beta.tsrs1";
+pub const ENGINE: &str = "tsrs 7.1.0-beta.tsrs2";
 
 /// A package whose judged files the analysis covers.
 #[derive(Debug, Clone, PartialEq, Eq)]
