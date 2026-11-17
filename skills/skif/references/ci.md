@@ -6,7 +6,7 @@ The full guide is <https://polylint.github.io/skif/guides/integrations/>.
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: polylint/skif@v0.7
+- uses: polylint/skif@v0.8
   with:
     fail-on-warnings: true
 ```
@@ -22,7 +22,7 @@ SHA pins one version. On GitHub Actions, with no `--format`, skif prints the hum
 Code scanning:
 
 ```yaml
-- uses: polylint/skif@v0.7
+- uses: polylint/skif@v0.8
   with:
     args: --format sarif --output skif.sarif
 - uses: github/codeql-action/upload-sarif@v4
@@ -44,8 +44,8 @@ renders a pull request comment, and `--format codeowners` groups findings by COD
 
 ```yaml
 - run: git fetch origin main
-- uses: polylint/skif@v0.7
-- uses: polylint/skif@v0.7
+- uses: polylint/skif@v0.8
+- uses: polylint/skif@v0.8
   with:
     args: baseline check --base origin/main
 ```
@@ -58,7 +58,7 @@ The first step lints with the baseline applied; the second fails when the baseli
 ```yaml
 repos:
   - repo: https://github.com/polylint/skif
-    rev: v0.7.0 # use the latest release tag
+    rev: v0.8.0 # use the latest release tag
     hooks:
       - id: skif       # skif --no-js
       - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
@@ -76,7 +76,7 @@ Poly, in `poly.toml`:
 [[hooks.sources]]
 id = "skif"
 git = "https://github.com/polylint/skif.git"
-revision = "v0.7.0" # use the latest release tag
+revision = "v0.8.0" # use the latest release tag
 hooks = ["skif"]
 ```
 
