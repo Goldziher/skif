@@ -62,8 +62,6 @@ oxc_parser = "0.1.0"
 oxc_span = { version = "0.1.0", default-features = false }
 oxc_resolver = "11.0.0"
 serde = "1"
-tsrs_checker = "=7.1.0-beta.1"
-tsrs_core = { version = "=7.1.0-beta.1", default-features = false }
 TOML
 cat >"${pins}/crates/a/Cargo.toml" <<'TOML'
 [package]
@@ -83,16 +81,6 @@ mv "${pins}/Cargo.toml.bak" "${pins}/Cargo.toml"
 sed -i.bak 's/oxc_parser = "0.1.0"/oxc_parser = "0.2.0"/' "${pins}/Cargo.toml"
 expect "check-pins rejects oxc crates on two releases" 1 run_in "$pins" check-pins.sh
 expect_in_out "check-pins lockstep" "the oxc crates must name one release"
-mv "${pins}/Cargo.toml.bak" "${pins}/Cargo.toml"
-
-sed -i.bak 's/tsrs_checker = "=7.1.0-beta.1"/tsrs_checker = "7.1.0-beta.1"/' "${pins}/Cargo.toml"
-expect "check-pins rejects a tsrs crate that is not an exact pin" 1 run_in "$pins" check-pins.sh
-expect_in_out "check-pins tsrs exact" "tsrs dependency is not an exact pin"
-mv "${pins}/Cargo.toml.bak" "${pins}/Cargo.toml"
-
-sed -i.bak 's/tsrs_core = { version = "=7.1.0-beta.1"/tsrs_core = { version = "=7.1.0-beta.2"/' "${pins}/Cargo.toml"
-expect "check-pins rejects tsrs crates on two versions" 1 run_in "$pins" check-pins.sh
-expect_in_out "check-pins tsrs lockstep" "the tsrs crates must name one version"
 mv "${pins}/Cargo.toml.bak" "${pins}/Cargo.toml"
 
 printf 'tokio = "1"\n' >>"${pins}/crates/a/Cargo.toml"
@@ -123,14 +111,6 @@ rm "${headers}/crates/skif-specifier/src/d.rs"
 grep -v 'Lars Kappert' ATTRIBUTIONS.md >"${headers}/ATTRIBUTIONS.md"
 expect "check-headers rejects an ATTRIBUTIONS.md without the knip licence holder" 1 run_in "$headers" check-headers.sh
 expect_in_out "check-headers knip" "the knip section is missing"
-cp ATTRIBUTIONS.md "${headers}/ATTRIBUTIONS.md"
-
-sed '/^## tsrs (and TypeScript)$/,$d' ATTRIBUTIONS.md >"${headers}/ATTRIBUTIONS.md"
-expect "check-headers rejects an ATTRIBUTIONS.md without the tsrs section" 1 run_in "$headers" check-headers.sh
-expect_in_out "check-headers tsrs section" "missing section '## tsrs (and TypeScript)'"
-grep -v '^NOTICES AND INFORMATION$' ATTRIBUTIONS.md >"${headers}/ATTRIBUTIONS.md"
-expect "check-headers rejects a tsrs section without the NOTICE" 1 run_in "$headers" check-headers.sh
-expect_in_out "check-headers tsrs notice" "the tsrs section is missing 'NOTICES AND INFORMATION'"
 cp ATTRIBUTIONS.md "${headers}/ATTRIBUTIONS.md"
 
 sed -i.bak 's/^\(package = "pkg:github\/polylint\/polylint@v\)[^"]*/\10.0.1/' "${headers}/.ai-rulez/config.toml"
@@ -322,9 +302,6 @@ expect "check-dependency-tree accepts the layering" 0 run_in "$deps" check-depen
 expect "check-dependency-tree rejects an oxc crate behind default-less skif" 1 env STUB_TREE_FACADE=$'skif v0.0.0\noxc_parser v0.1.0' \
   bash "${deps}/scripts/check-dependency-tree.sh"
 expect_in_out "check-dependency-tree facade" "without default features depends on an oxc crate"
-expect "check-dependency-tree rejects a tsrs crate behind default-less skif" 1 env STUB_TREE_FACADE=$'skif v0.0.0\ntsrs_core v7.1.0-beta.1' \
-  bash "${deps}/scripts/check-dependency-tree.sh"
-expect_in_out "check-dependency-tree facade tsrs" "without default features depends on a tsrs crate"
 expect "check-dependency-tree rejects skif-core depending on a workspace crate" 1 env STUB_TREE_CORE=$'skif-core v0.0.0\nskif-rules v0.0.0' \
   bash "${deps}/scripts/check-dependency-tree.sh"
 expect_in_out "check-dependency-tree core" "skif-core depends on the workspace crate skif-rules"
@@ -332,11 +309,6 @@ expect "check-dependency-tree rejects a crate that may not use oxc" 1 env STUB_T
   bash "${deps}/scripts/check-dependency-tree.sh"
 expect_in_out "check-dependency-tree oxc" "skif-lint depends on oxc_ast"
 expect "check-dependency-tree allows the js crates" 0 env STUB_TREE_INVERT_oxc_ast=$'oxc_ast v0.1.0\nskif-js v0.0.0\nskif-js-syntax v0.0.0' \
-  bash "${deps}/scripts/check-dependency-tree.sh"
-expect "check-dependency-tree rejects a crate other than skif-js-types that uses tsrs" 1 env STUB_TREE_INVERT_tsrs_checker=$'tsrs_checker v7.1.0-beta.1\nskif-js-types v0.0.0\nskif-js v0.0.0' \
-  bash "${deps}/scripts/check-dependency-tree.sh"
-expect_in_out "check-dependency-tree tsrs" "skif-js depends on tsrs_checker; only skif-js-types may"
-expect "check-dependency-tree allows skif-js-types and the tsrs crates themselves" 0 env STUB_TREE_INVERT_tsrs_core=$'tsrs_core v7.1.0-beta.1\ntsrs_checker v7.1.0-beta.1\nskif-js-types v0.0.0' \
   bash "${deps}/scripts/check-dependency-tree.sh"
 expect "check-dependency-tree reports a crate absent from the graph as a warning" 0 env STUB_TREE_FAIL_oxc_str="package ID specification did not match any packages" \
   bash "${deps}/scripts/check-dependency-tree.sh"
@@ -505,7 +477,7 @@ basever="$(new_tree basever)"
 mkdir -p "${basever}/tools/bench/baselines"
 printf '[tools]\nknip = "6.45.1"\nsyncpack = "15.3.3"\nsherif = "1.13.0"\n' >"${basever}/tools/bench/corpus.toml"
 baseline_tree() {
-  printf '{\n  "schema": 1,\n  "tool": "knip@%s",\n  "mode": "type-aware"\n}\n' "$1" \
+  printf '{\n  "schema": 1,\n  "tool": "knip@%s",\n  "installed": false\n}\n' "$1" \
     >"${basever}/tools/bench/baselines/parity.json"
   printf '{\n  "schema": 1,\n  "tool": "syncpack@%s",\n  "installed": false\n}\n' "$2" \
     >"${basever}/tools/bench/baselines/syncpack.json"

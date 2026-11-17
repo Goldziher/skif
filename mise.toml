@@ -47,17 +47,6 @@ run = [
   "cargo run --release --locked -p skif-bench -- run --skif target/release/skif",
 ]
 
-[tasks."typed:diff"]
-description = "Build skif in release mode and compare its JSON output, typed and untyped, on the installed bench corpus with a reference skif binary; fails on any difference the allow list does not cover"
-usage = '''
-arg "<reference>" help="Reference skif binary (the build before the change)"
-flag "--allow <file>" help="JSON list of expected differences"
-'''
-run = [
-  "cargo build --release --locked -p skif-cli",
-  "cargo run --release --locked -p skif-bench -- typed-diff --skif target/release/skif --reference \"$usage_reference\" ${usage_allow:+--allow \"$usage_allow\"}",
-]
-
 [tasks."cache:diff"]
 description = "Build skif in release mode and compare its JSON output without the cache, cold, warm and after seeded edits on the bench corpus; fails on any difference"
 usage = '''
@@ -125,7 +114,7 @@ run = [
 ]
 
 [tasks."bench:deadcode"]
-description = "Dead-code precision and recall of skif, without and with types (and the pinned knip with --knip), against a generated answer key: mise run bench:deadcode -- [--packages 5] [--seed 1] [--knip] [--json]"
+description = "Dead-code precision and recall of skif (and the pinned knip with --knip), against a generated answer key: mise run bench:deadcode -- [--packages 5] [--seed 1] [--knip] [--json]"
 run = [
   "cargo build --release --locked -p skif-cli",
   "cargo run --release --locked -p skif-bench -- deadcode --skif target/release/skif",
@@ -159,11 +148,7 @@ run = "scripts/render-assets.sh"
 
 [tasks.test]
 description = "Run all tests"
-# The arena tests skip under the workspace's unified `plain-ptrs`; built alone, skif-js-types counts every arena.
-run = [
-  "cargo test --workspace --locked --no-fail-fast",
-  "cargo test -p skif-js-types --locked --test arenas --test retire",
-]
+run = "cargo test --workspace --locked --no-fail-fast"
 
 [tasks."test:verbose"]
 description = "Run all tests with output shown"

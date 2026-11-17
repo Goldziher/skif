@@ -178,7 +178,7 @@ case "$order" in
 skif-core,skif-specifier,*,skif,skif-cli) ;;
 *) fail "publish-crates: unexpected publish order: ${order}" ;;
 esac
-[[ "$(published_crates | wc -l | tr -d ' ')" -eq 15 ]] || fail "publish-crates: expected 15 crates, got ${order}"
+[[ "$(published_crates | wc -l | tr -d ' ')" -eq 14 ]] || fail "publish-crates: expected 14 crates, got ${order}"
 
 # A crate is published after every skif crate it depends on (cargo publish resolves them on the registry).
 position=0
@@ -191,7 +191,7 @@ while read -r crate; do
   done
   published_before="${published_before}${crate} "
 done < <(published_crates)
-[[ "$position" -eq 15 ]] || fail "publish-crates: checked ${position} crates for dependency order, want 15"
+[[ "$position" -eq 14 ]] || fail "publish-crates: checked ${position} crates for dependency order, want 14"
 
 crates_case "versions already on crates.io are skipped" 0 200 ok
 [[ ! -s "${work}/cargo.log" ]] || fail "publish-crates: cargo ran although every version is published"
@@ -241,7 +241,7 @@ semver_case() {
     STUB_CODES="${work}/codes" GITHUB_STEP_SUMMARY="${work}/semver-summary.md" "$@" bash scripts/semver-checks.sh
 }
 publish_list="$(sed -n '/^crates=(/,/^)/s/^  \([a-z][a-z-]*\)$/\1/p' scripts/publish-crates.sh)"
-[[ "$(wc -l <<<"$publish_list" | tr -d ' ')" -eq 15 ]] || fail "semver-checks: expected 15 crates in publish-crates.sh"
+[[ "$(wc -l <<<"$publish_list" | tr -d ' ')" -eq 14 ]] || fail "semver-checks: expected 14 crates in publish-crates.sh"
 
 semver_case "every published crate is checked" 0
 checked="$(sed -n 's/^semver-checks --package \([^ ]*\) --all-features$/\1/p' "${work}/semver.log")"
@@ -358,29 +358,21 @@ grep -qF 'rev: v0.7.1' "$integrations" || fail "release-bump: 0.x pre-commit rev
 # ---------------------------------------------------------------- check-archive
 archive_dir="${work}/archives"
 mkdir -p "${archive_dir}/full" "${archive_dir}/bare"
-mkdir -p "${archive_dir}/untyped"
-for member in skif skif.exe LICENSE; do echo "$member" | tee "${archive_dir}/full/${member}" "${archive_dir}/untyped/${member}" >"${archive_dir}/bare/${member}"; done
-printf '# Attributions\n\n## tsrs (and TypeScript)\n' >"${archive_dir}/full/ATTRIBUTIONS.md"
-printf '# Attributions\n\n## knip\n' >"${archive_dir}/untyped/ATTRIBUTIONS.md"
+for member in skif skif.exe LICENSE; do echo "$member" | tee "${archive_dir}/full/${member}" >"${archive_dir}/bare/${member}"; done
+printf '# Attributions\n\n## knip\n' >"${archive_dir}/full/ATTRIBUTIONS.md"
 tar czf "${archive_dir}/skif-x86_64-unknown-linux-gnu.tar.gz" -C "${archive_dir}/full" skif LICENSE ATTRIBUTIONS.md
 tar czf "${archive_dir}/skif-dotted-unknown-linux-gnu.tar.gz" -C "${archive_dir}/full" ./skif ./LICENSE ./ATTRIBUTIONS.md
 tar czf "${archive_dir}/skif-bare-unknown-linux-gnu.tar.gz" -C "${archive_dir}/bare" skif LICENSE
-tar czf "${archive_dir}/skif-untyped-unknown-linux-gnu.tar.gz" -C "${archive_dir}/untyped" skif LICENSE ATTRIBUTIONS.md
 expect "check-archive accepts a complete tarball" 0 bash scripts/check-archive.sh "${archive_dir}/skif-x86_64-unknown-linux-gnu.tar.gz"
 expect "check-archive rejects a tarball without ATTRIBUTIONS.md" 1 bash scripts/check-archive.sh "${archive_dir}/skif-bare-unknown-linux-gnu.tar.gz"
 expect_in_out "check-archive missing notice" "ATTRIBUTIONS.md"
-expect "check-archive reads ATTRIBUTIONS.md from members named ./" 0 bash scripts/check-archive.sh "${archive_dir}/skif-dotted-unknown-linux-gnu.tar.gz"
-expect "check-archive rejects an ATTRIBUTIONS.md without the tsrs section" 1 bash scripts/check-archive.sh "${archive_dir}/skif-untyped-unknown-linux-gnu.tar.gz"
-expect_in_out "check-archive tsrs section" "lacks the '## tsrs (and TypeScript)' section"
+expect "check-archive accepts members named ./" 0 bash scripts/check-archive.sh "${archive_dir}/skif-dotted-unknown-linux-gnu.tar.gz"
 if command -v python3 >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
   zip_members() { (cd "$1" && python3 -I -m zipfile -c "$2" "${@:3}"); }
   zip_members "${archive_dir}/full" "${archive_dir}/skif-x86_64-pc-windows-msvc.zip" skif.exe LICENSE ATTRIBUTIONS.md
   zip_members "${archive_dir}/bare" "${archive_dir}/skif-bare-pc-windows-msvc.zip" skif.exe LICENSE
   expect "check-archive accepts a complete zip" 0 bash scripts/check-archive.sh "${archive_dir}/skif-x86_64-pc-windows-msvc.zip"
   expect "check-archive rejects an incomplete zip" 1 bash scripts/check-archive.sh "${archive_dir}/skif-bare-pc-windows-msvc.zip"
-  zip_members "${archive_dir}/untyped" "${archive_dir}/skif-untyped-pc-windows-msvc.zip" skif.exe LICENSE ATTRIBUTIONS.md
-  expect "check-archive rejects a zip whose ATTRIBUTIONS.md lacks the tsrs section" 1 bash scripts/check-archive.sh "${archive_dir}/skif-untyped-pc-windows-msvc.zip"
-  expect_in_out "check-archive zip tsrs section" "lacks the '## tsrs (and TypeScript)' section"
 fi
 expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
 
@@ -398,7 +390,6 @@ pack_tarball() {
     mkdir -p "$(dirname "${stage}/package/${member}")"
     echo "$member" >"${stage}/package/${member}"
   done
-  [[ ! -f "${stage}/package/ATTRIBUTIONS.md" ]] || echo "${TSRS_SECTION-## tsrs (and TypeScript)}" >>"${stage}/package/ATTRIBUTIONS.md"
   tar czf "${out}/${name}" -C "$stage" package
 }
 
@@ -459,11 +450,6 @@ npm_fixture "${work}/npm-no-addon" 1.2.3
 pack_tarball "${work}/npm-no-addon" polylint-skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
 expect "check-npm-tarballs rejects a platform package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-addon" 1.2.3
 expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
-
-npm_fixture "${work}/npm-no-tsrs" 1.2.3
-TSRS_SECTION="## knip" pack_tarball "${work}/npm-no-tsrs" polylint-skif-linux-arm64-musl-1.2.3.tgz '{}' skif.linux-arm64-musl.node LICENSE ATTRIBUTIONS.md
-expect "check-npm-tarballs rejects an ATTRIBUTIONS.md without the tsrs section" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-tsrs" 1.2.3
-expect_in_out "check-npm-tarballs tsrs section" "ATTRIBUTIONS.md in polylint-skif-linux-arm64-musl-1.2.3.tgz lacks the '## tsrs (and TypeScript)' section"
 
 npm_fixture "${work}/npm-bad-optional" 1.2.3
 pack_tarball "${work}/npm-bad-optional" polylint-skif-1.2.3.tgz '{"optionalDependencies": {"@polylint/skif-darwin-arm64": "1.2.3"}}' \

@@ -2,7 +2,7 @@
 # Fails unless every source file of the vendored skif-specifier crate starts with an attribution header:
 # either `// Vendored from syncpack ...` or `// Added for skif (not in syncpack) ...` (ADR 0002). Code derived from
 # sherif and knip is not vendored file by file and carries no header; ATTRIBUTIONS.md covers it, and its sections,
-# Modifications lists and recorded commits are checked below, as is the tsrs section its NOTICE requires (ADR 0002).
+# Modifications lists and recorded commits are checked below (ADR 0002).
 #
 # Usage: scripts/check-headers.sh
 set -euo pipefail
@@ -32,31 +32,22 @@ for file in crates/skif-specifier/src/*.rs; do
     failures=$((failures + 1))
   fi
 done
-for section in "## sherif" "## syncpack specifier" "## knip" "## tsrs (and TypeScript)"; do
+for section in "## sherif" "## syncpack specifier" "## knip"; do
   if ! grep -qx "$section" ATTRIBUTIONS.md; then
     echo "::error file=ATTRIBUTIONS.md::missing section '${section}'"
     failures=$((failures + 1))
   fi
 done
-if [[ "$(grep -c '^### Modifications$' ATTRIBUTIONS.md)" -lt 4 ]]; then
+if [[ "$(grep -c '^### Modifications$' ATTRIBUTIONS.md)" -lt 3 ]]; then
   echo "::error file=ATTRIBUTIONS.md::every upstream section needs a '### Modifications' list"
   failures=$((failures + 1))
 fi
 
 # The knip section records the commit the JS analysis follows and the licence holder (ADR 0002).
-knip_section="$(sed -n '/^## knip$/,/^## tsrs (and TypeScript)$/p' ATTRIBUTIONS.md)"
+knip_section="$(sed -n '/^## knip$/,$p' ATTRIBUTIONS.md)"
 for needle in "b25639c96bfff334519a189605e609a4ed5ae801" "Copyright (c) 2022-2026 Lars Kappert" "ISC License"; do
   if ! grep -qF "$needle" <<<"$knip_section"; then
     echo "::error file=ATTRIBUTIONS.md::the knip section is missing '${needle}'"
-    failures=$((failures + 1))
-  fi
-done
-
-# The tsrs section records the commit, the licence and the NOTICE of the checker (ADR 0002).
-tsrs_section="$(sed -n '/^## tsrs (and TypeScript)$/,$p' ATTRIBUTIONS.md)"
-for needle in "3a5af259fc9833ea527b1605ef65066873767f4f" "Copyright 2026 Max Schwenk and the tsrs contributors" "NOTICES AND INFORMATION" "Apache License"; do
-  if ! grep -qF "$needle" <<<"$tsrs_section"; then
-    echo "::error file=ATTRIBUTIONS.md::the tsrs section is missing '${needle}'"
     failures=$((failures + 1))
   fi
 done

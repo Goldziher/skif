@@ -71,10 +71,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace --locked --no-fail-fast
-      # The workspace build unifies skif-node's `plain-ptrs`, under which the arena tests count only one thread's
-      # arena and skip; built alone, skif-js-types keeps tsrs's process-wide counter.
-      - name: Run the arena tests
-        run: cargo test -p skif-js-types --locked --test arenas --test retire
 
   # The workspace Cargo.toml advertises a `rust-version`; published crates are resolved against it, so
   # it has to be true. The version is read out of the manifest rather than written here —

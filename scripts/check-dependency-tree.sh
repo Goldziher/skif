@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Fails unless the dependency layering of ADR 0002 holds:
-#   - `skif` without default features pulls in no oxc crate and no tsrs crate;
+#   - `skif` without default features pulls in no oxc crate;
 #   - `skif-core` depends on no other workspace crate;
-#   - oxc crates are reachable only through skif-js-syntax, skif-js-plugins, skif-js and the unpublished skif-bench;
-#   - tsrs crates are reachable only through skif-js-types.
+#   - oxc crates are reachable only through skif-js-syntax, skif-js-plugins, skif-js and the unpublished skif-bench.
 #
 # Usage: scripts/check-dependency-tree.sh
 set -euo pipefail
@@ -17,10 +16,6 @@ trap 'rm -f "$errors"' EXIT
 facade="$(cargo tree -p skif --no-default-features -e normal --prefix none --locked)"
 if grep '^oxc_' >/dev/null <<<"$facade"; then
   echo "::error::skif without default features depends on an oxc crate"
-  failures=$((failures + 1))
-fi
-if grep '^tsrs_' >/dev/null <<<"$facade"; then
-  echo "::error::skif without default features depends on a tsrs crate"
   failures=$((failures + 1))
 fi
 
@@ -55,8 +50,6 @@ only_through() {
 
 only_through "skif-js-syntax skif-js-plugins skif-js skif-bench" "skif-js-syntax, skif-js-plugins, skif-js and the unpublished skif-bench" \
   oxc_allocator oxc_ast oxc_ast_visit oxc_parser oxc_semantic oxc_span oxc_str oxc_resolver
-only_through "skif-js-types" "skif-js-types" \
-  tsrs_ast tsrs_binder tsrs_checker tsrs_compiler tsrs_contentmapper tsrs_core tsrs_diagnostics tsrs_scanner tsrs_tsoptions tsrs_vfs
 
 if [[ "$failures" -gt 0 ]]; then
   echo "${failures} dependency layering problem(s)" >&2
