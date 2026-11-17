@@ -12,8 +12,8 @@ with `--warmup` and `--runs`) on three kinds of targets:
 | Target | Contents | Tools timed |
 | --- | --- | --- |
 | Generated workspaces | 50, 500 and 2000 packages (`--sizes`), pnpm layout, 5 % issue rate, seed 1 | `skif --no-js`, `sherif`, `syncpack lint` |
-| Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif`, `skif --type-aware` |
-| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --type-aware`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
+| Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif` |
+| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
 `sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`. `tools/package.json` and
 `tools/package-lock.json` repeat them and pin every package they depend on; the harness refuses to load `corpus.toml`
@@ -30,17 +30,16 @@ tools from `--tools-dir` (default `target/bench-generated/tools`, the directory 
 against the same dependency versions; they fail when the tools cannot be installed. A tool that cannot be installed (no `npm`, a failed
 install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
 `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks),
-`summary.json` (schema 8: skif version, the commit of the skif source it was built from with a `-dirty` flag
+`summary.json` (schema 9: skif version, the commit of the skif source it was built from with a `-dirty` flag
 (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record and the one line
 `machine_text` that `summary.md` and the published tables print, the toolchain, the load average before and after the
 run, hyperfine version, each comparison tool's `--version`, the corpus repositories of an `--only` run, every target
 with its warmup and measured runs and, per tool, mean, stddev, median, min and max in ms and the number of runs that
-exited with an error, on the rows of both skif modes `peak_rss_bytes`, and for an installed
+exited with an error, on the row of the whole skif run `peak_rss_bytes`, and for an installed
 corpus repository `installed_with`, the package manager and the `--version` it reports in the checkout (where corepack
 resolves the repository's `packageManager`) or the repository's `install-command`, its `declared_knip_failure` and, on a
 knip row that failed that way, `failure` (the reason, the error line and `timed`), the skipped tools, and the ADR 0001
-checks and the type-aware budget checks (`type_aware_budget_checks`), each `pass`,
-`fail`, `invalid` or `not-measured`), and one raw hyperfine export per target under `raw/`. The machine record holds the
+checks, each `pass`, `fail`, `invalid` or `not-measured`), and one raw hyperfine export per target under `raw/`. The machine record holds the
 operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the architecture,
 the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process may use and the
 physical cores, the total memory, the cgroup CPU limit (the smallest `cpu.max` of the process's cgroup and its
@@ -75,7 +74,7 @@ syncpack, and the full `skif` against knip, run without `--recursive`, because a
 that are not workspace members, which none of those tools reads (next-js has 403). The full row would use
 `--recursive` only where knip itself is configured to read such nested projects; no repository does. Where a repository
 sets `recursive` (babel, vscode, next-js; `parity` runs it recursively), the run adds an informational
-`skif --recursive` row: it has no ratio and no peak RSS, is in no ADR 0001 or budget check and enters no compact table
+`skif --recursive` row: it has no ratio and no peak RSS, is in no ADR 0001 check and enters no compact table
 or claim. A repository that sets `bench-knip-config = "parity"` (angular, vscode, n8n, next-js) times knip with
 the configuration of the knip comparison instead of its own (`--config` to a file in `<generated-dir>/configs/<name>`
 that is empty apart from the repository's `entry` files) and skif with a `--config` that adds the same `entry` files,
@@ -87,30 +86,9 @@ the published tables name the run counts of a capped target, and an error count 
 `bench-knip-config`, `bench-max-runs` and `bench-max-warmup` are rejected outside the bench suite, and so is an unknown
 configuration or a cap of 0 runs. hyperfine 1.x and 2.x exports are both read.
 
-Each corpus and module graph target is timed in both modes of the whole run: `skif`, without types (the default), and
-`skif --type-aware`, in the same hyperfine run. Each mode then runs once more under `/usr/bin/time` (`-v`, GNU time,
-on Linux; `-l` on macOS) for its peak RSS; where neither is available the RSS is `null` and its check `not-measured`.
-`summary.md` and the published tables show both modes, labelled "types on" and "types off (default)", with their peak
-RSS. The type-aware budget of ADR 0010 (`TYPE_AWARE_BUDGET` in `src/run.rs`) is checked against them: `--type-aware`
-no slower than knip wherever knip completes (knip's mean over the typed run's at least 1.0, the measured multiple in
-the check), at most 4 GiB peak RSS with types on every target, and at most 5 s with types on the module graph case.
-Types on against types off is shown, not checked. `--check-budget` makes `run` exit non-zero when one
-of them fails, after writing the summary. The `bench` workflow does not pass it while types are opt-in: the budget
-is the bar they must meet to become the default again (ADR 0010).
-
-## Targets (ADR 0001)
-
-| Workload | Target |
-| --- | --- |
-| Manifest and policy rules, 500 packages | < 50 ms wall clock |
-| JS analysis on the corpus repositories | at least 5x faster than `knip` on the same tree |
-| Parse and build the module graph, 10,000 files | < 2 s |
-
-`summary.md` ends with a pass/fail line for each. The graph case times a whole `skif` run, which parses the files,
-builds the graph and runs every JS rule, so it is an upper bound on the parse-and-graph time; the `js_analysis`
-criterion bench tracks the in-process part. The `skif` row on the corpus includes JS analysis and the `skif --no-js`
-row does not, so the difference is the cost of the analysis; the knip comparison needs the corpus checkouts to have
-their dependencies installed.
+The whole run (`skif`) of each corpus and module graph target then runs once more under `/usr/bin/time` (`-v`, GNU
+time, on Linux; `-l` on macOS) for its peak RSS; where neither is available the RSS is `null`. `summary.md` and the
+published tables show it per target.
 
 ## Running
 
@@ -118,7 +96,6 @@ their dependencies installed.
 mise run bench            # build release skif, fetch the corpus, run everything
 mise run bench:local      # as CI runs it: --install --no-enforce (numbers are not publishable)
 mise run bench:tools:update  # update the pinned sherif, syncpack and knip (bench:tools:check verifies them)
-mise run typed:diff <reference-binary> [--allow FILE]  # type-aware correctness gate (see "Typed diff")
 mise run profile -- <repo-dir> [skif args...]  # samply profile plus SKIF_TIMINGS of one run (see "Profiling")
 mise run bench:micro      # all criterion benchmarks (see "In-process benchmarks")
 mise run bench:corpus     # only fetch the timed corpus repositories
@@ -137,15 +114,15 @@ Directly:
 ```sh
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
-cargo run --release -p skif-bench -- run [--skif PATH] [--skif-source DIR] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus | --only NAME,...] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--check-budget] [--install]
-cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--no-untyped-pass] [--type-aware-baseline FILE] [--check | --write-baseline]
+cargo run --release -p skif-bench -- run [--skif PATH] [--skif-source DIR] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus | --only NAME,...] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--install]
+cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode] [--force]
 cargo run --release -p skif-bench -- tools update|check [--file corpus.toml]
 ```
 
-`corpus fetch`, `run`, `parity`, `syncpack-diff`, `typed-diff` and `cache-diff` lock each corpus checkout
-(`<dir>/<name>.lock`, the operating system's file lock, holding the process id) from the fetch to the end of their pass over it, so two runs never
+`corpus fetch`, `run`, `parity`, `syncpack-diff` and `cache-diff` lock each corpus checkout (`<dir>/<name>.lock`, the
+operating system's file lock, holding the process id) from the fetch to the end of their pass over it, so two runs never
 install into, write into or time the same checkout at once: a second run stops at once and names the lock file and,
 except on Windows, where the lock keeps other processes from reading the file, the process id it holds. A run that
 dies releases its locks with the process, so there is no stale lock to remove. The corpus directory must be writable:
@@ -167,8 +144,7 @@ injected counts as JSON.
 
 `mise run profile -- <repo-dir> [skif args...]` builds `skif` with `cargo build --profile profiling` (release plus debug
 symbols, no stripping), then records one run on `<repo-dir>` with [samply](https://github.com/mstange/samply)
-(pinned in `mise.toml`) as `skif <repo-dir> --format json --no-install [args]`. Pass `--type-aware` or `--no-type-aware`
-to profile the typed or the untyped run. It writes `reports/profile-<name>-<timestamp>.json.gz` (open it with
+(pinned in `mise.toml`) as `skif <repo-dir> --format json --no-install [args]`. It writes `reports/profile-<name>-<timestamp>.json.gz` (open it with
 `samply load`) and, from `SKIF_TIMINGS=1`, `reports/timings-<name>-<timestamp>.txt`; `reports/` is untracked. Run it on
 a corpus checkout in `target/bench-corpus` after `mise run bench:corpus`.
 
@@ -176,13 +152,7 @@ a corpus checkout in `target/bench-corpus` after `mise run bench:corpus`.
 
 - `js <phase> <root>: N ms` for `git index`, `setup (plugins, configs)`, `discover`, `entries`, `resolver`,
   `graph (read, parse, resolve)`, `reached sources`, `config hints`, `exports`, `dependencies`, `ambient modules`,
-  `judged patterns` and, with types, `build query`.
-- `js types <root>: ...`: planning, program, query, wait and wall times, then
-  `program build split: config parse A ms, program creation B ms, bind C ms (summed); project files: N parsed across
-  programs, M distinct`. The split divides the `programs` time into reading the config, creating the program (reading,
-  parsing and resolving its files) and binding it, summed over programs that run in parallel. `N` against `M` is how
-  many project files are parsed more than once because several programs include them; the lib and `node_modules`
-  declaration files are shared and counted on the `shared declaration files` line.
+  and `judged patterns`.
 - `js rule <rule-id> <root> (summed over threads): N ms`, one line per enabled rule in rule-id order, for the time of
   its check inside the `provider js` phase.
 
@@ -219,19 +189,6 @@ name), so the numbers measure drift and where the tools model things differently
 with sample keys per side is `target/bench-results/parity.json` and `parity.md`: five per category, known deviation
 and side, or as many as `--samples <N>` asks for, and every one-sided finding with `--samples all`, which lists all the
 files only one tool reports in a repository. Samples name files of the corpus repositories and are never committed.
-
-**Types.** skif runs twice per repository: with `--type-aware`, and again with `--no-type-aware`. The typed run is
-the one compared with knip, whose counts `baselines/parity.json` holds ([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md)). A one-sided finding
-that no other known deviation explains is the `type-resolved` known deviation when skif reports it only with types, or
-when knip reports it and only the untyped run does too: types settle which declaration a read reaches, while knip
-credits by name ([ADR 0010](../../adrs/0010-type-aware-analysis-on-tsrs.md)). `parity.md` adds a "Typed versus untyped"
-table with, per repository and skif rule (every rule, not only the compared ones), the findings of each run and those
-only one run reports; `parity.json` holds them with sample keys under each repository's `type_aware`, with the untyped
-run's time (`untyped_ms`). A finding is keyed `<file>:<line>|<message>` there. When the untyped run fails or times out,
-the repository is still compared, without `type-resolved`, and its typed-versus-untyped entry is skipped with the
-reason. `--no-untyped-pass` leaves the second run out, for a shorter run: `type-resolved` findings then count as
-one-sided, so `--check` may report drift in them, the type-aware baseline is not checked, and no baseline can be
-recorded.
 
 **Dependencies.** knip resolves imports and detects used binaries through `node_modules`, and without them reports
 nearly every import as unresolved or unlisted. `--install` installs each repository first with its package manager and
@@ -688,47 +645,6 @@ reach are unused files and exports for knip only. Exports of a nested root's plu
 Enum and namespace members whose only users lie in a non-member project or a skipped directory stay compared: their
 keys name the member, not the export an import reads.
 
-## Typed diff against a reference binary
-
-`skif-bench typed-diff` is the correctness gate for changes to the type-aware analysis. For every repository of the
-`bench` suite it runs a reference skif binary (the build before the change) and the binary under test with
-`. --format json --no-install` (plus `--recursive` where the repository sets `recursive`), once with `--type-aware` and
-once without, and compares the two JSON documents, exit codes included. It fetches a checkout only when it is not at
-its pin, so installed checkouts under `target/bench-corpus` are used as they are, and it refuses to start, naming them,
-when any checkout is not installed (install with `skif-bench parity --install`), since without its dependencies a
-typed run types nothing.
-
-```sh
-mise run typed:diff <reference-binary> [--allow allow.json]
-cargo run --release -p skif-bench -- typed-diff --reference <old skif> --skif target/release/skif [--only babel,vue-core] [--corpus-dir DIR] [--allow FILE] [--out report.json] [--timeout-secs 900]
-```
-
-Each comparison prints `identical`, `identical but for N allowed difference(s)`, `FAILED: <reason>` (a run timed out
-or printed no report, or the reference's typed run has no package in state `typed`) or `DIFFERENT` with the
-top-level sections that differ (a changed exit code is the `exit-code` section), the findings
-only one side reports (`+` the binary under test, `-` the reference, by rule, file, line and message; the whole
-diagnostic is compared, so a changed severity or fix shows as a `-` and a `+`) and the packages whose
-`type-aware.packages` entry changed (`~ dir: typed -> partial (reason)`). Lists are capped at 20 entries. The exit code
-is non-zero when any comparison is not identical or allowed, or when nothing was compared. The `skif` version stamp is
-not compared. `--out` also writes the result as JSON. Captured output goes to `--scratch` (default
-`target/bench-typed-diff`).
-
-`--allow` names a JSON file for differences a decision record sanctions. A comparison whose differences are all covered
-passes; anything left over fails. A run without `--only` warns about each entry that matched nothing.
-
-```json
-{"allow": [
-  {"kind": "added", "reason": "ADR 00NN", "repo": "babel", "mode": "typed", "rule": "unused-exports", "file": "src/a.ts"},
-  {"kind": "package", "reason": "ADR 00NN", "package": "packages/core"},
-  {"kind": "section", "reason": "ADR 00NN", "section": "incomplete-packages"}
-]}
-```
-
-`kind` is `added` or `removed` (a finding), `package` or `section`; `reason` is required. `repo`, `mode` (`typed` or
-`untyped`), `rule`, `file`, `package` and `section` narrow an entry, and a field left out matches anything. When every
-added and removed finding is covered, the `diagnostics` and `summary` sections count as covered; likewise `type-aware`
-when every package change is covered and nothing else in it differs. Any other section needs a `section` entry.
-
 ## Cache diff
 
 `skif-bench cache-diff` is the correctness gate of skif's cache ([ADR 0014](../../adrs/0014-benchmarks-and-the-comparison-harness.md),
@@ -811,13 +727,9 @@ one-sided is unexplained. See [ADR 0014](../../adrs/0014-benchmarks-and-the-comp
 
 `baselines/parity.json` and `baselines/syncpack.json` hold the counts of a run (skif only, tool only, both, per issue
 type or status code and repository, plus the case summary of the fixtures) and the tool version they were recorded
-with. They contain no file, package or symbol names. `baselines/parity.json` also records the mode skif ran in
-(`mode`, `type-aware`), the set of compared categories and known deviations (`category_set`) and, per repository,
-whether its checkout was installed, whether skif ran recursively and the skif source commit (`skif_rev`, informative
-only). `baselines/type-aware.json` holds the typed-versus-untyped counts of the same run in the same form, per
-repository and skif rule, with `skif --no-type-aware` as its tool: `skif_only` counts the findings only the typed run
-reports, `tool_only` those only the untyped run reports, `both` those of both. `parity --write-baseline` records both
-files and `parity --check` checks both (`--type-aware-baseline` names another file). After a deliberate change, or a
+with. They contain no file, package or symbol names. `baselines/parity.json` also records the set of compared categories and known
+deviations (`category_set`) and, per repository, whether its checkout was installed, whether skif ran recursively and
+the skif source commit (`skif_rev`, informative only). After a deliberate change, or a
 bump of a pin in `corpus.toml` (`skif-bench tools update` changes the pins but re-records no baseline), refresh them:
 
 ```sh
@@ -834,9 +746,9 @@ caught.
 `--check` compares a run with the baseline and exits non-zero when a count moves by more than
 `--tolerance-percent` (default 10) of its baseline value or `--tolerance-abs` (default 5), whichever is larger, when a
 repository changes between compared and skipped, or when a fixture that agreed before now differs. It refuses, with
-one message instead of a list of drifts, a baseline recorded with another tool version, another skif mode or another
-category set (an older harness, or one that sets apart other findings); a baseline without a `mode` predates the field
-and is checked. It refuses a repository whose checkout is installed
+one message instead of a list of drifts, a baseline recorded with another tool version or another
+category set (an older harness, or one that sets apart other findings, such as the one that ran skif in two analysis
+modes and set `type-resolved` apart). It refuses a repository whose checkout is installed
 differently, or whose skif ran with another `--recursive` mode, from when it was recorded. A run narrowed with
 `--only` is checked against those entries alone, and `--write-baseline --only` updates only them, so the baseline can
 be refreshed one repository at a time (install, run, then delete the checkout's `node_modules`) where the disk does
@@ -936,15 +848,14 @@ Agreement with knip on the corpus is not precision: either tool can be wrong whe
 deadcode` measures both tools against a right answer instead. It generates a pnpm workspace of `--packages` packages
 (default 5) with seeded dead code, deterministic for `--seed`, writes it to `<out>/repo` and the answer key, every
 expected finding as a knip issue type and a parity key, to `<out>/answer-key.json`. It then runs
-`skif . --format json --no-install` twice, with `--no-type-aware` and with `--type-aware`, and, with `--knip`, the knip
+`skif . --format json --no-install` and, with `--knip`, the knip
 pinned in `corpus.toml` with an empty configuration (as `parity` does; the locked knip is installed with npm, which
 needs the npm registry). The reports are reduced to the parity keys, plus skif's `unused-class-members` findings as
 `classMembers` keys `<file>|<Class>.<member>` (knip 6 has no class-member check), and each run gets precision (seeded
 findings among those reported) and recall (reported findings among those seeded) per issue type, for the member types
 (`classMembers`, `enumMembers`, `namespaceMembers`), for the rest (`base`, the whole key before the member cases were
 added) and overall. `nsExports` and `nsTypes` count as `exports` and `types`. A finding in a type the key does not seed
-(`unlisted`, `unresolved`, `binaries`, ...) is false by construction. The typed run fails when the report shows no
-package typed, and the report states the type-aware coverage of both runs. The report goes to stdout (`--json` for
+(`unlisted`, `unresolved`, `binaries`, ...) is false by construction. The report goes to stdout (`--json` for
 JSON) and to `<out>/deadcode.{md,json}`, with every false finding and miss listed. A rerun replaces `<out>/repo` only when `<out>`
 holds the `answer-key.json` of an earlier run; `--force` replaces it regardless.
 
@@ -988,11 +899,9 @@ its pattern:
 
 The workspace is not installed, so nothing depends on `node_modules`: the only `package.json` script runs `node`, the
 `vercel.json` command runs a listed devDependency named like its binary, and every import of a dependency names a listed
-package. Every package has a `tsconfig.json`; the workspace is not installed, so the checker does not resolve the
-dependencies or the other packages, and the file in `fixtures` lies outside the programs (each package is `partial`).
-The `skif-bench` unit tests run skif in process on the same workspace (two seeds, no binary, network or Node), with
-and without types, and fail when it misses a seeded finding or reports a false one other than the known ones they
-list. CI exercises neither the `skif` binary invocation nor
+package. Every package has a `tsconfig.json`.
+The `skif-bench` unit tests run skif in process on the same workspace (two seeds, no binary, network or Node) and
+fail when it misses a seeded finding other than the known ones they list, or reports a false one. CI exercises neither the `skif` binary invocation nor
 the knip side: `skif-bench` cannot depend on the `skif` binary in its tests, and knip needs Node and the npm registry.
 Run `deadcode` with `--knip` by hand to check them.
 
@@ -1000,32 +909,28 @@ Default run (`--packages 5 --seed 1`: 73 seeded findings, 209 live items), measu
 (commit `4d3bdd7f`) and knip 6.45.1; rerun with `mise run bench:deadcode -- --knip` to refresh it. Precision and recall
 per run, `-` where nothing was reported:
 
-| Issue type | Seeded | skif | skif `--type-aware` | knip |
-| --- | ---: | --- | --- | --- |
-| `classMembers` | 20 | 1.000, 0.750 | 0.571, 1.000 | -, 0.000 (no check) |
-| `dependencies` | 4 | 1.000, 1.000 | 1.000, 1.000 | 1.000, 1.000 |
-| `devDependencies` | 5 | 1.000, 1.000 | 1.000, 1.000 | 0.500, 1.000 |
-| `enumMembers` | 15 | 1.000, 0.333 | 1.000, 0.333 | 1.000, 0.333 |
-| `exports` | 15 | 1.000, 1.000 | 1.000, 1.000 | 0.750, 1.000 |
-| `files` | 6 | 1.000, 1.000 | 1.000, 1.000 | 0.545, 1.000 |
-| `namespaceMembers` | 5 | 1.000, 1.000 | 1.000, 1.000 | 1.000, 1.000 |
-| `types` | 3 | 1.000, 1.000 | 1.000, 1.000 | 1.000, 1.000 |
-| base | 33 | 1.000, 1.000 | 1.000, 1.000 | 0.688, 1.000 |
-| members | 40 | 1.000, 0.625 | 0.667, 0.750 | 1.000, 0.250 |
-| All | 73 | 1.000, 0.795 | 0.808, 0.863 | 0.741, 0.589 |
+| Issue type | Seeded | skif | knip |
+| --- | ---: | --- | --- |
+| `classMembers` | 20 | 1.000, 0.750 | -, 0.000 (no check) |
+| `dependencies` | 4 | 1.000, 1.000 | 1.000, 1.000 |
+| `devDependencies` | 5 | 1.000, 1.000 | 0.500, 1.000 |
+| `enumMembers` | 15 | 1.000, 0.333 | 1.000, 0.333 |
+| `exports` | 15 | 1.000, 1.000 | 0.750, 1.000 |
+| `files` | 6 | 1.000, 1.000 | 0.545, 1.000 |
+| `namespaceMembers` | 5 | 1.000, 1.000 | 1.000, 1.000 |
+| `types` | 3 | 1.000, 1.000 | 1.000, 1.000 |
+| base | 33 | 1.000, 1.000 | 0.688, 1.000 |
+| members | 40 | 1.000, 0.625 | 1.000, 0.250 |
+| All | 73 | 1.000, 0.795 | 0.741, 0.589 |
 
-Both skif runs find every seeded non-member finding and report nothing else there: skif does not report files in
+skif finds every seeded non-member finding and reports nothing else there: it does not report files in
 `fixtures` directories (ADR 0007), credits the export `typeof import("./typed")["settings"]` names and the
 devDependency `vercel.json` runs. knip's false findings are those five exports (`typeof-import`), the five fixture
 files (`fixture-dir`) and the five `dc-build-tool` devDependencies (`vercel-json-command`).
 
-On members, types off misses `Square.area` (`shape.area()` on a `Circle` reads the name) and reports nothing live.
-Types on finds `Square.area` but reports `Badge.label` (`member-interface`), `Parcel.weight` (`member-generic`) and
-`Frame.height` (`member-computed-literal`) in every package: the checker credits those reads to the interface, the
-constraint or nothing rather than to the class member they reach at runtime, and in a typed file the reads by name
-that keep them used without types no longer count. Enum and namespace results are identical with and without types,
-as types only add uses (ADR 0010). Both skif runs and knip miss `Tone.Neon` and `Size.Huge`: assigning the enum to a
-variable and indexing it with a `keyof typeof` key use it as a whole (ADR 0009). knip has no class-member check. The
+On members, skif misses `Square.area` (`shape.area()` on a `Circle` reads the name) and reports nothing live. skif and
+knip both miss `Tone.Neon` and `Size.Huge`: assigning the enum to a variable and indexing it with a `keyof typeof` key
+use it as a whole (ADR 0009). knip has no class-member check. The
 patterns are synthetic and cover only these cases, so the numbers say which known traps a tool falls into, not how
 precise it is on a real repository.
 
@@ -1081,5 +986,5 @@ in-process part.
 - The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each
   repository). Repositories are fetched shallow with `git fetch --depth 1 origin <sha>` (plus a cone sparse checkout
   where `sparse` is set), so `fetch` is idempotent and cheap to repeat. Bump a repository pin deliberately; tool pins
-  move with `skif-bench tools update` (check with `tools check`). Refresh the baselines (parity, syncpack,
-  type-aware) in the same change.
+  move with `skif-bench tools update` (check with `tools check`). Refresh the baselines (parity, syncpack)
+  in the same change.
