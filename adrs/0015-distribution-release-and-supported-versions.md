@@ -108,8 +108,8 @@ version from one build, and ties the support statement to facts someone else mai
 ### The release workflow
 
 `.github/workflows/publish.yaml` is one workflow and is never renamed, because crates.io and npm trusted publishing are
-bound to its file name. A tag is released only when it is on `main`, `CHANGELOG.md` has its section and its commit has a
-green CI run (`scripts/check-release-gate.sh`). It creates a draft release; builds and smoke-tests every archive and
+bound to its file name. A tag is released only when it is on `main` and `CHANGELOG.md` has its section
+(`scripts/check-release-gate.sh`); a green CI run is not required, so the releaser decides on a red or unfinished one. It creates a draft release; builds and smoke-tests every archive and
 addon; uploads the archives and checksums and attests their build provenance; publishes the crates leaves-first and the npm
 platform packages before the umbrella, so nothing ever depends on a missing package; verifies the published npm package
 on every supported Node line and the newest Bun; promotes the draft once every expected asset is present and verifies

@@ -127,13 +127,11 @@ jobs:
         id: bun
         run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
 
-      # A real release is irreversible, so the tagged commit must be on main and have passed ci.yml. Dry runs
-      # (pull requests, dispatch with dry-run) build from arbitrary branches and skip the gate.
-      - name: Verify the tag is on main with green CI
+      # A real release is irreversible, so the tagged commit must be on main and have its CHANGELOG.md section. Dry
+      # runs (pull requests, dispatch with dry-run) build from arbitrary branches and skip the gate.
+      - name: Verify the tag is on main with a changelog section
         if: steps.version.outputs.dry_run != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
           TAG: ${{ steps.version.outputs.tag }}
         run: scripts/check-release-gate.sh "$TAG"
 

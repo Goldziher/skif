@@ -486,13 +486,6 @@ floor_case "a binary without versioned symbols fails" 1 ""
 expect "check-glibc-floor: a missing binary" 1 env PATH="${glibc_stubs}:${PATH}" bash scripts/check-glibc-floor.sh "${work}/nope"
 
 # ---------------------------------------------------------------- check-release-gate
-cat >"${stubs}/gh" <<'STUB'
-#!/usr/bin/env bash
-# `gh run list ... --jq length` prints the number of green runs the test configured.
-printf '%s\n' "${STUB_GREEN_RUNS:?}"
-STUB
-chmod +x "${stubs}/gh"
-
 gate="${work}/gate-repo"
 git init -q -b main "$gate"
 git_in() { git -C "$gate" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
@@ -507,16 +500,14 @@ git_in commit -q --allow-empty -m "only on a branch"
 git_in tag v1.1.0
 
 gate_case() {
-  local label="$1" want="$2" tag="$3" green="$4"
-  expect "release gate: ${label}" "$want" env PATH="${stubs}:${PATH}" STUB_GREEN_RUNS="$green" MAIN_REF=main \
+  local label="$1" want="$2" tag="$3"
+  expect "release gate: ${label}" "$want" env MAIN_REF=main \
     bash -c 'cd "$1" && bash "$2/scripts/check-release-gate.sh" "$3"' _ "$gate" "$repo" "$tag"
 }
-gate_case "a green tag on main passes" 0 v1.0.0 1
-gate_case "a tag without a green CI run is refused" 1 v1.0.0 0
-expect_in_out "release gate: no green run" "no successful ci.yml run"
-gate_case "a tag that is not on main is refused" 1 v1.1.0 1
+gate_case "a tag on main with a CHANGELOG.md section passes" 0 v1.0.0
+gate_case "a tag that is not on main is refused" 1 v1.1.0
 expect_in_out "release gate: not on main" "not an ancestor"
-gate_case "a tag without a CHANGELOG.md section is refused" 1 v1.0.1 1
+gate_case "a tag without a CHANGELOG.md section is refused" 1 v1.0.1
 expect_in_out "release gate: no changelog section" "CHANGELOG.md at v1.0.1 has no '## [1.0.1]' section"
 
 # ---------------------------------------------------------------- floating tag

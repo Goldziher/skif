@@ -74,4 +74,4 @@ blake3 = "08fd82365c7e9596a60f8dcb6719ce4d017453f89c8084bfa90db804ff27fa2d"
 [adrs."adrs/0015-distribution-release-and-supported-versions.md"]
 number = 15
 status = "accepted"
-blake3 = "6c4aae63d0e9016b5fb308da9c6a8e6e038723755ebc473e6d85b1f9e09264fb"
+blake3 = "474606906bef3a807f801b5a8c3fbdd0f71d6720041740f7f1f8b20c8dcf471b"

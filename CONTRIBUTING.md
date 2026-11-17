@@ -129,8 +129,8 @@ publishing; the steps around it are by hand.
    npm addons on every platform and packages the crates, without publishing. The same dry run starts on every pull request that touches the release inputs
    (`Cargo.toml`, `Cargo.lock`, `crates/skif-node`, `crates/skif-cli`, `npm-package`, `action.yml` or a release
    script) and every Monday; do not tag while the last one is red.
-5. **Tag.** Tag a commit that is on `main` and has a green `ci.yml` run as `v<version>` and push the tag; the workflow
-   stops otherwise (`scripts/check-release-gate.sh`). It builds the release archives, publishes the crates and the
+5. **Tag.** Tag a commit that is on `main` as `v<version>` and push the tag; the workflow stops otherwise, or when
+   `CHANGELOG.md` has no section for the version (`scripts/check-release-gate.sh`). It does not wait for CI. It builds the release archives, publishes the crates and the
    npm packages, the Homebrew formula (then its bottles) and the Scoop manifest, and moves the floating tag (`v0.M` for a 0.x release,
    `vN` from 1.0.0; used as `polylint/skif@v0.9`) to the release.
 6. **Watch the run.** crates.io is published only after every npm addon has loaded and installed, and the GitHub
