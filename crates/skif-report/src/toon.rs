@@ -10,7 +10,7 @@ use std::io::{self, Write};
 use serde_json::{Map, Value};
 use skif_core::Report;
 
-use crate::json::{ErrorInfo, render_json_error_info_with, render_json_with};
+use crate::json::{ErrorInfo, render_json_error, render_json_error_info_with, render_json_with};
 use crate::options::RenderOptions;
 
 /// Renders `report` as the JSON document of [`crate::render_json`], encoded as TOON.
@@ -43,6 +43,26 @@ pub fn render_toon_with(
     encode(&json, out)
 }
 
+/// Renders the error document of [`crate::render_json_error`], encoded as TOON.
+///
+/// # Errors
+///
+/// Returns any error produced by writing to `out`.
+pub fn render_toon_error(message: &str, out: &mut dyn Write) -> io::Result<()> {
+    let mut json = Vec::new();
+    render_json_error(message, &mut json)?;
+    encode(&json, out)
+}
+
+/// Renders the error document of [`crate::render_json_error_info`], encoded as TOON.
+///
+/// # Errors
+///
+/// Returns any error produced by writing to `out`.
+pub fn render_toon_error_info(info: &ErrorInfo<'_>, out: &mut dyn Write) -> io::Result<()> {
+    render_toon_error_info_with(info, Map::new(), out)
+}
+
 /// Renders the error document of [`crate::render_json_error_info_with`], encoded as TOON.
 ///
 /// # Errors
@@ -58,10 +78,35 @@ pub fn render_toon_error_info_with(
     encode(&json, out)
 }
 
-/// Re-encodes a JSON document as TOON, ending with a newline as the JSON renderings do.
+/// Re-encodes a JSON document as TOON, ending with a newline as the JSON renderings do. The JSON is parsed into one
+/// `Value` that the encoder reads directly. A document the encoder rejects is an [`io::ErrorKind::InvalidData`] error
+/// that says so, not a write error.
 fn encode(json: &[u8], out: &mut dyn Write) -> io::Result<()> {
-    let document: Value = serde_json::from_slice(json)?;
-    let mut text = serde_toon::to_string(&document).map_err(io::Error::other)?;
-    text.push('\n');
-    out.write_all(text.as_bytes())
+    let text = std::str::from_utf8(json).map_err(|error| cannot_encode(&error))?;
+    let mut toon = serde_toon::to_string_from_json_str(text).map_err(|error| cannot_encode(&error))?;
+    toon.push('\n');
+    out.write_all(toon.as_bytes())
+}
+
+fn cannot_encode(error: &dyn std::fmt::Display) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("cannot encode the document as TOON: {error}"),
+    )
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_document_the_encoder_rejects_is_invalid_data_not_a_write_error() {
+        let error = encode(b"{not json", &mut Vec::new()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error.to_string().starts_with("cannot encode the document as TOON: "),
+            "{error}"
+        );
+    }
 }

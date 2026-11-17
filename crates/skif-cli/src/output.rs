@@ -170,8 +170,11 @@ pub fn render_to_stdout(
     });
     match written.and_then(|()| out.flush()) {
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
-        // The renderers' own failure (an `extra` member that shadows a reserved key); every other one is stdout's.
-        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Err(cannot_render(&error)),
+        // The renderers' own failures (an `extra` member that shadows a reserved key, a document the TOON encoder
+        // rejects); every other one is stdout's.
+        Err(error) if matches!(error.kind(), io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData) => {
+            Err(cannot_render(&error))
+        }
         Err(error) => Err(CliError::new(Kind::Io, format!("cannot write to stdout: {error}"))),
         Ok(()) => Ok(()),
     }

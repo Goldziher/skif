@@ -143,13 +143,33 @@ fn toon_decodes_to_the_json_document() {
 #[test]
 fn toon_error_documents_decode_to_the_json_ones() {
     let info = skif_report::ErrorInfo::new("config", "bad key").at("skif.toml", Some(3), Some(5));
-    let (mut json, mut toon) = (Vec::new(), Vec::new());
-    skif_report::render_json_error_info_with(&info, serde_json::Map::new(), &mut json).unwrap();
-    skif_report::render_toon_error_info_with(&info, serde_json::Map::new(), &mut toon).unwrap();
-    assert_eq!(
-        serde_toon::decode_to_value(&String::from_utf8(toon).unwrap()).unwrap(),
-        serde_json::from_slice::<serde_json::Value>(&json).unwrap()
-    );
+    let mut extra = serde_json::Map::new();
+    extra.insert("fix".to_owned(), serde_json::json!({ "applied": 1 }));
+    let render = |write: &dyn Fn(&mut Vec<u8>) -> std::io::Result<()>| {
+        let mut out = Vec::new();
+        write(&mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    let pairs = [
+        (
+            render(&|out| render_json_error("boom", out)),
+            render(&|out| skif_report::render_toon_error("boom", out)),
+        ),
+        (
+            render(&|out| skif_report::render_json_error_info(&info, out)),
+            render(&|out| skif_report::render_toon_error_info(&info, out)),
+        ),
+        (
+            render(&|out| skif_report::render_json_error_info_with(&info, extra.clone(), out)),
+            render(&|out| skif_report::render_toon_error_info_with(&info, extra.clone(), out)),
+        ),
+    ];
+    for (json, toon) in pairs {
+        assert_eq!(
+            serde_toon::decode_to_value(&toon).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&json).unwrap()
+        );
+    }
 }
 
 /// The rich report with two packages whose entries are incomplete, given out of order.

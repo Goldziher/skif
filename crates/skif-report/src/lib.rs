@@ -38,7 +38,7 @@ pub use markdown::{render_disclosure, render_markdown};
 pub use options::RenderOptions;
 pub use sarif::render_sarif;
 pub use text::{escape_controls, escape_multiline};
-pub use toon::{render_toon, render_toon_error_info_with, render_toon_with};
+pub use toon::{render_toon, render_toon_error, render_toon_error_info, render_toon_error_info_with, render_toon_with};
 
 /// Output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

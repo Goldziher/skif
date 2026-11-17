@@ -214,7 +214,8 @@ pub mod render {
     pub use skif_report::{
         CODEOWNERS_LOCATIONS, CodeOwners, ErrorInfo, Format, RenderOptions, SCHEMA_VERSION, render, render_codeclimate,
         render_codeowners, render_compact, render_disclosure, render_github, render_human, render_json,
-        render_json_error, render_json_error_info, render_markdown, render_sarif, render_toon,
+        render_json_error, render_json_error_info, render_markdown, render_sarif, render_toon, render_toon_error,
+        render_toon_error_info,
     };
 }
 
