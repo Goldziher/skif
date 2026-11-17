@@ -3,7 +3,8 @@ title: Comparison
 description: How skif relates to sherif, syncpack, knip and manypkg, what each supports, and how its speed and accuracy compare.
 ---
 
-skif builds on three projects and covers their three jobs in one tool. They remain excellent, focused tools.
+skif builds on three projects and covers their three jobs in one tool, with one configuration file and one report
+format.
 
 | Tool | Scope | Relation to skif |
 | --- | --- | --- |
@@ -11,8 +12,6 @@ skif builds on three projects and covers their three jobs in one tool. They rema
 | [syncpack](https://github.com/JamieMason/syncpack) | Version consistency, semver ranges, catalogs | Same problem space; skif's policy rules reuse syncpack's specifier model, vendored in `skif-specifier`. |
 | [knip](https://github.com/webpro-nl/knip) | Unused files, exports and dependencies | Same problem space; skif's analysis runs on oxc, with static config extraction instead of running tools. |
 | [manypkg](https://github.com/Thinkmill/manypkg) | Workspace consistency checks and fixes | Overlapping manifest checks; skif adds a rule registry, severities and a library API. |
-
-skif offers all three kinds of checks in one tool with one configuration file and one report format.
 
 ## Capabilities
 
@@ -197,9 +196,8 @@ under [Parity with knip](#parity-with-knip).
 | Distribution | npm, crates.io, cargo-binstall, GitHub release archives, Homebrew, Scoop, GitHub Action, pre-commit and prek, Poly | npm, GitHub release archives, GitHub Action; Homebrew (homebrew-core) | npm; crates.io up to 14.0.0 | npm |
 
 The skif versions and operating systems per package manager are under
-[Supported versions](../../start/installation/#supported-versions)
-([ADR 0015](https://github.com/polylint/skif/blob/main/adrs/0015-distribution-release-and-supported-versions.md)),
-and the end-to-end matrix is the `e2e` job of `.github/workflows/ci.yml`
+[Supported versions](../../start/installation/#supported-versions), and the end-to-end matrix is the `e2e` job of
+`.github/workflows/ci.yml`
 ([ADR 0015](https://github.com/polylint/skif/blob/main/adrs/0015-distribution-release-and-supported-versions.md)).
 `scripts/check-support-matrix.sh` fails when the skif rows above, the README or the supported versions table differ
 from the `e2e` and `npm-addon` matrices and the linkers of `scripts/e2e/lib.sh`. Lefthook needs no hook from skif: it
@@ -237,7 +235,7 @@ is configured in the consuming repository ([Lefthook](../integrations/#lefthook)
 
 ## Parity with knip
 
-skif's JS analysis covers the issue types of knip 6.45:
+How skif's JS analysis compares with knip 6.45:
 
 - **Coverage.** Every issue type of knip 6.45 has a skif rule, 19 in all (the list is in the
   [migration guide](../migrating/#which-tool-runs-which-rule)), and `skif migrate` translates a knip configuration.
@@ -278,13 +276,8 @@ where a file or a configuration names it. skif reads the exports of a component'
 (`export let`) are props, not exports. knip reads only the imports of a `.svelte` file, so it reports none of its
 exports.
 
-The remaining differences each have an open issue, and their size is in the
-[agreement table](../benchmarks/#agreement-with-knip):
-`unlisted-dependencies` ([#96](https://github.com/polylint/skif/issues/96)), `unlisted-binaries`
-([#97](https://github.com/polylint/skif/issues/97)), `unused-dependencies`
-([#98](https://github.com/polylint/skif/issues/98)), `unresolved-imports`
-([#99](https://github.com/polylint/skif/issues/99)) and `unused-files`
-([#100](https://github.com/polylint/skif/issues/100)).
+The size of the remaining differences per issue type is in the
+[agreement table](../benchmarks/#agreement-with-knip).
 
 Two differences are knip's and stay counted, as the comparison cannot tell them apart from its data: knip reports the
 members of an enum used as a whole value (passed or returned, `@IsEnum(E)`, `Object.values(E)`, `keyof typeof E`,
