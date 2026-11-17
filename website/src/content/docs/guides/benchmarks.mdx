@@ -84,7 +84,7 @@ run, which also runs every JS rule, so it is an upper bound. The same tables che
 [ADR 0010](https://github.com/polylint/skif/blob/main/adrs/0010-type-aware-analysis-on-tsrs.md):
 `--type-aware` at most 3x the default run on the largest repository and 2x in the median, at most 4 GiB of peak memory with types
 on every target, at most 5 s with types on the 10,000-file graph, and at least 5x faster than knip with types. It is
-the bar types must meet to become the default again; until then a broken budget shows in the tables without failing
+the bar types must meet to become the default; until then a broken budget shows in the tables without failing
 the run.
 
 {/* bench:numbers:start */}
@@ -463,8 +463,8 @@ mise run bench:import -- <run-id>
 ```
 
 On your own machine, `mise run bench` builds skif in release mode and times it the same way (it needs hyperfine and
-npm); add `--install` to `skif-bench run` to install the corpus first, as the workflow does. Local numbers are not
-published. `mise run bench:deadcode -- --knip` reproduces the precision table, and
+npm); `mise run bench:local` also installs the corpus and the tools first, as the workflow does. Local numbers are
+not published. `mise run bench:deadcode -- --knip` reproduces the precision table, and
 `mise run parity -- --install --write-baseline` followed by `mise run parity:publish` the agreement table. The
 [benchmark harness](https://github.com/polylint/skif/blob/main/tools/bench/README.md) documents every command and
 option.
