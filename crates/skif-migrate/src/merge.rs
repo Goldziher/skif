@@ -30,6 +30,10 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 use crate::notes::{Note, NoteClass, Tool};
 use crate::{MigrateError, Migration, Profile, keys};
 
+mod layout;
+
+use self::layout::Layout;
+
 /// The result of merging into an existing file.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -116,23 +120,11 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
         .parse()
         .map_err(|error: toml_edit::TomlError| MigrateError::Invalid(error.to_string()))?;
     let previous = read_sources(existing);
-    let mut sources = previous.clone().unwrap_or_default();
-    for tool in &migration.tools {
-        if !sources.contains(tool) {
-            sources.push(*tool);
-        }
-    }
+    let sources = merged_sources(migration, previous.clone());
     let skip_profile = previous.is_some() || !base.is_empty();
     let (mut current, mut merge) = apply(migration, &base, &added, skip_profile);
     let kept_on = rules_kept_on(&added, &current);
-    let withheld: Vec<Mode> = if kept_on.is_empty() {
-        Vec::new()
-    } else {
-        [Mode::Strict, Mode::Production]
-            .into_iter()
-            .filter(|mode| js_has(&added, mode.key()) && !js_has(&base, mode.key()))
-            .collect()
-    };
+    let withheld = withheld_modes(&base, &added, &kept_on);
     let original = added.clone();
     if !withheld.is_empty() {
         for mode in &withheld {
@@ -148,11 +140,7 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
     replaced.append(&mut merge.replaced);
     let toml = with_sources(&current.to_string(), &sources);
     Ok(Merged {
-        toml: if existing.contains("\r\n") {
-            to_crlf(&toml)
-        } else {
-            toml
-        },
+        toml: if is_crlf(existing) { to_crlf(&toml) } else { toml },
         kept_existing: merge.kept,
         left_as_existing: merge.left,
         replaced_existing: replaced,
@@ -160,8 +148,36 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
     })
 }
 
-/// `text` with every line break `\r\n` (CRLF): `toml_edit` reads such a file as LF, and the merge writes the file back the way
-/// it was.
+/// The tools recorded in the file (`previous`) followed by the migrated ones it lacks.
+fn merged_sources(migration: &Migration, previous: Option<Vec<Tool>>) -> Vec<Tool> {
+    let mut sources = previous.unwrap_or_default();
+    for tool in &migration.tools {
+        if !sources.contains(tool) {
+            sources.push(*tool);
+        }
+    }
+    sources
+}
+
+/// The settings the migration adds that `base` does not have, while `kept_on` rules of the file run in the mode
+/// the setting would change: they are not merged.
+fn withheld_modes(base: &DocumentMut, added: &DocumentMut, kept_on: &[String]) -> Vec<Mode> {
+    if kept_on.is_empty() {
+        return Vec::new();
+    }
+    [Mode::Strict, Mode::Production]
+        .into_iter()
+        .filter(|mode| js_has(added, mode.key()) && !js_has(base, mode.key()))
+        .collect()
+}
+
+/// Whether every line break of `text` is `\r\n` (and it has one): a file that mixes line endings is not converted.
+fn is_crlf(text: &str) -> bool {
+    let breaks = text.matches('\n').count();
+    breaks > 0 && breaks == text.matches("\r\n").count()
+}
+
+/// `text` with every line break `\r\n`: `toml_edit` reads a CRLF file as LF, so the merge converts its output back.
 fn to_crlf(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\n', "\r\n")
 }
@@ -266,15 +282,18 @@ fn mode_notes(
             continue;
         };
         let name = format!("[js] {key}");
-        let reason = match js_bool(current, key) {
-            Some(held) if held == migrated => continue,
-            _ if withheld.contains(&mode) => format!(
+        let reason = if js_bool(current, key) == Some(migrated) {
+            continue;
+        } else if withheld.contains(&mode) {
+            format!(
                 "the migration turned off {}, which the existing configuration keeps on, and {name} applies to every \
                  check",
                 kept_on.join(", ")
-            ),
-            Some(_) => format!("the existing value of {name} was kept"),
-            None => "the existing [js] is an inline table, which the merge keeps as it is".to_owned(),
+            )
+        } else if js_has(current, key) {
+            format!("the existing value of {name} was kept")
+        } else {
+            "the existing [js] is an inline table, which the merge keeps as it is".to_owned()
         };
         unwritten.push((mode, reason));
     }
@@ -423,88 +442,11 @@ impl MarkerRule {
     }
 }
 
-/// The line break and indentation at the end of `prefix`.
-fn line_indent(prefix: &str) -> Option<&str> {
-    prefix.rfind('\n').map(|at| &prefix[at..])
-}
-
-/// Appends `value` to `list` separated like the entries it already has: a multi-line array keeps the line break and
-/// indentation of its last entry (not a comment above it), a list of two or more inline entries their separator, and
-/// any other list gets one space. What follows the last entry (the whitespace or comment before the closing bracket
-/// when there is no trailing comma) moves to the new one, so the comma goes right after the old last entry.
-fn append(list: &mut Array, mut value: Value) {
-    let len = list.len();
-    let last_prefix = len
-        .checked_sub(1)
-        .and_then(|index| list.get(index))
-        .and_then(|last| last.decor().prefix())
-        .and_then(|prefix| prefix.as_str())
-        .map(str::to_owned);
-    let prefix = match last_prefix {
-        None if len == 0 => String::new(),
-        None => " ".to_owned(),
-        Some(prefix) => {
-            line_indent(&prefix).map_or_else(|| if len >= 2 { prefix.clone() } else { " ".to_owned() }, str::to_owned)
-        }
-    };
-    let mut prefix = prefix;
-    if let Some(last) = len.checked_sub(1).and_then(|index| list.get_mut(index))
-        && let Some(suffix) = last
-            .decor()
-            .suffix()
-            .and_then(|suffix| suffix.as_str())
-            .map(str::to_owned)
-    {
-        last.decor_mut().set_suffix("");
-        match suffix.rfind('\n').filter(|_| suffix.contains('#')) {
-            Some(at) => {
-                // The comment annotates the old last entry: it goes after the comma that follows that entry.
-                prefix = format!("{}{}", &suffix[..=at], prefix.trim_start_matches('\n'));
-                value.decor_mut().set_suffix(format!("\n{}", &suffix[at + 1..]));
-            }
-            None => value.decor_mut().set_suffix(suffix),
-        }
-    }
-    value.decor_mut().set_prefix(prefix);
-    list.push_formatted(value);
-}
-
-/// The comment lines (with the line break and indentation that precede them) of the prefixes of the entries of
-/// `list` at `indexes`.
-fn removed_comments(list: &Array, indexes: &[usize]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for &index in indexes {
-        let prefix = list
-            .get(index)
-            .and_then(|value| value.decor().prefix())
-            .and_then(|prefix| prefix.as_str())
-            .unwrap_or("");
-        let separator = line_indent(prefix).unwrap_or("\n  ").to_owned();
-        for line in prefix.lines().map(str::trim).filter(|line| line.starts_with('#')) {
-            out.push((line.to_owned(), separator.clone()));
-        }
-    }
-    out
-}
-
-/// `prefix` (the one of the entry that stays) with the comment lines of removed entries added above the entry.
-fn with_comments(prefix: Option<&str>, comments: &[(String, String)]) -> String {
-    let prefix = prefix.unwrap_or("");
-    let mut out = if prefix.contains('\n') {
-        prefix.to_owned()
-    } else {
-        comments
-            .first()
-            .map_or_else(String::new, |(_, separator)| separator.clone())
-    };
-    for (comment, separator) in comments {
-        let indent = separator.trim_start_matches('\n');
-        let newline = &separator[..separator.len() - indent.len()];
-        out.push_str(comment);
-        out.push_str(newline);
-        out.push_str(indent);
-    }
-    out
+/// Appends `value` to `list`; see [`Layout`] for how the comments and the layout of the list are kept.
+fn append(list: &mut Array, value: Value) {
+    let mut layout = Layout::read(list);
+    layout.push(value);
+    layout.write(list);
 }
 
 /// The most expansions of one pattern that are compared; a longer cross product is left alone.
@@ -761,7 +703,7 @@ impl Merge {
                 append(existing, value.clone());
                 continue;
             };
-            if rule == MarkerRule::Production && self.replace_expand_braces(existing, value, path) {
+            if rule == MarkerRule::Production && self.replace_expanded(existing, value, path) {
                 continue;
             }
             let body = rule.split(name).0;
@@ -777,15 +719,13 @@ impl Merge {
 
     /// For a production entry `x{a,b}!`: the plain entries of `existing` that equal one of its brace expansions
     /// (`xa`, `xb`) are replaced by it, the first one in place and the others removed, since a plain pattern next to
-    /// a `!` pattern for the same files excludes them in production mode. Whether the entry replaced any.
-    fn replace_expand_braces(&mut self, existing: &mut Array, added: &Value, path: &str) -> bool {
+    /// a `!` pattern for the same files excludes them in production mode. The comments of the removed entries move
+    /// to the replacement. Whether the entry replaced any.
+    fn replace_expanded(&mut self, existing: &mut Array, added: &Value, path: &str) -> bool {
         let Some((name, reason)) = named(added) else {
             return false;
         };
-        let Some(body) = name.strip_suffix('!') else {
-            return false;
-        };
-        let Some(expansions) = expand_braces(body) else {
+        let Some(expansions) = name.strip_suffix('!').and_then(expand_braces) else {
             return false;
         };
         let overlapping: Vec<usize> = existing
@@ -805,30 +745,9 @@ impl Merge {
         if held_reason.is_some_and(|held| reason.is_some_and(|new| new != held)) {
             push_once(&mut self.kept, path);
         }
-        let value = entry_value(name, held_reason.or(reason));
-        let last = existing.len() - 1;
-        let tail_suffix = rest
-            .contains(&last)
-            .then(|| existing.get(last).and_then(|value| value.decor().suffix().cloned()))
-            .flatten();
-        let comments = removed_comments(existing, rest);
-        if let Some(slot) = existing.get_mut(first) {
-            let decor = slot.decor().clone();
-            *slot = value;
-            *slot.decor_mut() = decor;
-            if !comments.is_empty() {
-                let prefix = with_comments(slot.decor().prefix().and_then(|prefix| prefix.as_str()), &comments);
-                slot.decor_mut().set_prefix(prefix);
-            }
-        }
-        for &index in rest.iter().rev() {
-            existing.remove(index);
-        }
-        if let Some(suffix) = tail_suffix
-            && let Some(end) = existing.len().checked_sub(1).and_then(|index| existing.get_mut(index))
-        {
-            end.decor_mut().set_suffix(suffix);
-        }
+        let mut layout = Layout::read(existing);
+        layout.replace(first, rest, entry_value(name, held_reason.or(reason)));
+        layout.write(existing);
         push_once(&mut self.replaced, path);
         true
     }
@@ -1522,6 +1441,140 @@ mod tests {
         assert_eq!(
             merged.toml,
             "[rules]\nunused-files = \"error\"\n# skif migrate: sources = [\"knip\"]\n"
+        );
+    }
+
+    fn merged_entry(existing: &str, added: &str) -> String {
+        let merged = merged_knip(
+            &format!("[js]\nentry = {existing}\n"),
+            &format!("\n[js]\nentry = [{added:?}]\n"),
+        );
+        let text = merged.toml;
+        let body = text.strip_prefix("[js]\nentry = ").unwrap_or(&text);
+        body.strip_suffix("\n# skif migrate: sources = [\"knip\"]\n")
+            .unwrap_or(body)
+            .to_owned()
+    }
+
+    #[test]
+    fn appending_never_moves_a_comment_to_another_entry() {
+        let cases: &[(&str, &str)] = &[
+            (
+                "[\n  \"a\",\n  \"z\", # note\n]",
+                "[\n  \"a\",\n  \"z\", # note\n  \"b!\",\n]",
+            ),
+            (
+                "[\n  \"a\",\n  \"z\" # note\n]",
+                "[\n  \"a\",\n  \"z\", # note\n  \"b!\"\n]",
+            ),
+            (
+                "[\n  \"a\" # ca\n  , \"z\" # cz\n  ,\n]",
+                "[\n  \"a\", # ca\n  \"z\", # cz\n  \"b!\",\n]",
+            ),
+            (
+                "[\n  # head\n  \"a\",\n\n  # about z\n  \"z\", # tail z\n  # dangling\n]",
+                "[\n  # head\n  \"a\",\n\n  # about z\n  \"z\", # tail z\n  \"b!\",\n  # dangling\n]",
+            ),
+            ("[\n  \"a\",\n  \"z\"\n]", "[\n  \"a\",\n  \"z\",\n  \"b!\"\n]"),
+            ("[\n  \"a\",\n]", "[\n  \"a\",\n  \"b!\",\n]"),
+            ("[]", "[\"b!\"]"),
+            ("[ ]", "[\"b!\"]"),
+            ("[\n]", "[\n  \"b!\",\n]"),
+            ("[\"a\", \"z\"]", "[\"a\", \"z\", \"b!\"]"),
+            ("[\"a\",\"z\"]", "[\"a\",\"z\",\"b!\"]"),
+            ("[\"a\"]", "[\"a\", \"b!\"]"),
+        ];
+        for (existing, expected) in cases {
+            assert_eq!(&merged_entry(existing, "b!"), expected, "{existing:?}");
+        }
+    }
+
+    #[test]
+    fn replacing_entries_never_moves_a_comment_to_another_entry() {
+        let cases: &[(&str, &str)] = &[
+            (
+                "[\"xa\", \"other\", # about other\n \"xb\",]",
+                "[\n \"x{a,b}!\",\n \"other\", # about other\n]",
+            ),
+            (
+                "[\"xa\", \"other\", \"xb\" # c\n]",
+                "[\n  # c\n  \"x{a,b}!\",\n  \"other\"\n]",
+            ),
+            (
+                "[\n  # first\n  \"xa\", # on xa\n\n  # why xb\n  \"xb\", # on xb\n  \"other\",\n]",
+                "[\n  # first\n\n  # why xb\n  # on xb\n  \"x{a,b}!\", # on xa\n  \"other\",\n]",
+            ),
+            ("[\n  \"xa\",\n  \"xb\"\n]", "[\n  \"x{a,b}!\"\n]"),
+            ("[\"xa\", \"xb\", \"other\"]", "[\"x{a,b}!\", \"other\"]"),
+            ("[\"other\", \"xa\"]", "[\"other\", \"x{a,b}!\"]"),
+        ];
+        for (existing, expected) in cases {
+            assert_eq!(&merged_entry(existing, "x{a,b}!"), expected, "{existing:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_file_with_crlf_everywhere_is_written_with_crlf() {
+        let body = "\n[js]\nentry = [\"b!\"]\n\n[rules]\nunused-files = \"error\"\n";
+        let crlf = merged_knip("[js]\r\nentry = [\"a\"]\r\n", body);
+        assert!(crlf.toml.contains("[rules]"), "{:?}", crlf.toml);
+        assert!(!crlf.toml.replace("\r\n", "").contains('\n'), "{:?}", crlf.toml);
+        let mixed = merged_knip("[js]\r\nentry = [\"a\"]\n", body);
+        assert!(!mixed.toml.contains('\r'), "{:?}", mixed.toml);
+    }
+
+    #[test]
+    fn production_is_withheld_on_its_own() {
+        let mut migration = profile_off(
+            &[Tool::Knip],
+            "\n[js]\nproduction = true\n\n[rules]\nunused-dev-dependencies = \"off\"\n",
+        );
+        migration.notes = vec![strict_flag_note("--production")];
+        let merged = merge_into(&migration, "[rules]\nunused-dev-dependencies = \"error\"\n").unwrap();
+        assert!(!merged.toml.contains("production"), "{:?}", merged.toml);
+        let note = &merged.notes[0];
+        assert_eq!(note.class, crate::NoteClass::Human, "{note:?}");
+        assert!(note.message.starts_with("not written to [js] production"), "{note:?}");
+        assert!(note.message.contains("unused-dev-dependencies"), "{note:?}");
+    }
+
+    #[test]
+    fn a_merge_that_withholds_nothing_is_the_single_merge() {
+        let migration = knip_with_modes("\n[js]\nstrict = true\n\n[rules]\nunused-dependencies = \"off\"\n");
+        let existing = "[js]\nenabled = true\n";
+        let merged = merge_into(&migration, existing).unwrap();
+        let base: DocumentMut = existing.parse().unwrap();
+        let added: DocumentMut = migration.body.parse().unwrap();
+        let (single, _) = apply(&migration, &base, &added, true);
+        assert_eq!(
+            merged.toml,
+            with_sources(&single.to_string(), &[Tool::Knip]),
+            "{:?}",
+            merged.toml
+        );
+        assert!(merged.toml.contains("strict = true"), "{:?}", merged.toml);
+    }
+
+    #[test]
+    fn the_merge_summary_lists_the_notes_of_the_merge() {
+        let migration = knip_with_modes("\n[js]\nstrict = true\n\n[rules]\nunused-files = \"off\"\n");
+        let merged = merge_into(&migration, "[rules]\nunused-files = \"error\"\n").unwrap();
+        let summary = migration.merge_summary(&merged);
+        assert!(summary.contains("Needs a human (2):"), "{summary}");
+        assert!(summary.contains("[H] knip scripts.knip: --strict"), "{summary}");
+        assert!(migration.with_notes(merged.notes).needs_human());
+    }
+
+    #[test]
+    fn a_non_boolean_existing_mode_value_is_kept_and_reported_as_such() {
+        let migration = knip_with_modes("\n[js]\nstrict = true\n");
+        let merged = merge_into(&migration, "[js]\nstrict = \"yes\"\n").unwrap();
+        assert!(merged.toml.contains("strict = \"yes\""), "{:?}", merged.toml);
+        let note = &merged.notes[1];
+        assert_eq!(note.class, crate::NoteClass::Human, "{note:?}");
+        assert!(
+            note.message.contains("the existing value of [js] strict was kept"),
+            "{note:?}"
         );
     }
 

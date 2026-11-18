@@ -262,14 +262,16 @@ impl Migration {
     /// human, and the checks skif runs that the old tools did not.
     #[must_use]
     pub fn summary(&self) -> String {
-        notes::render_summary(self, &[])
+        notes::render_summary(self, &self.notes, &[])
     }
 
     /// [`Migration::summary`] for the result of [`Migration::merge_into`]: the checks the old tools did not run that
-    /// the merge left as the existing file has them are listed apart from the ones the profile turned off.
+    /// the merge left as the existing file has them are listed apart from the ones the profile turned off. The notes
+    /// are those of the merge ([`Merged::notes`]); [`Migration::report`] and [`Migration::needs_human`] describe the
+    /// migration itself, so a caller reporting a merge takes them from [`Migration::with_notes`].
     #[must_use]
     pub fn merge_summary(&self, merged: &Merged) -> String {
-        notes::render_summary(self, &merged.left_as_existing)
+        notes::render_summary(self, &merged.notes, &merged.left_as_existing)
     }
 }
 

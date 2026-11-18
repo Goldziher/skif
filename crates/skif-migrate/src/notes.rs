@@ -104,8 +104,9 @@ pub struct Note {
 
 type Section = (&'static str, fn(NoteClass) -> bool);
 
-/// The summary of `migration`; `left` holds the dotted paths (`rules.<id>`) of the profile values a merge left out.
-pub(crate) fn render_summary(migration: &Migration, left: &[String]) -> String {
+/// The summary of `migration` with `notes`; `left` holds the dotted paths (`rules.<id>`) of the profile values a merge
+/// left out.
+pub(crate) fn render_summary(migration: &Migration, notes: &[Note], left: &[String]) -> String {
     let mut out = String::new();
     let sections: [Section; 3] = [
         ("Translated", |class| {
@@ -115,7 +116,7 @@ pub(crate) fn render_summary(migration: &Migration, left: &[String]) -> String {
         ("Needs a human", NoteClass::needs_human),
     ];
     for (title, wanted) in sections {
-        let notes: Vec<&Note> = migration.notes.iter().filter(|note| wanted(note.class)).collect();
+        let notes: Vec<&Note> = notes.iter().filter(|note| wanted(note.class)).collect();
         let _ = writeln!(out, "{title} ({}):", notes.len());
         if notes.is_empty() {
             out.push_str("  none\n");
