@@ -253,3 +253,69 @@ fn an_entry_outside_the_package_that_names_a_file_completes_it() {
     let (incomplete, _) = run_files(&files, toml);
     assert_eq!(incomplete, Vec::new());
 }
+
+fn narrowed_in(files: &[(&str, &str)], toml: &str) -> Vec<IncompletePackage> {
+    let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
+        memory.with_file(Path::new(ROOT).join(path), text)
+    });
+    let config = Config::from_toml_str(toml).unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(NarrowedSource)];
+    JsAnalysis::build(&workspace, &config, &fs, &sources, true).incomplete_packages()
+}
+
+#[test]
+fn a_stale_entry_keeps_the_no_entries_reason_of_a_package_without_files() {
+    let files = [("package.json", r#"{"name":"web","version":"1.0.0","private":true}"#)];
+    let without = narrowed_in(&files, "[js]\nproduction = true\n");
+    let causes: Vec<IncompleteCause> = without[0].reasons.iter().map(|reason| reason.cause).collect();
+    assert_eq!(causes, [IncompleteCause::ComputedEntries, IncompleteCause::NoEntries]);
+    let stale = narrowed_in(&files, "[js]\nproduction = true\nentry = [\"src/old.js!\"]\n");
+    assert_eq!(stale, without);
+}
+
+#[test]
+fn a_dot_slash_outside_pattern_does_not_complete_the_package() {
+    let mut files = MEMBERS.to_vec();
+    files.push(("shared/app.js", "export const app = 1;\n"));
+    let toml = "[js]\nproduction = true\n\n[js.workspaces.\"packages/web\"]\nentry = [\"./../../shared/app.js!\"]\n";
+    let (incomplete, _) = run_files(&files, toml);
+    assert_eq!(incomplete.len(), 1);
+}
+
+#[test]
+fn an_outside_entry_needs_to_name_a_file() {
+    let mut files = MEMBERS.to_vec();
+    files.push(("shared/app.js", "export const app = 1;\n"));
+    let without = "[js]\nproduction = true\n";
+    assert_eq!(run_files(&files, without).0.len(), 1);
+    let stale = "[js]\nproduction = true\n\n[js.workspaces.\"packages/web\"]\nentry = [\"../../shared/gone.js!\"]\n";
+    assert_eq!(run_files(&files, stale).0.len(), 1);
+}
+
+#[test]
+fn a_restored_narrowed_scope_gives_way_to_an_unrelated_cause() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"web","version":"1.0.0","private":true,"main":"dist/index.js"}"#,
+        ),
+        ("src/main.js", "export const main = 1;\n"),
+    ];
+    let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
+        memory.with_file(Path::new(ROOT).join(path), text)
+    });
+    let config = Config::from_toml_str("[js]\nproduction = true\nentry = [\"src/old.js!\"]\n").unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(NarrowedSource)];
+    let found = JsAnalysis::build(&workspace, &config, &fs, &sources, true).incomplete_packages();
+    assert_eq!(found.len(), 1);
+    let causes: Vec<IncompleteCause> = found[0].reasons.iter().map(|reason| reason.cause).collect();
+    assert_eq!(
+        causes,
+        [IncompleteCause::ComputedEntries, IncompleteCause::UnmappedPublished]
+    );
+    assert_eq!(found[0].scope, IncompleteScope::Package);
+}

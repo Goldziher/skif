@@ -241,13 +241,14 @@ impl EntryContext<'_> {
             );
         }
         // A list naming no file of the package (a stale path) says nothing about the entries the config computes.
+        let mut restored = Vec::new();
         if let Some(completed) = &package_setup.completed_by {
             explicit_hit |= !completed.outside.is_empty()
                 && candidates
                     .iter()
                     .any(|candidate| candidate.owner != id && completed.outside.is_match(&candidate.rel));
             if !explicit_hit {
-                unknown.extend(completed.reasons.iter().map(|reason| (id, reason.clone())));
+                restored.extend(completed.reasons.iter().map(|reason| (id, reason.clone())));
             }
         }
         let mut published_without_source = false;
@@ -372,6 +373,8 @@ impl EntryContext<'_> {
                 IncompleteEntries::new(IncompleteCause::NoEntries).with_file(manifest_file()),
             ));
         }
+        // The reasons come back first, where the plugin's own sit in a run without the entry.
+        unknown.splice(0..0, restored);
         PackageEntries {
             entries: own,
             build_sources,

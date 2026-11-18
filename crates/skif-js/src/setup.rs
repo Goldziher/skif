@@ -370,6 +370,11 @@ pub(crate) struct CompletedEntries {
     pub scope: Option<IncompleteScopeGlobs>,
 }
 
+/// Whether an entry pattern points outside the package directory.
+fn points_outside(pattern: &str) -> bool {
+    pattern.trim_start_matches('!').starts_with("../")
+}
+
 /// The settings of one workspace package.
 pub(crate) struct PackageSetup {
     pub id: PackageId,
@@ -1083,9 +1088,8 @@ impl Setup {
 
             let mut referenced_dependencies = plugin.dependencies;
             referenced_dependencies.extend(scripts.dependencies.iter().cloned());
-            let (outside, entry): (Vec<String>, Vec<String>) = entry
-                .into_iter()
-                .partition(|pattern| pattern.trim_start_matches('!').starts_with("../"));
+            let (outside, entry): (Vec<String>, Vec<String>) =
+                entry.into_iter().partition(|pattern| points_outside(pattern));
             let external_entry = Globs::new(
                 outside
                     .iter()
@@ -1129,10 +1133,8 @@ impl Setup {
                 _ => None,
             };
             let completed_by = completed.then(|| {
-                let (outside, inside): (Vec<String>, Vec<String>) = explicit
-                    .iter()
-                    .cloned()
-                    .partition(|pattern| pattern.trim_start_matches("./").starts_with("../"));
+                let (outside, inside): (Vec<String>, Vec<String>) =
+                    explicit.iter().cloned().partition(|pattern| points_outside(pattern));
                 CompletedEntries {
                     inside: globs.globs(&inside),
                     outside: Globs::new(
