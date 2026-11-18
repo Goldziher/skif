@@ -43,13 +43,13 @@ oxc_span = "0.159.0"
 oxc_str = "0.159.0"
 proptest = "1.12.0"
 rayon = "1.12.0"
-regex = "1.13.1"
+regex = "1.13.2"
 # The crypto provider ureq's rustls uses in `skif update` (ADR 0006); ring, not aws-lc, so no C toolchain is needed.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.5"
 schemars = { version = "1.2.3", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde-saphyr = "2.1.1"
+serde-saphyr = "2.2.0"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # `--format toon` (ADR 0012), the crate poly uses; its library is named `serde_toon`.
 serde_toon_format = "0.2"
