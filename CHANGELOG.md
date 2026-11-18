@@ -22,6 +22,8 @@ All notable changes to this project are documented here. The format follows
   covers, not only the plain entries a `x{a,b}!` entry expands to: the pair excluded the files in production mode. A
   broader pattern dropped this way is named under "Needs a human", as files only it made entries in development may
   be lost. (#257)
+- `skif explain-usage` in production mode names the plain `entry` pattern that excludes a file from the project,
+  instead of "outside the project globs of its package". (#257)
 
 ## [0.9.1] - 2026-11-18
 
