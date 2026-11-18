@@ -709,3 +709,34 @@ fn a_plain_entry_or_project_pattern_cancels_a_production_pattern_in_a_production
         Vec::<String>::new()
     );
 }
+
+#[test]
+fn the_brace_form_of_a_production_entry_is_reported_against_both_plain_patterns() {
+    let files = [
+        MONOREPO,
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        ("packages/a/src/x/index.ts", ""),
+        ("packages/a/src/y/index.tsx", ""),
+    ];
+    let toml = "[js.workspaces.\"packages/a\"]\nentry = [\"src/*/index.ts\", \"src/*/index.tsx\", \"src/*/index.{ts,tsx}!\"]\n";
+    let expected = "package.json: `src/*/index.ts` in `js.workspaces.\"packages/a\".entry` excludes in production mode what `src/*/index.{ts,tsx}!` selects\n\
+                    package.json: `src/*/index.tsx` in `js.workspaces.\"packages/a\".entry` excludes in production mode what `src/*/index.{ts,tsx}!` selects";
+    assert_eq!(cancellations(&lint(&files, toml)), expected);
+}
+
+#[test]
+fn only_the_files_of_the_package_decide_whether_two_globs_overlap() {
+    let files = [
+        MONOREPO,
+        ("packages/b/package.json", r#"{"name":"b"}"#),
+        ("packages/b/src/y.js", ""),
+    ];
+    let toml = "[js]\nentry = [\"packages/b/src/*.js\", \"packages/**/*.js!\"]\n";
+    assert_eq!(cancellations(&lint(&files, toml)), "");
+    let files = [MONOREPO, ("src/y.js", "")];
+    let toml = "[js]\nentry = [\"src/*.js\", \"src/**/*.js!\"]\n";
+    assert_eq!(
+        cancellations(&lint(&files, toml)),
+        "package.json: `src/*.js` in `js.entry` excludes in production mode what `src/**/*.js!` selects"
+    );
+}

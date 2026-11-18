@@ -2231,8 +2231,8 @@ pub struct JsCycles {
 pub struct Js {
     /// Run the JavaScript analysis.
     pub enabled: bool,
-    /// Entry-point globs, added to the ones plugins and `package.json` provide. In production mode only the
-    /// patterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.
+    /// Entry-point globs, added to the ones plugins and `package.json` provide. In production mode only a
+    /// pattern ending in `!` selects entries; every plain pattern excludes the files it matches.
     /// An entry that applies in the run mode also completes a package whose plugin configs only compute their
     /// entries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.
     pub entry: Vec<String>,
@@ -2658,8 +2658,8 @@ pub struct ExportKinds {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct JsWorkspace {
-    /// Entry-point globs relative to the workspace directory. In production mode only the patterns ending in `!`
-    /// select entries; a plain pattern excludes what a `!` pattern selects.
+    /// Entry-point globs relative to the workspace directory. In production mode only a pattern ending in `!`
+    /// selects entries; every plain pattern excludes the files it matches.
     /// An entry that applies in the run mode also completes a package whose plugin configs only compute their
     /// entries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.
     pub entry: Vec<String>,
@@ -2803,8 +2803,8 @@ impl PluginOptions {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct PackageJs {
-    /// Replaces the entry globs; an empty list clears what the package inherits. In production mode only the
-    /// patterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.
+    /// Replaces the entry globs; an empty list clears what the package inherits. In production mode only a
+    /// pattern ending in `!` selects entries; every plain pattern excludes the files it matches.
     /// An entry that applies in the run mode also completes a package whose plugin configs only compute their
     /// entries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.
     #[serde(skip_serializing_if = "Option::is_none")]

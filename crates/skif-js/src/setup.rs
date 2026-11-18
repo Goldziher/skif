@@ -394,6 +394,11 @@ pub(crate) struct PackageSetup {
     pub entries_incomplete: bool,
     /// Why the entry files are incomplete; not empty when they are.
     pub incomplete_reasons: Vec<IncompleteEntries>,
+    /// The user's `entry` patterns that applied when they completed a package whose only cause was computed entries.
+    /// The package is incomplete again when none of them matches a file it owns.
+    pub explicit_entry: Option<Globs>,
+    /// The computed-entries reasons the `explicit_entry` cleared.
+    pub cleared_reasons: Vec<IncompleteEntries>,
     /// When the entry files are incomplete, the globs (relative to the package directory) of the only files that may
     /// be unknown entries; `None` when they may be anywhere. The matching project files are treated as entries and
     /// every other file is judged unused as usual (ADR 0008).
@@ -1091,17 +1096,26 @@ impl Setup {
                 entry_globs = entry_globs.or(globs.globs(&kept));
             }
             // Entries the plugin config computes are named by the package's own `entry` when it applies in this mode.
-            let names_entries = user
+            let explicit: Vec<String> = user
                 .entry
                 .iter()
-                .any(|pattern| !pattern.starts_with('!') && (!production || pattern.ends_with('!')));
-            let entries_incomplete = plugin.entries_incomplete
-                && !(names_entries
-                    && !plugin.incomplete_reasons.is_empty()
-                    && plugin
-                        .incomplete_reasons
-                        .iter()
-                        .all(|reason| reason.cause == IncompleteCause::ComputedEntries));
+                .map(|pattern| pattern.trim())
+                .filter(|pattern| !pattern.is_empty() && !pattern.starts_with('!'))
+                .filter(|pattern| !production || pattern.ends_with('!'))
+                .map(|pattern| pattern.strip_suffix('!').unwrap_or(pattern).to_owned())
+                .collect();
+            let only_computed = !plugin.incomplete_reasons.is_empty()
+                && plugin
+                    .incomplete_reasons
+                    .iter()
+                    .all(|reason| reason.cause == IncompleteCause::ComputedEntries);
+            let completed = plugin.entries_incomplete && !explicit.is_empty() && only_computed;
+            let entries_incomplete = plugin.entries_incomplete && !completed;
+            let (explicit_entry, cleared_reasons) = if completed {
+                (Some(globs.globs(&explicit)), plugin.incomplete_reasons.clone())
+            } else {
+                (None, Vec::new())
+            };
             let setup = PackageSetup {
                 id,
                 dir: abs_dir,
@@ -1116,6 +1130,8 @@ impl Setup {
                 shared_build_source: globs.globs(&shared_build_source),
                 build_source_files,
                 entries_incomplete,
+                explicit_entry,
+                cleared_reasons,
                 incomplete_scope: match &plugin.incomplete_scope {
                     IncompleteScope::Within(patterns) if entries_incomplete => {
                         Some(IncompleteScopeGlobs::new(patterns.clone()))

@@ -22,4 +22,4 @@ current: an edit to an accepted record is committed with its reason, and `adrlin
 | 0013 | [Editors, Agents and Git Hooks](0013-editors-agents-and-git-hooks.md) | accepted |
 | 0014 | [Benchmarks and the Comparison Harness](0014-benchmarks-and-the-comparison-harness.md) | accepted |
 | 0015 | [Distribution, Release and Supported Versions](0015-distribution-release-and-supported-versions.md) | accepted |
-| 0016 | [An explicit entry completes a package with computed plugin entries](0016-an-explicit-entry-completes-a-package-with-computed-plugin-entries.md) | accepted |
+| 0016 | [An Explicit Entry Completes a Package with Computed Plugin Entries](0016-an-explicit-entry-completes-a-package-with-computed-plugin-entries.md) | accepted |

@@ -668,7 +668,7 @@ verdict `not-judged`.
 
 An explicit `entry` completes a package whose only cause is `computed-entries` (a config that computes the keys the tool
 reads entries from, such as a bundler config that exports a function): the package is judged from the entries the list
-names. The list must apply in the run mode, so in a production run it needs a pattern ending in `!`. Any other cause
+names. The list must apply in the run mode, so in a production run it needs a pattern ending in `!`. It must also match a file of the package, so a stale path leaves the package incomplete. Any other cause
 keeps the package incomplete. `plugins.<tool> = false` turns off a plugin whose config leaves a package incomplete.
 
 `unused-files` skips only the files the unreadable configuration could plausibly make entries, its narrowed scope. A

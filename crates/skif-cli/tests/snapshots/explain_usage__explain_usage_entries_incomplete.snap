@@ -6,3 +6,4 @@ error: orphan.ts
   not in the module graph, and not reported as unused: the entry files of its package are not fully known and may be anywhere in it (package-wide)
   vite reads vite.config.ts: the configuration spreads or merges in a value that is not known statically (an imported base config)
   vite reads vite.config.ts: the keys the tool reads entry files from are computed
+  when computed-entries is the only cause, an explicit `entry` completes the package (in production it must end in `!`); `plugins.<tool> = false` turns the plugin off

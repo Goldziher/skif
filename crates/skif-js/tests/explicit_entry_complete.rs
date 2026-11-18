@@ -17,7 +17,7 @@ const ROOT: &str = "/ws";
 const FILES: [(&str, &str); 5] = [
     (
         "package.json",
-        r#"{"name":"web","version":"1.0.0","private":true,"scripts":{"build":"rspack build"},"devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        r#"{"name":"web","version":"1.0.0","private":true,"scripts":{"build":"rspack build"},"dependencies":{"left-pad":"1.0.0"},"devDependencies":{"@rspack/cli":"1.0.0"}}"#,
     ),
     (
         "rspack.config.js",
@@ -32,7 +32,11 @@ const FILES: [(&str, &str); 5] = [
 ];
 
 fn run(toml: &str) -> (Vec<IncompletePackage>, Vec<Diagnostic>) {
-    let memory = FILES.iter().fold(MemoryFs::new(), |memory, (path, text)| {
+    run_files(&FILES, toml)
+}
+
+fn run_files(files: &[(&str, &str)], toml: &str) -> (Vec<IncompletePackage>, Vec<Diagnostic>) {
+    let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
         memory.with_file(Path::new(ROOT).join(path), text)
     });
     let config = Config::from_toml_str(toml).unwrap();
@@ -87,4 +91,78 @@ fn without_an_entry_the_package_stays_incomplete() {
 fn a_plain_entry_completes_a_normal_run() {
     let (incomplete, _) = run("[js]\nentry = [\"src/main.js\"]\n");
     assert_eq!(incomplete, Vec::new());
+}
+
+#[test]
+fn an_unused_dependency_is_reported_once_the_package_is_complete() {
+    let (_, diagnostics) = run("[js]\nproduction = true\nentry = [\"src/main.js!\"]\n");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json"]);
+    let (_, diagnostics) = run("[js]\nproduction = true\n");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new());
+}
+
+#[test]
+fn a_stale_entry_naming_no_file_of_the_package_leaves_it_incomplete() {
+    let (incomplete, diagnostics) = run("[js]\nproduction = true\nentry = [\"src/old.js!\"]\n");
+    assert_eq!(incomplete.len(), 1);
+    assert_eq!(incomplete[0].reasons[0].cause, IncompleteCause::ComputedEntries);
+    assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new());
+}
+
+#[test]
+fn empty_and_negated_entries_do_not_complete_the_package() {
+    for toml in [
+        "[js]\nentry = [\"\", \"  \"]\n",
+        "[js]\nentry = [\"!src/main.js\"]\n",
+        "[js]\nproduction = true\nentry = [\"!\", \" !\"]\n",
+    ] {
+        let (incomplete, _) = run(toml);
+        assert_eq!(incomplete.len(), 1, "{toml}");
+    }
+}
+
+#[test]
+fn another_cause_keeps_the_package_incomplete() {
+    let mut files = FILES.to_vec();
+    files.push((
+        "vitest.config.ts",
+        "import base from '@acme/preset';\nexport default { ...base, test: {} };\n",
+    ));
+    files[0].1 =
+        r#"{"name":"web","version":"1.0.0","private":true,"devDependencies":{"@rspack/cli":"1.0.0","vitest":"3.0.0"}}"#;
+    let (incomplete, _) = run_files(&files, "[js]\nproduction = true\nentry = [\"src/main.js!\"]\n");
+    assert_eq!(incomplete.len(), 1);
+    let causes: Vec<IncompleteCause> = incomplete[0].reasons.iter().map(|reason| reason.cause).collect();
+    assert!(causes.contains(&IncompleteCause::ComputedEntries), "{causes:?}");
+    assert!(causes.len() > 1, "{causes:?}");
+}
+
+const MEMBERS: [(&str, &str); 6] = [
+    (
+        "package.json",
+        r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+    ),
+    (
+        "packages/web/package.json",
+        r#"{"name":"web","version":"1.0.0","private":true,"devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+    ),
+    (
+        "packages/web/rspack.config.js",
+        "module.exports = (env) => ({ entry: Object.fromEntries(Object.keys(env).map((k) => [k, k])) });\n",
+    ),
+    ("packages/web/src/main.js", "export const main = 1;\n"),
+    ("packages/web/src/orphan.js", "export const orphan = 3;\n"),
+    ("src/index.js", "console.log(1);\n"),
+];
+
+#[test]
+fn an_entry_of_the_workspace_table_completes_its_package_but_a_top_level_one_does_not() {
+    let (incomplete, _) = run_files(
+        &MEMBERS,
+        "[js]\nproduction = true\n\n[js.workspaces.\"packages/web\"]\nentry = [\"src/main.js!\"]\n",
+    );
+    assert_eq!(incomplete, Vec::new());
+    let (incomplete, _) = run_files(&MEMBERS, "[js]\nproduction = true\nentry = [\"src/main.js!\"]\n");
+    assert_eq!(incomplete.len(), 1);
+    assert_eq!(incomplete[0].name, "web");
 }

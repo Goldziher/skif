@@ -7,5 +7,6 @@ test/db-setup.ts
   the narrowed scope of its package: **/*.{bench,test,test-d,spec,spec-d}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}, **/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}, **/{test,tests,__tests__,__mocks__,__fixtures__,e2e,spec,specs,fixtures,mocks,testing,test-utils}/**, **/*{setup,Setup,teardown,Teardown}*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}, **/*.{test,spec,bench,e2e,integration}*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}
   vitest reads vitest.config.ts: the configuration spreads or merges in a value that is not known statically (an imported base config)
   vitest reads vitest.config.ts: the keys the tool reads entry files from are computed
+  when computed-entries is the only cause, an explicit `entry` completes the package (in production it must end in `!`); `plugins.<tool> = false` turns the plugin off
   imported by no module
   reached from an entry through: test/db-setup.ts

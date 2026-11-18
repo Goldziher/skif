@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 
-use skif_core::{HashMap, HashSet};
+use skif_core::{HashMap, HashSet, IncompleteCause};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -418,11 +418,15 @@ impl UsageReport {
             };
             let _ = writeln!(out, "  {source}{}", incomplete.cause.describe());
         }
-        if !self.incomplete.is_empty() {
+        if self
+            .incomplete
+            .iter()
+            .any(|incomplete| incomplete.cause == IncompleteCause::ComputedEntries)
+        {
             let _ = writeln!(
                 out,
-                "  an explicit `entry` completes a package whose only cause is computed-entries; \
-                 `plugins.<tool> = false` turns a plugin off"
+                "  when computed-entries is the only cause, an explicit `entry` completes the package (in production \
+                 it must end in `!`); `plugins.<tool> = false` turns the plugin off"
             );
         }
     }

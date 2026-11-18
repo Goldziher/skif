@@ -202,7 +202,12 @@ impl EntryContext<'_> {
         let mut from_tools = BTreeSet::new();
         let mut build_sources = BTreeSet::new();
         let mut declarations = BTreeSet::new();
+        let mut explicit_hit = false;
         for (candidate, rel) in owned() {
+            explicit_hit |= package_setup
+                .explicit_entry
+                .as_ref()
+                .is_some_and(|globs| globs.is_match(&rel));
             if package_setup.entry.is_match(&rel) {
                 own.insert(candidate.abs.clone());
                 if package_setup.plugin_entry.is_match(&rel) {
@@ -234,6 +239,10 @@ impl EntryContext<'_> {
                     .filter(|candidate| candidate.owner != id && package_setup.external_entry.is_match(&candidate.rel))
                     .map(|candidate| candidate.abs.clone()),
             );
+        }
+        // A list naming no file of the package (a stale path) says nothing about the entries the config computes.
+        if package_setup.explicit_entry.is_some() && !explicit_hit {
+            unknown.extend(package_setup.cleared_reasons.iter().map(|reason| (id, reason.clone())));
         }
         let mut published_without_source = false;
         let mut mapped_any = false;

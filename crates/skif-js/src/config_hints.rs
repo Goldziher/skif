@@ -4,6 +4,7 @@
 //! `project` pattern that cancels a pattern ending in `!` of its list.
 
 use skif_core::HashSet;
+use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexSet;
@@ -39,8 +40,8 @@ pub(crate) enum HintKind {
     /// A path `package.json` publishes that names no file (knip's `package-entry`).
     PackageEntry,
     /// A plain `entry` or `project` pattern that selects what a pattern ending in `!` of its list selects: the same
-    /// pattern, any pattern matching the file a `!` pattern names, or any pattern sharing a package file with a `!` glob.
-    /// In production mode the plain pattern excludes it, while the `!` one applies outside production mode too.
+    /// pattern, any pattern matching the file a `!` pattern names, or any pattern sharing a package file with a `!`
+    /// glob. In production mode the plain pattern excludes it, while the `!` one applies outside production mode too.
     MarkerCancelled,
 }
 
@@ -89,6 +90,7 @@ pub(crate) fn config_hints(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
                 id,
                 package,
                 package_setup,
+                owned: OnceCell::new(),
             };
             scope.redundant(&mut hints);
             scope.cancelled_markers(&mut hints);
@@ -128,6 +130,7 @@ struct Scope<'s, 'a> {
     id: PackageId,
     package: &'s skif_workspace::Package,
     package_setup: &'s crate::setup::PackageSetup,
+    owned: OnceCell<Vec<String>>,
 }
 
 impl Scope<'_, '_> {
@@ -177,8 +180,8 @@ impl Scope<'_, '_> {
 
     /// The plain patterns of a list that cancel one of its `!` patterns. A `!` pattern naming one file is cancelled by
     /// every plain pattern matching the file, a `!` glob by the same glob or by a plain pattern sharing a file of the
-    /// package with it, both compared as [`Globs`] compiles them. A list is replaced whole, never merged, so both patterns are written under one key. `project` is not
-    /// judged with a `tsconfig`.
+    /// package with it, both compared as [`Globs`] compiles them. A list is replaced whole, never merged, so both
+    /// patterns are written under one key. `project` is not judged with a `tsconfig`.
     fn cancelled_markers(&self, hints: &mut IndexSet<ConfigHint>) {
         let user = &self.package_setup.user_patterns;
         let project = (!self.inputs.config.js.use_tsconfig_files).then_some(("project", &user.project));
@@ -193,14 +196,15 @@ impl Scope<'_, '_> {
                 .filter_map(|pattern| marker_body(pattern).map(|body| (pattern, body)))
             {
                 let literal = literal_body(marked).is_some();
-                let marked_globs = Globs::new([marked]);
+                let overlap: OnceCell<Vec<&String>> = OnceCell::new();
                 let mut cancelling = plain
                     .iter()
                     .filter(|(pattern, globs)| {
                         if literal {
                             globs.is_match(body)
                         } else {
-                            compiled_text(pattern) == body || self.shares_a_file(&marked_globs, globs)
+                            compiled_text(pattern) == body
+                                || self.overlap(marked, &overlap).iter().any(|rel| globs.is_match(rel))
                         }
                     })
                     .map(|(pattern, _)| *pattern)
@@ -222,15 +226,25 @@ impl Scope<'_, '_> {
         }
     }
 
-    /// Whether a file of the package matches both patterns.
-    fn shares_a_file(&self, marked: &Globs, plain: &Globs) -> bool {
-        let dir = &self.package_setup.dir;
-        self.inputs
-            .candidates
-            .iter()
-            .filter(|candidate| candidate.owner == self.id)
-            .filter_map(|candidate| relative(&candidate.abs, dir))
-            .any(|rel| marked.is_match(&rel) && plain.is_match(&rel))
+    /// The files of the package that `marked` matches, found once per pattern.
+    fn overlap<'c>(&'c self, marked: &str, cell: &'c OnceCell<Vec<&'c String>>) -> &'c [&'c String] {
+        cell.get_or_init(|| {
+            let globs = Globs::new([marked]);
+            self.owned().iter().filter(|rel| globs.is_match(rel)).collect()
+        })
+    }
+
+    /// The package's files, relative to its directory, grouped once per package.
+    fn owned(&self) -> &Vec<String> {
+        self.owned.get_or_init(|| {
+            let dir = &self.package_setup.dir;
+            self.inputs
+                .candidates
+                .iter()
+                .filter(|candidate| candidate.owner == self.id)
+                .filter_map(|candidate| relative(&candidate.abs, dir))
+                .collect()
+        })
     }
 
     /// `project-extension-unregistered` and `project-extension-excluded`.

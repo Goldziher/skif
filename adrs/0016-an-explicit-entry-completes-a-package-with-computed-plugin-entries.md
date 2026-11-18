@@ -5,7 +5,7 @@ decision-makers: ["Na'aman Hirschfeld"]
 amends: ["0008"]
 ---
 
-# An explicit entry completes a package with computed plugin entries
+# An Explicit Entry Completes a Package with Computed Plugin Entries
 
 ## Context and Problem Statement
 
@@ -32,17 +32,23 @@ Does a user-written `entry` complete a package whose only incompleteness is comp
 Chosen option: "An `entry` that applies in the run mode completes a package whose reasons are all
 `computed-entries`", because the explicit list replaces what the computed keys would have named, while any other cause
 keeps the package incomplete. In production mode only a pattern ending in `!` applies; a plain pattern is an exclusion
-there. Negations never apply.
+there. Negations and empty or whitespace-only patterns never apply. The list must also match at least one file the
+package owns: a stale path (`entry = ["src/old.ts"]`) says nothing about the entries the config computes, so the
+package stays incomplete and the end-of-run note still shows.
 
 ### Consequences
 
 * Good, because a package with a function-valued bundler config is judged once its entries are written down
 * Bad, because entries the computed keys would add beyond the list are reported as unused files
+* Bad, because clearing the incompleteness makes every consumer of it apply: `unused-dependencies`,
+  `unused-dev-dependencies`, the `unused-subpath-*` rules, the `ignore-files` judging and `stale-js-config`. A
+  dependency used only by an entry the computed keys would add becomes an unused-dependency finding
 
 ### Confirmation
 
 `crates/skif-js/tests/explicit_entry_complete.rs` covers production and normal runs, a plain pattern in production,
-and a package without `entry`.
+a package without `entry`, stale, empty and negated lists, mixed causes, a workspace table against the top level
+and the unused dependency reported after clearing.
 
 ## Pros and Cons of the Options
 
