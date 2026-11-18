@@ -205,9 +205,9 @@ impl EntryContext<'_> {
         let mut explicit_hit = false;
         for (candidate, rel) in owned() {
             explicit_hit |= package_setup
-                .explicit_entry
+                .completed_by
                 .as_ref()
-                .is_some_and(|globs| globs.is_match(&rel));
+                .is_some_and(|completed| completed.inside.is_match(&rel));
             if package_setup.entry.is_match(&rel) {
                 own.insert(candidate.abs.clone());
                 if package_setup.plugin_entry.is_match(&rel) {
@@ -241,8 +241,14 @@ impl EntryContext<'_> {
             );
         }
         // A list naming no file of the package (a stale path) says nothing about the entries the config computes.
-        if package_setup.explicit_entry.is_some() && !explicit_hit {
-            unknown.extend(package_setup.cleared_reasons.iter().map(|reason| (id, reason.clone())));
+        if let Some(completed) = &package_setup.completed_by {
+            explicit_hit |= !completed.outside.is_empty()
+                && candidates
+                    .iter()
+                    .any(|candidate| candidate.owner != id && completed.outside.is_match(&candidate.rel));
+            if !explicit_hit {
+                unknown.extend(completed.reasons.iter().map(|reason| (id, reason.clone())));
+            }
         }
         let mut published_without_source = false;
         let mut mapped_any = false;

@@ -3,7 +3,7 @@
 //! analyse or leaves out, and published entry files that do not exist. One has no knip counterpart: a plain `entry` or
 //! `project` pattern that cancels a pattern ending in `!` of its list.
 
-use skif_core::HashSet;
+use skif_core::{HashMap, HashSet};
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
@@ -82,14 +82,18 @@ pub(crate) struct HintInputs<'a> {
 pub(crate) fn config_hints(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
     let mut hints: IndexSet<ConfigHint> = top_level_hints(inputs.workspace, inputs.config).collect();
     let keys = &inputs.setup.workspace_keys;
+    let mut by_owner: HashMap<PackageId, Vec<&Candidate>> = HashMap::default();
+    for candidate in inputs.candidates {
+        by_owner.entry(candidate.owner).or_default().push(candidate);
+    }
     for (id, package) in inputs.workspace.iter() {
         if let Some(package_setup) = inputs.setup.package(id) {
             let scope = Scope {
                 inputs,
                 keys,
-                id,
                 package,
                 package_setup,
+                mine: by_owner.get(&id).map_or(&[], Vec::as_slice),
                 owned: OnceCell::new(),
             };
             scope.redundant(&mut hints);
@@ -127,9 +131,10 @@ fn top_level_hints<'a>(workspace: &Workspace, config: &'a Config) -> impl Iterat
 struct Scope<'s, 'a> {
     inputs: &'s HintInputs<'a>,
     keys: &'s WorkspaceKeys,
-    id: PackageId,
     package: &'s skif_workspace::Package,
     package_setup: &'s crate::setup::PackageSetup,
+    /// The candidates the package owns.
+    mine: &'s [&'s Candidate],
     owned: OnceCell<Vec<String>>,
 }
 
@@ -234,14 +239,12 @@ impl Scope<'_, '_> {
         })
     }
 
-    /// The package's files, relative to its directory, grouped once per package.
+    /// The package's files, relative to its directory, listed on first use.
     fn owned(&self) -> &Vec<String> {
         self.owned.get_or_init(|| {
             let dir = &self.package_setup.dir;
-            self.inputs
-                .candidates
+            self.mine
                 .iter()
-                .filter(|candidate| candidate.owner == self.id)
                 .filter_map(|candidate| relative(&candidate.abs, dir))
                 .collect()
         })
@@ -274,10 +277,10 @@ impl Scope<'_, '_> {
             .filter(|extension| !named.iter().any(|n| n == *extension))
         {
             let suffix = format!(".{extension}");
-            let has_files =
-                self.inputs.candidates.iter().any(|candidate| {
-                    candidate.owner == self.id && candidate.rel.to_ascii_lowercase().ends_with(&suffix)
-                });
+            let has_files = self
+                .mine
+                .iter()
+                .any(|candidate| candidate.rel.to_ascii_lowercase().ends_with(&suffix));
             if has_files {
                 hints.insert(self.hint(HintKind::ExtensionExcluded, "project", None, suffix));
             }

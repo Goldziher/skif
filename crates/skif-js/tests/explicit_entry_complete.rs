@@ -6,9 +6,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, IncompleteCause, IncompletePackage, MemoryFs};
-use skif_js::{InputSource, JsAnalysis, JsProvider, PluginSource};
+use skif_config::{Ceiling, Config, ConfigCache, ConfigLoader};
+use skif_core::{
+    Diagnostic, FileSystem, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope, MemoryFs,
+};
+use skif_js::{InputRequest, InputSource, JsAnalysis, JsProvider, PluginSource, WorkspaceInputs};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
@@ -36,10 +38,14 @@ fn run(toml: &str) -> (Vec<IncompletePackage>, Vec<Diagnostic>) {
 }
 
 fn run_files(files: &[(&str, &str)], toml: &str) -> (Vec<IncompletePackage>, Vec<Diagnostic>) {
-    let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
-        memory.with_file(Path::new(ROOT).join(path), text)
-    });
-    let config = Config::from_toml_str(toml).unwrap();
+    let memory = files.iter().fold(
+        MemoryFs::new().with_file(Path::new(ROOT).join("skif.toml"), toml),
+        |memory, (path, text)| memory.with_file(Path::new(ROOT).join(path), text),
+    );
+    let config = ConfigLoader::new(&memory, &ConfigCache::new())
+        .resolve(Path::new(ROOT), &Ceiling::RootOnly)
+        .unwrap()
+        .config;
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let source = || {
@@ -102,11 +108,62 @@ fn an_unused_dependency_is_reported_once_the_package_is_complete() {
 }
 
 #[test]
-fn a_stale_entry_naming_no_file_of_the_package_leaves_it_incomplete() {
-    let (incomplete, diagnostics) = run("[js]\nproduction = true\nentry = [\"src/old.js!\"]\n");
-    assert_eq!(incomplete.len(), 1);
-    assert_eq!(incomplete[0].reasons[0].cause, IncompleteCause::ComputedEntries);
+fn a_stale_entry_naming_no_file_of_the_package_leaves_it_as_incomplete_as_no_entry() {
+    let (without, _) = run("[js]\nproduction = true\n");
+    let (stale, diagnostics) = run("[js]\nproduction = true\nentry = [\"src/old.js!\"]\n");
+    assert_eq!(stale, without);
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].scope, IncompleteScope::Package);
+    let reasons: Vec<_> = stale[0]
+        .reasons
+        .iter()
+        .map(|r| (r.cause, r.plugin.as_deref(), r.file.as_deref()))
+        .collect();
+    assert_eq!(
+        reasons,
+        [(
+            IncompleteCause::ComputedEntries,
+            Some("rspack"),
+            Some(Path::new("rspack.config.js"))
+        )]
+    );
     assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new());
+}
+
+/// A source whose only input is a computed-entries reason that can name files below `src` only, as a tool that looks
+/// for entries by convention would report.
+struct NarrowedSource;
+
+impl InputSource for NarrowedSource {
+    fn inputs(&self, _request: &InputRequest<'_>) -> WorkspaceInputs {
+        let mut inputs = WorkspaceInputs::default();
+        inputs.entries_incomplete = true;
+        inputs.incomplete_scope = IncompleteScope::Within(vec!["src/**".to_owned()]);
+        inputs.incomplete_reasons = vec![IncompleteEntries::new(IncompleteCause::ComputedEntries)];
+        inputs
+    }
+}
+
+fn narrowed(toml: &str) -> Vec<IncompletePackage> {
+    let memory = FILES.iter().fold(MemoryFs::new(), |memory, (path, text)| {
+        memory.with_file(Path::new(ROOT).join(path), text)
+    });
+    let config = Config::from_toml_str(toml).unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(NarrowedSource)];
+    JsAnalysis::build(&workspace, &config, &fs, &sources, true).incomplete_packages()
+}
+
+#[test]
+fn a_stale_entry_restores_the_narrowed_scope_of_the_config() {
+    let without = narrowed("[js]\nproduction = true\n");
+    assert_eq!(without.len(), 1);
+    assert_eq!(without[0].scope, IncompleteScope::Within(vec!["src/**".to_owned()]));
+    let stale = narrowed("[js]\nproduction = true\nentry = [\"src/old.js!\"]\n");
+    assert_eq!(stale, without);
+    let complete = narrowed("[js]\nproduction = true\nentry = [\"src/main.js!\"]\n");
+    assert_eq!(complete, Vec::new());
 }
 
 #[test]
@@ -165,4 +222,34 @@ fn an_entry_of_the_workspace_table_completes_its_package_but_a_top_level_one_doe
     let (incomplete, _) = run_files(&MEMBERS, "[js]\nproduction = true\nentry = [\"src/main.js!\"]\n");
     assert_eq!(incomplete.len(), 1);
     assert_eq!(incomplete[0].name, "web");
+}
+
+#[test]
+fn a_marked_entry_completes_a_normal_run_and_a_dot_slash_one_a_production_run() {
+    let (incomplete, _) = run("[js]\nentry = [\"src/main.js!\"]\n");
+    assert_eq!(incomplete, Vec::new());
+    let (incomplete, _) = run("[js]\nproduction = true\nentry = [\"./src/main.js!\"]\n");
+    assert_eq!(incomplete, Vec::new());
+}
+
+#[test]
+fn a_marker_followed_by_whitespace_is_not_a_production_entry() {
+    let (incomplete, _) = run("[js]\nproduction = true\nentry = [\"src/main.js! \"]\n");
+    assert_eq!(incomplete.len(), 1);
+}
+
+#[test]
+fn an_entry_of_an_override_completes_the_package() {
+    let toml = "[js]\nproduction = true\n\n[[overrides]]\npackages = [\"web\"]\n\n[overrides.js]\nentry = [\"src/main.js!\"]\n";
+    let (incomplete, _) = run(toml);
+    assert_eq!(incomplete, Vec::new());
+}
+
+#[test]
+fn an_entry_outside_the_package_that_names_a_file_completes_it() {
+    let mut files = MEMBERS.to_vec();
+    files.push(("shared/app.js", "export const app = 1;\n"));
+    let toml = "[js]\nproduction = true\n\n[js.workspaces.\"packages/web\"]\nentry = [\"../../shared/app.js!\"]\n";
+    let (incomplete, _) = run_files(&files, toml);
+    assert_eq!(incomplete, Vec::new());
 }

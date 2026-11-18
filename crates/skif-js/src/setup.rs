@@ -358,6 +358,18 @@ pub(crate) fn ignores_in_file_use(setting: &IgnoreExportsUsedInFile, export: &Ex
     }
 }
 
+/// The incompleteness a user's `entry` cleared, and the patterns that cleared it.
+pub(crate) struct CompletedEntries {
+    /// The applying patterns, relative to the package directory.
+    pub inside: Globs,
+    /// The applying patterns that point outside it, relative to the workspace root.
+    pub outside: Globs,
+    /// The computed-entries reasons cleared.
+    pub reasons: Vec<IncompleteEntries>,
+    /// The narrowed scope the plugin gave, if any.
+    pub scope: Option<IncompleteScopeGlobs>,
+}
+
 /// The settings of one workspace package.
 pub(crate) struct PackageSetup {
     pub id: PackageId,
@@ -394,11 +406,9 @@ pub(crate) struct PackageSetup {
     pub entries_incomplete: bool,
     /// Why the entry files are incomplete; not empty when they are.
     pub incomplete_reasons: Vec<IncompleteEntries>,
-    /// The user's `entry` patterns that applied when they completed a package whose only cause was computed entries.
-    /// The package is incomplete again when none of them matches a file it owns.
-    pub explicit_entry: Option<Globs>,
-    /// The computed-entries reasons the `explicit_entry` cleared.
-    pub cleared_reasons: Vec<IncompleteEntries>,
+    /// What the user's `entry` cleared when it completed a package whose only cause was computed entries. The package
+    /// is incomplete again, as it was, when none of the patterns names a file.
+    pub completed_by: Option<CompletedEntries>,
     /// When the entry files are incomplete, the globs (relative to the package directory) of the only files that may
     /// be unknown entries; `None` when they may be anywhere. The matching project files are treated as entries and
     /// every other file is judged unused as usual (ADR 0008).
@@ -1096,13 +1106,14 @@ impl Setup {
                 entry_globs = entry_globs.or(globs.globs(&kept));
             }
             // Entries the plugin config computes are named by the package's own `entry` when it applies in this mode.
-            let explicit: Vec<String> = user
-                .entry
-                .iter()
-                .map(|pattern| pattern.trim())
-                .filter(|pattern| !pattern.is_empty() && !pattern.starts_with('!'))
-                .filter(|pattern| !production || pattern.ends_with('!'))
-                .map(|pattern| pattern.strip_suffix('!').unwrap_or(pattern).to_owned())
+            let view = if production {
+                listed::production_view(&user.entry)
+            } else {
+                listed::plain_view(&user.entry)
+            };
+            let explicit: Vec<String> = view
+                .into_iter()
+                .filter(|pattern| !pattern.trim().is_empty() && !pattern.starts_with('!'))
                 .collect();
             let only_computed = !plugin.incomplete_reasons.is_empty()
                 && plugin
@@ -1111,11 +1122,28 @@ impl Setup {
                     .all(|reason| reason.cause == IncompleteCause::ComputedEntries);
             let completed = plugin.entries_incomplete && !explicit.is_empty() && only_computed;
             let entries_incomplete = plugin.entries_incomplete && !completed;
-            let (explicit_entry, cleared_reasons) = if completed {
-                (Some(globs.globs(&explicit)), plugin.incomplete_reasons.clone())
-            } else {
-                (None, Vec::new())
+            let incomplete_scope = match &plugin.incomplete_scope {
+                IncompleteScope::Within(patterns) if plugin.entries_incomplete => {
+                    Some(IncompleteScopeGlobs::new(patterns.clone()))
+                }
+                _ => None,
             };
+            let completed_by = completed.then(|| {
+                let (outside, inside): (Vec<String>, Vec<String>) = explicit
+                    .iter()
+                    .cloned()
+                    .partition(|pattern| pattern.trim_start_matches("./").starts_with("../"));
+                CompletedEntries {
+                    inside: globs.globs(&inside),
+                    outside: Globs::new(
+                        outside
+                            .iter()
+                            .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
+                    ),
+                    reasons: plugin.incomplete_reasons.clone(),
+                    scope: incomplete_scope.clone(),
+                }
+            });
             let setup = PackageSetup {
                 id,
                 dir: abs_dir,
@@ -1130,14 +1158,8 @@ impl Setup {
                 shared_build_source: globs.globs(&shared_build_source),
                 build_source_files,
                 entries_incomplete,
-                explicit_entry,
-                cleared_reasons,
-                incomplete_scope: match &plugin.incomplete_scope {
-                    IncompleteScope::Within(patterns) if entries_incomplete => {
-                        Some(IncompleteScopeGlobs::new(patterns.clone()))
-                    }
-                    _ => None,
-                },
+                completed_by,
+                incomplete_scope: incomplete_scope.filter(|_| entries_incomplete),
                 widened_by: None,
                 incomplete_reasons: if !entries_incomplete {
                     Vec::new()
@@ -1277,8 +1299,20 @@ impl Setup {
     pub(crate) fn mark_entries_incomplete(&mut self, unknown: &[(PackageId, IncompleteEntries)]) {
         for (id, reason) in unknown {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
+                // A reason the user's `entry` cleared comes back with the scope it had, any other makes the whole
+                // package incomplete.
+                let cleared = package
+                    .completed_by
+                    .as_ref()
+                    .filter(|completed| completed.reasons.contains(reason));
+                if let Some(completed) = cleared {
+                    if !package.entries_incomplete {
+                        package.incomplete_scope = completed.scope.clone();
+                    }
+                } else {
+                    package.incomplete_scope = None;
+                }
                 package.entries_incomplete = true;
-                package.incomplete_scope = None;
                 package.incomplete_reasons.push(reason.clone());
             }
         }
