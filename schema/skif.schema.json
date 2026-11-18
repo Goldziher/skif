@@ -1108,7 +1108,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Entry-point globs, added to the ones plugins and `package.json` provide. In production mode only the\npatterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.",
+          "description": "Entry-point globs, added to the ones plugins and `package.json` provide. In production mode only the\npatterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.\nAn entry that applies in the run mode also completes a package whose plugin configs only compute their\nentries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.",
           "default": []
         },
         "project": {
@@ -1253,7 +1253,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/PluginConfig"
           },
-          "description": "Plugin switches keyed by plugin name.",
+          "description": "Plugin switches keyed by plugin name. `<tool> = false` turns a plugin off, also when its config leaves a\npackage's entries incomplete.",
           "default": {}
         },
         "compilers": {
@@ -1440,7 +1440,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Entry-point globs relative to the workspace directory. In production mode only the patterns ending in `!`\nselect entries; a plain pattern excludes what a `!` pattern selects.",
+          "description": "Entry-point globs relative to the workspace directory. In production mode only the patterns ending in `!`\nselect entries; a plain pattern excludes what a `!` pattern selects.\nAn entry that applies in the run mode also completes a package whose plugin configs only compute their\nentries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.",
           "default": []
         },
         "project": {
@@ -1774,7 +1774,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Replaces the entry globs; an empty list clears what the package inherits. In production mode only the\npatterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects."
+          "description": "Replaces the entry globs; an empty list clears what the package inherits. In production mode only the\npatterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.\nAn entry that applies in the run mode also completes a package whose plugin configs only compute their\nentries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete."
         },
         "project": {
           "type": [

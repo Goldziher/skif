@@ -418,6 +418,13 @@ impl UsageReport {
             };
             let _ = writeln!(out, "  {source}{}", incomplete.cause.describe());
         }
+        if !self.incomplete.is_empty() {
+            let _ = writeln!(
+                out,
+                "  an explicit `entry` completes a package whose only cause is computed-entries; \
+                 `plugins.<tool> = false` turns a plugin off"
+            );
+        }
     }
 
     /// The report as text for a terminal.

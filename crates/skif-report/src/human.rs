@@ -61,7 +61,7 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
             .collect();
         let line = format!(
             "note: unused files and dependencies were not fully checked in {} ({}): their entry files are not all known; \
-             `skif explain-usage <file>` says why",
+             list them in `entry` or set `plugins.<tool> = false`; `skif explain-usage <file>` says why",
             plural(names.len(), "package"),
             names.join(", ")
         );

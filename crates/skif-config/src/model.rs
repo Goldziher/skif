@@ -2233,6 +2233,8 @@ pub struct Js {
     pub enabled: bool,
     /// Entry-point globs, added to the ones plugins and `package.json` provide. In production mode only the
     /// patterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.
+    /// An entry that applies in the run mode also completes a package whose plugin configs only compute their
+    /// entries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.
     pub entry: Vec<String>,
     /// Globs of the files that belong to the project.
     pub project: Vec<String>,
@@ -2305,7 +2307,8 @@ pub struct Js {
     pub cycles: JsCycles,
     /// Per-workspace overrides keyed by directory. The key `"."` is the root workspace.
     pub workspaces: IndexMap<String, JsWorkspace>,
-    /// Plugin switches keyed by plugin name.
+    /// Plugin switches keyed by plugin name. `<tool> = false` turns a plugin off, also when its config leaves a
+    /// package's entries incomplete.
     pub plugins: IndexMap<String, PluginConfig>,
     /// How to read the files of extensions skif has no reader for, keyed by the extension without its dot (`html`):
     /// the static counterpart of knip's `compilers`, which never runs project code. Such files join the default
@@ -2657,6 +2660,8 @@ pub struct ExportKinds {
 pub struct JsWorkspace {
     /// Entry-point globs relative to the workspace directory. In production mode only the patterns ending in `!`
     /// select entries; a plain pattern excludes what a `!` pattern selects.
+    /// An entry that applies in the run mode also completes a package whose plugin configs only compute their
+    /// entries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.
     pub entry: Vec<String>,
     /// Project file globs relative to the workspace directory.
     pub project: Vec<String>,
@@ -2800,6 +2805,8 @@ impl PluginOptions {
 pub struct PackageJs {
     /// Replaces the entry globs; an empty list clears what the package inherits. In production mode only the
     /// patterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.
+    /// An entry that applies in the run mode also completes a package whose plugin configs only compute their
+    /// entries; set `plugins.<tool> = false` to switch off a plugin whose config leaves a package incomplete.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entry: Option<Vec<String>>,
     /// Replaces the project globs; an empty list clears what the package inherits.

@@ -1090,6 +1090,18 @@ impl Setup {
                 kept.extend(listed::negations(&user.entry));
                 entry_globs = entry_globs.or(globs.globs(&kept));
             }
+            // Entries the plugin config computes are named by the package's own `entry` when it applies in this mode.
+            let names_entries = user
+                .entry
+                .iter()
+                .any(|pattern| !pattern.starts_with('!') && (!production || pattern.ends_with('!')));
+            let entries_incomplete = plugin.entries_incomplete
+                && !(names_entries
+                    && !plugin.incomplete_reasons.is_empty()
+                    && plugin
+                        .incomplete_reasons
+                        .iter()
+                        .all(|reason| reason.cause == IncompleteCause::ComputedEntries));
             let setup = PackageSetup {
                 id,
                 dir: abs_dir,
@@ -1103,15 +1115,17 @@ impl Setup {
                 build_source: globs.globs(&build_source),
                 shared_build_source: globs.globs(&shared_build_source),
                 build_source_files,
-                entries_incomplete: plugin.entries_incomplete,
+                entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {
-                    IncompleteScope::Within(patterns) if plugin.entries_incomplete => {
+                    IncompleteScope::Within(patterns) if entries_incomplete => {
                         Some(IncompleteScopeGlobs::new(patterns.clone()))
                     }
                     _ => None,
                 },
                 widened_by: None,
-                incomplete_reasons: if plugin.entries_incomplete && plugin.incomplete_reasons.is_empty() {
+                incomplete_reasons: if !entries_incomplete {
+                    Vec::new()
+                } else if plugin.incomplete_reasons.is_empty() {
                     vec![IncompleteEntries::new(IncompleteCause::Unspecified)]
                 } else {
                     plugin.incomplete_reasons
