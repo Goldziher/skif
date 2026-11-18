@@ -1,7 +1,26 @@
 //! Glob helpers shared by the plugin table and the module graph.
 
+use globset::GlobBuilder;
+
 /// The most variants one pattern expands to; past it the remaining groups are left as they are.
 const MAX_VARIANTS: usize = 64;
+
+/// Whether `path` matches `pattern`, compiled the way `skif-js` compiles an `entry` or `project` glob: trimmed,
+/// without a leading `./` and a trailing `!`, with empty brace alternatives expanded and one path segment per `*`.
+/// `pattern` that compiles to nothing matches nothing.
+#[must_use]
+pub fn is_match(pattern: &str, path: &str) -> bool {
+    let pattern = pattern.trim().trim_start_matches("./").trim_end_matches('!');
+    if pattern.is_empty() {
+        return false;
+    }
+    expand_empty_alternatives(pattern).iter().any(|variant| {
+        GlobBuilder::new(variant)
+            .literal_separator(true)
+            .build()
+            .is_ok_and(|glob| glob.compile_matcher().is_match(path))
+    })
+}
 
 /// Expands every brace group that has an empty alternative, such as `{,src/}app/**`, into separate patterns.
 ///
@@ -147,7 +166,7 @@ fn split_alternatives(body: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{expand_empty_alternatives, expand_path_alternatives};
+    use super::{expand_empty_alternatives, expand_path_alternatives, is_match};
 
     #[test]
     fn empty_alternatives_expand_and_others_stay() {
@@ -208,5 +227,16 @@ mod tests {
         );
         assert_eq!(expand_path_alternatives("a/*.{ts,tsx}"), ["a/*.{ts,tsx}"]);
         assert_eq!(expand_path_alternatives("{a,{b/c,d}}/x"), ["a/x", "b/c/x", "d/x"]);
+    }
+
+    #[test]
+    fn patterns_match_paths_the_way_entry_globs_do() {
+        assert!(is_match("src/*/index.ts", "src/login/index.ts"));
+        assert!(is_match("./src/*/index.ts", "src/login/index.ts"));
+        assert!(is_match("src/*/index.ts!", "src/login/index.ts"));
+        assert!(!is_match("src/*/index.ts", "src/login/index.tsx"));
+        assert!(!is_match("src/*/index.ts", "src/nested/login/index.ts"));
+        assert!(!is_match("", "src/index.ts"));
+        assert!(is_match("src/{a,b}/index.ts", "src/b/index.ts"));
     }
 }

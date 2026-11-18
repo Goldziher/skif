@@ -16,6 +16,13 @@ All notable changes to this project are documented here. The format follows
   development entry, so removing the pattern would make the production run report the file as unused. A `!` pattern
   is redundant only when a production entry names the file. (#258)
 
+### Fixed
+
+- `skif migrate --merge` drops the plain `entry` or `project` patterns whose files a migrated `!` production entry
+  covers, not only the plain entries a `x{a,b}!` entry expands to: the pair excluded the files in production mode. A
+  broader pattern dropped this way is named under "Needs a human", as files only it made entries in development may
+  be lost. (#257)
+
 ## [0.9.1] - 2026-11-18
 
 ### Changed

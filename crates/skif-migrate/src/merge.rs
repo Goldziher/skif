@@ -132,12 +132,13 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
         }
         (current, merge) = apply(migration, &base, &added, skip_profile);
     }
-    let notes = mode_notes(migration, &original, &current, &withheld, &kept_on);
+    let mut notes = mode_notes(migration, &original, &current, &withheld, &kept_on);
     let mut replaced = Vec::new();
     if migration.tools.contains(&Tool::Knip) && enable_js(&mut current) {
         replaced.push(format!("{}.{}", keys::JS, keys::JS_ENABLED));
     }
     replaced.append(&mut merge.replaced);
+    notes.extend(human_notes(&merge.broad, migration));
     let toml = with_sources(&current.to_string(), &sources);
     Ok(Merged {
         toml: if is_crlf(existing) { to_crlf(&toml) } else { toml },
@@ -190,6 +191,7 @@ fn apply(migration: &Migration, base: &DocumentMut, added: &DocumentMut, skip_pr
         kept: Vec::new(),
         left: Vec::new(),
         replaced: Vec::new(),
+        broad: Vec::new(),
         banner: Some(banner(&migration.tools, migration.profile)),
     };
     merge.table(current.as_table_mut(), added.as_table(), "");
@@ -303,6 +305,48 @@ fn mode_notes(
         rewrite_flag_note(note, &unwritten, strict_written_by_knip);
     }
     notes
+}
+
+/// One needs-human note per list where a plain pattern broader than the files of a migrated `!` entry was dropped:
+/// a plain pattern next to a `!` pattern excludes it in production mode, and the broader one may have been the only
+/// `entry` of development-only files.
+fn human_notes(broad: &[(String, Vec<String>)], migration: &Migration) -> Vec<Note> {
+    let tool = migration.tools.first().copied().unwrap_or(Tool::Knip);
+    let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
+    for (path, patterns) in broad {
+        match grouped.iter_mut().find(|(known, _)| known == path) {
+            Some((_, known)) => {
+                for pattern in patterns {
+                    if !known.contains(pattern) {
+                        known.push(pattern.clone());
+                    }
+                }
+            }
+            None => grouped.push((path.clone(), patterns.clone())),
+        }
+    }
+    grouped
+        .into_iter()
+        .map(|(path, patterns)| Note {
+            class: NoteClass::Human,
+            tool,
+            file: "skif.toml".to_owned(),
+            path: path.clone(),
+            message: format!(
+                "dropped the plain patterns {}, which cover what the migrated production entries select",
+                patterns
+                    .iter()
+                    .map(|pattern| format!("`{pattern}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            suggestion: Some(
+                "check the dropped patterns for files that are entries in development only, and add `entry` \
+                 patterns for those"
+                    .to_owned(),
+            ),
+        })
+        .collect()
 }
 
 fn js_bool(document: &DocumentMut, key: &str) -> Option<bool> {
@@ -595,6 +639,9 @@ struct Merge {
     left: Vec<String>,
     /// The lists whose plain `entry` or `project` patterns took the production marker of the migrated ones.
     replaced: Vec<String>,
+    /// One `(path, patterns)` per list where a plain pattern broader than the files of a migrated `!` entry was
+    /// dropped: files only it made entries may no longer be entries in development either.
+    broad: Vec<(String, Vec<String>)>,
     /// The banner for the first top-level table that is added.
     banner: Option<String>,
 }
@@ -703,7 +750,7 @@ impl Merge {
                 append(existing, value.clone());
                 continue;
             };
-            if rule == MarkerRule::Production && self.replace_expanded(existing, value, path) {
+            if rule == MarkerRule::Production && self.replace_covered(existing, value, path) {
                 continue;
             }
             let body = rule.split(name).0;
@@ -717,38 +764,69 @@ impl Merge {
         }
     }
 
-    /// For a production entry `x{a,b}!`: the plain entries of `existing` that equal one of its brace expansions
-    /// (`xa`, `xb`) are replaced by it, the first one in place and the others removed, since a plain pattern next to
-    /// a `!` pattern for the same files excludes them in production mode. The comments of the removed entries move
-    /// to the replacement. Whether the entry replaced any.
-    fn replace_expanded(&mut self, existing: &mut Array, added: &Value, path: &str) -> bool {
+    /// For a production entry `x{a,b}!` or a plain `x!`: the plain entries of `existing` whose files it covers are
+    /// replaced by it, the first one in place and the others removed, since a plain pattern next to a `!` pattern
+    /// for the same files excludes them in production mode. An entry that equals one of the brace expansions, or a
+    /// literal path one of them matches, is covered exactly; a broader pattern that matches one of them is dropped
+    /// too, with a needs-human note ([`Merge::broad`]), since files only it made entries may be lost. The comments
+    /// of the removed entries move to the replacement. Whether the entry replaced any.
+    fn replace_covered(&mut self, existing: &mut Array, added: &Value, path: &str) -> bool {
         let Some((name, reason)) = named(added) else {
             return false;
         };
-        let Some(expansions) = name.strip_suffix('!').and_then(expand_braces) else {
+        let Some(body) = name.strip_suffix('!') else {
             return false;
         };
-        let overlapping: Vec<usize> = existing
+        let mut expansions = expand_braces(body).unwrap_or_default();
+        if expansions.is_empty() {
+            expansions.push(body.to_owned());
+        }
+        let mut broad: Vec<String> = Vec::new();
+        let overlapping: Vec<(usize, bool)> = existing
             .iter()
             .enumerate()
-            .filter(|(_, present)| {
-                named(present).is_some_and(|(other, _)| !other.ends_with('!') && expansions.iter().any(|e| e == other))
+            .filter_map(|(index, present)| {
+                let (other, _) = named(present)?;
+                if other.starts_with('!') || other.ends_with('!') {
+                    return None;
+                }
+                let exact = other == body || expansions.iter().any(|expanded| expanded == other);
+                let plain_covers = expansions
+                    .iter()
+                    .any(|expanded| skif_js_plugins::glob::is_match(other, expanded));
+                let marker_covers = expansions
+                    .iter()
+                    .any(|expanded| skif_js_plugins::glob::is_match(expanded, other));
+                if !(exact || plain_covers || marker_covers) {
+                    return None;
+                }
+                let literal = !other.contains(['*', '?', '[', '{']);
+                Some((index, !exact && !literal))
             })
-            .map(|(index, _)| index)
             .collect();
-        let Some((&first, rest)) = overlapping.split_first() else {
+        let Some((&(first, _), rest)) = overlapping.split_first() else {
             return false;
         };
+        let rest: Vec<usize> = rest.iter().map(|&(index, _)| index).collect();
+        broad.extend(
+            overlapping
+                .iter()
+                .filter(|(_, unprovably)| *unprovably)
+                .filter_map(|&(index, _)| existing.get(index).and_then(named).map(|(name, _)| name.to_owned())),
+        );
         let held_reason = overlapping
             .iter()
-            .find_map(|&index| existing.get(index).and_then(named).and_then(|(_, reason)| reason));
+            .find_map(|&(index, _)| existing.get(index).and_then(named).and_then(|(_, reason)| reason));
         if held_reason.is_some_and(|held| reason.is_some_and(|new| new != held)) {
             push_once(&mut self.kept, path);
         }
         let mut layout = Layout::read(existing);
-        layout.replace(first, rest, entry_value(name, held_reason.or(reason)));
+        layout.replace(first, &rest, entry_value(name, held_reason.or(reason)));
         layout.write(existing);
         push_once(&mut self.replaced, path);
+        if !broad.is_empty() {
+            self.broad.push((path.to_owned(), broad));
+        }
         true
     }
 
@@ -1145,16 +1223,57 @@ mod tests {
 
     #[test]
     fn a_brace_production_entry_next_to_unrelated_plain_entries_is_appended() {
-        let existing = "[js]\nentry = [\"src/other.ts\", \"src/*/*.ts\"]\n";
+        let existing = "[js]\nentry = [\"src/other.ts\", \"lib/*.ts\"]\n";
         let merged = merged_knip(existing, "\n[js]\nentry = [\"src/*/index.{ts,tsx}!\"]\n");
         assert!(
             merged
                 .toml
-                .starts_with("[js]\nentry = [\"src/other.ts\", \"src/*/*.ts\", \"src/*/index.{ts,tsx}!\"]\n"),
+                .starts_with("[js]\nentry = [\"src/other.ts\", \"lib/*.ts\", \"src/*/index.{ts,tsx}!\"]\n"),
             "{}",
             merged.toml
         );
         assert_eq!(merged.replaced_existing, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_production_entry_replaces_the_plain_entries_that_cover_its_files() {
+        let existing = "[js.workspaces.app]\nentry = [\"src/*/index.ts\", \"src/*/index.tsx\"] # mine\n";
+        let merged = merged_knip(
+            existing,
+            "\n[js.workspaces.app]\nentry = [\"src/login/index.ts!\", \"src/taskpane/index.tsx!\"]\n",
+        );
+        assert!(
+            merged.toml.starts_with(
+                "[js.workspaces.app]\nentry = [\"src/login/index.ts!\", \"src/taskpane/index.tsx!\"] \
+                              # mine\n"
+            ),
+            "{}",
+            merged.toml
+        );
+        assert_eq!(merged.replaced_existing, ["js.workspaces.app.entry"]);
+        let note = merged
+            .notes
+            .iter()
+            .find(|note| note.class == NoteClass::Human)
+            .expect("a needs-human note");
+        assert!(
+            note.message.contains("`src/*/index.ts`") && note.message.contains("`src/*/index.tsx`"),
+            "{}",
+            note.message
+        );
+    }
+
+    #[test]
+    fn a_production_entry_replaces_the_plain_literal_its_glob_covers_without_a_note() {
+        let existing = "[js]\nentry = [\"src/login/index.ts\"]\n";
+        let merged = merged_knip(existing, "\n[js]\nentry = [\"src/*/index.ts!\"]\n");
+        assert!(
+            merged.toml.starts_with("[js]\nentry = [\"src/*/index.ts!\"]\n"),
+            "{}",
+            merged.toml
+        );
+        assert_eq!(merged.replaced_existing, ["js.entry"]);
+        assert!(merged.notes.iter().all(|note| note.class != NoteClass::Human));
     }
 
     #[test]

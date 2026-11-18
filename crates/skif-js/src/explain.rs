@@ -334,6 +334,10 @@ pub struct UsageReport {
     pub widened_by: Option<String>,
     /// Which rule makes it an entry file, when it is one.
     pub entry: Option<EntryReason>,
+    /// The plain `entry` pattern of the package's configuration that production mode excludes the file by, when it
+    /// does: a plain `entry` pattern is a development entry, which production mode keeps out of the project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub excluded_by_entry: Option<String>,
     /// The file is a build source that is no entry, a file a plugin names as one a tool builds from (the `srcs` and
     /// `data` of a Bazel rule): used, and the graph starts from it, but its exports are judged.
     #[serde(skip_serializing_if = "is_false")]
@@ -393,7 +397,15 @@ impl UsageReport {
                 self.render_incomplete(out);
             }
             Absence::OutsideProject => {
-                let _ = writeln!(out, "  not analysed: outside the project globs of its package");
+                if let Some(pattern) = &self.excluded_by_entry {
+                    let _ = writeln!(
+                        out,
+                        "  not analysed: `entry` pattern `{pattern}` is a development entry, which production mode \
+                         excludes"
+                    );
+                } else {
+                    let _ = writeln!(out, "  not analysed: outside the project globs of its package");
+                }
             }
             Absence::Ignored => {
                 let _ = writeln!(out, "  not analysed: matched by an `ignore` glob");
@@ -794,12 +806,12 @@ impl JsAnalysis<'_> {
             .find(|module| module.path == file || module.abs == file)
         else {
             let unused = self.unused_files.iter().find(|unused| unused.path == file);
-            let (absence, incomplete, incomplete_scope) = if let Some(unused) = unused {
+            let (absence, incomplete, incomplete_scope, excluded_by_entry) = if let Some(unused) = unused {
                 let (incomplete, scope) = self.narrowed_scope(unused.owner);
-                (Absence::UnusedFile, incomplete, scope)
+                (Absence::UnusedFile, incomplete, scope, None)
             } else {
-                let (absence, incomplete) = self.absence_of(file);
-                (absence, incomplete, Vec::new())
+                let (absence, incomplete, excluded_by_entry) = self.absence_of(file);
+                (absence, incomplete, Vec::new(), excluded_by_entry)
             };
             let widened_by = (absence == Absence::EntriesIncomplete)
                 .then(|| self.widened_by(file))
@@ -812,6 +824,7 @@ impl JsAnalysis<'_> {
                 incomplete_scope,
                 scope_package: None,
                 widened_by,
+                excluded_by_entry,
                 entry: None,
                 build_source: false,
                 imported_by: Vec::new(),
@@ -853,6 +866,7 @@ impl JsAnalysis<'_> {
             incomplete_scope,
             scope_package,
             widened_by: None,
+            excluded_by_entry: None,
             entry,
             build_source: module.is_build_source,
             imported_by: self.importers(module, &walk),
@@ -1080,7 +1094,7 @@ impl JsAnalysis<'_> {
     /// Why `file` (relative to the workspace root, or absolute), which is neither in the graph nor reported unused,
     /// is not analysed. The checks follow the `unused-files` filter, with what discovery, the project globs and the
     /// ignores leave out ahead of incomplete entries: those only explain a source file the analysis would judge.
-    fn absence_of(&self, file: &Path) -> (Absence, Vec<IncompleteEntries>) {
+    fn absence_of(&self, file: &Path) -> (Absence, Vec<IncompleteEntries>, Option<String>) {
         let root = &self.workspace.root;
         let abs = if file.is_absolute() {
             file.to_path_buf()
@@ -1095,33 +1109,44 @@ impl JsAnalysis<'_> {
             .max_by_key(|(_, dir)| dir.components().count())
             .map(|(id, _)| id);
         let Some(owner) = owner else {
-            return (Absence::NotDiscovered, Vec::new());
+            return (Absence::NotDiscovered, Vec::new(), None);
         };
         let Some(package) = self.setup.package(owner) else {
-            return (Absence::PackageExcluded, Vec::new());
+            return (Absence::PackageExcluded, Vec::new(), None);
         };
         let Some(rel) = relative(&abs, root) else {
-            return (Absence::NotDiscovered, Vec::new());
+            return (Absence::NotDiscovered, Vec::new(), None);
         };
         if !self.outside_graph.contains(&rel) {
-            return (Absence::NotDiscovered, Vec::new());
+            return (Absence::NotDiscovered, Vec::new(), None);
         }
         if is_declaration_file(&rel) {
-            return (Absence::DeclarationFile, Vec::new());
+            return (Absence::DeclarationFile, Vec::new(), None);
         }
         let Some(in_package) = relative(&abs, &package.dir) else {
-            return (Absence::OutsideProject, Vec::new());
+            return (Absence::OutsideProject, Vec::new(), None);
         };
         if !package.project.is_match(&in_package) {
-            return (Absence::OutsideProject, Vec::new());
+            // A plain `entry` pattern is a development entry, which production mode keeps out of the project: name it
+            // when one of the config's plain patterns excludes the file.
+            let development_entry = self.setup.production.then(|| {
+                package
+                    .user_patterns
+                    .entry
+                    .iter()
+                    .filter(|pattern| !pattern.is_empty() && !pattern.starts_with('!') && !pattern.ends_with('!'))
+                    .find(|pattern| Globs::new([pattern.as_str()]).is_match(&in_package))
+                    .cloned()
+            });
+            return (Absence::OutsideProject, Vec::new(), development_entry.flatten());
         }
         if package.ignore.matches_any(&in_package) || self.setup.global_ignore.matches_any(&rel) {
-            return (Absence::Ignored, Vec::new());
+            return (Absence::Ignored, Vec::new(), None);
         }
         if package.unjudged_package_wide() {
-            return (Absence::EntriesIncomplete, self.incomplete_reasons(package));
+            return (Absence::EntriesIncomplete, self.incomplete_reasons(package), None);
         }
-        (Absence::NotDiscovered, Vec::new())
+        (Absence::NotDiscovered, Vec::new(), None)
     }
 
     /// Where the package owning `file` imports a computed path that made its narrowed scope unusable, as `file:line`.
