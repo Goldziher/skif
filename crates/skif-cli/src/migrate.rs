@@ -319,6 +319,8 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
                 ));
             }
             let text = read_text(&base)?;
+            // Parsed with its path so errors name `skif.toml:line:column`, as a lint run does.
+            Config::from_toml_file(&base)?;
             let merged = migration.merge_into(&text).map_err(migrate_error)?;
             let destination = if default_target { base } else { target };
             return Ok(Plan {

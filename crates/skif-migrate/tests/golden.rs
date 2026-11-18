@@ -5,7 +5,9 @@
 use std::fs;
 use std::path::Path;
 
-use skif_migrate::{Input, Migration, Note, NoteClass, Options, Profile, RuleInfo, Tool, ToolInput, migrate};
+use skif_migrate::{
+    Input, MigrateError, Migration, Note, NoteClass, Options, Profile, RuleInfo, Tool, ToolInput, migrate,
+};
 
 fn read(dir: &str, name: &str) -> Input {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -341,6 +343,20 @@ fn merging_keeps_the_comments_of_an_existing_file() {
     let merged = migration.merge_into(existing).unwrap();
     assert!(merged.toml.starts_with(existing));
     assert!(merged.toml.contains("[lint]\nfail-on-warnings = true"));
+}
+
+#[test]
+fn merging_into_a_file_with_a_removed_key_is_an_existing_configuration_error() {
+    let mut input = ToolInput::new(Tool::Sherif);
+    input.package_json = Some(read("sherif", "package.json"));
+    let migration = migrate(&[input], &options(Profile::Full)).unwrap();
+    match migration.merge_into("[js]\ntype-aware = true\n") {
+        Err(MigrateError::Existing(message)) => {
+            assert!(message.contains("type-aware"), "{message}");
+            assert!(!message.contains("generated configuration"), "{message}");
+        }
+        other => panic!("expected MigrateError::Existing, got {other:?}"),
+    }
 }
 
 #[test]

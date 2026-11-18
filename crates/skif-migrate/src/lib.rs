@@ -234,7 +234,7 @@ impl Migration {
     /// [`MigrateError::Existing`] when `existing` is not valid TOML or the merged text is not a valid `skif.toml`.
     pub fn merge_into(&self, existing: &str) -> Result<Merged, MigrateError> {
         let merged = merge::merge_into(self, existing)?;
-        state::validate(&merged.toml)
+        Config::from_toml_str(&merged.toml)
             .map_err(|error| MigrateError::Existing(format!("the merged configuration is not valid: {error}")))?;
         Ok(merged)
     }

@@ -527,6 +527,31 @@ fn merge_refuses_an_output_file_that_exists_and_is_not_the_configuration() {
 }
 
 #[test]
+fn merge_into_an_existing_file_with_a_removed_key_names_that_file() {
+    let dir = project(KNIP_PACKAGE);
+    with_knip(&dir);
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = true\ntype-aware = true\n",
+    )
+    .unwrap();
+    let result = run(migrate(dir.path()).args(["--from", "knip", "--merge"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stderr.contains("skif.toml:3:1"), "{}", result.stderr);
+    assert!(!result.stderr.contains("generated configuration"), "{}", result.stderr);
+}
+
+#[test]
+fn merge_into_an_existing_file_that_is_not_toml_names_that_file_and_line() {
+    let dir = project(KNIP_PACKAGE);
+    with_knip(&dir);
+    fs::write(dir.path().join("skif.toml"), "[js\nenabled = true\n").unwrap();
+    let result = run(migrate(dir.path()).args(["--from", "knip", "--merge"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stderr.contains("skif.toml:1:"), "{}", result.stderr);
+}
+
+#[test]
 fn merge_with_the_exact_profile_turns_off_no_rule_the_existing_file_runs() {
     let dir = knip_project_with_config();
     let result = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--format", "json"]));
