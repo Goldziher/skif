@@ -332,6 +332,69 @@ impl MarkerRule {
     }
 }
 
+/// Appends `value` to `list` separated like the entries it already has: after the decor of the last entry when the
+/// list has two or more (a multi-line array keeps its indentation), otherwise by one space.
+fn append(list: &mut Array, mut value: Value) {
+    let prefix = match list.len() {
+        0 => String::new(),
+        1 => " ".to_owned(),
+        len => list
+            .get(len - 1)
+            .and_then(|last| last.decor().prefix())
+            .and_then(|prefix| prefix.as_str())
+            .map_or_else(|| " ".to_owned(), str::to_owned),
+    };
+    value.decor_mut().set_prefix(prefix);
+    list.push_formatted(value);
+}
+
+/// The most expansions of one pattern that are compared; a longer cross product is left alone.
+const MAX_EXPANSIONS: usize = 64;
+
+/// The patterns `pattern` stands for when each `{a,b}` group is replaced by one of its alternatives, or `None` when
+/// it has no group, an unbalanced one, or more than [`MAX_EXPANSIONS`] results. Purely textual: no file is looked at.
+fn expand_braces(pattern: &str) -> Option<Vec<String>> {
+    let open = pattern.find('{')?;
+    let mut depth = 0usize;
+    let mut close = None;
+    let mut cuts = vec![open + 1];
+    for (offset, ch) in pattern[open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(open + offset);
+                    cuts.push(open + offset + 1);
+                    break;
+                }
+            }
+            ',' if depth == 1 => cuts.push(open + offset + 1),
+            _ => {}
+        }
+    }
+    let close = close?;
+    let (head, tail) = (&pattern[..open], &pattern[close + 1..]);
+    let ends: Vec<usize> = cuts[1..].iter().map(|cut| cut - 1).collect();
+    if ends.len() < 2 {
+        return None;
+    }
+    let mut out = Vec::new();
+    for (start, end) in cuts.iter().zip(&ends) {
+        let rest = format!("{}{tail}", &pattern[*start..*end]);
+        let full = format!("{head}{rest}");
+        match expand_braces(&full) {
+            Some(more) => out.extend(more),
+            None if full.contains('{') => return None,
+            None => out.push(full),
+        }
+        if out.len() > MAX_EXPANSIONS {
+            return None;
+        }
+    }
+    Some(out)
+}
+
 impl Migration {
     /// This migration with the notes of `merged`: the report of a merge, in which the settings the merge did not
     /// write are left to a human.
@@ -537,18 +600,65 @@ impl Merge {
                 continue;
             }
             let Some((name, _)) = named(value) else {
-                existing.push_formatted(value.clone());
+                append(existing, value.clone());
                 continue;
             };
+            if rule == MarkerRule::Production && self.replace_expanded(existing, value, path) {
+                continue;
+            }
             let body = rule.split(name).0;
             let held = existing
                 .iter()
                 .position(|present| named(present).is_some_and(|(other, _)| rule.split(other).0 == body));
             match held {
                 Some(index) => self.unite(existing, index, value, path, rule),
-                None => existing.push_formatted(value.clone()),
+                None => append(existing, value.clone()),
             }
         }
+    }
+
+    /// For a production entry `x{a,b}!`: the plain entries of `existing` that equal one of its brace expansions
+    /// (`xa`, `xb`) are replaced by it, the first one in place and the others removed, since a plain pattern next to
+    /// a `!` pattern for the same files excludes them in production mode. Whether the entry replaced any.
+    fn replace_expanded(&mut self, existing: &mut Array, added: &Value, path: &str) -> bool {
+        let Some((name, reason)) = named(added) else {
+            return false;
+        };
+        let Some(body) = name.strip_suffix('!') else {
+            return false;
+        };
+        let Some(expansions) = expand_braces(body) else {
+            return false;
+        };
+        let overlapping: Vec<usize> = existing
+            .iter()
+            .enumerate()
+            .filter(|(_, present)| {
+                named(present).is_some_and(|(other, _)| !other.ends_with('!') && expansions.iter().any(|e| e == other))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        let Some((&first, rest)) = overlapping.split_first() else {
+            return false;
+        };
+        let held_reason = overlapping
+            .iter()
+            .find_map(|&index| existing.get(index).and_then(named).and_then(|(_, reason)| reason));
+        let value = if reason.is_none() && held_reason.is_some() {
+            entry_value(name, held_reason)
+        } else {
+            added.clone()
+        };
+        if let Some(slot) = existing.get_mut(first) {
+            let decor = slot.decor().clone();
+            *slot = value;
+            *slot.decor_mut() = decor;
+        }
+        for &index in rest.iter().rev() {
+            existing.remove(index);
+        }
+        push_once(&mut self.replaced, path);
+        true
     }
 
     /// Merges `added` into the entry at `index` of `list`, which has the same name: the production marker follows
@@ -925,6 +1035,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn a_brace_production_entry_replaces_the_plain_entries_it_expands_to() {
         let existing = "[js.workspaces.app]\nentry = [\"src/*/index.ts\", \"src/*/index.tsx\"] # mine\n";
         let merged = merged_knip(
@@ -941,6 +1052,7 @@ mod tests {
         assert_eq!(merged.replaced_existing, ["js.workspaces.app.entry"]);
     }
 
+    #[test]
     fn a_brace_production_entry_next_to_unrelated_plain_entries_is_appended() {
         let existing = "[js]\nentry = [\"src/other.ts\", \"src/*/*.ts\"]\n";
         let merged = merged_knip(existing, "\n[js]\nentry = [\"src/*/index.{ts,tsx}!\"]\n");
@@ -954,6 +1066,7 @@ mod tests {
         assert_eq!(merged.replaced_existing, Vec::<String>::new());
     }
 
+    #[test]
     fn an_appended_entry_is_separated_from_the_previous_one() {
         let merged = merged_knip(
             "[js]\nentry = [\"a\"]\n",
@@ -1122,7 +1235,7 @@ mod tests {
         assert!(
             merged
                 .toml
-                .starts_with("[workspace]\nignore-packages = [\"a\",\"a!\"]\n"),
+                .starts_with("[workspace]\nignore-packages = [\"a\", \"a!\"]\n"),
             "{}",
             merged.toml
         );
