@@ -13,7 +13,7 @@ use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
 use crate::analysis::workspace_key;
-use crate::discover::Candidate;
+use crate::discover::{Candidate, relative};
 use crate::entries::{Disk, names_no_file};
 use crate::globs::Globs;
 use crate::resolve::{is_read_file, join_normalized};
@@ -39,8 +39,8 @@ pub(crate) enum HintKind {
     /// A path `package.json` publishes that names no file (knip's `package-entry`).
     PackageEntry,
     /// A plain `entry` or `project` pattern that selects what a pattern ending in `!` of its list selects: the same
-    /// pattern, or, when the `!` pattern names one file, any pattern matching that file. In production mode the plain
-    /// pattern excludes it, while the `!` one applies outside production mode too.
+    /// pattern, any pattern matching the file a `!` pattern names, or any pattern sharing a package file with a `!` glob.
+    /// In production mode the plain pattern excludes it, while the `!` one applies outside production mode too.
     MarkerCancelled,
 }
 
@@ -176,8 +176,8 @@ impl Scope<'_, '_> {
     }
 
     /// The plain patterns of a list that cancel one of its `!` patterns. A `!` pattern naming one file is cancelled by
-    /// every plain pattern matching the file, a `!` glob only by the same glob, both compared as [`Globs`] compiles
-    /// them. A list is replaced whole, never merged, so both patterns are written under one key. `project` is not
+    /// every plain pattern matching the file, a `!` glob by the same glob or by a plain pattern sharing a file of the
+    /// package with it, both compared as [`Globs`] compiles them. A list is replaced whole, never merged, so both patterns are written under one key. `project` is not
     /// judged with a `tsconfig`.
     fn cancelled_markers(&self, hints: &mut IndexSet<ConfigHint>) {
         let user = &self.package_setup.user_patterns;
@@ -193,13 +193,14 @@ impl Scope<'_, '_> {
                 .filter_map(|pattern| marker_body(pattern).map(|body| (pattern, body)))
             {
                 let literal = literal_body(marked).is_some();
+                let marked_globs = Globs::new([marked]);
                 let mut cancelling = plain
                     .iter()
                     .filter(|(pattern, globs)| {
                         if literal {
                             globs.is_match(body)
                         } else {
-                            compiled_text(pattern) == body
+                            compiled_text(pattern) == body || self.shares_a_file(&marked_globs, globs)
                         }
                     })
                     .map(|(pattern, _)| *pattern)
@@ -219,6 +220,17 @@ impl Scope<'_, '_> {
                 }
             }
         }
+    }
+
+    /// Whether a file of the package matches both patterns.
+    fn shares_a_file(&self, marked: &Globs, plain: &Globs) -> bool {
+        let dir = &self.package_setup.dir;
+        self.inputs
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.owner == self.id)
+            .filter_map(|candidate| relative(&candidate.abs, dir))
+            .any(|rel| marked.is_match(&rel) && plain.is_match(&rel))
     }
 
     /// `project-extension-unregistered` and `project-extension-excluded`.

@@ -871,8 +871,9 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
 
 One hint has no knip counterpart: a plain `entry` or `project` pattern that cancels a pattern ending in `!` of the same
 list (`[js]` or a `[js.workspaces]` table). A `!` pattern naming one file is cancelled by every plain pattern that
-matches the file (`src/main.js` or `src/**` next to `src/main.js!`); a `!` glob only by the same glob (`src/**` next to
-`src/**!`), so a plain glob written differently (`src/**/*.js` next to `src/**!`) is not reported. Patterns are compared
+matches the file (`src/main.js` or `src/**` next to `src/main.js!`); a `!` glob by the same glob or by any plain
+pattern that shares a file of the package with it (`src/**/*.js` next to `src/**!`, or `src/*/index.ts` and
+`src/*/index.tsx` next to `src/*/index.{ts,tsx}!`). Patterns are compared
 as skif compiles them, without surrounding whitespace or a leading `./`. In a production run the plain pattern excludes
 what the `!` one selects, so the files are left out instead of kept; in a normal run the `!` pattern selects them on
 its own. Remove the plain pattern to keep the files in both modes, or the `!` one if they are not production code.

@@ -591,11 +591,28 @@ fn every_plain_pattern_matching_the_file_of_a_production_pattern_is_reported() {
 }
 
 #[test]
-fn a_plain_glob_written_differently_from_a_production_glob_is_not_reported() {
+fn a_plain_glob_written_differently_from_a_production_glob_is_reported_when_they_share_a_file() {
     assert_eq!(
-        hints(&lint(&MAIN_AND_LIB, "[js]\nproject = [\"src/**/*.js\", \"src/**!\"]\n")),
+        cancellations(&lint(&MAIN_AND_LIB, "[js]\nproject = [\"src/**/*.js\", \"src/**!\"]\n")),
+        "package.json: `src/**/*.js` in `js.project` excludes in production mode what `src/**!` selects"
+    );
+}
+
+#[test]
+fn a_plain_glob_sharing_no_file_with_a_production_glob_is_not_reported() {
+    assert_eq!(
+        cancellations(&lint(&MAIN_AND_LIB, "[js]\nproject = [\"lib/**/*.js\", \"src/**!\"]\n")),
         ""
     );
+}
+
+#[test]
+fn a_brace_production_glob_is_cancelled_by_the_plain_globs_it_expands_to() {
+    let out = cancellations(&lint(
+        &MAIN_AND_LIB,
+        "[js]\nentry = [\"src/*.js\", \"src/*.ts\", \"src/*.{js,ts}!\"]\n",
+    ));
+    assert!(out.contains("`src/*.js` in `js.entry` excludes"), "{out}");
 }
 
 #[test]

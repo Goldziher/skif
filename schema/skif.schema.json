@@ -1108,7 +1108,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Entry-point globs, added to the ones plugins and `package.json` provide.",
+          "description": "Entry-point globs, added to the ones plugins and `package.json` provide. In production mode only the\npatterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.",
           "default": []
         },
         "project": {
@@ -1440,7 +1440,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Entry-point globs relative to the workspace directory.",
+          "description": "Entry-point globs relative to the workspace directory. In production mode only the patterns ending in `!`\nselect entries; a plain pattern excludes what a `!` pattern selects.",
           "default": []
         },
         "project": {
@@ -1774,7 +1774,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Replaces the entry globs; an empty list clears what the package inherits."
+          "description": "Replaces the entry globs; an empty list clears what the package inherits. In production mode only the\npatterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects."
         },
         "project": {
           "type": [

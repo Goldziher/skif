@@ -2231,7 +2231,8 @@ pub struct JsCycles {
 pub struct Js {
     /// Run the JavaScript analysis.
     pub enabled: bool,
-    /// Entry-point globs, added to the ones plugins and `package.json` provide.
+    /// Entry-point globs, added to the ones plugins and `package.json` provide. In production mode only the
+    /// patterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.
     pub entry: Vec<String>,
     /// Globs of the files that belong to the project.
     pub project: Vec<String>,
@@ -2654,7 +2655,8 @@ pub struct ExportKinds {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct JsWorkspace {
-    /// Entry-point globs relative to the workspace directory.
+    /// Entry-point globs relative to the workspace directory. In production mode only the patterns ending in `!`
+    /// select entries; a plain pattern excludes what a `!` pattern selects.
     pub entry: Vec<String>,
     /// Project file globs relative to the workspace directory.
     pub project: Vec<String>,
@@ -2796,7 +2798,8 @@ impl PluginOptions {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct PackageJs {
-    /// Replaces the entry globs; an empty list clears what the package inherits.
+    /// Replaces the entry globs; an empty list clears what the package inherits. In production mode only the
+    /// patterns ending in `!` select entries; a plain pattern excludes what a `!` pattern selects.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entry: Option<Vec<String>>,
     /// Replaces the project globs; an empty list clears what the package inherits.
