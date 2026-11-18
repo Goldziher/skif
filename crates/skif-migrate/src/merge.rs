@@ -447,11 +447,23 @@ fn append(list: &mut Array, mut value: Value) {
             line_indent(&prefix).map_or_else(|| if len >= 2 { prefix.clone() } else { " ".to_owned() }, str::to_owned)
         }
     };
+    let mut prefix = prefix;
     if let Some(last) = len.checked_sub(1).and_then(|index| list.get_mut(index))
-        && let Some(suffix) = last.decor().suffix().cloned()
+        && let Some(suffix) = last
+            .decor()
+            .suffix()
+            .and_then(|suffix| suffix.as_str())
+            .map(str::to_owned)
     {
-        value.decor_mut().set_suffix(suffix);
         last.decor_mut().set_suffix("");
+        match suffix.rfind('\n').filter(|_| suffix.contains('#')) {
+            Some(at) => {
+                // The comment annotates the old last entry: it goes after the comma that follows that entry.
+                prefix = format!("{}{}", &suffix[..=at], prefix.trim_start_matches('\n'));
+                value.decor_mut().set_suffix(format!("\n{}", &suffix[at + 1..]));
+            }
+            None => value.decor_mut().set_suffix(suffix),
+        }
     }
     value.decor_mut().set_prefix(prefix);
     list.push_formatted(value);
@@ -1426,19 +1438,6 @@ mod tests {
         assert_eq!(expand_braces(&"{a,b}".repeat(6)).map(|list| list.len()), Some(64));
     }
 
-    fn entries_of(toml: &str, path: &[&str]) -> Vec<String> {
-        let parsed: toml::Table = toml.parse().unwrap_or_else(|error| panic!("{error}: {toml:?}"));
-        let mut item = &toml::Value::Table(parsed);
-        for key in path {
-            item = &item[*key];
-        }
-        item.as_array()
-            .unwrap()
-            .iter()
-            .map(|entry| entry.as_str().unwrap_or("?").to_owned())
-            .collect()
-    }
-
     #[test]
     fn an_entry_appended_after_a_last_entry_without_a_trailing_comma_keeps_the_array_valid() {
         let merged = merged_knip("[js]\nentry = [\n  \"a\",\n  \"z\"\n]\n", "\n[js]\nentry = [\"b!\"]\n");
@@ -1452,18 +1451,18 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_appended_after_a_last_entry_with_a_comment_keeps_the_array_valid() {
+    fn an_entry_appended_after_a_last_entry_with_a_comment_keeps_the_comment_on_that_entry() {
         let merged = merged_knip(
             "[js]\nentry = [\n  \"a\",\n  \"z\" # note\n]\n",
             "\n[js]\nentry = [\"b!\"]\n",
         );
-        assert_eq!(
-            entries_of(&merged.toml, &["js", "entry"]),
-            ["a", "z", "b!"],
+        assert!(
+            merged
+                .toml
+                .starts_with("[js]\nentry = [\n  \"a\",\n  \"z\", # note\n  \"b!\"\n]\n"),
             "{:?}",
             merged.toml
         );
-        assert_eq!(merged.toml.matches("# note").count(), 1, "{:?}", merged.toml);
     }
 
     #[test]
