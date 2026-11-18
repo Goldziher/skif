@@ -80,12 +80,7 @@ impl Layout {
             let (head, rest) = first_line(decor_text(value.decor().prefix()));
             let mut lead = std::mem::take(&mut carried);
             if let Some(found) = comment(head) {
-                match layout.slots.last_mut() {
-                    Some(previous) => {
-                        previous.same_line.get_or_insert(found);
-                    }
-                    None => lead.push(found),
-                }
+                layout.attach(found, &mut lead);
             }
             if let Some(rest) = rest {
                 let (lines, indent) = lines_and_indent(rest);
@@ -101,7 +96,9 @@ impl Layout {
             if let Some(rest) = rest {
                 let (lines, indent) = lines_and_indent(rest);
                 layout.multiline = true;
-                indent.clone_into(&mut layout.close_indent);
+                if index + 1 == array.len() {
+                    indent.clone_into(&mut layout.close_indent);
+                }
                 carried = lines;
             }
             let mut plain = value.clone();
@@ -116,17 +113,21 @@ impl Layout {
         layout
     }
 
+    /// Puts `found`, a comment after the comma of the last entry read, on that entry's line; when that entry
+    /// already has a comment there, it goes to `own_line` instead, as a comment line of its own.
+    fn attach(&mut self, found: String, own_line: &mut Vec<String>) {
+        match self.slots.last_mut() {
+            Some(last) if last.same_line.is_none() => last.same_line = Some(found),
+            _ => own_line.push(found),
+        }
+    }
+
     /// What follows the last entry: the comments after the closing comma and the whitespace before `]`.
     fn read_end(&mut self, mut dangling: Vec<String>) {
         let trailing = std::mem::take(&mut self.trailing);
         let (head, rest) = first_line(&trailing);
         if let Some(found) = comment(head) {
-            match self.slots.last_mut() {
-                Some(last) => {
-                    last.same_line.get_or_insert(found);
-                }
-                None => dangling.push(found),
-            }
+            self.attach(found, &mut dangling);
         }
         if let Some(rest) = rest {
             let (lines, indent) = lines_and_indent(rest);
