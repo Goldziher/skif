@@ -68,7 +68,7 @@ pre-commit or prek (needs neither Rust nor Node):
 ```yaml
 repos:
   - repo: https://github.com/polylint/skif
-    rev: v0.9.0 # use the latest release tag
+    rev: v0.9.1 # use the latest release tag
     hooks:
       - id: skif       # lints manifests, skipping JS analysis
       - id: skif-fix   # optional: also applies safe fixes

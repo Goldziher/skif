@@ -127,7 +127,7 @@ commit never runs a package manager, and it is refused when `CI` is set.
 ```yaml
 repos:
   - repo: https://github.com/polylint/skif
-    rev: v0.9.0 # use the latest release tag
+    rev: v0.9.1 # use the latest release tag
     hooks:
       - id: skif       # skif --no-js
       - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
@@ -151,7 +151,7 @@ Add skif as a managed source in `poly.toml`:
 [[hooks.sources]]
 id = "skif"
 git = "https://github.com/polylint/skif.git"
-revision = "v0.9.0" # use the latest release tag
+revision = "v0.9.1" # use the latest release tag
 hooks = ["skif"]
 ```
 

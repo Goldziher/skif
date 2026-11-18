@@ -7,10 +7,29 @@ All notable changes to this project are documented here. The format follows
 <!-- Keep a Changelog repeats Added/Changed/Fixed headings per version. -->
 <!-- markdownlint-disable MD024 -->
 
-## [Unreleased]
+## [0.9.1] - 2026-11-18
+
+### Changed
+
+- An explicit `entry` for a package now completes it when a plugin config computes its entries (`computed-entries`)
+  and that is the only cause. The package's `unused-files`, `unused-exports` and dependency findings are reported
+  again, as knip does. In production mode the entry must end in `!`. An entry that names no file of the package
+  leaves it incomplete, as before (ADR 0016). The end-of-run note and `explain-usage` name `entry` and
+  `plugins.<tool> = false` as the ways to make such a package analysable. (#255)
+- `stale-js-config` now reports a plain `entry` or `project` pattern that cancels a `!` pattern in production mode
+  whenever the two match a common file of the package, not only when they are written the same. For example,
+  `src/*/index.ts` next to `src/*/index.{ts,tsx}!`. (#254)
 
 ### Fixed
 
+- `skif migrate --from knip --merge` no longer writes knip's `--production` or `--strict` script flags as a global
+  `[js] production` or `[js] strict` when the existing `skif.toml` keeps on a rule that knip excluded. The flag is
+  listed under "Needs a human" instead. `Merged` gains `notes`, and `Migration` gains `with_notes`. (#253)
+- `skif migrate --merge` replaces the existing plain entries that a knip `x{a,b}!` entry expands to, instead of
+  appending the brace entry next to them, where they cancelled it in production mode. List edits keep each comment
+  with its entry, keep the indentation and CRLF line endings, and put a space after the comma. (#254)
+- `skif migrate --merge` into a `skif.toml` that cannot be loaded, for example one with a removed key, names that
+  file and line (`skif.toml:3:1`) instead of "the generated configuration" at `skif config:3:1`. (#256)
 - `--debug` with `-r` no longer counts a cache miss for a root that waited for another root's parse of a shared
   file; that lookup is a hit.
 

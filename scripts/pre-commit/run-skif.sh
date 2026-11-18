@@ -20,7 +20,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/libc.sh"
 # shellcheck source=../lib/attestation.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/attestation.sh"
 
-SKIF_VERSION="${SKIF_VERSION:-v0.9.0}"
+SKIF_VERSION="${SKIF_VERSION:-v0.9.1}"
 SKIF_BINARY="${SKIF_BINARY:-}"
 SKIF_RESOLVE_ONLY="${SKIF_RESOLVE_ONLY:-0}"
 

@@ -60,7 +60,7 @@ The first step lints with the baseline applied; the second fails when the baseli
 ```yaml
 repos:
   - repo: https://github.com/polylint/skif
-    rev: v0.9.0 # use the latest release tag
+    rev: v0.9.1 # use the latest release tag
     hooks:
       - id: skif       # skif --no-js
       - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
@@ -78,7 +78,7 @@ Poly, in `poly.toml`:
 [[hooks.sources]]
 id = "skif"
 git = "https://github.com/polylint/skif.git"
-revision = "v0.9.0" # use the latest release tag
+revision = "v0.9.1" # use the latest release tag
 hooks = ["skif"]
 ```
 
