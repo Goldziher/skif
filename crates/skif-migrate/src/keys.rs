@@ -52,6 +52,13 @@ pub(crate) const JS_TSCONFIG: &str = "tsconfig";
 pub(crate) const JS_USE_TSCONFIG_FILES: &str = "use-tsconfig-files";
 pub(crate) const JS_IGNORE_GLOBAL_BINARIES: &str = "ignore-global-binaries";
 
+/// The hint for a `--strict` flag that was not written to `[js] strict`.
+pub(crate) const STRICT_HINT: &str = "set [js] strict = true if every check should be strict, or [js] isolate-workspaces = true to check each package against its own manifest without production mode";
+
+/// The hint for a `--production` flag that was not written to `[js] production`.
+pub(crate) const PRODUCTION_HINT: &str =
+    "set [js] production = true if every check should skip dev dependencies and test files";
+
 /// The `[js]` and `[js.workspaces."<dir>"]` lists in which an entry ending in `!` is a production entry.
 pub(crate) const JS_PRODUCTION_LISTS: &[&str] = &["entry", "project"];
 

@@ -1537,7 +1537,7 @@ fn production(state: &mut State<'_>, src: &Src, plan: &Plan) {
                 with.join(", "),
                 without.join(", ")
             ),
-            "set [js] production = true if every check should skip dev dependencies and test files",
+            keys::PRODUCTION_HINT,
         );
     }
 }
@@ -1564,8 +1564,7 @@ fn strict(state: &mut State<'_>, src: &Src, plan: &Plan) {
             script_list(&with, ""),
             script_list(&without, "")
         ),
-        "set [js] strict = true if every check should be strict, or [js] isolate-workspaces = true to check each \
-         package against its own manifest without production mode",
+        keys::STRICT_HINT,
     );
 }
 
