@@ -27,7 +27,7 @@
 
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
-use crate::notes::Tool;
+use crate::notes::{Note, NoteClass, Tool};
 use crate::{MigrateError, Migration, Profile, keys};
 
 /// The result of merging into an existing file.
@@ -45,7 +45,21 @@ pub struct Merged {
     /// paths: `js.enabled` when knip is migrated into a file that turns the JavaScript analysis off, and an `entry` or
     /// `project` list whose plain pattern took the `!` production marker of the same migrated pattern.
     pub replaced_existing: Vec<String>,
+    /// The notes of the migration as they stand after the merge: the knip `--strict` and `--production` notes become
+    /// [`NoteClass::Human`] when the merge did not write `[js] strict` or `[js] production`, because the existing file
+    /// keeps on a dependency rule knip excluded and the setting would change how that rule runs.
+    pub notes: Vec<Note>,
 }
+
+/// The rules whose findings depend on `[js] strict` or `[js] production`: knip's `--strict` and `--production` change
+/// how they run, so writing either setting changes a rule that the existing file enables and knip excluded.
+const MODE_RULES: &[&str] = &[
+    "unused-dependencies",
+    "unused-dev-dependencies",
+    "unlisted-dependencies",
+    "unused-subpath-imports",
+    "unused-subpath-exports",
+];
 
 /// The line that records the tools a file was migrated from.
 pub(crate) fn sources_line(tools: &[Tool]) -> String {
@@ -100,6 +114,7 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
             kept_existing: Vec::new(),
             left_as_existing: Vec::new(),
             replaced_existing: Vec::new(),
+            notes: migration.notes.clone(),
         });
     }
     let mut current: DocumentMut = existing
@@ -123,7 +138,9 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
         replaced: Vec::new(),
         banner: Some(banner(&migration.tools, migration.profile)),
     };
+    let had_modes = [keys::JS_STRICT, keys::JS_PRODUCTION].map(|key| js_has(&current, key));
     merge.table(current.as_table_mut(), added.as_table(), "");
+    let notes = withhold_modes(migration, &added, &mut current, had_modes);
     let mut replaced = Vec::new();
     if migration.tools.contains(&Tool::Knip) && enable_js(&mut current) {
         replaced.push(format!("{}.{}", keys::JS, keys::JS_ENABLED));
@@ -134,7 +151,86 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
         kept_existing: merge.kept,
         left_as_existing: merge.left,
         replaced_existing: replaced,
+        notes,
     })
+}
+
+fn js_has(document: &DocumentMut, key: &str) -> bool {
+    document
+        .get(keys::JS)
+        .and_then(Item::as_table_like)
+        .is_some_and(|js| js.contains_key(key))
+}
+
+/// Takes `[js] strict` and `[js] production` back out of `current` when the merge added them while the file keeps
+/// on a rule of [`MODE_RULES`] that the migration turned off (knip excluded its issue type): knip's flags did not
+/// apply to that rule, and skif's settings are project-wide. Returns the notes of `migration` with the flag notes of
+/// the withheld settings turned into [`NoteClass::Human`].
+fn withhold_modes(migration: &Migration, added: &DocumentMut, current: &mut DocumentMut, had: [bool; 2]) -> Vec<Note> {
+    let mut notes = migration.notes.clone();
+    let withheld: Vec<&str> = [keys::JS_STRICT, keys::JS_PRODUCTION]
+        .into_iter()
+        .zip(had)
+        .filter(|(key, had)| !had && js_has(added, key) && js_has(current, key))
+        .map(|(key, _)| key)
+        .collect();
+    if withheld.is_empty() {
+        return notes;
+    }
+    let is_off = |document: &DocumentMut, id: &str| {
+        document
+            .get("rules")
+            .and_then(Item::as_table_like)
+            .and_then(|rules| rules.get(id))
+            .and_then(Item::as_str)
+            == Some("off")
+    };
+    let kept_on: Vec<&str> = MODE_RULES
+        .iter()
+        .copied()
+        .filter(|id| is_off(added, id) && !is_off(current, id))
+        .collect();
+    if kept_on.is_empty() {
+        return notes;
+    }
+    if let Some(js) = current.get_mut(keys::JS).and_then(Item::as_table_like_mut) {
+        for key in &withheld {
+            js.remove(key);
+        }
+    }
+    let rules = kept_on.join(", ");
+    let strict_implied = withheld.contains(&keys::JS_STRICT);
+    for note in &mut notes {
+        let flag = match note.path.rsplit_once(": ") {
+            Some((_, "--strict")) => keys::JS_STRICT,
+            Some((_, "--production")) => keys::JS_PRODUCTION,
+            _ => continue,
+        };
+        let covered = withheld.contains(&flag) || (flag == keys::JS_PRODUCTION && strict_implied);
+        if note.tool != Tool::Knip || note.class != NoteClass::Exact || !covered {
+            continue;
+        }
+        note.class = NoteClass::Human;
+        note.message = format!(
+            "not written to [js] {}: knip excluded {rules}, which the existing configuration keeps on, and the setting \
+             would change how they run",
+            if flag == keys::JS_STRICT {
+                "strict"
+            } else {
+                "production"
+            }
+        );
+        note.suggestion = Some(
+            if flag == keys::JS_STRICT {
+                "set [js] strict = true if every check should be strict, or [js] isolate-workspaces = true to check \
+                 each package against its own manifest without production mode"
+            } else {
+                "set [js] production = true if every check should skip dev dependencies and test files"
+            }
+            .to_owned(),
+        );
+    }
+    notes
 }
 
 /// Sets `[js] enabled = false` of `document` to `true`, keeping its comments; whether there was such a value.
@@ -233,6 +329,17 @@ impl MarkerRule {
             Self::Plain => held && added,
             Self::Literal => held,
         }
+    }
+}
+
+impl Migration {
+    /// This migration with the notes of `merged`: the report of a merge, in which the settings the merge did not
+    /// write are left to a human.
+    #[must_use]
+    pub fn with_merged_notes(&self, merged: &Merged) -> Self {
+        let mut migration = self.clone();
+        migration.notes.clone_from(&merged.notes);
+        migration
     }
 }
 
@@ -816,6 +923,107 @@ mod tests {
             assert_eq!(merged.replaced_existing, [format!("js.workspaces.app.{key}")], "{key}");
             assert_eq!(merged.kept_existing, Vec::<String>::new(), "{key}");
         }
+    }
+
+    fn a_brace_production_entry_replaces_the_plain_entries_it_expands_to() {
+        let existing = "[js.workspaces.app]\nentry = [\"src/*/index.ts\", \"src/*/index.tsx\"] # mine\n";
+        let merged = merged_knip(
+            existing,
+            "\n[js.workspaces.app]\nentry = [\"src/*/index.{ts,tsx}!\", \"build.mjs!\"]\n",
+        );
+        assert!(
+            merged
+                .toml
+                .starts_with("[js.workspaces.app]\nentry = [\"src/*/index.{ts,tsx}!\", \"build.mjs!\"] # mine\n"),
+            "{}",
+            merged.toml
+        );
+        assert_eq!(merged.replaced_existing, ["js.workspaces.app.entry"]);
+    }
+
+    fn a_brace_production_entry_next_to_unrelated_plain_entries_is_appended() {
+        let existing = "[js]\nentry = [\"src/other.ts\", \"src/*/*.ts\"]\n";
+        let merged = merged_knip(existing, "\n[js]\nentry = [\"src/*/index.{ts,tsx}!\"]\n");
+        assert!(
+            merged
+                .toml
+                .starts_with("[js]\nentry = [\"src/other.ts\", \"src/*/*.ts\", \"src/*/index.{ts,tsx}!\"]\n"),
+            "{}",
+            merged.toml
+        );
+        assert_eq!(merged.replaced_existing, Vec::<String>::new());
+    }
+
+    fn an_appended_entry_is_separated_from_the_previous_one() {
+        let merged = merged_knip(
+            "[js]\nentry = [\"a\"]\n",
+            "\n[js]\nentry = [\"b!\", \"c\"]\nignore = [\"x\"]\n",
+        );
+        assert!(
+            merged.toml.starts_with("[js]\nentry = [\"a\", \"b!\", \"c\"]\n"),
+            "{}",
+            merged.toml
+        );
+        let multiline = merged_knip("[js]\nentry = [\n  \"a\",\n  \"z\",\n]\n", "\n[js]\nentry = [\"b!\"]\n");
+        assert!(multiline.toml.contains("  \"z\",\n  \"b!\""), "{}", multiline.toml);
+    }
+
+    fn strict_flag_note(flag: &str) -> crate::Note {
+        crate::Note {
+            class: crate::NoteClass::Exact,
+            tool: Tool::Knip,
+            file: "package.json".to_owned(),
+            path: format!("scripts.knip: {flag}"),
+            message: "written to [js] strict".to_owned(),
+            suggestion: None,
+        }
+    }
+
+    fn knip_with_modes(body: &str) -> Migration {
+        let mut migration = profile_off(&[Tool::Knip], body);
+        migration.notes = vec![strict_flag_note("--production"), strict_flag_note("--strict")];
+        migration
+    }
+
+    #[test]
+    fn strict_is_not_written_over_a_dependency_rule_knip_excluded_and_the_file_keeps_on() {
+        let migration = knip_with_modes(
+            "\n[js]\nstrict = true\n\n[rules]\nunused-dependencies = \"off\"\nunused-files = \"error\"\n",
+        );
+        let existing = "[js]\nenabled = true\n\n[rules]\nunused-dependencies = \"error\"\n";
+        let merged = merge_into(&migration, existing).unwrap();
+        assert!(!merged.toml.contains("strict"), "{}", merged.toml);
+        assert!(
+            merged.toml.contains("unused-dependencies = \"error\""),
+            "{}",
+            merged.toml
+        );
+        assert!(merged.toml.contains("unused-files = \"error\""), "{}", merged.toml);
+        assert_eq!(merged.notes.len(), 2);
+        for note in &merged.notes {
+            assert_eq!(note.class, crate::NoteClass::Human, "{note:?}");
+            assert!(note.message.contains("unused-dependencies"), "{note:?}");
+            assert!(note.suggestion.is_some(), "{note:?}");
+        }
+        assert_eq!(merged.notes[1].path, "scripts.knip: --strict");
+    }
+
+    #[test]
+    fn strict_is_written_when_the_rules_knip_excluded_are_off_in_the_merge() {
+        let migration = knip_with_modes("\n[js]\nstrict = true\n\n[rules]\nunused-dependencies = \"off\"\n");
+        for existing in ["[js]\nenabled = true\n", "[rules]\nunused-dependencies = \"off\"\n"] {
+            let merged = merge_into(&migration, existing).unwrap();
+            assert!(merged.toml.contains("strict = true"), "{existing:?}: {}", merged.toml);
+            assert!(merged.notes.iter().all(|note| note.class == crate::NoteClass::Exact));
+        }
+    }
+
+    #[test]
+    fn an_existing_strict_setting_is_left_alone() {
+        let migration = knip_with_modes("\n[js]\nstrict = true\n\n[rules]\nunused-dependencies = \"off\"\n");
+        let existing = "[js]\nstrict = true\n\n[rules]\nunused-dependencies = \"error\"\n";
+        let merged = merge_into(&migration, existing).unwrap();
+        assert!(merged.toml.contains("strict = true"), "{}", merged.toml);
     }
 
     #[test]

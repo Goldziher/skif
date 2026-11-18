@@ -270,6 +270,31 @@ fn knip_files_are_discovered_and_strict_fails_on_what_needs_a_human() {
 }
 
 #[test]
+fn merge_does_not_write_strict_over_a_dependency_rule_knip_excluded() {
+    let dir = project(r#"{ "name": "root", "private": true, "scripts": { "knip": "knip --production --strict" } }"#);
+    fs::write(
+        dir.path().join("knip.json"),
+        r#"{ "exclude": ["dependencies", "devDependencies", "unlisted"] }"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = true\n\n[rules]\nunused-dependencies = \"error\"\n",
+    )
+    .unwrap();
+    let merged = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--strict"]));
+    assert_eq!(merged.code, 1, "{}{}", merged.stdout, merged.stderr);
+    assert!(
+        merged.stdout.contains("[H] knip scripts.knip: --strict"),
+        "{}",
+        merged.stdout
+    );
+    let text = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
+    assert!(!text.contains("strict ="), "{text}");
+    assert!(text.contains("unused-dependencies = \"error\""), "{text}");
+}
+
+#[test]
 fn source_needs_exactly_one_tool() {
     let dir = project(SHERIF_PACKAGE);
     let result = run(migrate(dir.path()).args(["--source", "knip.json", "--from", "sherif,knip"]));

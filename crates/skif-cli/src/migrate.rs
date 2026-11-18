@@ -389,6 +389,10 @@ fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliErro
         .with_root_anchored(written_elsewhere(args, &root)?);
     let migration = migrate(&inputs, &options).map_err(migrate_error)?;
     let plan = plan_output(args, &root, &migration)?;
+    let migration = plan
+        .merged
+        .as_ref()
+        .map_or_else(|| migration.clone(), |merged| migration.with_merged_notes(merged));
     if let Some(target) = &plan.target {
         write_atomic(target, plan.toml.as_bytes()).map_err(|error| CliError::io("cannot write", target, &error))?;
     }
