@@ -1510,7 +1510,7 @@ fn production(state: &mut State<'_>, src: &Src, plan: &Plan) {
         let explicit: Vec<String> = production
             .iter()
             .filter(|run| run.explicit_production)
-            .map(|run| format!("{}: --production", run.script))
+            .map(|run| format!("{}{}", run.script, keys::PRODUCTION_FLAG_SUFFIX))
             .collect();
         if !explicit.is_empty() {
             let message = if all_strict {
@@ -1549,7 +1549,7 @@ fn strict(state: &mut State<'_>, src: &Src, plan: &Plan) {
     if with.is_empty() {
         return;
     }
-    let flags = script_list(&with, ": --strict");
+    let flags = script_list(&with, keys::STRICT_FLAG_SUFFIX);
     if without.is_empty() {
         table(&mut state.doc, &Target::Root.js()).set(keys::JS_STRICT, Val::Bool(true));
         state.note(src, NoteClass::Exact, flags, "written to [js] strict");

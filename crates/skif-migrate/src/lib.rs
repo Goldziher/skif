@@ -227,8 +227,10 @@ impl Migration {
     /// conflicts: a migration of another tool replaces them with the rule it does check, so migrating tools in
     /// several steps ends with the same checks as migrating them in one command. The profile adds no `off` value to
     /// a file that has content: a rule the file does not name keeps running ([`Merged::left_as_existing`]). Migrating
-    /// knip turns `[js] enabled = false` on; both replacements are listed in [`Merged::replaced_existing`]. Merging
-    /// the output of a migration into itself changes nothing.
+    /// knip turns `[js] enabled = false` on; both replacements are listed in [`Merged::replaced_existing`]. A `x{a,b}!`
+    /// production entry replaces the plain `xa` and `xb` of the file. `[js] strict` and `[js] production` are not
+    /// written when the file keeps on a rule the migration turned off, or sets them differently; the flag notes in
+    /// [`Merged::notes`] are then needs-human notes. Merging the output of a migration into itself changes nothing.
     ///
     /// # Errors
     /// [`MigrateError::Existing`] when `existing` is not valid TOML or the merged text is not a valid `skif.toml`.

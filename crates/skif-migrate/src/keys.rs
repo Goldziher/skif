@@ -52,6 +52,12 @@ pub(crate) const JS_TSCONFIG: &str = "tsconfig";
 pub(crate) const JS_USE_TSCONFIG_FILES: &str = "use-tsconfig-files";
 pub(crate) const JS_IGNORE_GLOBAL_BINARIES: &str = "ignore-global-binaries";
 
+/// What follows the script name in the path of the note for a `--strict` flag.
+pub(crate) const STRICT_FLAG_SUFFIX: &str = ": --strict";
+
+/// What follows the script name in the path of the note for a `--production` flag.
+pub(crate) const PRODUCTION_FLAG_SUFFIX: &str = ": --production";
+
 /// The hint for a `--strict` flag that was not written to `[js] strict`.
 pub(crate) const STRICT_HINT: &str = "set [js] strict = true if every check should be strict, or [js] isolate-workspaces = true to check each package against its own manifest without production mode";
 

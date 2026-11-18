@@ -390,7 +390,7 @@ fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliErro
     let migration = migrate(&inputs, &options).map_err(migrate_error)?;
     let plan = plan_output(args, &root, &migration)?;
     let migration = match &plan.merged {
-        Some(merged) => migration.with_merged_notes(merged),
+        Some(merged) => migration.with_notes(merged.notes.clone()),
         None => migration,
     };
     if let Some(target) = &plan.target {
