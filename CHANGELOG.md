@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 <!-- Keep a Changelog repeats Added/Changed/Fixed headings per version. -->
 <!-- markdownlint-disable MD024 -->
 
+## [Unreleased]
+
+### Changed
+
+- `stale-js-config` no longer calls an `entry` pattern ending in `!` redundant when only a non-production entry (a
+  script, a development plugin entry or a tool configuration file) also names its file: production mode keeps no
+  development entry, so removing the pattern would make the production run report the file as unused. A `!` pattern
+  is redundant only when a production entry names the file. (#258)
+
 ## [0.9.1] - 2026-11-18
 
 ### Changed

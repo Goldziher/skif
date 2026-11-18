@@ -394,9 +394,15 @@ pub(crate) struct PackageSetup {
     pub shared_entry: Globs,
     /// The entry globs plugins provide inside the package, for the `entry-redundant` hint of `stale-js-config`.
     pub plugin_entry: Globs,
+    /// The plugin entry globs that are entries in production mode too ([`Self::plugin_entry`] holds the development
+    /// ones of a normal run besides them). A configured entry ending in `!` is redundant only when one of these or
+    /// another production entry covers its file, since production mode keeps no development entry.
+    pub plugin_production_entry: Globs,
     /// The plugin entries that name one file rather than a glob (a workflow step's `node build/report.ts`), absolute.
     /// One that is no file of this analysis may belong to another root of a multi-root run.
     pub plugin_entry_files: Vec<PathBuf>,
+    /// The [`Self::plugin_entry_files`] that are entries in production mode too.
+    pub plugin_production_entry_files: Vec<PathBuf>,
     /// The build sources plugins give (the `srcs` and `data` of a Bazel rule), for the mode: files the module graph
     /// starts from, whose exports are judged, unlike an entry's.
     pub build_source: Globs,
@@ -1013,12 +1019,18 @@ impl Setup {
                 Vec::new()
             };
             let mut plugin_entry: Vec<String> = plugin.production_entry.clone();
+            let production_entry = std::mem::take(&mut plugin.production_entry);
             if !production {
                 plugin_entry.extend(plugin.entry.iter().cloned());
                 entry.extend(plugin.entry);
             }
-            entry.extend(plugin.production_entry);
+            entry.extend(production_entry.iter().cloned());
             let plugin_entry_files: Vec<PathBuf> = plugin_entry
+                .iter()
+                .filter(|pattern| is_literal_path(pattern))
+                .map(|pattern| join_normalized(&abs_dir, pattern))
+                .collect();
+            let plugin_production_entry_files: Vec<PathBuf> = production_entry
                 .iter()
                 .filter(|pattern| is_literal_path(pattern))
                 .map(|pattern| join_normalized(&abs_dir, pattern))
@@ -1155,7 +1167,9 @@ impl Setup {
                 external_entry,
                 shared_entry: globs.globs(&shared_entry),
                 plugin_entry: globs.globs(&plugin_entry).with_regexes(entry_regex),
+                plugin_production_entry: globs.globs(&production_entry),
                 plugin_entry_files,
+                plugin_production_entry_files,
                 build_source: globs.globs(&build_source),
                 shared_build_source: globs.globs(&shared_build_source),
                 build_source_files,

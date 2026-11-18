@@ -74,6 +74,10 @@ pub(crate) struct HintInputs<'a> {
     pub entries: &'a HashSet<PathBuf>,
     /// The entry files something besides the configured and default globs makes entries, absolute.
     pub provided: &'a HashSet<PathBuf>,
+    /// The [`Self::provided`] that are entries in production mode too. An entry pattern ending in `!` is redundant
+    /// only when one of these names its file: production mode keeps no development entry, so a `!` pattern whose file
+    /// only a script or a development plugin entry also names is what makes the production run see the file.
+    pub provided_production: &'a HashSet<PathBuf>,
     /// The file system with gitignored files, for the existence checks.
     pub disk: &'a dyn FileSystem,
 }
@@ -169,7 +173,17 @@ impl Scope<'_, '_> {
         let user = &self.package_setup.user_patterns;
         let dir = &self.package_setup.dir;
         for pattern in &user.entry {
-            if literal_path(dir, pattern).is_some_and(|path| self.inputs.provided.contains(&path)) {
+            let Some(path) = literal_path(dir, pattern) else {
+                continue;
+            };
+            // A `!` pattern exists for the production run: only a production entry covers its file redundantly, so
+            // what a script or a development plugin entry provides does not make it redundant.
+            let covered = if pattern.ends_with('!') {
+                &self.inputs.provided_production
+            } else {
+                &self.inputs.provided
+            };
+            if covered.contains(&path) {
                 hints.insert(self.hint(HintKind::EntryRedundant, "entry", Some(pattern), pattern.clone()));
             }
         }

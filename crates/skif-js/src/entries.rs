@@ -50,6 +50,11 @@ pub(crate) struct EntryFiles {
     /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
     /// redundant (knip's `entry-redundant`).
     pub provided: HashSet<PathBuf>,
+    /// The [`Self::provided`] that are entries in production mode too: plugins' production entries, what the manifest
+    /// publishes, tool configuration files and the files production scripts run. A configured entry ending in `!`
+    /// naming one of them is redundant, since production mode keeps no development entry; one naming another provided
+    /// file is needed for the production run and is no `entry-redundant` hint.
+    pub provided_production: HashSet<PathBuf>,
     /// Files that plugins name as entries (a workflow step's `node build/report.ts`) and that exist but are no
     /// candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns them, as
     /// entries.
@@ -108,6 +113,7 @@ pub(crate) fn entry_files(
     let mut entries = BTreeSet::new();
     let mut unknown = Vec::new();
     let mut provided = HashSet::default();
+    let mut provided_production = HashSet::default();
     let mut other_root_entries = BTreeSet::new();
     let mut other_root_build_sources = BTreeSet::new();
     let mut build_sources = BTreeSet::new();
@@ -119,6 +125,7 @@ pub(crate) fn entry_files(
         declarations.append(&mut package.declarations);
         unknown.extend(package.unknown);
         provided.extend(package.provided);
+        provided_production.extend(package.provided_production);
         other_root_entries.append(&mut package.other_root_entries);
         other_root_build_sources.append(&mut package.other_root_build_sources);
         for (path, reason) in package.origins {
@@ -140,6 +147,7 @@ pub(crate) fn entry_files(
         files: entries.into_iter().collect(),
         unknown,
         provided,
+        provided_production,
         other_root_entries: other_root_entries.into_iter().collect(),
         other_root_build_sources: other_root_build_sources.into_iter().collect(),
         origins,
@@ -172,6 +180,8 @@ struct PackageEntries {
     unknown: Vec<(PackageId, IncompleteEntries)>,
     /// In the order they are found, so the merged set is built in the same order as one package after another.
     provided: Vec<PathBuf>,
+    /// The [`Self::provided`] that are entries in production mode too.
+    provided_production: Vec<PathBuf>,
     other_root_entries: BTreeSet<PathBuf>,
     other_root_build_sources: BTreeSet<PathBuf>,
     origins: Vec<(PathBuf, EntryReason)>,
@@ -195,11 +205,14 @@ impl EntryContext<'_> {
         } = *self;
         let mut unknown = Vec::new();
         let mut provided = Vec::new();
+        // What provides an entry besides the configured and default globs, and is an entry in production mode too.
+        let mut provided_production = Vec::new();
         let owned = || owned_by(mine, &package_setup.dir);
         // The entries of this package alone: another package may already have found the same files.
         let mut own = BTreeSet::new();
         // What provides an entry besides the configured and default globs.
         let mut from_tools = BTreeSet::new();
+        let mut production_from_tools = BTreeSet::new();
         let mut build_sources = BTreeSet::new();
         let mut declarations = BTreeSet::new();
         let mut explicit_hit = false;
@@ -212,6 +225,9 @@ impl EntryContext<'_> {
                 own.insert(candidate.abs.clone());
                 if package_setup.plugin_entry.is_match(&rel) {
                     from_tools.insert(candidate.abs.clone());
+                    if package_setup.plugin_production_entry.is_match(&rel) {
+                        production_from_tools.insert(candidate.abs.clone());
+                    }
                 }
             } else if package_setup.declaration_entry.is_match(&rel) {
                 declarations.insert(candidate.abs.clone());
@@ -268,16 +284,18 @@ impl EntryContext<'_> {
                         }
                     });
                 let globs = Globs::new(patterns);
-                from_tools.extend(
-                    owned()
-                        .filter(|(_, rel)| globs.is_match(rel))
-                        .map(|(candidate, _)| candidate.abs.clone()),
-                );
+                let published: Vec<PathBuf> = owned()
+                    .filter(|(_, rel)| globs.is_match(rel))
+                    .map(|(candidate, _)| candidate.abs.clone())
+                    .collect();
+                production_from_tools.extend(published.iter().cloned());
+                from_tools.extend(published);
             } else if let Some(path) = map_published(fs, package_setup, &target)
                 && is_code_file(&path)
             {
                 mapped_any = true;
-                from_tools.insert(path);
+                from_tools.insert(path.clone());
+                production_from_tools.insert(path);
             } else if should_have_source(&target)
                 && !names_no_file(disk, &workspace.root, package_setup, package.manifest.value(), &target)
             {
@@ -289,7 +307,8 @@ impl EntryContext<'_> {
             if let Some(path) = map_published(fs, package_setup, &target)
                 && is_code_file(&path)
             {
-                from_tools.insert(path);
+                from_tools.insert(path.clone());
+                production_from_tools.insert(path);
             }
         }
         let mut origins = Vec::new();
@@ -297,6 +316,7 @@ impl EntryContext<'_> {
             let sources = bin_stub_sources(fs, &package_setup.dir, &target);
             mapped_any |= !sources.is_empty();
             origins.extend(sources.iter().map(|source| (source.clone(), EntryReason::BinStub)));
+            production_from_tools.extend(sources.iter().cloned());
             from_tools.extend(sources);
         }
         let manifest_file = || package_setup.dir.join("package.json");
@@ -306,7 +326,8 @@ impl EntryContext<'_> {
                 IncompleteEntries::new(IncompleteCause::UnmappedPublished).with_file(manifest_file()),
             ));
         }
-        let (built_entries, unmapped_entries) = self.missing_plugin_entries(package, package_setup);
+        let (built_entries, unmapped_entries) =
+            self.missing_plugin_entries(package, package_setup, &package_setup.plugin_entry_files);
         origins.extend(
             built_entries
                 .iter()
@@ -319,25 +340,35 @@ impl EntryContext<'_> {
                 IncompleteEntries::new(IncompleteCause::UnmappedEntry).with_file(path),
             )
         }));
+        let (production_built_entries, _) =
+            self.missing_plugin_entries(package, package_setup, &package_setup.plugin_production_entry_files);
+        production_from_tools.extend(production_built_entries);
         own.extend(from_tools.iter().cloned());
         provided.extend(from_tools);
-        let mut tool_entries: Vec<PathBuf> = package_setup
+        let config_entries: Vec<PathBuf> = package_setup
             .config_files
             .iter()
             .filter(|path| is_code_file(path) && fs.is_file(path))
             .cloned()
             .collect();
+        let mut tool_entries: Vec<PathBuf> = config_entries.clone();
         let facts = &package_setup.scripts;
-        let run_files = if setup.production {
-            &facts.production_files
+        // The files the production scripts run are entries in production mode too; the files of the other scripts
+        // are not, so a configured entry ending in `!` that names one of them is needed for the production run.
+        let production_run = script_files(fs, package_setup, &facts.production_files, mine);
+        let run = if setup.production {
+            production_run.clone()
         } else {
-            &facts.files
+            script_files(fs, package_setup, &facts.files, mine)
         };
-        let run = script_files(fs, package_setup, run_files, mine);
         origins.extend(run.iter().map(|path| (path.clone(), EntryReason::Script)));
         tool_entries.extend(run);
         if !package_setup.include_entry_exports {
             provided.extend(tool_entries.iter().cloned());
+            // Tool configuration files are entries in every mode; of the scripts, only the production ones run in
+            // production mode.
+            provided_production.extend(config_entries);
+            provided_production.extend(production_run);
         }
         own.extend(tool_entries);
         let in_other_project = |path: &Path| {
@@ -375,28 +406,36 @@ impl EntryContext<'_> {
         }
         // The reasons come back first, where the plugin's own sit in a run without the entry.
         unknown.splice(0..0, restored);
+        provided_production.extend(production_from_tools);
         PackageEntries {
             entries: own,
             build_sources,
             declarations,
             unknown,
             provided,
+            provided_production,
             other_root_entries,
             other_root_build_sources,
             origins,
         }
     }
 
-    /// The plugin entries of the package that name one file in the package that is neither a file nor a directory, as
-    /// a bundler's `lib-esm/entry.js` does: the source files behind those that are build output, mapped as a published
+    /// The plugin entries in `files` that name one file in the package that is neither a file nor a directory, as a
+    /// bundler's `lib-esm/entry.js` does: the source files behind those that are build output, mapped as a published
     /// path is ([`map_published`]), and, absolute, those that are build output ([`should_have_source`], not
     /// [`names_no_file`]) with no source behind them, whose entries are unknown (ADR 0008). One that names nothing at
-    /// all stays no entry, as a published path into nothing does (ADR 0008).
-    fn missing_plugin_entries(&self, package: &Package, package_setup: &PackageSetup) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    /// all stays no entry, as a published path into nothing does (ADR 0008). Called once with the plugin entries of
+    /// the mode and once with the production ones, whose mapped sources stay entries in production mode too.
+    fn missing_plugin_entries(
+        &self,
+        package: &Package,
+        package_setup: &PackageSetup,
+        files: &[PathBuf],
+    ) -> (Vec<PathBuf>, Vec<PathBuf>) {
         let dir = &package_setup.dir;
         let mut sources = BTreeSet::new();
         let mut unmapped = BTreeSet::new();
-        for path in &package_setup.plugin_entry_files {
+        for path in files {
             if self.fs.is_file(path) || self.fs.kind(path).is_dir {
                 continue;
             }

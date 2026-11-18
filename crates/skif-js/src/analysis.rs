@@ -715,6 +715,7 @@ impl<'a> JsAnalysis<'a> {
                     candidates: &candidates,
                     entries: &entry_set,
                     provided: &found.provided,
+                    provided_production: &found.provided_production,
                     disk: disk.as_ref(),
                 })
             })

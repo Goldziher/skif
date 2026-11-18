@@ -549,6 +549,44 @@ fn a_plain_entry_or_project_pattern_beside_the_same_production_pattern_of_a_work
     );
 }
 
+const SCRIPT_ENTRY: [(&str, &str); 4] = [
+    MONOREPO,
+    (
+        "packages/a/package.json",
+        r#"{"name":"a","scripts":{"gen":"node scripts/gen.ts"}}"#,
+    ),
+    ("packages/a/scripts/gen.ts", "import \"./helper.js\";\n"),
+    ("packages/a/scripts/helper.js", "export {};\n"),
+];
+
+#[test]
+fn a_production_entry_pattern_is_not_redundant_when_only_a_development_entry_covers_it() {
+    // The script runs the file in development only, so the `!` pattern is what makes the production run see it:
+    // no hint fires, in either mode.
+    let toml = "[js.workspaces.\"packages/a\"]\nentry = [\"scripts/gen.ts!\"]\n";
+    assert_eq!(hints(&lint(&SCRIPT_ENTRY, toml)), "");
+    assert_eq!(
+        hints(&lint(&SCRIPT_ENTRY, &format!("{toml}\n[js]\nproduction = true\n"))),
+        ""
+    );
+}
+
+#[test]
+fn a_production_entry_pattern_is_redundant_when_the_manifest_names_its_file() {
+    let files = [
+        MONOREPO,
+        ("packages/a/package.json", r#"{"name":"a","main":"./src/index.ts"}"#),
+        ("packages/a/src/index.ts", "import \"./other\";\n"),
+        ("packages/a/src/other.ts", "export {};\n"),
+    ];
+    let toml = "[js.workspaces.\"packages/a\"]\nentry = [\"src/index.ts!\"]\n";
+    assert_eq!(
+        hints(&lint(&files, toml)),
+        "package.json: `src/index.ts!` in `js.workspaces.\"packages/a\".entry` is already an entry of a plugin, \
+         `package.json` or a script"
+    );
+}
+
 /// The `stale-js-config` hints about a plain pattern cancelling a `!` one, sorted.
 fn cancellations(diagnostics: &[Diagnostic]) -> String {
     found(diagnostics, "stale-js-config")

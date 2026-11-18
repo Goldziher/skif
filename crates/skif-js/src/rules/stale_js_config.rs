@@ -44,8 +44,10 @@ const UNRESOLVED_RULES: [&str; 1] = ["unresolved-imports"];
 /// `project` and `ignore` patterns that match no file (knip's `entry-empty`, `project-empty` and `ignore` hints), and
 /// `ignore-files` patterns that hide no file `unused-files` would report.
 ///
-/// It also reports knip's other configuration hints: an `entry` pattern naming a file a plugin, the manifest or a script
-/// already makes an entry (`entry-redundant`), a `project` pattern naming an entry file (`project-redundant`), a
+/// It also reports knip's other configuration hints: an `entry` pattern naming a file a plugin, the manifest or a
+/// script already makes an entry (`entry-redundant`; a pattern ending in `!` only when a production entry names the
+/// file, since production mode keeps no development entry), a `project` pattern naming an entry file
+/// (`project-redundant`), a
 /// top-level `entry` or `project` in a workspace with several packages (`entry-top-level`, `project-top-level`), a
 /// `project` extension skif does not analyse or a component extension it leaves out (`project-extension-*`), a path
 /// `package.json` publishes that names no file (`package-entry`), and many unused files, which suggest missing entries

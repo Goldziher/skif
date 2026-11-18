@@ -843,7 +843,10 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
 
 - `entry-redundant`: an `entry` pattern that is a plain path to a file a plugin, the manifest (`main`, `exports`,
   `bin`, ...), a tool configuration or a script already makes an entry. With `include-entry-exports`, only plugin entry
-  globs and the manifest count, since a configured entry has its exports judged.
+  globs and the manifest count, since a configured entry has its exports judged. A pattern ending in `!` is redundant
+  only when a production entry names the file (the manifest, a plugin's production entry, a tool configuration or a
+  production script): production mode keeps no development entry, so a `!` pattern whose file only a development
+  script or plugin entry also names is what makes the production run see it.
 - `project-redundant`: a `project` pattern that is a plain path to an entry file, which is always in the project. Not
   judged with `use-tsconfig-files`.
 - `entry-top-level` and `project-top-level`: the top-level `entry` or `project` in a workspace with several packages,
